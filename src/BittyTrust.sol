@@ -172,17 +172,7 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
         beneficiary = beneficiaryAddress;
     }
 
-    function sendBeneficiary() external override onlyInitialized onlySubscribed onlyGrantor {
-        require(beneficiary != address(0), "Beneficiary not set");
-        require(
-            block.timestamp >= lastWithdrawalTime + (trustLimit.minimalDaysBetweenWithdrawals * 1 days),
-            "Too soon for withdrawal"
-        );
-        uint256 amount = address(this).balance;
-        require(amount <= trustLimit.maxWithdrawalAmount, "Exceeds max withdrawal amount");
-        lastWithdrawalTime = block.timestamp;
-        payable(beneficiary).transfer(amount);
-    }
+    function sendBeneficiary() external override onlyInitialized onlySubscribed {}
 
     function setTrustRules(IGrantor.TrustLimit memory trustLimit_) external override onlyInitialized onlyGrantor {
         trustLimit = trustLimit_;
