@@ -107,11 +107,4 @@ interface IGrantor {
      * @param upgradeToContract The address of the upgrade to contract.
      */
     function upgrade(address upgradeToContract) external;
-
-    /**
-     * @notice Get the USD value of the trust.
-     * @dev Get the USD value of the trust.
-     * @return The USD value of the trust.
-     */
-    function usdValue() external view returns (uint256);
 }

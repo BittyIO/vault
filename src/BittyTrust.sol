@@ -12,6 +12,7 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
     address public beneficiary;
     address public protector;
     bool public isInitialized;
+    bool public isRevoked;
     uint256 public subscribedToTimestamp;
 
     // Fund management state
@@ -90,13 +91,14 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
 
     function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor {
         require(moneyWithdrawTo != address(0), "Invalid withdraw address");
-        payable(moneyWithdrawTo).transfer(address(this).balance);
-        isInitialized = false;
+        // transfer all the money, WBTC, WETH, USDT, USDC to the moneyWithdrawTo address
+        // before transfer, make sure the subscribe fee is paid
+        isRevoked = true;
     }
 
     function upgrade(address upgradeToContract) external override onlyInitialized onlyGrantor {
         require(upgradeToContract != address(0), "Invalid upgrade contract");
-        // Upgrade implementation
+        // Upgrade implementation, need to transfer all the money, parameters and subscribe info into the upgraded contract
     }
 
     function setTrustee(address trusteeAddress) external override onlyInitialized onlyGrantor {
@@ -184,10 +186,6 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
 
     function setTrustRules(IGrantor.TrustLimit memory trustLimit_) external override onlyInitialized onlyGrantor {
         trustLimit = trustLimit_;
-    }
-
-    function usdValue() external view override returns (uint256) {
-        return address(this).balance;
     }
 
     function setProtector(address protectorAddress) external override onlyInitialized onlyGrantor {
