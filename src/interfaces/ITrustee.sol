@@ -7,7 +7,7 @@ pragma solidity ^0.8.27;
  * 1. Yield by Aave, compound.
  * 2. Trade by Uniswap, with limited slippage.     
  */
-interface IFundManager {
+interface ITrustee {
 
     enum AssetType {
         WBTC,
@@ -21,37 +21,30 @@ interface IFundManager {
         uint256 minimalWETHBalance;
         uint256 minimalStableCoinBalance;
         uint256 minimalDaysRebalance;
+        uint256 maxReblancePercentage;
     }
 
     /**
-     * @notice Set the fund manager.
-     * @dev Set the fund manager.
-     * @param fundManagerAddress The address of the fund manager.
-     */
-    function setFundManager(address fundManagerAddress) external;
-
-    /**
-     * @notice Set the rebalance rules.
-     * @dev Set the rebalance rules.
-     * @param rebalanceLimit The rebalance limit.
-     */
-    function setRebalanceRules(IFundManager.RebalanceLimit memory rebalanceLimit) external;
-
-    /**
-     * @notice Supply the asset on Aave.
+     * @notice Supply the asset on protocol like Aave to yield.
      * @dev Supply the asset on Aave.
      * @param assetAddress The address of the asset.
      * @param amount The amount of the asset.
      */
-    function supplyOnAave(address assetAddress, uint256 amount) external;
+    function supply(address assetAddress, uint256 amount) external;
 
     /**
-     * @notice Withdraw the asset from Aave.
-     * @dev Withdraw the asset from Aave.
+     * @notice Withdraw the asset from protocol like Aave.
+     * @dev Withdraw the asset from protocol like Aave.
      * @param assetAddress The address of the asset.
      * @param amount The amount of the asset.
      */
-    function withdrawFromAave(address assetAddress, uint256 amount) external;
+    function withdraw(address assetAddress, uint256 amount) external;
+
+     /**
+     * @notice Send money to the beneficiary.
+     * @dev Send money to the beneficiary.
+     */
+    function sendBeneficiary() external;
 
     /**
      * @notice Rebalance the assets.

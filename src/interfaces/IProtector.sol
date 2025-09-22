@@ -27,10 +27,10 @@ interface IProtector {
     function resumeFundManagement() external;
 
     /**
-     * @notice Replace the fund manager if the fund manager is not working for trust in good ways.
-     * @dev Replace the fund manager.
-     * @param newFundManagerAddress The address of the new fund manager.
+     * @notice Replace the trustee if the trustee is not working for trust in good ways.
+     * @dev Replace the trustee.
+     * @param newTrusteeAddress The address of the new trustee.
      */
-    function replaceFundManager(address newFundManagerAddress) external;
+    function replaceTrustee(address newTrusteeAddress) external;
     
 }

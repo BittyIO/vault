@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {IBittyTrust} from "./interfaces/IBittyTrust.sol";
-import {IFundManager} from "./interfaces/IFundManager.sol";
-import {ITrustManager} from "./interfaces/ITrustManager.sol";
+import {IGrantor} from "./interfaces/IGrantor.sol";
+import {ITrustee} from "./interfaces/ITrustee.sol";
 import {IProtector} from "./interfaces/IProtector.sol";
 
-contract BittyTrust is IBittyTrust, IFundManager, ITrustManager, IProtector {
+contract BittyTrust is IGrantor, ITrustee, IProtector {
     
     // State variables
     address public grantor;
     address public trustManager;
-    address public fundManager;
+    address public trustee;
     address public beneficiary;
     address public protector;
     bool public isInitialized;
@@ -19,7 +18,6 @@ contract BittyTrust is IBittyTrust, IFundManager, ITrustManager, IProtector {
     
     // Fund management state
     RebalanceLimit public rebalanceLimit;
-    mapping(AssetType => uint256) public assetBalances;
     
     // Trust management state
     TrustLimit public trustLimit;
@@ -46,8 +44,8 @@ contract BittyTrust is IBittyTrust, IFundManager, ITrustManager, IProtector {
         _;
     }
     
-    modifier onlyFundManager() {
-        require(msg.sender == fundManager, "Only fund manager");
+    modifier onlyTrustee() {
+        require(msg.sender == trustee, "Only trustee");
         _;
     }
     
@@ -56,43 +54,72 @@ contract BittyTrust is IBittyTrust, IFundManager, ITrustManager, IProtector {
         _;
     }
     
-    // IBittyTrust implementations
+    // IGrantor implementations
     function initialize(address grantorAddress) external override {
+        require(!isInitialized, "Already initialized");
+        grantor = grantorAddress;
+        isInitialized = true;
     }
     
-    function initaialize(address grantorAddress, address trustManagerAddress) external override {
+    function initaialize(address grantorAddress, address beneficiaryAddress) external override {
+        require(!isInitialized, "Already initialized");
+        grantor = grantorAddress;
+        beneficiary = beneficiaryAddress;
+        isInitialized = true;
     }
     
-    function initialize(address grantorAddress, address trustManagerAddress, address fundManagerAddress) external override {
-
+    function initialize(address grantorAddress, address beneficiaryAddress, address trusteeAddress) external override {
+        require(!isInitialized, "Already initialized");
+        grantor = grantorAddress;
+        beneficiary = beneficiaryAddress;
+        trustee = trusteeAddress;
+        isInitialized = true;
+    }
+    
+    function initialize(address grantorAddress, address beneficiaryAddress, address trusteeAddress, address protectorAddress) external override {
+        require(!isInitialized, "Already initialized");
+        grantor = grantorAddress;
+        beneficiary = beneficiaryAddress;
+        trustee = trusteeAddress;
+        protector = protectorAddress;
+        isInitialized = true;
     }
     
     function subscribe(uint256 yearCount) external override onlyInitialized {
-
+        require(yearCount > 0, "Invalid year count");
+        subscribedToTimestamp = block.timestamp + (yearCount * 365 days);
     }
     
-    function destory(address moneyWithdrawTo) external override onlyInitialized onlyGrantor {
-
+    function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor {
+        require(moneyWithdrawTo != address(0), "Invalid withdraw address");
+        payable(moneyWithdrawTo).transfer(address(this).balance);
+        isInitialized = false;
     }
     
     function upgrade(address upgradeToContract) external override onlyInitialized onlyGrantor {
-
+        require(upgradeToContract != address(0), "Invalid upgrade contract");
+        // Upgrade implementation
     }
     
-    // IFundManager implementations
-    function setFundManager(address fundManagerAddress) external override onlyInitialized onlyGrantor {
-
+    function setTrustee(address trusteeAddress) external override onlyInitialized onlyGrantor {
+        require(trusteeAddress != address(0), "Invalid trustee address");
+        trustee = trusteeAddress;
     }
     
-    function setRebalanceRules(IFundManager.RebalanceLimit memory rebalanceLimit_) external override onlyInitialized onlyFundManager {
+    function setRebalanceRules(ITrustee.RebalanceLimit memory rebalanceLimit_) external override onlyInitialized onlyTrustee {
+        rebalanceLimit = rebalanceLimit_;
     }
     
-    function supplyOnAave(address assetAddress, uint256 amount) external override onlyInitialized onlySubscribed onlyFundManager {
-
+    function supply(address assetAddress, uint256 amount) external override onlyInitialized onlySubscribed onlyTrustee {
+        require(assetAddress != address(0), "Invalid asset address");
+        require(amount > 0, "Invalid amount");
+        // Supply implementation
     }
     
-    function withdrawFromAave(address assetAddress, uint256 amount) external override onlyInitialized onlySubscribed onlyFundManager {
-
+    function withdraw(address assetAddress, uint256 amount) external override onlyInitialized onlySubscribed onlyTrustee {
+        require(assetAddress != address(0), "Invalid asset address");
+        require(amount > 0, "Invalid amount");
+        // Withdraw implementation
     }
     
     function rebalance(
@@ -101,8 +128,11 @@ contract BittyTrust is IBittyTrust, IFundManager, ITrustManager, IProtector {
         uint256 sellAmount,
         uint256 buyAmount,
         uint256 slippage
-    ) external override onlyInitialized onlySubscribed onlyFundManager {
-
+    ) external override onlyInitialized onlySubscribed onlyTrustee {
+        require(sellAmount > 0, "Invalid sell amount");
+        require(buyAmount > 0, "Invalid buy amount");
+        require(slippage <= 10000, "Invalid slippage");
+        // Rebalance implementation
     }
     
     function buy(
@@ -111,45 +141,54 @@ contract BittyTrust is IBittyTrust, IFundManager, ITrustManager, IProtector {
         uint256 buyAmount,
         uint256 sellAmount,
         uint256 slippage
-    ) external override onlyInitialized onlySubscribed onlyFundManager {
-
+    ) external override onlyInitialized onlySubscribed onlyTrustee {
+        require(sellAssetAddress != address(0), "Invalid sell asset address");
+        require(buyAmount > 0, "Invalid buy amount");
+        require(sellAmount > 0, "Invalid sell amount");
+        require(slippage <= 10000, "Invalid slippage");
+        // Buy implementation
     }
     
-    // ITrustManager implementations
-    function setTrustManager(address trustManagerAddress) external override onlyInitialized onlyGrantor {
-
+    // IGrantor implementations
+    function setBeneficiary(address beneficiaryAddress) external override onlyInitialized onlyGrantor {
+        require(beneficiaryAddress != address(0), "Invalid beneficiary address");
+        beneficiary = beneficiaryAddress;
     }
     
-    function setBeneficiary(address beneficiaryAddress) external override onlyInitialized onlyTrustManager {
-
+    function sendBeneficiary() external override onlyInitialized onlySubscribed onlyGrantor {
+        require(beneficiary != address(0), "Beneficiary not set");
+        require(block.timestamp >= lastWithdrawalTime + (trustLimit.minimalDaysBetweenWithdrawals * 1 days), "Too soon for withdrawal");
+        uint256 amount = address(this).balance;
+        require(amount <= trustLimit.maxWithdrawalAmount, "Exceeds max withdrawal amount");
+        lastWithdrawalTime = block.timestamp;
+        payable(beneficiary).transfer(amount);
     }
-    
-    function withdraw() external override onlyInitialized onlySubscribed onlyTrustManager {
 
-    }
-
-    function setTrustRules(ITrustManager.TrustLimit memory trustLimit_) external override onlyInitialized onlyTrustManager {
-
+    function setTrustRules(IGrantor.TrustLimit memory trustLimit_) external override onlyInitialized onlyGrantor {
+        trustLimit = trustLimit_;
     }
     
     function usdValue() external view override returns (uint256) {
-
+        return address(this).balance;
     }
     
-    // IProtector implementations
     function setProtector(address protectorAddress) external override onlyInitialized onlyGrantor {
-
+        require(protectorAddress != address(0), "Invalid protector address");
+        protector = protectorAddress;
     }
     
     function pauseFundManagement() external override onlyInitialized onlyProtector {
-
+        // Implementation would pause fund management operations
+        // For now, just emit an event or set a state variable
     }
     
     function resumeFundManagement() external override onlyInitialized onlyProtector {
-
+        // Implementation would resume fund management operations
+        // For now, just emit an event or set a state variable
     }
     
-    function replaceFundManager(address newFundManagerAddress) external override onlyInitialized onlyProtector {
-
+    function replaceTrustee(address newTrusteeAddress) external override onlyInitialized onlyProtector {
+        require(newTrusteeAddress != address(0), "Invalid trustee address");
+        trustee = newTrusteeAddress;
     }
 }
