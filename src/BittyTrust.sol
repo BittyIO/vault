@@ -6,7 +6,10 @@ import {ITrustee} from "./interfaces/ITrustee.sol";
 import {IProtector} from "./interfaces/IProtector.sol";
 
 contract BittyTrust is IGrantor, ITrustee, IProtector {
+    error AddressZero();
+    error AlreadyInitialized();
     // State variables
+
     address public grantor;
     address public trustee;
     address public beneficiary;
@@ -50,20 +53,35 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
 
     // IGrantor implementations
     function initialize(address grantorAddress) external override {
-        require(!isInitialized, "Already initialized");
+        if (grantorAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (isInitialized) {
+            revert AlreadyInitialized();
+        }
         grantor = grantorAddress;
         isInitialized = true;
     }
 
     function initaialize(address grantorAddress, address beneficiaryAddress) external override {
-        require(!isInitialized, "Already initialized");
+        if (grantorAddress == address(0) || beneficiaryAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (isInitialized) {
+            revert AlreadyInitialized();
+        }
         grantor = grantorAddress;
         beneficiary = beneficiaryAddress;
         isInitialized = true;
     }
 
     function initialize(address grantorAddress, address beneficiaryAddress, address trusteeAddress) external override {
-        require(!isInitialized, "Already initialized");
+        if (grantorAddress == address(0) || beneficiaryAddress == address(0) || trusteeAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (isInitialized) {
+            revert AlreadyInitialized();
+        }
         grantor = grantorAddress;
         beneficiary = beneficiaryAddress;
         trustee = trusteeAddress;
@@ -76,7 +94,15 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
         address trusteeAddress,
         address protectorAddress
     ) external override {
-        require(!isInitialized, "Already initialized");
+        if (
+            grantorAddress == address(0) || beneficiaryAddress == address(0) || trusteeAddress == address(0)
+                || protectorAddress == address(0)
+        ) {
+            revert AddressZero();
+        }
+        if (isInitialized) {
+            revert AlreadyInitialized();
+        }
         grantor = grantorAddress;
         beneficiary = beneficiaryAddress;
         trustee = trusteeAddress;
@@ -90,19 +116,25 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
     }
 
     function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor {
-        require(moneyWithdrawTo != address(0), "Invalid withdraw address");
+        if (moneyWithdrawTo == address(0)) {
+            revert AddressZero();
+        }
         // transfer all the money, WBTC, WETH, USDT, USDC to the moneyWithdrawTo address
         // before transfer, make sure the subscribe fee is paid
         isRevoked = true;
     }
 
     function upgrade(address upgradeToContract) external override onlyInitialized onlyGrantor {
-        require(upgradeToContract != address(0), "Invalid upgrade contract");
+        if (upgradeToContract == address(0)) {
+            revert AddressZero();
+        }
         // Upgrade implementation, need to transfer all the money, parameters and subscribe info into the upgraded contract
     }
 
     function setTrustee(address trusteeAddress) external override onlyInitialized onlyGrantor {
-        require(trusteeAddress != address(0), "Invalid trustee address");
+        if (trusteeAddress == address(0)) {
+            revert AddressZero();
+        }
         trustee = trusteeAddress;
     }
 
@@ -122,7 +154,9 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
         onlySubscribed
         onlyTrustee
     {
-        require(assetAddress != address(0), "Invalid asset address");
+        if (assetAddress == address(0)) {
+            revert AddressZero();
+        }
         require(amount > 0, "Invalid amount");
         // Supply implementation
     }
@@ -134,7 +168,9 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
         onlySubscribed
         onlyTrustee
     {
-        require(assetAddress != address(0), "Invalid asset address");
+        if (assetAddress == address(0)) {
+            revert AddressZero();
+        }
         require(amount > 0, "Invalid amount");
         // Withdraw implementation
     }
@@ -159,7 +195,9 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
         uint256 sellAmount,
         uint256 slippage
     ) external override onlyInitialized onlySubscribed onlyTrustee {
-        require(sellAssetAddress != address(0), "Invalid sell asset address");
+        if (sellAssetAddress == address(0)) {
+            revert AddressZero();
+        }
         require(buyAmount > 0, "Invalid buy amount");
         require(sellAmount > 0, "Invalid sell amount");
         require(slippage <= 10000, "Invalid slippage");
@@ -168,7 +206,9 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
 
     // IGrantor implementations
     function setBeneficiary(address beneficiaryAddress) external override onlyInitialized onlyGrantor {
-        require(beneficiaryAddress != address(0), "Invalid beneficiary address");
+        if (beneficiaryAddress == address(0)) {
+            revert AddressZero();
+        }
         beneficiary = beneficiaryAddress;
     }
 
@@ -179,7 +219,9 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
     }
 
     function setProtector(address protectorAddress) external override onlyInitialized onlyGrantor {
-        require(protectorAddress != address(0), "Invalid protector address");
+        if (protectorAddress == address(0)) {
+            revert AddressZero();
+        }
         protector = protectorAddress;
     }
 
@@ -194,7 +236,9 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
     }
 
     function replaceTrustee(address newTrusteeAddress) external override onlyInitialized onlyProtector {
-        require(newTrusteeAddress != address(0), "Invalid trustee address");
+        if (newTrusteeAddress == address(0)) {
+            revert AddressZero();
+        }
         trustee = newTrusteeAddress;
     }
 }
