@@ -9,7 +9,6 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
     
     // State variables
     address public grantor;
-    address public trustManager;
     address public trustee;
     address public beneficiary;
     address public protector;
@@ -37,12 +36,7 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
     modifier onlyGrantor() {
         require(msg.sender == grantor, "Only grantor");
         _;
-    }
-    
-    modifier onlyTrustManager() {
-        require(msg.sender == trustManager, "Only trust manager");
-        _;
-    }
+    }    
     
     modifier onlyTrustee() {
         require(msg.sender == trustee, "Only trustee");

@@ -4,7 +4,7 @@ pragma solidity ^0.8.27;
 import {ITrustee} from "./ITrustee.sol";
 
 /**
- * @title Manage the Trust.
+ * @title Create and set the rules of the Trust.
  * @dev 
  **/
 interface IGrantor {
