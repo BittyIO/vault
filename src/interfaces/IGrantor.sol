@@ -5,12 +5,12 @@ import {ITrustee} from "./ITrustee.sol";
 
 /**
  * @title Create and set the rules of the Trust.
- * @dev 
- **/
+ * @dev
+ *
+ */
 interface IGrantor {
-
     struct TrustLimit {
-        uint256 maxWithdrawalAmount;    
+        uint256 maxWithdrawalAmount;
         uint256 minimalDaysBetweenWithdrawals;
         bool autoWithdrawl;
     }
@@ -21,7 +21,6 @@ interface IGrantor {
      * @param grantorAddress The address of the grantor.
      */
     function initialize(address grantorAddress) external;
-
 
     /**
      * @notice Initialize the trust.
@@ -48,8 +47,12 @@ interface IGrantor {
      * @param trusteeAddress The address of the trustee.
      * @param protectorAddress The address of the protector.
      */
-    function initialize(address grantorAddress, address beneficiaryAddress, address trusteeAddress, address protectorAddress) external;
-
+    function initialize(
+        address grantorAddress,
+        address beneficiaryAddress,
+        address trusteeAddress,
+        address protectorAddress
+    ) external;
 
     /**
      * @notice Set the trustee.
@@ -58,7 +61,7 @@ interface IGrantor {
      */
     function setTrustee(address trusteeAddress) external;
 
-     /**
+    /**
      * @notice Set the beneficiary.
      * @dev Set the beneficiary.
      * @param beneficiaryAddress The address of the beneficiary.
@@ -91,9 +94,9 @@ interface IGrantor {
      * @notice Revoke the trust.
      * @dev Revoke the trust if the trust is revocable.
      * @param moneyWithdrawTo The address to withdraw the money.
-     * 
+     *
      * If the trust is not revocable, this function will revert.
-     * 
+     *
      * 1. If the subscription fee is not paid, make sure the subscription fee is paid in one transaction.
      */
     function revoke(address moneyWithdrawTo) external;
@@ -111,5 +114,4 @@ interface IGrantor {
      * @return The USD value of the trust.
      */
     function usdValue() external view returns (uint256);
-
 }

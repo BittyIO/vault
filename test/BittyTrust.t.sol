@@ -14,5 +14,4 @@ contract BittyTrustTest is Test {
     function test_init_usd_value_zero() public view {
         assertEq(bittyTrust.usdValue(), 0);
     }
-    
 }

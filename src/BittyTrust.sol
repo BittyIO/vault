@@ -6,7 +6,6 @@ import {ITrustee} from "./interfaces/ITrustee.sol";
 import {IProtector} from "./interfaces/IProtector.sol";
 
 contract BittyTrust is IGrantor, ITrustee, IProtector {
-    
     // State variables
     address public grantor;
     address public trustee;
@@ -14,54 +13,54 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
     address public protector;
     bool public isInitialized;
     uint256 public subscribedToTimestamp;
-    
+
     // Fund management state
     RebalanceLimit public rebalanceLimit;
-    
+
     // Trust management state
     TrustLimit public trustLimit;
     uint256 public lastWithdrawalTime;
-    
+
     // Modifiers
     modifier onlyInitialized() {
         require(isInitialized, "Trust not initialized");
         _;
     }
-    
+
     modifier onlySubscribed() {
         require(block.timestamp < subscribedToTimestamp, "Trust not subscribed");
         _;
     }
-    
+
     modifier onlyGrantor() {
         require(msg.sender == grantor, "Only grantor");
         _;
-    }    
-    
+    }
+
     modifier onlyTrustee() {
         require(msg.sender == trustee, "Only trustee");
         _;
     }
-    
+
     modifier onlyProtector() {
         require(msg.sender == protector, "Only protector");
         _;
     }
-    
+
     // IGrantor implementations
     function initialize(address grantorAddress) external override {
         require(!isInitialized, "Already initialized");
         grantor = grantorAddress;
         isInitialized = true;
     }
-    
+
     function initaialize(address grantorAddress, address beneficiaryAddress) external override {
         require(!isInitialized, "Already initialized");
         grantor = grantorAddress;
         beneficiary = beneficiaryAddress;
         isInitialized = true;
     }
-    
+
     function initialize(address grantorAddress, address beneficiaryAddress, address trusteeAddress) external override {
         require(!isInitialized, "Already initialized");
         grantor = grantorAddress;
@@ -69,8 +68,13 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
         trustee = trusteeAddress;
         isInitialized = true;
     }
-    
-    function initialize(address grantorAddress, address beneficiaryAddress, address trusteeAddress, address protectorAddress) external override {
+
+    function initialize(
+        address grantorAddress,
+        address beneficiaryAddress,
+        address trusteeAddress,
+        address protectorAddress
+    ) external override {
         require(!isInitialized, "Already initialized");
         grantor = grantorAddress;
         beneficiary = beneficiaryAddress;
@@ -78,57 +82,74 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
         protector = protectorAddress;
         isInitialized = true;
     }
-    
+
     function subscribe(uint256 yearCount) external override onlyInitialized {
         require(yearCount > 0, "Invalid year count");
         subscribedToTimestamp = block.timestamp + (yearCount * 365 days);
     }
-    
+
     function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor {
         require(moneyWithdrawTo != address(0), "Invalid withdraw address");
         payable(moneyWithdrawTo).transfer(address(this).balance);
         isInitialized = false;
     }
-    
+
     function upgrade(address upgradeToContract) external override onlyInitialized onlyGrantor {
         require(upgradeToContract != address(0), "Invalid upgrade contract");
         // Upgrade implementation
     }
-    
+
     function setTrustee(address trusteeAddress) external override onlyInitialized onlyGrantor {
         require(trusteeAddress != address(0), "Invalid trustee address");
         trustee = trusteeAddress;
     }
-    
-    function setRebalanceRules(ITrustee.RebalanceLimit memory rebalanceLimit_) external override onlyInitialized onlyTrustee {
+
+    function setRebalanceRules(ITrustee.RebalanceLimit memory rebalanceLimit_)
+        external
+        override
+        onlyInitialized
+        onlyTrustee
+    {
         rebalanceLimit = rebalanceLimit_;
     }
-    
-    function supply(address assetAddress, uint256 amount) external override onlyInitialized onlySubscribed onlyTrustee {
+
+    function supply(address assetAddress, uint256 amount)
+        external
+        override
+        onlyInitialized
+        onlySubscribed
+        onlyTrustee
+    {
         require(assetAddress != address(0), "Invalid asset address");
         require(amount > 0, "Invalid amount");
         // Supply implementation
     }
-    
-    function withdraw(address assetAddress, uint256 amount) external override onlyInitialized onlySubscribed onlyTrustee {
+
+    function withdraw(address assetAddress, uint256 amount)
+        external
+        override
+        onlyInitialized
+        onlySubscribed
+        onlyTrustee
+    {
         require(assetAddress != address(0), "Invalid asset address");
         require(amount > 0, "Invalid amount");
         // Withdraw implementation
     }
-    
-    function rebalance(
-        AssetType from,
-        AssetType to,
-        uint256 sellAmount,
-        uint256 buyAmount,
-        uint256 slippage
-    ) external override onlyInitialized onlySubscribed onlyTrustee {
+
+    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmount, uint256 slippage)
+        external
+        override
+        onlyInitialized
+        onlySubscribed
+        onlyTrustee
+    {
         require(sellAmount > 0, "Invalid sell amount");
         require(buyAmount > 0, "Invalid buy amount");
         require(slippage <= 10000, "Invalid slippage");
         // Rebalance implementation
     }
-    
+
     function buy(
         AssetType buyAssetType,
         address sellAssetAddress,
@@ -142,16 +163,19 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
         require(slippage <= 10000, "Invalid slippage");
         // Buy implementation
     }
-    
+
     // IGrantor implementations
     function setBeneficiary(address beneficiaryAddress) external override onlyInitialized onlyGrantor {
         require(beneficiaryAddress != address(0), "Invalid beneficiary address");
         beneficiary = beneficiaryAddress;
     }
-    
+
     function sendBeneficiary() external override onlyInitialized onlySubscribed onlyGrantor {
         require(beneficiary != address(0), "Beneficiary not set");
-        require(block.timestamp >= lastWithdrawalTime + (trustLimit.minimalDaysBetweenWithdrawals * 1 days), "Too soon for withdrawal");
+        require(
+            block.timestamp >= lastWithdrawalTime + (trustLimit.minimalDaysBetweenWithdrawals * 1 days),
+            "Too soon for withdrawal"
+        );
         uint256 amount = address(this).balance;
         require(amount <= trustLimit.maxWithdrawalAmount, "Exceeds max withdrawal amount");
         lastWithdrawalTime = block.timestamp;
@@ -161,26 +185,26 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
     function setTrustRules(IGrantor.TrustLimit memory trustLimit_) external override onlyInitialized onlyGrantor {
         trustLimit = trustLimit_;
     }
-    
+
     function usdValue() external view override returns (uint256) {
         return address(this).balance;
     }
-    
+
     function setProtector(address protectorAddress) external override onlyInitialized onlyGrantor {
         require(protectorAddress != address(0), "Invalid protector address");
         protector = protectorAddress;
     }
-    
+
     function pauseFundManagement() external override onlyInitialized onlyProtector {
         // Implementation would pause fund management operations
         // For now, just emit an event or set a state variable
     }
-    
+
     function resumeFundManagement() external override onlyInitialized onlyProtector {
         // Implementation would resume fund management operations
         // For now, just emit an event or set a state variable
     }
-    
+
     function replaceTrustee(address newTrusteeAddress) external override onlyInitialized onlyProtector {
         require(newTrusteeAddress != address(0), "Invalid trustee address");
         trustee = newTrusteeAddress;

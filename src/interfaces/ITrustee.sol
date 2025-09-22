@@ -3,12 +3,11 @@ pragma solidity ^0.8.27;
 
 /**
  * @title Manage the fund of the Trust.
- * @dev 
+ * @dev
  * 1. Yield by Aave, compound.
- * 2. Trade by Uniswap, with limited slippage.     
+ * 2. Trade by Uniswap, with limited slippage.
  */
 interface ITrustee {
-
     enum AssetType {
         WBTC,
         WETH,
@@ -40,7 +39,7 @@ interface ITrustee {
      */
     function withdraw(address assetAddress, uint256 amount) external;
 
-     /**
+    /**
      * @notice Send money to the beneficiary.
      * @dev Send money to the beneficiary.
      */
@@ -55,13 +54,8 @@ interface ITrustee {
      * @param buyAmount The amount of the buy asset.
      * @param slippage The slippage of the buy.
      */
-    function rebalance(
-        AssetType from,
-        AssetType to,
-        uint256 sellAmount,
-        uint256 buyAmount,
-        uint256 slippage
-    ) external;
+    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmount, uint256 slippage)
+        external;
 
     /**
      * @notice Buy The Limited assets with assets not in AssetType.
@@ -74,11 +68,9 @@ interface ITrustee {
      */
     function buy(
         AssetType buyAssetType,
-        address sellAssetAddress, 
+        address sellAssetAddress,
         uint256 buyAmount,
         uint256 sellAmount,
         uint256 slippage
     ) external;
-    
-    
 }

@@ -3,10 +3,10 @@ pragma solidity ^0.8.27;
 
 /**
  * @title Protect the trust.
- * @dev 
- **/
+ * @dev
+ *
+ */
 interface IProtector {
-
     /**
      * @notice Set the protector.
      * @dev Set the protector.
@@ -32,5 +32,4 @@ interface IProtector {
      * @param newTrusteeAddress The address of the new trustee.
      */
     function replaceTrustee(address newTrusteeAddress) external;
-    
 }
