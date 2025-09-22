@@ -11,7 +11,17 @@ contract BittyTrustTest is Test {
         bittyTrust = new BittyTrust();
     }
 
-    function test_init_usd_value_zero() public view {
-        assertEq(bittyTrust.usdValue(), 0);
+    function test_InitErrorWithGrantorAddressZero() public {
+        vm.expectRevert(BittyTrust.AddressZero.selector);
+        bittyTrust.initialize(address(0));
     }
+
+    function test_InitErrorWithAlreadyInitialized() public {
+        bittyTrust.initialize(address(1));
+        vm.expectRevert(BittyTrust.AlreadyInitialized.selector);
+        bittyTrust.initialize(address(1));
+    }
+
+    
+
 }
