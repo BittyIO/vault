@@ -1,38 +1,37 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {IGrantor} from "./interfaces/IGrantor.sol";
+import {ITrust} from "./interfaces/ITrust.sol";
 import {ITrustee} from "./interfaces/ITrustee.sol";
+import {IGrantor} from "./interfaces/IGrantor.sol";
 import {IProtector} from "./interfaces/IProtector.sol";
 
-contract BittyTrust is IGrantor, ITrustee, IProtector {
+contract BittyTrust is ITrust {
     error AddressZero();
     error AlreadyInitialized();
-    // State variables
+    error Irrevocable();
+    error AutoIrrevocableAfterNoPingNotSet();
 
+    // State variables
     address public grantor;
     address public trustee;
     address public beneficiary;
     address public protector;
     bool public isInitialized;
-    bool public isRevoked;
-    uint256 public subscribedToTimestamp;
+    bool public isIrrevocable;
+    uint256 public autoIrrevocableAfterNoPing;
+    uint256 public lastPingTime;
 
     // Fund management state
     RebalanceLimit public rebalanceLimit;
 
-    // Trust management state
-    TrustLimit public trustLimit;
+    // Beneficiary management state
+    BeneficiarySettings public beneficiarySettings;
     uint256 public lastWithdrawalTime;
 
     // Modifiers
     modifier onlyInitialized() {
         require(isInitialized, "Trust not initialized");
-        _;
-    }
-
-    modifier onlySubscribed() {
-        require(block.timestamp < subscribedToTimestamp, "Trust not subscribed");
         _;
     }
 
@@ -110,18 +109,42 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
         isInitialized = true;
     }
 
-    function subscribe(uint256 yearCount) external override onlyInitialized {
-        require(yearCount > 0, "Invalid year count");
-        subscribedToTimestamp = block.timestamp + (yearCount * 365 days);
-    }
-
     function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor {
+        if (!this.revocable()) {
+            revert Irrevocable();
+        }
         if (moneyWithdrawTo == address(0)) {
             revert AddressZero();
         }
         // transfer all the money, WBTC, WETH, USDT, USDC to the moneyWithdrawTo address
-        // before transfer, make sure the subscribe fee is paid
-        isRevoked = true;
+    }
+
+    /**
+     * @notice Set the trust to irrevocable.
+     * @dev Set the trust to irrevocable.
+     */
+    function setToIrrevocable() external override onlyInitialized onlyGrantor {
+        isIrrevocable = true;
+    }
+
+    /**
+     * @notice Set the trust to irrevocable after no ping.
+     * @dev Set the trust to irrevocable after no ping.
+     * @param dayCount The number of days after no ping.
+     */
+    function setAutoIrrevocableAfterNoPing(uint256 dayCount) external override onlyInitialized onlyGrantor {
+        autoIrrevocableAfterNoPing = dayCount;
+    }
+
+    /**
+     * @notice Ping the trust.
+     * @dev Ping the trust to make sure the Grantor is still alive, works for setAutoIrrevocableAfterNoPing.
+     */
+    function ping() external override onlyInitialized onlyGrantor {
+        if (autoIrrevocableAfterNoPing == 0) {
+            revert AutoIrrevocableAfterNoPingNotSet();
+        }
+        lastPingTime = block.timestamp;
     }
 
     function upgrade(address upgradeToContract) external override onlyInitialized onlyGrantor {
@@ -147,64 +170,6 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
         rebalanceLimit = rebalanceLimit_;
     }
 
-    function supply(address assetAddress, uint256 amount)
-        external
-        override
-        onlyInitialized
-        onlySubscribed
-        onlyTrustee
-    {
-        if (assetAddress == address(0)) {
-            revert AddressZero();
-        }
-        require(amount > 0, "Invalid amount");
-        // Supply implementation
-    }
-
-    function withdraw(address assetAddress, uint256 amount)
-        external
-        override
-        onlyInitialized
-        onlySubscribed
-        onlyTrustee
-    {
-        if (assetAddress == address(0)) {
-            revert AddressZero();
-        }
-        require(amount > 0, "Invalid amount");
-        // Withdraw implementation
-    }
-
-    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmount, uint256 slippage)
-        external
-        override
-        onlyInitialized
-        onlySubscribed
-        onlyTrustee
-    {
-        require(sellAmount > 0, "Invalid sell amount");
-        require(buyAmount > 0, "Invalid buy amount");
-        require(slippage <= 10000, "Invalid slippage");
-        // Rebalance implementation
-    }
-
-    function buy(
-        AssetType buyAssetType,
-        address sellAssetAddress,
-        uint256 buyAmount,
-        uint256 sellAmount,
-        uint256 slippage
-    ) external override onlyInitialized onlySubscribed onlyTrustee {
-        if (sellAssetAddress == address(0)) {
-            revert AddressZero();
-        }
-        require(buyAmount > 0, "Invalid buy amount");
-        require(sellAmount > 0, "Invalid sell amount");
-        require(slippage <= 10000, "Invalid slippage");
-        // Buy implementation
-    }
-
-    // IGrantor implementations
     function setBeneficiary(address beneficiaryAddress) external override onlyInitialized onlyGrantor {
         if (beneficiaryAddress == address(0)) {
             revert AddressZero();
@@ -212,10 +177,13 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
         beneficiary = beneficiaryAddress;
     }
 
-    function sendBeneficiary() external override onlyInitialized onlySubscribed {}
-
-    function setTrustRules(IGrantor.TrustLimit memory trustLimit_) external override onlyInitialized onlyGrantor {
-        trustLimit = trustLimit_;
+    function setBeneficiarySettings(IGrantor.BeneficiarySettings memory beneficiarySettings_)
+        external
+        override
+        onlyInitialized
+        onlyGrantor
+    {
+        beneficiarySettings = beneficiarySettings_;
     }
 
     function setProtector(address protectorAddress) external override onlyInitialized onlyGrantor {
@@ -225,20 +193,62 @@ contract BittyTrust is IGrantor, ITrustee, IProtector {
         protector = protectorAddress;
     }
 
-    function pauseFundManagement() external override onlyInitialized onlyProtector {
-        // Implementation would pause fund management operations
-        // For now, just emit an event or set a state variable
+    // ITrustee implementations
+    function supply(address assetAddress, uint256 amount) external override onlyInitialized onlyTrustee {
+        if (assetAddress == address(0)) {
+            revert AddressZero();
+        }
+        require(amount > 0, "Invalid amount");
     }
 
-    function resumeFundManagement() external override onlyInitialized onlyProtector {
-        // Implementation would resume fund management operations
-        // For now, just emit an event or set a state variable
+    function withdraw(address assetAddress, uint256 amount) external override onlyInitialized onlyTrustee {
+        if (assetAddress == address(0)) {
+            revert AddressZero();
+        }
+        require(amount > 0, "Invalid amount");
     }
+
+    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmount, uint256 slippage)
+        external
+        override
+        onlyInitialized
+        onlyTrustee
+    {}
+
+    function buy(
+        AssetType buyAssetType,
+        address sellAssetAddress,
+        uint256 buyAmount,
+        uint256 sellAmount,
+        uint256 slippage
+    ) external override onlyInitialized onlyTrustee {
+        if (sellAssetAddress == address(0)) {
+            revert AddressZero();
+        }
+    }
+
+    function sendBeneficiary() external override onlyInitialized {}
+
+    // IProtector implementations
+    function pauseFundManagement() external override onlyInitialized onlyProtector {}
+
+    function resumeFundManagement() external override onlyInitialized onlyProtector {}
 
     function replaceTrustee(address newTrusteeAddress) external override onlyInitialized onlyProtector {
         if (newTrusteeAddress == address(0)) {
             revert AddressZero();
         }
         trustee = newTrusteeAddress;
+    }
+
+    // ITrust implementations
+    function revocable() external view override returns (bool) {
+        if (!isIrrevocable) {
+            return true;
+        }
+        if (autoIrrevocableAfterNoPing == 0) {
+            return !isIrrevocable;
+        }
+        return block.timestamp - lastPingTime > autoIrrevocableAfterNoPing;
     }
 }

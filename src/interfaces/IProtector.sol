@@ -8,13 +8,6 @@ pragma solidity ^0.8.27;
  */
 interface IProtector {
     /**
-     * @notice Set the protector.
-     * @dev Set the protector.
-     * @param protectorAddress The address of the protector.
-     */
-    function setProtector(address protectorAddress) external;
-
-    /**
      * @notice Pause the fund management.
      * @dev Pause the fund management.
      */
