@@ -22,6 +22,24 @@ contract BittyTrustTest is Test {
         bittyTrust.initialize(address(1));
     }
 
-    
+    function test_SetTrustToIrrevocable() public {
+        bittyTrust.initialize(address(this));
+        bittyTrust.setToIrrevocable();
+        assertEq(bittyTrust.revocable(), false);
+    }
 
+    function test_AutoIrrevocableAfterNoPing() public {
+        bittyTrust.initialize(address(this));
+        bittyTrust.setAutoIrrevocableAfterNoPing(1);
+        vm.warp(block.timestamp + 1);
+        assertEq(bittyTrust.revocable(), false);
+    }
+
+    function test_RevocableAfterPing() public {
+        bittyTrust.initialize(address(this));
+        bittyTrust.setAutoIrrevocableAfterNoPing(2);
+        bittyTrust.ping();
+        vm.warp(block.timestamp + 1);
+        assertEq(bittyTrust.revocable(), true);
+    }
 }
