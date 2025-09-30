@@ -26,7 +26,7 @@ contract BittyTrust is ITrust {
     RebalanceLimit public rebalanceLimit;
 
     // Beneficiary management state
-    BeneficiarySettings public beneficiarySettings;
+    IGrantor.BeneficiarySettings public beneficiarySettings;
     uint256 public lastWithdrawalTime;
 
     // Modifiers
