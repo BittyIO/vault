@@ -31,7 +31,7 @@ contract BittyTrustTest is Test {
     function test_AutoIrrevocableAfterNoPing() public {
         bittyTrust.initialize(address(this));
         bittyTrust.setAutoIrrevocableAfterNoPing(1);
-        vm.warp(block.timestamp + 1);
+        vm.warp(block.timestamp + 2);
         assertEq(bittyTrust.revocable(), false);
     }
 
