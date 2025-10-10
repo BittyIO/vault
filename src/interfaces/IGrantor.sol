@@ -109,9 +109,9 @@ interface IGrantor {
     /**
      * @notice Set the trust to irrevocable after no ping.
      * @dev Set the trust to irrevocable after no ping.
-     * @param dayCount The number of days after no ping.
+     * @param pingSeconds The number of seconds after no ping.
      */
-    function setAutoIrrevocableAfterNoPing(uint256 dayCount) external;
+    function setAutoIrrevocableAfterNoPing(uint256 pingSeconds) external;
 
     /**
      * @notice Ping the trust.

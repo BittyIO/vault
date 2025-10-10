@@ -21,6 +21,7 @@ contract BittyTrust is ITrust {
     bool public isIrrevocable;
     uint256 public autoIrrevocableAfterNoPing;
     uint256 public lastPingTime;
+    uint256 public autoIrrevocableStartTime;
 
     // Fund management state
     RebalanceLimit public rebalanceLimit;
@@ -130,10 +131,11 @@ contract BittyTrust is ITrust {
     /**
      * @notice Set the trust to irrevocable after no ping.
      * @dev Set the trust to irrevocable after no ping.
-     * @param dayCount The number of days after no ping.
+     * @param pingSeconds The number of seconds after no ping.
      */
-    function setAutoIrrevocableAfterNoPing(uint256 dayCount) external override onlyInitialized onlyGrantor {
-        autoIrrevocableAfterNoPing = dayCount;
+    function setAutoIrrevocableAfterNoPing(uint256 pingSeconds) external override onlyInitialized onlyGrantor {
+        autoIrrevocableAfterNoPing = pingSeconds;
+        autoIrrevocableStartTime = block.timestamp;
     }
 
     /**
@@ -243,12 +245,15 @@ contract BittyTrust is ITrust {
 
     // ITrust implementations
     function revocable() external view override returns (bool) {
-        if (!isIrrevocable) {
-            return true;
+        if (isIrrevocable) {
+            return false;
         }
-        if (autoIrrevocableAfterNoPing == 0) {
-            return !isIrrevocable;
+        if (autoIrrevocableAfterNoPing > 0) {
+            if (lastPingTime == 0) {
+                return block.timestamp - autoIrrevocableStartTime <= autoIrrevocableAfterNoPing;
+            }
+            return block.timestamp - lastPingTime <= autoIrrevocableAfterNoPing;
         }
-        return block.timestamp - lastPingTime > autoIrrevocableAfterNoPing;
+        return true;
     }
 }
