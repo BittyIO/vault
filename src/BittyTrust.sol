@@ -6,11 +6,26 @@ import {ITrustee} from "./interfaces/ITrustee.sol";
 import {IGrantor} from "./interfaces/IGrantor.sol";
 import {IProtector} from "./interfaces/IProtector.sol";
 
+// ENS interfaces
+interface ENS {
+    function resolver(bytes32 node) external view returns (address);
+}
+
+interface Resolver {
+    function addr(bytes32 node) external view returns (address);
+}
+
 contract BittyTrust is ITrust {
     error AddressZero();
     error AlreadyInitialized();
     error Irrevocable();
     error AutoIrrevocableAfterNoPingNotSet();
+    error ENSResolutionFailed();
+    error InvalidENSName();
+    error ENSConfiguredUseENS();
+
+    // ENS registry address (Ethereum Mainnet)
+    ENS private constant ens = ENS(0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e);
 
     // State variables
     address public grantor;
@@ -23,12 +38,154 @@ contract BittyTrust is ITrust {
     uint256 public lastPingTime;
     uint256 public autoIrrevocableStartTime;
 
+    // ENS name storage
+    string public grantorENS;
+    string public trusteeENS;
+    string public beneficiaryENS;
+    string public protectorENS;
+
     // Fund management state
     RebalanceLimit public rebalanceLimit;
 
     // Beneficiary management state
     IGrantor.BeneficiarySettings public beneficiarySettings;
     uint256 public lastWithdrawalTime;
+
+    // ENS helper functions
+    function namehash(string memory name) internal pure returns (bytes32) {
+        bytes32 node = 0x0000000000000000000000000000000000000000000000000000000000000000;
+        if (bytes(name).length > 0) {
+            bytes[] memory nameParts = splitString(name, ".");
+            for (uint256 i = nameParts.length; i > 0; i--) {
+                node = keccak256(abi.encodePacked(node, keccak256(nameParts[i - 1])));
+            }
+        }
+        return node;
+    }
+
+    function splitString(string memory str, string memory delimiter) internal pure returns (bytes[] memory) {
+        bytes memory strBytes = bytes(str);
+        bytes memory delimiterBytes = bytes(delimiter);
+
+        uint256 count = 1;
+        for (uint256 i = 0; i < strBytes.length; i++) {
+            if (i + delimiterBytes.length <= strBytes.length) {
+                bool isMatch = true;
+                for (uint256 j = 0; j < delimiterBytes.length; j++) {
+                    if (strBytes[i + j] != delimiterBytes[j]) {
+                        isMatch = false;
+                        break;
+                    }
+                }
+                if (isMatch) {
+                    count++;
+                    i += delimiterBytes.length - 1;
+                }
+            }
+        }
+
+        bytes[] memory result = new bytes[](count);
+        uint256 resultIndex = 0;
+        uint256 start = 0;
+
+        for (uint256 i = 0; i < strBytes.length; i++) {
+            if (i + delimiterBytes.length <= strBytes.length) {
+                bool isMatch = true;
+                for (uint256 j = 0; j < delimiterBytes.length; j++) {
+                    if (strBytes[i + j] != delimiterBytes[j]) {
+                        isMatch = false;
+                        break;
+                    }
+                }
+                if (isMatch) {
+                    result[resultIndex] = new bytes(i - start);
+                    for (uint256 k = 0; k < i - start; k++) {
+                        result[resultIndex][k] = strBytes[start + k];
+                    }
+                    resultIndex++;
+                    start = i + delimiterBytes.length;
+                    i += delimiterBytes.length - 1;
+                }
+            }
+        }
+
+        result[resultIndex] = new bytes(strBytes.length - start);
+        for (uint256 k = 0; k < strBytes.length - start; k++) {
+            result[resultIndex][k] = strBytes[start + k];
+        }
+
+        return result;
+    }
+
+    function resolveENS(string memory ensName) external view returns (address) {
+        return _resolveENS(ensName);
+    }
+
+    function _resolveENS(string memory ensName) internal view returns (address) {
+        if (bytes(ensName).length == 0) {
+            revert InvalidENSName();
+        }
+
+        bytes32 node = namehash(ensName);
+        address resolverAddress = ens.resolver(node);
+
+        if (resolverAddress == address(0)) {
+            revert ENSResolutionFailed();
+        }
+
+        Resolver resolver = Resolver(resolverAddress);
+        address resolvedAddress = resolver.addr(node);
+
+        if (resolvedAddress == address(0)) {
+            revert ENSResolutionFailed();
+        }
+
+        return resolvedAddress;
+    }
+
+    function getCurrentGrantor() public view returns (address) {
+        if (bytes(grantorENS).length > 0) {
+            try this.resolveENS(grantorENS) returns (address resolvedAddress) {
+                return resolvedAddress;
+            } catch {
+                return grantor;
+            }
+        }
+        return grantor;
+    }
+
+    function getCurrentTrustee() public view returns (address) {
+        if (bytes(trusteeENS).length > 0) {
+            try this.resolveENS(trusteeENS) returns (address resolvedAddress) {
+                return resolvedAddress;
+            } catch {
+                return trustee;
+            }
+        }
+        return trustee;
+    }
+
+    function getCurrentBeneficiary() public view returns (address) {
+        if (bytes(beneficiaryENS).length > 0) {
+            try this.resolveENS(beneficiaryENS) returns (address resolvedAddress) {
+                return resolvedAddress;
+            } catch {
+                return beneficiary;
+            }
+        }
+        return beneficiary;
+    }
+
+    function getCurrentProtector() public view returns (address) {
+        if (bytes(protectorENS).length > 0) {
+            try this.resolveENS(protectorENS) returns (address resolvedAddress) {
+                return resolvedAddress;
+            } catch {
+                return protector;
+            }
+        }
+        return protector;
+    }
 
     // Modifiers
     modifier onlyInitialized() {
@@ -37,17 +194,17 @@ contract BittyTrust is ITrust {
     }
 
     modifier onlyGrantor() {
-        require(msg.sender == grantor, "Only grantor");
+        require(msg.sender == getCurrentGrantor(), "Only grantor");
         _;
     }
 
     modifier onlyTrustee() {
-        require(msg.sender == trustee, "Only trustee");
+        require(msg.sender == getCurrentTrustee(), "Only trustee");
         _;
     }
 
     modifier onlyProtector() {
-        require(msg.sender == protector, "Only protector");
+        require(msg.sender == getCurrentProtector(), "Only protector");
         _;
     }
 
@@ -110,6 +267,63 @@ contract BittyTrust is ITrust {
         isInitialized = true;
     }
 
+    function initializeWithENS(string memory grantorENSName) external {
+        if (isInitialized) {
+            revert AlreadyInitialized();
+        }
+        grantor = _resolveENS(grantorENSName);
+        grantorENS = grantorENSName;
+        isInitialized = true;
+    }
+
+    function initializeWithENS(string memory grantorENSName, string memory beneficiaryENSName) external {
+        if (isInitialized) {
+            revert AlreadyInitialized();
+        }
+        grantor = _resolveENS(grantorENSName);
+        beneficiary = _resolveENS(beneficiaryENSName);
+        grantorENS = grantorENSName;
+        beneficiaryENS = beneficiaryENSName;
+        isInitialized = true;
+    }
+
+    function initializeWithENS(
+        string memory grantorENSName,
+        string memory beneficiaryENSName,
+        string memory trusteeENSName
+    ) external {
+        if (isInitialized) {
+            revert AlreadyInitialized();
+        }
+        grantor = _resolveENS(grantorENSName);
+        beneficiary = _resolveENS(beneficiaryENSName);
+        trustee = _resolveENS(trusteeENSName);
+        grantorENS = grantorENSName;
+        beneficiaryENS = beneficiaryENSName;
+        trusteeENS = trusteeENSName;
+        isInitialized = true;
+    }
+
+    function initializeWithENS(
+        string memory grantorENSName,
+        string memory beneficiaryENSName,
+        string memory trusteeENSName,
+        string memory protectorENSName
+    ) external {
+        if (isInitialized) {
+            revert AlreadyInitialized();
+        }
+        grantor = _resolveENS(grantorENSName);
+        beneficiary = _resolveENS(beneficiaryENSName);
+        trustee = _resolveENS(trusteeENSName);
+        protector = _resolveENS(protectorENSName);
+        grantorENS = grantorENSName;
+        beneficiaryENS = beneficiaryENSName;
+        trusteeENS = trusteeENSName;
+        protectorENS = protectorENSName;
+        isInitialized = true;
+    }
+
     function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor {
         if (!this.revocable()) {
             revert Irrevocable();
@@ -157,6 +371,9 @@ contract BittyTrust is ITrust {
     }
 
     function setTrustee(address trusteeAddress) external override onlyInitialized onlyGrantor {
+        if (bytes(trusteeENS).length > 0) {
+            revert ENSConfiguredUseENS();
+        }
         if (trusteeAddress == address(0)) {
             revert AddressZero();
         }
@@ -173,6 +390,9 @@ contract BittyTrust is ITrust {
     }
 
     function setBeneficiary(address beneficiaryAddress) external override onlyInitialized onlyGrantor {
+        if (bytes(beneficiaryENS).length > 0) {
+            revert ENSConfiguredUseENS();
+        }
         if (beneficiaryAddress == address(0)) {
             revert AddressZero();
         }
@@ -189,10 +409,28 @@ contract BittyTrust is ITrust {
     }
 
     function setProtector(address protectorAddress) external override onlyInitialized onlyGrantor {
+        if (bytes(protectorENS).length > 0) {
+            revert ENSConfiguredUseENS();
+        }
         if (protectorAddress == address(0)) {
             revert AddressZero();
         }
         protector = protectorAddress;
+    }
+
+    function setTrusteeWithENS(string memory trusteeENSName) external onlyInitialized onlyGrantor {
+        trustee = _resolveENS(trusteeENSName);
+        trusteeENS = trusteeENSName;
+    }
+
+    function setBeneficiaryWithENS(string memory beneficiaryENSName) external onlyInitialized onlyGrantor {
+        beneficiary = _resolveENS(beneficiaryENSName);
+        beneficiaryENS = beneficiaryENSName;
+    }
+
+    function setProtectorWithENS(string memory protectorENSName) external onlyInitialized onlyGrantor {
+        protector = _resolveENS(protectorENSName);
+        protectorENS = protectorENSName;
     }
 
     // ITrustee implementations
@@ -237,10 +475,18 @@ contract BittyTrust is ITrust {
     function resumeFundManagement() external override onlyInitialized onlyProtector {}
 
     function replaceTrustee(address newTrusteeAddress) external override onlyInitialized onlyProtector {
+        if (bytes(trusteeENS).length > 0) {
+            revert ENSConfiguredUseENS();
+        }
         if (newTrusteeAddress == address(0)) {
             revert AddressZero();
         }
         trustee = newTrusteeAddress;
+    }
+
+    function replaceTrusteeENS(string memory newTrusteeENSName) external onlyInitialized onlyProtector {
+        trustee = _resolveENS(newTrusteeENSName);
+        trusteeENS = newTrusteeENSName;
     }
 
     // ITrust implementations
