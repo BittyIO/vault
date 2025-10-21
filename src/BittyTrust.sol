@@ -6,13 +6,10 @@ import {ITrustee} from "./interfaces/ITrustee.sol";
 import {IGrantor} from "./interfaces/IGrantor.sol";
 import {IProtector} from "./interfaces/IProtector.sol";
 
-// ENS interfaces
-interface ENS {
-    function resolver(bytes32 node) external view returns (address);
-}
-
-interface Resolver {
-    function addr(bytes32 node) external view returns (address);
+// WETH interface
+interface IWETH {
+    function deposit() external payable;
+    function balanceOf(address account) external view returns (uint256);
 }
 
 contract BittyTrust is ITrust {
@@ -23,9 +20,14 @@ contract BittyTrust is ITrust {
     error ENSResolutionFailed();
     error InvalidENSName();
     error ENSConfiguredUseENS();
+    error StartDistributionTimestampAlreadySet();
+    error BeneficiaryENSNotSet();
+    error TrusteeENSNotSet();
+    error ProtectorENSNotSet();
+    error GrantorENSNotSet();
 
-    // ENS registry address (Ethereum Mainnet)
-    ENS private constant ens = ENS(0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e);
+    // WETH contract address (Ethereum Mainnet)
+    IWETH private constant weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     // State variables
     address public grantor;
@@ -38,18 +40,13 @@ contract BittyTrust is ITrust {
     uint256 public lastPingTime;
     uint256 public autoIrrevocableStartTime;
 
-    // ENS name storage
-    string public grantorENS;
-    string public trusteeENS;
-    string public beneficiaryENS;
-    string public protectorENS;
-
     // Fund management state
     RebalanceLimit public rebalanceLimit;
 
     // Beneficiary management state
     IGrantor.BeneficiarySettings public beneficiarySettings;
     uint256 public lastWithdrawalTime;
+    uint256 public startDistributionTimestamp;
 
     // ENS helper functions
     function namehash(string memory name) internal pure returns (bytes32) {
@@ -117,94 +114,39 @@ contract BittyTrust is ITrust {
         return result;
     }
 
-    function resolveENS(string memory ensName) external view returns (address) {
-        return _resolveENS(ensName);
-    }
-
-    function _resolveENS(string memory ensName) internal view returns (address) {
-        if (bytes(ensName).length == 0) {
-            revert InvalidENSName();
-        }
-
-        bytes32 node = namehash(ensName);
-        address resolverAddress = ens.resolver(node);
-
-        if (resolverAddress == address(0)) {
-            revert ENSResolutionFailed();
-        }
-
-        Resolver resolver = Resolver(resolverAddress);
-        address resolvedAddress = resolver.addr(node);
-
-        if (resolvedAddress == address(0)) {
-            revert ENSResolutionFailed();
-        }
-
-        return resolvedAddress;
-    }
-
-    function getCurrentGrantor() public view returns (address) {
-        if (bytes(grantorENS).length > 0) {
-            try this.resolveENS(grantorENS) returns (address resolvedAddress) {
-                return resolvedAddress;
-            } catch {
-                return grantor;
-            }
-        }
-        return grantor;
-    }
-
-    function getCurrentTrustee() public view returns (address) {
-        if (bytes(trusteeENS).length > 0) {
-            try this.resolveENS(trusteeENS) returns (address resolvedAddress) {
-                return resolvedAddress;
-            } catch {
-                return trustee;
-            }
-        }
-        return trustee;
-    }
-
-    function getCurrentBeneficiary() public view returns (address) {
-        if (bytes(beneficiaryENS).length > 0) {
-            try this.resolveENS(beneficiaryENS) returns (address resolvedAddress) {
-                return resolvedAddress;
-            } catch {
-                return beneficiary;
-            }
-        }
-        return beneficiary;
-    }
-
-    function getCurrentProtector() public view returns (address) {
-        if (bytes(protectorENS).length > 0) {
-            try this.resolveENS(protectorENS) returns (address resolvedAddress) {
-                return resolvedAddress;
-            } catch {
-                return protector;
-            }
-        }
-        return protector;
-    }
-
     // Modifiers
     modifier onlyInitialized() {
         require(isInitialized, "Trust not initialized");
         _;
     }
 
+    modifier onlyRevocable() {
+        require(this.revocable(), "Only revocable");
+        _;
+    }
+
+    modifier onlyIrrevokable() {
+        require(!this.revocable(), "Only Irrevocable");
+        _;
+    }
+
     modifier onlyGrantor() {
-        require(msg.sender == getCurrentGrantor(), "Only grantor");
+        require(msg.sender == grantor, "Only grantor");
+        _;
+    }
+
+    modifier onlyBeneficiary() {
+        require(msg.sender == beneficiary, "Only beneficiary");
         _;
     }
 
     modifier onlyTrustee() {
-        require(msg.sender == getCurrentTrustee(), "Only trustee");
+        require(msg.sender == trustee, "Only trustee");
         _;
     }
 
     modifier onlyProtector() {
-        require(msg.sender == getCurrentProtector(), "Only protector");
+        require(msg.sender == protector, "Only protector");
         _;
     }
 
@@ -267,63 +209,6 @@ contract BittyTrust is ITrust {
         isInitialized = true;
     }
 
-    function initializeWithENS(string memory grantorENSName) external {
-        if (isInitialized) {
-            revert AlreadyInitialized();
-        }
-        grantor = _resolveENS(grantorENSName);
-        grantorENS = grantorENSName;
-        isInitialized = true;
-    }
-
-    function initializeWithENS(string memory grantorENSName, string memory beneficiaryENSName) external {
-        if (isInitialized) {
-            revert AlreadyInitialized();
-        }
-        grantor = _resolveENS(grantorENSName);
-        beneficiary = _resolveENS(beneficiaryENSName);
-        grantorENS = grantorENSName;
-        beneficiaryENS = beneficiaryENSName;
-        isInitialized = true;
-    }
-
-    function initializeWithENS(
-        string memory grantorENSName,
-        string memory beneficiaryENSName,
-        string memory trusteeENSName
-    ) external {
-        if (isInitialized) {
-            revert AlreadyInitialized();
-        }
-        grantor = _resolveENS(grantorENSName);
-        beneficiary = _resolveENS(beneficiaryENSName);
-        trustee = _resolveENS(trusteeENSName);
-        grantorENS = grantorENSName;
-        beneficiaryENS = beneficiaryENSName;
-        trusteeENS = trusteeENSName;
-        isInitialized = true;
-    }
-
-    function initializeWithENS(
-        string memory grantorENSName,
-        string memory beneficiaryENSName,
-        string memory trusteeENSName,
-        string memory protectorENSName
-    ) external {
-        if (isInitialized) {
-            revert AlreadyInitialized();
-        }
-        grantor = _resolveENS(grantorENSName);
-        beneficiary = _resolveENS(beneficiaryENSName);
-        trustee = _resolveENS(trusteeENSName);
-        protector = _resolveENS(protectorENSName);
-        grantorENS = grantorENSName;
-        beneficiaryENS = beneficiaryENSName;
-        trusteeENS = trusteeENSName;
-        protectorENS = protectorENSName;
-        isInitialized = true;
-    }
-
     function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor {
         if (!this.revocable()) {
             revert Irrevocable();
@@ -340,6 +225,22 @@ contract BittyTrust is ITrust {
      */
     function setToIrrevocable() external override onlyInitialized onlyGrantor {
         isIrrevocable = true;
+    }
+
+    function setStartDistributionTimestamp(uint256 startDistributionTimestamp_)
+        external
+        override
+        onlyInitialized
+        onlyGrantor
+    {
+        if (startDistributionTimestamp != 0) {
+            revert StartDistributionTimestampAlreadySet();
+        }
+        startDistributionTimestamp = startDistributionTimestamp_;
+    }
+
+    function distributionStarted() external view override returns (bool) {
+        return block.timestamp >= startDistributionTimestamp;
     }
 
     /**
@@ -370,9 +271,16 @@ contract BittyTrust is ITrust {
         // Upgrade implementation, need to transfer all the money, parameters and subscribe info into the upgraded contract
     }
 
+    function setGrantor(address grantorAddress) external override onlyInitialized onlyGrantor {
+        if (grantorAddress == address(0)) {
+            revert AddressZero();
+        }
+        grantor = grantorAddress;
+    }
+
     function setTrustee(address trusteeAddress) external override onlyInitialized onlyGrantor {
-        if (bytes(trusteeENS).length > 0) {
-            revert ENSConfiguredUseENS();
+        if (!this.revocable()) {
+            revert Irrevocable();
         }
         if (trusteeAddress == address(0)) {
             revert AddressZero();
@@ -390,9 +298,6 @@ contract BittyTrust is ITrust {
     }
 
     function setBeneficiary(address beneficiaryAddress) external override onlyInitialized onlyGrantor {
-        if (bytes(beneficiaryENS).length > 0) {
-            revert ENSConfiguredUseENS();
-        }
         if (beneficiaryAddress == address(0)) {
             revert AddressZero();
         }
@@ -409,28 +314,10 @@ contract BittyTrust is ITrust {
     }
 
     function setProtector(address protectorAddress) external override onlyInitialized onlyGrantor {
-        if (bytes(protectorENS).length > 0) {
-            revert ENSConfiguredUseENS();
-        }
         if (protectorAddress == address(0)) {
             revert AddressZero();
         }
         protector = protectorAddress;
-    }
-
-    function setTrusteeWithENS(string memory trusteeENSName) external onlyInitialized onlyGrantor {
-        trustee = _resolveENS(trusteeENSName);
-        trusteeENS = trusteeENSName;
-    }
-
-    function setBeneficiaryWithENS(string memory beneficiaryENSName) external onlyInitialized onlyGrantor {
-        beneficiary = _resolveENS(beneficiaryENSName);
-        beneficiaryENS = beneficiaryENSName;
-    }
-
-    function setProtectorWithENS(string memory protectorENSName) external onlyInitialized onlyGrantor {
-        protector = _resolveENS(protectorENSName);
-        protectorENS = protectorENSName;
     }
 
     // ITrustee implementations
@@ -448,15 +335,26 @@ contract BittyTrust is ITrust {
         require(amount > 0, "Invalid amount");
     }
 
-    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmount, uint256 slippage)
-        external
-        override
-        onlyInitialized
-        onlyTrustee
-    {}
+    function rebalance(
+        AssetType, /* from */
+        AssetType, /* to */
+        uint256 sellAmount,
+        uint256 buyAmount,
+        uint256 slippage
+    ) external override onlyInitialized onlyTrustee {
+        // TODO: Implement rebalancing logic
+        // This would typically involve:
+        // 1. Validating rebalance parameters
+        // 2. Checking rebalance limits
+        // 3. Executing trades through DEX (e.g., Uniswap)
+        // 4. Updating asset balances
+        require(sellAmount > 0, "Invalid sell amount");
+        require(buyAmount > 0, "Invalid buy amount");
+        require(slippage <= 10000, "Slippage too high"); // Max 100% slippage
+    }
 
     function buy(
-        AssetType buyAssetType,
+        AssetType, /* buyAssetType */
         address sellAssetAddress,
         uint256 buyAmount,
         uint256 sellAmount,
@@ -465,6 +363,16 @@ contract BittyTrust is ITrust {
         if (sellAssetAddress == address(0)) {
             revert AddressZero();
         }
+        require(buyAmount > 0, "Invalid buy amount");
+        require(sellAmount > 0, "Invalid sell amount");
+        require(slippage <= 10000, "Slippage too high"); // Max 100% slippage
+
+        // TODO: Implement buying logic
+        // This would typically involve:
+        // 1. Validating asset types and amounts
+        // 2. Checking sufficient balance of sell asset
+        // 3. Executing trade through DEX (e.g., Uniswap)
+        // 4. Updating asset balances
     }
 
     function sendBeneficiary() external override onlyInitialized {}
@@ -475,18 +383,36 @@ contract BittyTrust is ITrust {
     function resumeFundManagement() external override onlyInitialized onlyProtector {}
 
     function replaceTrustee(address newTrusteeAddress) external override onlyInitialized onlyProtector {
-        if (bytes(trusteeENS).length > 0) {
-            revert ENSConfiguredUseENS();
-        }
         if (newTrusteeAddress == address(0)) {
             revert AddressZero();
         }
         trustee = newTrusteeAddress;
     }
 
-    function replaceTrusteeENS(string memory newTrusteeENSName) external onlyInitialized onlyProtector {
-        trustee = _resolveENS(newTrusteeENSName);
-        trusteeENS = newTrusteeENSName;
+    function changeBeneficiaryAddress(address newBeneficiaryAddress)
+        external
+        override
+        onlyInitialized
+        onlyBeneficiary
+    {
+        if (newBeneficiaryAddress == address(0)) {
+            revert AddressZero();
+        }
+        beneficiary = newBeneficiaryAddress;
+    }
+
+    function changeTrusteeAddress(address newTrusteeAddress) external override onlyInitialized onlyTrustee {
+        if (newTrusteeAddress == address(0)) {
+            revert AddressZero();
+        }
+        trustee = newTrusteeAddress;
+    }
+
+    function changeProtectorAddress(address newProtectorAddress) external override onlyInitialized onlyProtector {
+        if (newProtectorAddress == address(0)) {
+            revert AddressZero();
+        }
+        protector = newProtectorAddress;
     }
 
     // ITrust implementations
@@ -501,5 +427,50 @@ contract BittyTrust is ITrust {
             return block.timestamp - lastPingTime <= autoIrrevocableAfterNoPing;
         }
         return true;
+    }
+
+    /**
+     * @notice Get the ETH balance of the trust.
+     * @dev Get the ETH balance of the trust.
+     * @return The ETH balance of the trust.
+     */
+    function getETHBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+
+    /**
+     * @notice Convert ETH to WETH.
+     * @dev Convert all ETH in the trust to WETH.
+     */
+    function turnETHToWETH() external onlyInitialized onlyTrustee {
+        uint256 ethBalance = address(this).balance;
+        if (ethBalance > 0) {
+            weth.deposit{value: ethBalance}();
+        }
+    }
+
+    /**
+     * @notice Get the WETH balance of the trust.
+     * @dev Get the WETH balance of the trust.
+     * @return The WETH balance of the trust.
+     */
+    function getWETHBalance() external view returns (uint256) {
+        return weth.balanceOf(address(this));
+    }
+
+    /**
+     * @notice Receive ETH transfers.
+     * @dev Allow the trust to receive ETH.
+     */
+    receive() external payable {
+        // Trust can receive ETH
+    }
+
+    /**
+     * @notice Fallback function for ETH transfers.
+     * @dev Fallback function for ETH transfers.
+     */
+    fallback() external payable {
+        // Trust can receive ETH
     }
 }

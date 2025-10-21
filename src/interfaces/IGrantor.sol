@@ -6,7 +6,6 @@ import {ITrustee} from "./ITrustee.sol";
 /**
  * @title Create and set the rules of the Trust.
  * @dev
- *
  */
 interface IGrantor {
     struct BeneficiarySettings {
@@ -38,7 +37,6 @@ interface IGrantor {
      * @param trusteeAddress The address of the trustee.
      */
     function initialize(address grantorAddress, address beneficiaryAddress, address trusteeAddress) external;
-
     /**
      * @notice Initialize the trust.
      * @dev Initialize the trust.
@@ -53,6 +51,13 @@ interface IGrantor {
         address trusteeAddress,
         address protectorAddress
     ) external;
+
+    /**
+     * @notice Set the grantor.
+     * @dev Set the grantor.
+     * @param grantorAddress The address of the grantor.
+     */
+    function setGrantor(address grantorAddress) external;
 
     /**
      * @notice Set the trustee.
@@ -105,6 +110,20 @@ interface IGrantor {
      * @dev Set the trust to irrevocable.
      */
     function setToIrrevocable() external;
+
+    /**
+     * @notice Set the start distribution timestamp of the trust.
+     * @dev Set the start distribution timestamp of the trust.
+     * @param startDistributionTimestamp The start distribution timestamp of the trust.
+     */
+    function setStartDistributionTimestamp(uint256 startDistributionTimestamp) external;
+
+    /**
+     * @notice Check if the distribution has started.
+     * @dev Check if the distribution has started.
+     * @return The status of the distribution.
+     */
+    function distributionStarted() external view returns (bool);
 
     /**
      * @notice Set the trust to irrevocable after no ping.

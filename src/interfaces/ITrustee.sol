@@ -24,6 +24,13 @@ interface ITrustee {
     }
 
     /**
+     * @notice only works if trustee address is not set.
+     * @dev only works for trustee to change address.
+     * @param newTrusteeAddress new trustee address
+     */
+    function changeTrusteeAddress(address newTrusteeAddress) external;
+
+    /**
      * @notice Supply the asset on protocol like Aave to yield.
      * @dev Supply the asset on Aave.
      * @param assetAddress The address of the asset.
