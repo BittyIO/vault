@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {BittyTrust} from "../src/BittyTrust.sol";
 
-contract BittyTrustTest is Test {
+contract BittyTrustGrantorTest is Test {
     BittyTrust public bittyTrust;
 
     function setUp() public {
@@ -28,18 +28,18 @@ contract BittyTrustTest is Test {
         assertEq(bittyTrust.revocable(), false);
     }
 
-    function test_AutoIrrevocableAfterNoPing() public {
-        bittyTrust.initialize(address(this));
-        bittyTrust.setAutoIrrevocableAfterNoPing(1);
-        vm.warp(block.timestamp + 2);
-        assertEq(bittyTrust.revocable(), false);
-    }
-
     function test_RevocableAfterPing() public {
         bittyTrust.initialize(address(this));
         bittyTrust.setAutoIrrevocableAfterNoPing(2);
         bittyTrust.ping();
         vm.warp(block.timestamp + 1);
         assertEq(bittyTrust.revocable(), true);
+    }
+
+    function test_AutoIrrevocableAfterNoPing() public {
+        bittyTrust.initialize(address(this));
+        bittyTrust.setAutoIrrevocableAfterNoPing(1);
+        vm.warp(block.timestamp + 2);
+        assertEq(bittyTrust.revocable(), false);
     }
 }

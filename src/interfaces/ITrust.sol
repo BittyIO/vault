@@ -2,6 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {IGrantor} from "./IGrantor.sol";
+import {IBeneficiary} from "./IBeneficiary.sol";
 import {ITrustee} from "./ITrustee.sol";
 import {IProtector} from "./IProtector.sol";
 
@@ -10,7 +11,7 @@ import {IProtector} from "./IProtector.sol";
  * @dev
  *
  */
-interface ITrust is IGrantor, ITrustee, IProtector {
+interface ITrust is IGrantor, IBeneficiary, ITrustee, IProtector {
     /**
      * @notice Set the trust to irrevocable.
      * @dev Set the trust to irrevocable.

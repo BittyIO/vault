@@ -8,6 +8,13 @@ pragma solidity ^0.8.27;
  */
 interface IProtector {
     /**
+     * @notice only works if protecotr address is not set.
+     * @dev only works for protecotr to change address.
+     * @param newProtoctorAddress new protecotr address
+     */
+    function changeProtectorAddress(address newProtoctorAddress) external;
+
+    /**
      * @notice Pause the fund management.
      * @dev Pause the fund management.
      */
