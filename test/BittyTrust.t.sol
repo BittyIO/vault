@@ -4,11 +4,27 @@ pragma solidity ^0.8.13;
 import {Test} from "forge-std/Test.sol";
 import {BittyTrust} from "../src/BittyTrust.sol";
 
+interface IWETH {
+    function deposit() external payable;
+    function balanceOf(address account) external view returns (uint256);
+}
+
+contract MockWETH {
+    mapping(address => uint256) public balanceOf;
+
+    function deposit() external payable {
+        balanceOf[msg.sender] += msg.value;
+    }
+}
+
 contract BittyTrustTest is Test {
     BittyTrust public bittyTrust;
+    MockWETH public mockWETH;
 
     function setUp() public {
+        mockWETH = new MockWETH();
         bittyTrust = new BittyTrust();
+        bittyTrust.setWETH(address(mockWETH));
     }
 
     function test_InitErrorWithGrantorAddressZero() public {
@@ -41,5 +57,25 @@ contract BittyTrustTest is Test {
         bittyTrust.ping();
         vm.warp(block.timestamp + 1);
         assertEq(bittyTrust.revocable(), true);
+    }
+
+    function test_SetWETHCanOnlyBeCalledOnce() public {
+        BittyTrust newTrust = new BittyTrust();
+        address weth1 = address(0x1);
+        address weth2 = address(0x2);
+
+        assertEq(address(newTrust.weth()), address(0));
+        newTrust.setWETH(weth1);
+        assertEq(address(newTrust.weth()), weth1);
+        assertTrue(address(newTrust.weth()) != address(0));
+
+        vm.expectRevert(BittyTrust.WETHAlreadySet.selector);
+        newTrust.setWETH(weth2);
+    }
+
+    function test_SetWETHRevertsOnZeroAddress() public {
+        BittyTrust newTrust = new BittyTrust();
+        vm.expectRevert(BittyTrust.AddressZero.selector);
+        newTrust.setWETH(address(0));
     }
 }

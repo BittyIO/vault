@@ -4,7 +4,6 @@ pragma solidity ^0.8.27;
 import {ITrust} from "./interfaces/ITrust.sol";
 import {ITrustee} from "./interfaces/ITrustee.sol";
 import {IGrantor} from "./interfaces/IGrantor.sol";
-import {IProtector} from "./interfaces/IProtector.sol";
 
 // WETH interface
 interface IWETH {
@@ -25,15 +24,17 @@ contract BittyTrust is ITrust {
     error TrusteeENSNotSet();
     error ProtectorENSNotSet();
     error GrantorENSNotSet();
+    error WETHNotSet();
+    error WETHAlreadySet();
 
-    // WETH contract address (Ethereum Mainnet)
-    IWETH private constant weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    // WETH contract address (configurable)
+    IWETH public weth;
 
     // State variables
     address public grantor;
     address public trustee;
     address public beneficiary;
-    address public protector;
+
     bool public isInitialized;
     bool public isIrrevocable;
     uint256 public autoIrrevocableAfterNoPing;
@@ -47,72 +48,6 @@ contract BittyTrust is ITrust {
     IGrantor.BeneficiarySettings public beneficiarySettings;
     uint256 public lastWithdrawalTime;
     uint256 public startDistributionTimestamp;
-
-    // ENS helper functions
-    function namehash(string memory name) internal pure returns (bytes32) {
-        bytes32 node = 0x0000000000000000000000000000000000000000000000000000000000000000;
-        if (bytes(name).length > 0) {
-            bytes[] memory nameParts = splitString(name, ".");
-            for (uint256 i = nameParts.length; i > 0; i--) {
-                node = keccak256(abi.encodePacked(node, keccak256(nameParts[i - 1])));
-            }
-        }
-        return node;
-    }
-
-    function splitString(string memory str, string memory delimiter) internal pure returns (bytes[] memory) {
-        bytes memory strBytes = bytes(str);
-        bytes memory delimiterBytes = bytes(delimiter);
-
-        uint256 count = 1;
-        for (uint256 i = 0; i < strBytes.length; i++) {
-            if (i + delimiterBytes.length <= strBytes.length) {
-                bool isMatch = true;
-                for (uint256 j = 0; j < delimiterBytes.length; j++) {
-                    if (strBytes[i + j] != delimiterBytes[j]) {
-                        isMatch = false;
-                        break;
-                    }
-                }
-                if (isMatch) {
-                    count++;
-                    i += delimiterBytes.length - 1;
-                }
-            }
-        }
-
-        bytes[] memory result = new bytes[](count);
-        uint256 resultIndex = 0;
-        uint256 start = 0;
-
-        for (uint256 i = 0; i < strBytes.length; i++) {
-            if (i + delimiterBytes.length <= strBytes.length) {
-                bool isMatch = true;
-                for (uint256 j = 0; j < delimiterBytes.length; j++) {
-                    if (strBytes[i + j] != delimiterBytes[j]) {
-                        isMatch = false;
-                        break;
-                    }
-                }
-                if (isMatch) {
-                    result[resultIndex] = new bytes(i - start);
-                    for (uint256 k = 0; k < i - start; k++) {
-                        result[resultIndex][k] = strBytes[start + k];
-                    }
-                    resultIndex++;
-                    start = i + delimiterBytes.length;
-                    i += delimiterBytes.length - 1;
-                }
-            }
-        }
-
-        result[resultIndex] = new bytes(strBytes.length - start);
-        for (uint256 k = 0; k < strBytes.length - start; k++) {
-            result[resultIndex][k] = strBytes[start + k];
-        }
-
-        return result;
-    }
 
     // Modifiers
     modifier onlyInitialized() {
@@ -145,9 +80,19 @@ contract BittyTrust is ITrust {
         _;
     }
 
-    modifier onlyProtector() {
-        require(msg.sender == protector, "Only protector");
-        _;
+    /**
+     * @notice Set the WETH contract address.
+     * @dev Can only be called once, before or during initialization.
+     * @param wethAddress The WETH contract address.
+     */
+    function setWETH(address wethAddress) external {
+        if (wethAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (address(weth) != address(0)) {
+            revert WETHAlreadySet();
+        }
+        weth = IWETH(wethAddress);
     }
 
     // IGrantor implementations
@@ -184,28 +129,6 @@ contract BittyTrust is ITrust {
         grantor = grantorAddress;
         beneficiary = beneficiaryAddress;
         trustee = trusteeAddress;
-        isInitialized = true;
-    }
-
-    function initialize(
-        address grantorAddress,
-        address beneficiaryAddress,
-        address trusteeAddress,
-        address protectorAddress
-    ) external override {
-        if (
-            grantorAddress == address(0) || beneficiaryAddress == address(0) || trusteeAddress == address(0)
-                || protectorAddress == address(0)
-        ) {
-            revert AddressZero();
-        }
-        if (isInitialized) {
-            revert AlreadyInitialized();
-        }
-        grantor = grantorAddress;
-        beneficiary = beneficiaryAddress;
-        trustee = trusteeAddress;
-        protector = protectorAddress;
         isInitialized = true;
     }
 
@@ -313,13 +236,6 @@ contract BittyTrust is ITrust {
         beneficiarySettings = beneficiarySettings_;
     }
 
-    function setProtector(address protectorAddress) external override onlyInitialized onlyGrantor {
-        if (protectorAddress == address(0)) {
-            revert AddressZero();
-        }
-        protector = protectorAddress;
-    }
-
     // ITrustee implementations
     function supply(address assetAddress, uint256 amount) external override onlyInitialized onlyTrustee {
         if (assetAddress == address(0)) {
@@ -377,18 +293,6 @@ contract BittyTrust is ITrust {
 
     function sendBeneficiary() external override onlyInitialized {}
 
-    // IProtector implementations
-    function pauseFundManagement() external override onlyInitialized onlyProtector {}
-
-    function resumeFundManagement() external override onlyInitialized onlyProtector {}
-
-    function replaceTrustee(address newTrusteeAddress) external override onlyInitialized onlyProtector {
-        if (newTrusteeAddress == address(0)) {
-            revert AddressZero();
-        }
-        trustee = newTrusteeAddress;
-    }
-
     function changeBeneficiaryAddress(address newBeneficiaryAddress)
         external
         override
@@ -406,13 +310,6 @@ contract BittyTrust is ITrust {
             revert AddressZero();
         }
         trustee = newTrusteeAddress;
-    }
-
-    function changeProtectorAddress(address newProtectorAddress) external override onlyInitialized onlyProtector {
-        if (newProtectorAddress == address(0)) {
-            revert AddressZero();
-        }
-        protector = newProtectorAddress;
     }
 
     // ITrust implementations
@@ -443,6 +340,9 @@ contract BittyTrust is ITrust {
      * @dev Convert all ETH in the trust to WETH.
      */
     function turnETHToWETH() external onlyInitialized onlyTrustee {
+        if (address(weth) == address(0)) {
+            revert WETHNotSet();
+        }
         uint256 ethBalance = address(this).balance;
         if (ethBalance > 0) {
             weth.deposit{value: ethBalance}();
@@ -455,6 +355,9 @@ contract BittyTrust is ITrust {
      * @return The WETH balance of the trust.
      */
     function getWETHBalance() external view returns (uint256) {
+        if (address(weth) == address(0)) {
+            revert WETHNotSet();
+        }
         return weth.balanceOf(address(this));
     }
 

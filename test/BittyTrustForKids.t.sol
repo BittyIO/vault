@@ -25,9 +25,8 @@ contract BittyTrustForKidsTest is Test {
 
     function setUp() public {
         mockWETH = new MockWETH();
-        vm.etch(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, address(mockWETH).code);
-
         bittyTrustForKids = new BittyTrust();
+        bittyTrustForKids.setWETH(address(mockWETH));
         kidAddress = makeAddr("alice");
         trusteeAddress = makeAddr("trustee");
         bittyTrustForKids.initialize(address(this));

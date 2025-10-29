@@ -37,20 +37,6 @@ interface IGrantor {
      * @param trusteeAddress The address of the trustee.
      */
     function initialize(address grantorAddress, address beneficiaryAddress, address trusteeAddress) external;
-    /**
-     * @notice Initialize the trust.
-     * @dev Initialize the trust.
-     * @param grantorAddress The address of the grantor.
-     * @param beneficiaryAddress The address of the beneficiary.
-     * @param trusteeAddress The address of the trustee.
-     * @param protectorAddress The address of the protector.
-     */
-    function initialize(
-        address grantorAddress,
-        address beneficiaryAddress,
-        address trusteeAddress,
-        address protectorAddress
-    ) external;
 
     /**
      * @notice Set the grantor.
@@ -72,13 +58,6 @@ interface IGrantor {
      * @param beneficiaryAddress The address of the beneficiary.
      */
     function setBeneficiary(address beneficiaryAddress) external;
-
-    /**
-     * @notice Set the protector.
-     * @dev Set the protector.
-     * @param protectorAddress The address of the protector.
-     */
-    function setProtector(address protectorAddress) external;
 
     /**
      * @notice Set the beneficiary settings.
