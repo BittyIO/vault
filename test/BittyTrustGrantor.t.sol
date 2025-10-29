@@ -4,11 +4,27 @@ pragma solidity ^0.8.20;
 import {Test} from "forge-std/Test.sol";
 import {BittyTrust} from "../src/BittyTrust.sol";
 
+interface IWETH {
+    function deposit() external payable;
+    function balanceOf(address account) external view returns (uint256);
+}
+
+contract MockWETH {
+    mapping(address => uint256) public balanceOf;
+
+    function deposit() external payable {
+        balanceOf[msg.sender] += msg.value;
+    }
+}
+
 contract BittyTrustGrantorTest is Test {
     BittyTrust public bittyTrust;
+    MockWETH public mockWETH;
 
     function setUp() public {
+        mockWETH = new MockWETH();
         bittyTrust = new BittyTrust();
+        bittyTrust.setWETH(address(mockWETH));
     }
 
     function test_InitErrorWithGrantorAddressZero() public {
