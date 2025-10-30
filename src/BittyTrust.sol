@@ -238,12 +238,7 @@ contract BittyTrust is ITrust {
     }
 
     // IBeneficiary implementations
-    function changeBeneficiaryAddress(address newBeneficiaryAddress)
-        external
-        override
-        onlyInitialized
-        onlyBeneficiary
-    {
+    function changeBeneficiaryAddress(address newBeneficiaryAddress) external override onlyInitialized onlyBeneficiary {
         if (newBeneficiaryAddress == address(0)) {
             revert AddressZero();
         }
