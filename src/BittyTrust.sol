@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 import {ITrust} from "./interfaces/ITrust.sol";
 import {ITrustee} from "./interfaces/ITrustee.sol";
 import {IGrantor} from "./interfaces/IGrantor.sol";
+import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 
 // WETH interface
 interface IWETH {
@@ -45,7 +46,7 @@ contract BittyTrust is ITrust {
     RebalanceLimit public rebalanceLimit;
 
     // Beneficiary management state
-    IGrantor.BeneficiarySettings public beneficiarySettings;
+    IBeneficiary.BeneficiarySettings public beneficiarySettings;
     uint256 public lastWithdrawalTime;
     uint256 public startDistributionTimestamp;
 
@@ -227,13 +228,30 @@ contract BittyTrust is ITrust {
         beneficiary = beneficiaryAddress;
     }
 
-    function setBeneficiarySettings(IGrantor.BeneficiarySettings memory beneficiarySettings_)
+    function setBeneficiarySettings(IBeneficiary.BeneficiarySettings memory beneficiarySettings_)
         external
         override
         onlyInitialized
         onlyGrantor
     {
         beneficiarySettings = beneficiarySettings_;
+    }
+
+    // IBeneficiary implementations
+    function changeBeneficiaryAddress(address newBeneficiaryAddress)
+        external
+        override
+        onlyInitialized
+        onlyBeneficiary
+    {
+        if (newBeneficiaryAddress == address(0)) {
+            revert AddressZero();
+        }
+        beneficiary = newBeneficiaryAddress;
+    }
+
+    function getMoney() external override onlyInitialized onlyBeneficiary {
+        // TODO: Implement get money logic
     }
 
     // ITrustee implementations
@@ -299,15 +317,6 @@ contract BittyTrust is ITrust {
         // 2. Checking sufficient balance of sell asset
         // 3. Executing trade through DEX (e.g., Uniswap)
         // 4. Updating asset balances
-    }
-
-    function sendBeneficiary() external override onlyInitialized {}
-
-    function changeBeneficiaryAddress(address newBeneficiaryAddress) external override onlyInitialized onlyBeneficiary {
-        if (newBeneficiaryAddress == address(0)) {
-            revert AddressZero();
-        }
-        beneficiary = newBeneficiaryAddress;
     }
 
     function changeTrusteeAddress(address newTrusteeAddress) external override onlyInitialized onlyTrustee {

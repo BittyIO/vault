@@ -2,18 +2,13 @@
 pragma solidity ^0.8.27;
 
 import {ITrustee} from "./ITrustee.sol";
+import {IBeneficiary} from "./IBeneficiary.sol";
 
 /**
  * @title Create and set the rules of the Trust.
  * @dev
  */
 interface IGrantor {
-    struct BeneficiarySettings {
-        uint256 maxWithdrawalAmount;
-        uint256 minimalDaysBetweenWithdrawals;
-        bool autoWithdrawl;
-    }
-
     /**
      * @notice Initialize the trust.
      * @dev Initialize the trust.
@@ -64,7 +59,7 @@ interface IGrantor {
      * @dev Set the trust rules.
      * @param beneficiarySettings The beneficiary settings.
      */
-    function setBeneficiarySettings(BeneficiarySettings memory beneficiarySettings) external;
+    function setBeneficiarySettings(IBeneficiary.BeneficiarySettings memory beneficiarySettings) external;
 
     /**
      * @notice Set the rebalance rules.

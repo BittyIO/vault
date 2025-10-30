@@ -6,10 +6,21 @@ pragma solidity ^0.8.27;
  * @dev
  */
 interface IBeneficiary {
+    struct BeneficiarySettings {
+        uint256 maxWithdrawalAmount;
+        uint256 minimalDaysBetweenWithdrawals;
+        bool autoWithdrawl;
+    }
+
     /**
-     * @notice only works if beneficiary address is not set.
+     * @notice only works if beneficiary address is set.
      * @dev only works for beneficiary to change address.
      * @param newBeneficiaryAddress new beneficiary address
      */
     function changeBeneficiaryAddress(address newBeneficiaryAddress) external;
+
+    /**
+     * @notice Get the money from the trust.
+     */
+    function getMoney() external;
 }
