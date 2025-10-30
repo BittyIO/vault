@@ -47,12 +47,6 @@ interface ITrustee {
     function withdraw(address assetAddress, uint256 amount) external;
 
     /**
-     * @notice Send money to the beneficiary.
-     * @dev Send money to the beneficiary.
-     */
-    function sendBeneficiary() external;
-
-    /**
      * @notice Rebalance the assets.
      * @dev Rebalance the assets from the from asset type to the to asset type.
      * @param from The type of the from asset.
