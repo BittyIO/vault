@@ -257,7 +257,12 @@ contract BittyTrust is ITrust {
         uint256 sellAmount,
         uint256 buyAmount,
         uint256 slippage
-    ) external override onlyInitialized onlyTrustee {
+    )
+        external
+        override
+        onlyInitialized
+        onlyTrustee
+    {
         // TODO: Implement rebalancing logic
         // This would typically involve:
         // 1. Validating rebalance parameters
@@ -275,7 +280,12 @@ contract BittyTrust is ITrust {
         uint256 buyAmount,
         uint256 sellAmount,
         uint256 slippage
-    ) external override onlyInitialized onlyTrustee {
+    )
+        external
+        override
+        onlyInitialized
+        onlyTrustee
+    {
         if (sellAssetAddress == address(0)) {
             revert AddressZero();
         }
@@ -293,12 +303,7 @@ contract BittyTrust is ITrust {
 
     function sendBeneficiary() external override onlyInitialized {}
 
-    function changeBeneficiaryAddress(address newBeneficiaryAddress)
-        external
-        override
-        onlyInitialized
-        onlyBeneficiary
-    {
+    function changeBeneficiaryAddress(address newBeneficiaryAddress) external override onlyInitialized onlyBeneficiary {
         if (newBeneficiaryAddress == address(0)) {
             revert AddressZero();
         }
