@@ -12,6 +12,12 @@ interface IWETH {
     function balanceOf(address account) external view returns (uint256);
 }
 
+// ERC20 interface for USDT
+interface IERC20 {
+    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+}
+
 contract BittyTrust is ITrust {
     error AddressZero();
     error AlreadyInitialized();
@@ -27,9 +33,26 @@ contract BittyTrust is ITrust {
     error GrantorENSNotSet();
     error WETHNotSet();
     error WETHAlreadySet();
+    error USDTNotSet();
+    error USDTAlreadySet();
+    error USDCNotSet();
+    error USDCAlreadySet();
+    error InsufficientStablecoinBalance();
+    error StablecoinTransferFailed();
+    // Beneficiary Errors
+    error AmountPerWithdrawalIsZero();
+    error MinimalDaysBetweenWithdrawalsIsZero();
+    error BeneficiarySettingsNotSet();
+    error BeneficiaryWithdrawalInLimitDays();
 
     // WETH contract address (configurable)
     IWETH public weth;
+
+    // USDT contract address (configurable)
+    IERC20 public usdt;
+
+    // USDC contract address (configurable)
+    IERC20 public usdc;
 
     // State variables
     address public grantor;
@@ -94,6 +117,36 @@ contract BittyTrust is ITrust {
             revert WETHAlreadySet();
         }
         weth = IWETH(wethAddress);
+    }
+
+    /**
+     * @notice Set the USDT contract address.
+     * @dev Can only be called once, before or during initialization.
+     * @param usdtAddress The USDT contract address.
+     */
+    function setUSDT(address usdtAddress) external {
+        if (usdtAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (address(usdt) != address(0)) {
+            revert USDTAlreadySet();
+        }
+        usdt = IERC20(usdtAddress);
+    }
+
+    /**
+     * @notice Set the USDC contract address.
+     * @dev Can only be called once, before or during initialization.
+     * @param usdcAddress The USDC contract address.
+     */
+    function setUSDC(address usdcAddress) external {
+        if (usdcAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (address(usdc) != address(0)) {
+            revert USDCAlreadySet();
+        }
+        usdc = IERC20(usdcAddress);
     }
 
     // IGrantor implementations
@@ -234,6 +287,12 @@ contract BittyTrust is ITrust {
         onlyInitialized
         onlyGrantor
     {
+        if (beneficiarySettings_.amountPerWithdrawal == 0) {
+            revert AmountPerWithdrawalIsZero();
+        }
+        if (beneficiarySettings_.minimalDaysBetweenWithdrawals == 0) {
+            revert MinimalDaysBetweenWithdrawalsIsZero();
+        }
         beneficiarySettings = beneficiarySettings_;
     }
 
@@ -246,7 +305,38 @@ contract BittyTrust is ITrust {
     }
 
     function getMoney() external override onlyInitialized onlyBeneficiary {
-        // TODO: Implement get money logic
+        if (beneficiarySettings.amountPerWithdrawal == 0) {
+            revert BeneficiarySettingsNotSet();
+        }
+        if (
+            lastWithdrawalTime > 0
+                && block.timestamp - lastWithdrawalTime < beneficiarySettings.minimalDaysBetweenWithdrawals * 1 days
+        ) {
+            revert BeneficiaryWithdrawalInLimitDays();
+        }
+        IERC20 firstWithdrawStableCoin = beneficiarySettings.withdrawUSDTFirst ? usdt : usdc;
+        IERC20 secondWithdrawStableCoin = beneficiarySettings.withdrawUSDTFirst ? usdc : usdt;
+        uint256 firstWithdrawStableCoinBalance = firstWithdrawStableCoin.balanceOf(address(this));
+        if (
+            address(firstWithdrawStableCoin) != address(0)
+                && firstWithdrawStableCoinBalance >= beneficiarySettings.amountPerWithdrawal
+        ) {
+            if (!firstWithdrawStableCoin.transfer(beneficiary, beneficiarySettings.amountPerWithdrawal)) {
+                revert StablecoinTransferFailed();
+            }
+            lastWithdrawalTime = block.timestamp;
+            return;
+        }
+        if (
+            address(secondWithdrawStableCoin) == address(0)
+                || secondWithdrawStableCoin.balanceOf(address(this)) < beneficiarySettings.amountPerWithdrawal
+        ) {
+            revert InsufficientStablecoinBalance();
+        }
+        if (!secondWithdrawStableCoin.transfer(beneficiary, beneficiarySettings.amountPerWithdrawal)) {
+            revert StablecoinTransferFailed();
+        }
+        lastWithdrawalTime = block.timestamp;
     }
 
     // ITrustee implementations

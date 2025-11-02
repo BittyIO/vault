@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.20;
+// SPDX-License-Identifier: CC0-1.0
+pragma solidity ^0.8.27;
 
 import {Test} from "forge-std/Test.sol";
 import {BittyTrust} from "../src/BittyTrust.sol";
