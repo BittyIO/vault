@@ -7,9 +7,27 @@ pragma solidity ^0.8.27;
  */
 interface IBeneficiary {
     struct BeneficiarySettings {
-        uint256 maxWithdrawalAmount;
+        /**
+         * @dev The amount of the money to get per withdrawal.
+         * @param amountPerWithdrawal The amount of the money to get per withdrawal.
+         *
+         * This is USD value of the money to get per withdrawal, if the trust do not have enough stablecoin,
+         * it will convert the assets to stablecoin with market price and withdraw to the beneficiary.
+         *
+         * Since we only support USDT and USDC, the unit is 10^6.
+         */
+        uint256 amountPerWithdrawal;
+        /**
+         * @dev The minimal days between withdrawals.
+         * @param minimalDaysBetweenWithdrawals The minimal days between withdrawals.
+         */
         uint256 minimalDaysBetweenWithdrawals;
-        bool autoWithdrawl;
+
+        /**
+         * @dev Whether to withdraw USDT first if the trust has enough USDT.
+         * @param withdrawUSDTFirst Whether to withdraw USDT first if the trust has enough USDT.
+         */
+        bool withdrawUSDTFirst;
     }
 
     /**
@@ -21,6 +39,7 @@ interface IBeneficiary {
 
     /**
      * @notice Get the money from the trust.
+     * @dev Get the money from the trust.
      */
     function getMoney() external;
 }
