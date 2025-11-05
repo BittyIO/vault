@@ -22,7 +22,6 @@ interface IBeneficiary {
          * @param minimalDaysBetweenWithdrawals The minimal days between withdrawals.
          */
         uint256 minimalDaysBetweenWithdrawals;
-
         /**
          * @dev Whether to withdraw USDT first if the trust has enough USDT.
          * @param withdrawUSDTFirst Whether to withdraw USDT first if the trust has enough USDT.

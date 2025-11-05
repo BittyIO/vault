@@ -2,10 +2,10 @@
 pragma solidity ^0.8.13;
 
 import {Script} from "forge-std/Script.sol";
-import {BittyTrust} from "../src/BittyTrust.sol";
+import {BittyVault} from "../src/BittyVault.sol";
 
 contract CounterScript is Script {
-    BittyTrust public bittyTrust;
+    BittyVault public bittyVault;
 
     // WETH addresses by chain
     address constant MAINNET_WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
@@ -16,10 +16,10 @@ contract CounterScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        bittyTrust = new BittyTrust();
+        bittyVault = new BittyVault();
 
         address wethAddress = getWETHAddress();
-        bittyTrust.setWETH(wethAddress);
+        bittyVault.setWETH(wethAddress);
 
         vm.stopBroadcast();
     }
