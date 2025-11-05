@@ -69,9 +69,7 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.initialize(address(this));
         bittyVault.setBeneficiary(beneficiary);
         beneficiarySettings = IBeneficiary.BeneficiarySettings({
-            amountPerWithdrawal: 100 * 1e6,
-            minimalDaysBetweenWithdrawals: 30,
-            withdrawUSDTFirst: true
+            amountPerWithdrawal: 100 * 1e6, minimalDaysBetweenWithdrawals: 30, withdrawUSDTFirst: true
         });
     }
 
@@ -92,9 +90,7 @@ contract BittyVaultBeneficiaryTest is Test {
         vm.expectRevert(Trust.AmountPerWithdrawalIsZero.selector);
         bittyVault.setBeneficiarySettings(
             IBeneficiary.BeneficiarySettings({
-                amountPerWithdrawal: 0,
-                minimalDaysBetweenWithdrawals: 30,
-                withdrawUSDTFirst: false
+                amountPerWithdrawal: 0, minimalDaysBetweenWithdrawals: 30, withdrawUSDTFirst: false
             })
         );
     }
@@ -103,9 +99,7 @@ contract BittyVaultBeneficiaryTest is Test {
         vm.expectRevert(Trust.MinimalDaysBetweenWithdrawalsIsZero.selector);
         bittyVault.setBeneficiarySettings(
             IBeneficiary.BeneficiarySettings({
-                amountPerWithdrawal: 100 * 10 ** 6,
-                minimalDaysBetweenWithdrawals: 0,
-                withdrawUSDTFirst: false
+                amountPerWithdrawal: 100 * 10 ** 6, minimalDaysBetweenWithdrawals: 0, withdrawUSDTFirst: false
             })
         );
     }
@@ -181,9 +175,7 @@ contract BittyVaultBeneficiaryTest is Test {
     function test_GetUSDCFirstWhenWithdrawUSDTFirstIsFalse() public {
         bittyVault.setBeneficiarySettings(
             IBeneficiary.BeneficiarySettings({
-                amountPerWithdrawal: 100 * 10 ** 6,
-                minimalDaysBetweenWithdrawals: 30,
-                withdrawUSDTFirst: false
+                amountPerWithdrawal: 100 * 10 ** 6, minimalDaysBetweenWithdrawals: 30, withdrawUSDTFirst: false
             })
         );
 

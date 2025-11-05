@@ -60,8 +60,7 @@ interface IAssetManager {
      * @param buyAmount The amount of the buy asset.
      * @param slippage The slippage of the buy.
      */
-    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmount, uint256 slippage)
-        external;
+    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmount, uint256 slippage) external;
 
     /**
      * @notice Buy The Limited assets with assets not in AssetType.
