@@ -92,7 +92,13 @@ abstract contract AssetManager is IAssetManager {
         uint256 sellAmount,
         uint256 buyAmount,
         uint256 slippage
-    ) external virtual override onlyInitialized onlyTrustee {
+    )
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyTrustee
+    {
         require(sellAmount > 0, "Invalid sell amount");
         require(buyAmount > 0, "Invalid buy amount");
         require(slippage <= 10000, "Slippage too high");
@@ -104,7 +110,13 @@ abstract contract AssetManager is IAssetManager {
         uint256 buyAmount,
         uint256 sellAmount,
         uint256 slippage
-    ) external virtual override onlyInitialized onlyTrustee {
+    )
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyTrustee
+    {
         if (sellAssetAddress == address(0)) {
             revert Trust.AddressZero();
         }
