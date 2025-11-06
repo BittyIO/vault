@@ -226,6 +226,9 @@ abstract contract Trust is ITrust {
         onlyInitialized
         onlyGrantor
     {
+        if (this.isIrrevocable()) {
+            revert Irrevocable();
+        }
         if (keccak256(bytes(eventName)) == keccak256(bytes(""))) {
             revert EventNameIsEmpty();
         }
@@ -239,6 +242,25 @@ abstract contract Trust is ITrust {
             revert EventNameDuplicated();
         }
         beneficiaryReleaseEvents[eventName] = releaseEvent;
+    }
+
+    function removeBeneficiaryReleaseEvent(string memory eventName)
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyGrantor
+    {
+        if (this.isIrrevocable()) {
+            revert Irrevocable();
+        }
+        if (keccak256(bytes(eventName)) == keccak256(bytes(""))) {
+            revert EventNameIsEmpty();
+        }
+        if (beneficiaryReleaseEvents[eventName].amount == 0) {
+            revert EventNameNotFound();
+        }
+        delete beneficiaryReleaseEvents[eventName];
     }
 
     function getMoneyFromEvent(string memory eventName) external virtual override onlyInitialized {

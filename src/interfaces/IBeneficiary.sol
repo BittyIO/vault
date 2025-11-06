@@ -66,6 +66,13 @@ interface IBeneficiary {
     function addBeneficiaryReleaseEvent(string memory eventName, IBeneficiary.ReleaseEvent memory releaseEvent) external;
 
     /**
+     * @notice Remove the release event.
+     * @dev Remove the release event.
+     * @param eventName The name of the event.
+     */
+    function removeBeneficiaryReleaseEvent(string memory eventName) external;
+
+    /**
      * @notice Get the money from the event.
      * @dev Get the money from the event.
      * @param eventName The name of the event.

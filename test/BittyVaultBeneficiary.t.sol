@@ -159,6 +159,37 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.getMoneyFromEvent("Marry");
     }
 
+    function test_SetBenefciaryReleaseEventFailedIfIrrevocable() public {
+        bittyVault.setToIrrevocable();
+        vm.expectRevert(Trust.Irrevocable.selector);
+        bittyVault.addBeneficiaryReleaseEvent(
+            "Marry", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 1000000})
+        );
+    }
+
+    function test_RemoveBeneficiaryReleaseEventFailedIfIrrevocable() public {
+        bittyVault.setToIrrevocable();
+        vm.expectRevert(Trust.Irrevocable.selector);
+        bittyVault.removeBeneficiaryReleaseEvent("Marry");
+    }
+
+    function test_RemoveBeneficiaryReleaseEventFailedIfEventNameIsEmpty() public {
+        vm.expectRevert(Trust.EventNameIsEmpty.selector);
+        bittyVault.removeBeneficiaryReleaseEvent("");
+    }
+
+    function test_RemoveBeneficiaryReleaseEventFailedIfEventNameNotFound() public {
+        vm.expectRevert(Trust.EventNameNotFound.selector);
+        bittyVault.removeBeneficiaryReleaseEvent("Marry");
+    }
+
+    function test_RemoveBeneficiaryReleaseEventSuccess() public {
+        bittyVault.addBeneficiaryReleaseEvent(
+            "Marry", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 1000000})
+        );
+        bittyVault.removeBeneficiaryReleaseEvent("Marry");
+    }
+
     function test_GetMoneyFromEventSuccess() public {
         uint256 marryMoney = 1000000;
         bittyVault.setBeneficiarySettings(beneficiarySettings);
