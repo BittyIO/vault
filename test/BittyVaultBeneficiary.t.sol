@@ -55,6 +55,7 @@ contract BittyVaultBeneficiaryTest is Test {
     MockUSDT public mockUSDT;
     MockUSDC public mockUSDC;
     address public beneficiary;
+    address public eventInputAddress;
     IBeneficiary.BeneficiarySettings public beneficiarySettings;
 
     function setUp() public {
@@ -63,6 +64,7 @@ contract BittyVaultBeneficiaryTest is Test {
         mockUSDC = new MockUSDC();
         bittyVault = new BittyVault();
         beneficiary = makeAddr("alice");
+        eventInputAddress = makeAddr("anyone");
         bittyVault.setWETH(address(mockWETH));
         bittyVault.setUSDT(address(mockUSDT));
         bittyVault.setUSDC(address(mockUSDC));
@@ -116,6 +118,58 @@ contract BittyVaultBeneficiaryTest is Test {
         vm.expectRevert(Trust.BeneficiaryWithdrawalInLimitDays.selector);
         vm.prank(beneficiary);
         bittyVault.getMoney();
+    }
+
+    function test_SetBeneficiaryReleaseEventFailedIfEventNameIsEmpty() public {
+        vm.expectRevert(Trust.EventNameIsEmpty.selector);
+        bittyVault.addBeneficiaryReleaseEvent(
+            "", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 1000000})
+        );
+    }
+
+    function test_SetBeneficiaryReleaseEventFailedIfEventInputAddressIsZero() public {
+        vm.expectRevert(Trust.AddressZero.selector);
+        bittyVault.addBeneficiaryReleaseEvent(
+            "Marry", IBeneficiary.ReleaseEvent({triggerAddress: address(0), amount: 1000000})
+        );
+    }
+
+    function test_SetBeneficiaryReleaseEventFailedIfAmountIsZero() public {
+        vm.expectRevert(Trust.AmountIsZero.selector);
+        bittyVault.addBeneficiaryReleaseEvent(
+            "Marry", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 0})
+        );
+    }
+
+    function test_SetBeneficiaryReleaseEventFailedIfEventNameDuplicated() public {
+        bittyVault.addBeneficiaryReleaseEvent(
+            "Marry", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 1000000})
+        );
+        vm.expectRevert(Trust.EventNameDuplicated.selector);
+        bittyVault.addBeneficiaryReleaseEvent(
+            "Marry", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 1000000})
+        );
+    }
+
+    function test_SetBeneficiaryReleaseEventFailedIfEventTriggerError() public {
+        bittyVault.addBeneficiaryReleaseEvent(
+            "Marry", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 1000000})
+        );
+        vm.expectRevert(Trust.EventTriggerError.selector);
+        bittyVault.getMoneyFromEvent("Marry");
+    }
+
+    function test_GetMoneyFromEventSuccess() public {
+        uint256 marryMoney = 1000000;
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+        bittyVault.addBeneficiaryReleaseEvent(
+            "Marry", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: marryMoney})
+        );
+        mockUSDT.mint(address(bittyVault), marryMoney);
+        vm.prank(eventInputAddress);
+        bittyVault.getMoneyFromEvent("Marry");
+        assertEq(mockUSDT.balanceOf(beneficiary), marryMoney, "Beneficiary should receive 1000000 USDT");
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");
     }
 
     function test_GetUSDTSuccessFromTrustFor100USD() public {

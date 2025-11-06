@@ -19,6 +19,11 @@ abstract contract Trust is ITrust {
     error BeneficiaryWithdrawalInLimitDays();
     error InsufficientStablecoinBalance();
     error StablecoinTransferFailed();
+    error EventNameIsEmpty();
+    error EventNameDuplicated();
+    error EventNameNotFound();
+    error AmountIsZero();
+    error EventTriggerError();
 
     address public grantor;
     address public trustee;
@@ -33,6 +38,8 @@ abstract contract Trust is ITrust {
     IBeneficiary.BeneficiarySettings public beneficiarySettings;
     uint256 public lastWithdrawalTime;
     uint256 public startDistributionTimestamp;
+
+    mapping(string => IBeneficiary.ReleaseEvent) public beneficiaryReleaseEvents;
 
     modifier onlyInitialized() virtual {
         require(isInitialized, "Trust not initialized");
@@ -212,6 +219,42 @@ abstract contract Trust is ITrust {
         trustee = newTrusteeAddress;
     }
 
+    function addBeneficiaryReleaseEvent(string memory eventName, IBeneficiary.ReleaseEvent memory releaseEvent)
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyGrantor
+    {
+        if (keccak256(bytes(eventName)) == keccak256(bytes(""))) {
+            revert EventNameIsEmpty();
+        }
+        if (releaseEvent.triggerAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (releaseEvent.amount == 0) {
+            revert AmountIsZero();
+        }
+        if (beneficiaryReleaseEvents[eventName].amount > 0) {
+            revert EventNameDuplicated();
+        }
+        beneficiaryReleaseEvents[eventName] = releaseEvent;
+    }
+
+    function getMoneyFromEvent(string memory eventName) external virtual override onlyInitialized {
+        if (keccak256(bytes(eventName)) == keccak256(bytes(""))) {
+            revert EventNameIsEmpty();
+        }
+        if (beneficiaryReleaseEvents[eventName].amount == 0) {
+            revert EventNameNotFound();
+        }
+        if (beneficiaryReleaseEvents[eventName].triggerAddress != msg.sender) {
+            revert EventTriggerError();
+        }
+        _getMoney(beneficiaryReleaseEvents[eventName].amount);
+        delete beneficiaryReleaseEvents[eventName];
+    }
+
     function getMoney() external virtual override onlyInitialized onlyBeneficiary {
         if (beneficiarySettings.amountPerWithdrawal == 0) {
             revert BeneficiarySettingsNotSet();
@@ -222,33 +265,32 @@ abstract contract Trust is ITrust {
         ) {
             revert BeneficiaryWithdrawalInLimitDays();
         }
+        _getMoney(beneficiarySettings.amountPerWithdrawal);
+        lastWithdrawalTime = block.timestamp;
+    }
 
+    function _getMoney(uint256 amount) internal {
         IERC20 firstWithdrawStableCoin = beneficiarySettings.withdrawUSDTFirst ? this.usdt() : this.usdc();
         IERC20 secondWithdrawStableCoin = beneficiarySettings.withdrawUSDTFirst ? this.usdc() : this.usdt();
 
         uint256 firstWithdrawStableCoinBalance =
             address(firstWithdrawStableCoin) != address(0) ? firstWithdrawStableCoin.balanceOf(address(this)) : 0;
 
-        if (
-            address(firstWithdrawStableCoin) != address(0)
-                && firstWithdrawStableCoinBalance >= beneficiarySettings.amountPerWithdrawal
-        ) {
-            if (!firstWithdrawStableCoin.transfer(beneficiary, beneficiarySettings.amountPerWithdrawal)) {
+        if (address(firstWithdrawStableCoin) != address(0) && firstWithdrawStableCoinBalance >= amount) {
+            if (!firstWithdrawStableCoin.transfer(beneficiary, amount)) {
                 revert StablecoinTransferFailed();
             }
-            lastWithdrawalTime = block.timestamp;
             return;
         }
         if (
             address(secondWithdrawStableCoin) == address(0)
-                || secondWithdrawStableCoin.balanceOf(address(this)) < beneficiarySettings.amountPerWithdrawal
+                || secondWithdrawStableCoin.balanceOf(address(this)) < amount
         ) {
             revert InsufficientStablecoinBalance();
         }
-        if (!secondWithdrawStableCoin.transfer(beneficiary, beneficiarySettings.amountPerWithdrawal)) {
+        if (!secondWithdrawStableCoin.transfer(beneficiary, amount)) {
             revert StablecoinTransferFailed();
         }
-        lastWithdrawalTime = block.timestamp;
     }
 
     function usdt() external view virtual returns (IERC20);
