@@ -57,25 +57,24 @@ interface IAssetManager {
      * @param from The type of the from asset.
      * @param to The type of the to asset.
      * @param sellAmount The amount of the sell asset.
-     * @param buyAmount The amount of the buy asset.
-     * @param slippage The slippage of the buy.
+     * @param buyAmountMin The minimum amount of the buy asset.
      */
-    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmount, uint256 slippage) external;
+    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmountMin, bytes calldata data)
+        external;
 
     /**
      * @notice Buy The Limited assets with assets not in AssetType.
      * @dev Buy the limited assets with the sell assets.
      * @param buyAssetType The type of the buy asset.
      * @param sellAssetAddress The address of the sell asset.
-     * @param buyAmount The amount of the buy asset.
+     * @param buyAmountMin The minimum amount of the buy asset.
      * @param sellAmount The amount of the sell asset.
-     * @param slippage The slippage of the buy.
      */
     function buy(
         AssetType buyAssetType,
         address sellAssetAddress,
-        uint256 buyAmount,
+        uint256 buyAmountMin,
         uint256 sellAmount,
-        uint256 slippage
+        bytes calldata data
     ) external;
 }

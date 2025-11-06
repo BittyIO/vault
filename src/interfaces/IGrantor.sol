@@ -62,13 +62,6 @@ interface IGrantor {
     function setBeneficiarySettings(IBeneficiary.BeneficiarySettings memory beneficiarySettings) external;
 
     /**
-     * @notice Set the rebalance rules.
-     * @dev Set the rebalance rules.
-     * @param rebalanceLimit The rebalance limit.
-     */
-    function setRebalanceRules(ITrustee.RebalanceLimit memory rebalanceLimit) external;
-
-    /**
      * @notice Revoke the trust.
      * @dev Revoke the trust if the trust is revocable.
      * @param moneyWithdrawTo The address to withdraw the money.
