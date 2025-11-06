@@ -29,6 +29,21 @@ interface IBeneficiary {
         bool withdrawUSDTFirst;
     }
 
+    struct ReleaseEvent {
+
+
+        /**
+         * @dev The address of the event trigger.
+         * @param triggerAddress The address of the event trigger.
+         */
+        address triggerAddress;
+        /**
+         * @dev The amount of the money to release.
+         * @param amount The amount of the money to release.
+         */
+        uint256 amount;
+    }
+
     /**
      * @notice only works if beneficiary address is set.
      * @dev only works for beneficiary to change address.
@@ -41,4 +56,19 @@ interface IBeneficiary {
      * @dev Get the money from the trust.
      */
     function getMoney() external;
+
+    /**
+     * @notice Add the money to the beneficiary from the event.
+     * @dev Add the money to the beneficiary from the event.
+     * @param eventName The name of the event.
+     * @param releaseEvent The release event.
+     */
+    function addBeneficiaryReleaseEvent(string memory eventName, IBeneficiary.ReleaseEvent memory releaseEvent) external;
+
+    /**
+     * @notice Get the money from the event.
+     * @dev Get the money from the event.
+     * @param eventName The name of the event.
+     */
+    function getMoneyFromEvent(string memory eventName) external;
 }
