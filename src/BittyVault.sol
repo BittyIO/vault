@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {ITrustee} from "./interfaces/ITrustee.sol";
-import {IGrantor} from "./interfaces/IGrantor.sol";
 import {AssetManager} from "./AssetManager.sol";
 import {Trust} from "./Trust.sol";
 import {IERC20} from "./common/IERC20.sol";
@@ -46,7 +44,7 @@ contract BittyVault is AssetManager, Trust {
      * @return IERC20 The USDT contract interface
      */
     function usdt() external view override returns (IERC20) {
-        return _usdt;
+        return IERC20(assets[AssetType.USDT]);
     }
 
     /**
@@ -55,21 +53,7 @@ contract BittyVault is AssetManager, Trust {
      * @return IERC20 The USDC contract interface
      */
     function usdc() external view override returns (IERC20) {
-        return _usdc;
-    }
-
-    /**
-     * @notice Set rebalance rules
-     * @dev Override to resolve conflict between AssetManager and IGrantor interfaces
-     * @param rebalanceLimit_ The rebalance limit configuration
-     */
-    function setRebalanceRules(ITrustee.RebalanceLimit memory rebalanceLimit_)
-        external
-        override(AssetManager, IGrantor)
-        onlyInitialized
-        onlyTrustee
-    {
-        rebalanceLimit = rebalanceLimit_;
+        return IERC20(assets[AssetType.USDC]);
     }
 
     // All asset management functions are inherited from AssetManager:

@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Script} from "forge-std/Script.sol";
 import {BittyVault} from "../src/BittyVault.sol";
+import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
 
 contract CounterScript is Script {
     BittyVault public bittyVault;
@@ -19,7 +20,7 @@ contract CounterScript is Script {
         bittyVault = new BittyVault();
 
         address wethAddress = getWETHAddress();
-        bittyVault.setWETH(wethAddress);
+        bittyVault.setAsset(IAssetManager.AssetType.WETH, wethAddress);
 
         vm.stopBroadcast();
     }

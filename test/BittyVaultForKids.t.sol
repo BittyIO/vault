@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {Test} from "forge-std/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
+import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -26,7 +27,7 @@ contract BittyVaultForKidsTest is Test {
     function setUp() public {
         mockWETH = new MockWETH();
         bittyVaultForKids = new BittyVault();
-        bittyVaultForKids.setWETH(address(mockWETH));
+        bittyVaultForKids.setAsset(IAssetManager.AssetType.WETH, address(mockWETH));
         kidAddress = makeAddr("alice");
         trusteeAddress = makeAddr("trustee");
         bittyVaultForKids.initialize(address(this));

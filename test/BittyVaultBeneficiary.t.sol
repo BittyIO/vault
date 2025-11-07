@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {Trust} from "../src/Trust.sol";
 import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
+import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -65,9 +66,9 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault = new BittyVault();
         beneficiary = makeAddr("alice");
         eventInputAddress = makeAddr("anyone");
-        bittyVault.setWETH(address(mockWETH));
-        bittyVault.setUSDT(address(mockUSDT));
-        bittyVault.setUSDC(address(mockUSDC));
+        bittyVault.setAsset(IAssetManager.AssetType.WETH, address(mockWETH));
+        bittyVault.setAsset(IAssetManager.AssetType.USDT, address(mockUSDT));
+        bittyVault.setAsset(IAssetManager.AssetType.USDC, address(mockUSDC));
         bittyVault.initialize(address(this));
         bittyVault.setBeneficiary(beneficiary);
         beneficiarySettings = IBeneficiary.BeneficiarySettings({

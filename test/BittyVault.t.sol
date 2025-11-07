@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {Trust} from "../src/Trust.sol";
 import {AssetManager} from "../src/AssetManager.sol";
+import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -26,7 +27,7 @@ contract BittyVaultTest is Test {
     function setUp() public {
         mockWETH = new MockWETH();
         bittyVault = new BittyVault();
-        bittyVault.setWETH(address(mockWETH));
+        bittyVault.setAsset(IAssetManager.AssetType.WETH, address(mockWETH));
     }
 
     function test_InitErrorWithGrantorAddressZero() public {
@@ -66,18 +67,18 @@ contract BittyVaultTest is Test {
         address weth1 = address(0x1);
         address weth2 = address(0x2);
 
-        assertEq(address(newTrust.weth()), address(0));
-        newTrust.setWETH(weth1);
-        assertEq(address(newTrust.weth()), weth1);
-        assertTrue(address(newTrust.weth()) != address(0));
+        assertEq(address(newTrust.assets(IAssetManager.AssetType.WETH)), address(0));
+        newTrust.setAsset(IAssetManager.AssetType.WETH, weth1);
+        assertEq(address(newTrust.assets(IAssetManager.AssetType.WETH)), weth1);
+        assertTrue(address(newTrust.assets(IAssetManager.AssetType.WETH)) != address(0));
 
-        vm.expectRevert(AssetManager.WETHAlreadySet.selector);
-        newTrust.setWETH(weth2);
+        vm.expectRevert(AssetManager.AssetAlreadySet.selector);
+        newTrust.setAsset(IAssetManager.AssetType.WETH, weth2);
     }
 
     function test_SetWETHRevertsOnZeroAddress() public {
         BittyVault newTrust = new BittyVault();
         vm.expectRevert(Trust.AddressZero.selector);
-        newTrust.setWETH(address(0));
+        newTrust.setAsset(IAssetManager.AssetType.WETH, address(0));
     }
 }

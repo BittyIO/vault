@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {IGrantor} from "./interfaces/IGrantor.sol";
 import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
-import {ITrustee} from "./interfaces/ITrustee.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
 import {IERC20} from "./common/IERC20.sol";
 

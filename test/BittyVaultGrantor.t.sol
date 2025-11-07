@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 import {Test} from "forge-std/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {Trust} from "../src/Trust.sol";
+import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -25,7 +26,7 @@ contract BittyVaultGrantorTest is Test {
     function setUp() public {
         mockWETH = new MockWETH();
         bittyVault = new BittyVault();
-        bittyVault.setWETH(address(mockWETH));
+        bittyVault.setAsset(IAssetManager.AssetType.WETH, address(mockWETH));
     }
 
     function test_InitErrorWithGrantorAddressZero() public {
