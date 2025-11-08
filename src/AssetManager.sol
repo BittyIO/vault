@@ -129,7 +129,7 @@ abstract contract AssetManager is IAssetManager {
         return address(this).balance;
     }
 
-    function turnETHToWETH() external virtual override onlyInitialized onlyTrustee {
+    function turnETHToWETH() external virtual override onlyInitialized {
         if (address(assets[AssetType.WETH]) == address(0)) {
             revert WETHNotSet();
         }
