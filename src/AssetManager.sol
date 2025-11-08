@@ -18,11 +18,13 @@ abstract contract AssetManager is IAssetManager {
     error AssetAlreadySet();
     error InvalidAssetType();
 
+    modifier onlyTrustee() virtual;
+    modifier onlyInitialized() virtual;
+
     mapping(AssetType => address) public assets;
     ITrustee.RebalanceLimit public rebalanceLimit;
     IAaveV3 public aave;
     IUniswapV4Router04 public uniswapV4Router;
-    modifier onlyInitialized() virtual;
 
     function setAaveV3(address aaveV3Address) external onlyInitialized onlyTrustee {
         if (aaveV3Address == address(0)) {
@@ -38,7 +40,7 @@ abstract contract AssetManager is IAssetManager {
         uniswapV4Router = IUniswapV4Router04(uniswapV4RouterAddress);
     }
 
-    function setAsset(AssetType assetType, address assetAddress) external onlyInitialized onlyTrustee {
+    function setAsset(AssetType assetType, address assetAddress) external {
         if (uint8(assetType) > uint8(AssetType.USDC)) {
             revert InvalidAssetType();
         }
@@ -51,15 +53,9 @@ abstract contract AssetManager is IAssetManager {
         assets[assetType] = assetAddress;
     }
 
-    function setRebalanceRules(ITrustee.RebalanceLimit memory rebalanceLimit_) external onlyInitialized onlyTrustee {
+    function setRebalanceRules(ITrustee.RebalanceLimit memory rebalanceLimit_) external onlyInitialized {
         rebalanceLimit = rebalanceLimit_;
     }
-
-    function setRebalanceRulesInternal(ITrustee.RebalanceLimit memory rebalanceLimit_) internal {
-        rebalanceLimit = rebalanceLimit_;
-    }
-
-    modifier onlyTrustee() virtual;
 
     function supply(address assetAddress, uint256 amount) external override onlyInitialized onlyTrustee {
         if (assetAddress == address(0)) {

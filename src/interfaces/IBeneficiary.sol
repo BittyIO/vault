@@ -73,9 +73,35 @@ interface IBeneficiary {
     function removeBeneficiaryReleaseEvent(string memory eventName) external;
 
     /**
+     * @notice Add the time events.
+     * @dev Add the time events.
+     * @param timestamps The timestamps of the events.
+     * @param amounts The amounts of the money to release.
+     */
+    function addTimeEvents(uint256[] memory timestamps, uint256[] memory amounts) external;
+
+    /**
+     * @notice Remove the time events.
+     * @dev Remove the time events.
+     * @param timestamps The timestamps of the events.
+     */
+    function removeTimeEvents(uint256[] memory timestamps) external;
+
+    /**
      * @notice Get the money from the event.
      * @dev Get the money from the event.
      * @param eventName The name of the event.
+     *
+     * This is beneficiary only, if the beneficiary address is lost, no one can get money.
      */
     function getMoneyFromEvent(string memory eventName) external;
+
+    /**
+     * @notice Get the money from the time event.
+     * @dev Get the money from the time event.
+     * @param timestamp The timestamp of the event.
+     *
+     * This is beneficiary only, if the beneficiary address is lost, no one can get money.
+     */
+    function getMoneyByTimestamp(uint256 timestamp) external;
 }

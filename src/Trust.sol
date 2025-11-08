@@ -22,6 +22,11 @@ abstract contract Trust is ITrust {
     error EventNameNotFound();
     error AmountIsZero();
     error EventTriggerError();
+    error TimestampIsZero();
+    error TimestampNotFound();
+    error TimestampDuplicated();
+    error TimestampLengthMismatch();
+    error TimestampIsInTheFuture();
 
     address public grantor;
     address public trustee;
@@ -38,6 +43,7 @@ abstract contract Trust is ITrust {
     uint256 public startDistributionTimestamp;
 
     mapping(string => IBeneficiary.ReleaseEvent) public beneficiaryReleaseEvents;
+    mapping(uint256 => uint256) public beneficiaryTimeEvents;
 
     modifier onlyInitialized() virtual {
         require(isInitialized, "Trust not initialized");
@@ -239,7 +245,8 @@ abstract contract Trust is ITrust {
         if (beneficiaryReleaseEvents[eventName].amount > 0) {
             revert EventNameDuplicated();
         }
-        beneficiaryReleaseEvents[eventName] = releaseEvent;
+        beneficiaryReleaseEvents[eventName].triggerAddress = releaseEvent.triggerAddress;
+        beneficiaryReleaseEvents[eventName].amount = releaseEvent.amount;
     }
 
     function removeBeneficiaryReleaseEvent(string memory eventName)
@@ -273,6 +280,56 @@ abstract contract Trust is ITrust {
         }
         _getMoney(beneficiaryReleaseEvents[eventName].amount);
         delete beneficiaryReleaseEvents[eventName];
+    }
+
+    function addTimeEvents(uint256[] memory timestamps, uint256[] memory amounts)
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyGrantor
+    {
+        if (timestamps.length != amounts.length) {
+            revert TimestampLengthMismatch();
+        }
+        for (uint256 i = 0; i < timestamps.length; i++) {
+            if (timestamps[i] == 0) {
+                revert TimestampIsZero();
+            }
+            if (amounts[i] == 0) {
+                revert AmountIsZero();
+            }
+            if (beneficiaryTimeEvents[timestamps[i]] > 0) {
+                revert TimestampDuplicated();
+            }
+            beneficiaryTimeEvents[timestamps[i]] = amounts[i];
+        }
+    }
+
+    function removeTimeEvents(uint256[] memory timestamps) external virtual override onlyInitialized onlyGrantor {
+        for (uint256 i = 0; i < timestamps.length; i++) {
+            if (timestamps[i] == 0) {
+                revert TimestampIsZero();
+            }
+            if (beneficiaryTimeEvents[timestamps[i]] == 0) {
+                revert TimestampNotFound();
+            }
+            delete beneficiaryTimeEvents[timestamps[i]];
+        }
+    }
+
+    function getMoneyByTimestamp(uint256 timestamp) external virtual override onlyInitialized onlyBeneficiary {
+        if (timestamp == 0) {
+            revert TimestampIsZero();
+        }
+        if (beneficiaryTimeEvents[timestamp] == 0) {
+            revert TimestampNotFound();
+        }
+        if (timestamp > block.timestamp) {
+            revert TimestampIsInTheFuture();
+        }
+        _getMoney(beneficiaryTimeEvents[timestamp]);
+        delete beneficiaryTimeEvents[timestamp];
     }
 
     function getMoney() external virtual override onlyInitialized onlyBeneficiary {
