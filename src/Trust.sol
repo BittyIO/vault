@@ -8,7 +8,6 @@ import {IERC20} from "./common/IERC20.sol";
 abstract contract Trust is ITrust {
     error AddressZero();
     error AlreadyInitialized();
-    error Irrevocable();
     error AutoIrrevocableAfterNoPingNotSet();
     error StartDistributionTimestampAlreadySet();
     error AmountPerWithdrawalIsZero();
@@ -25,7 +24,7 @@ abstract contract Trust is ITrust {
     error TimestampIsZero();
     error TimestampNotFound();
     error TimestampDuplicated();
-    error TimestampLengthMismatch();
+    error LengthMismatch();
     error TimestampIsInTheFuture();
 
     address public grantor;
@@ -42,7 +41,7 @@ abstract contract Trust is ITrust {
     uint256 public lastWithdrawalTime;
     uint256 public startDistributionTimestamp;
 
-    mapping(string => IBeneficiary.ReleaseEvent) public beneficiaryReleaseEvents;
+    mapping(string => IBeneficiary.TriggerEvent) public beneficiaryTriggerEvents;
     mapping(uint256 => uint256) public beneficiaryTimeEvents;
 
     modifier onlyInitialized() virtual {
@@ -115,10 +114,7 @@ abstract contract Trust is ITrust {
         isInitialized = true;
     }
 
-    function revoke(address moneyWithdrawTo) external virtual override onlyInitialized onlyGrantor {
-        if (!this.revocable()) {
-            revert Irrevocable();
-        }
+    function revoke(address moneyWithdrawTo) external virtual override onlyInitialized onlyGrantor onlyRevocable {
         if (moneyWithdrawTo == address(0)) {
             revert AddressZero();
         }
@@ -170,10 +166,7 @@ abstract contract Trust is ITrust {
         grantor = grantorAddress;
     }
 
-    function setTrustee(address trusteeAddress) external virtual override onlyInitialized onlyGrantor {
-        if (!this.revocable()) {
-            revert Irrevocable();
-        }
+    function setTrustee(address trusteeAddress) external virtual override onlyInitialized onlyGrantor onlyRevocable {
         if (trusteeAddress == address(0)) {
             revert AddressZero();
         }
@@ -223,63 +216,66 @@ abstract contract Trust is ITrust {
         trustee = newTrusteeAddress;
     }
 
-    function addBeneficiaryReleaseEvent(string memory eventName, IBeneficiary.ReleaseEvent memory releaseEvent)
+    function addTriggerEvents(string[] memory eventNames, IBeneficiary.TriggerEvent[] memory triggerEvents)
         external
         virtual
         override
         onlyInitialized
         onlyGrantor
+        onlyRevocable
     {
-        if (this.isIrrevocable()) {
-            revert Irrevocable();
+        if (eventNames.length != triggerEvents.length) {
+            revert LengthMismatch();
         }
-        if (keccak256(bytes(eventName)) == keccak256(bytes(""))) {
-            revert EventNameIsEmpty();
+        for (uint256 i = 0; i < eventNames.length; i++) {
+            if (keccak256(bytes(eventNames[i])) == keccak256(bytes(""))) {
+                revert EventNameIsEmpty();
+            }
+            if (triggerEvents[i].triggerAddress == address(0)) {
+                revert AddressZero();
+            }
+            if (triggerEvents[i].amount == 0) {
+                revert AmountIsZero();
+            }
+            if (beneficiaryTriggerEvents[eventNames[i]].amount > 0) {
+                revert EventNameDuplicated();
+            }
+            beneficiaryTriggerEvents[eventNames[i]].triggerAddress = triggerEvents[i].triggerAddress;
+            beneficiaryTriggerEvents[eventNames[i]].amount = triggerEvents[i].amount;
         }
-        if (releaseEvent.triggerAddress == address(0)) {
-            revert AddressZero();
-        }
-        if (releaseEvent.amount == 0) {
-            revert AmountIsZero();
-        }
-        if (beneficiaryReleaseEvents[eventName].amount > 0) {
-            revert EventNameDuplicated();
-        }
-        beneficiaryReleaseEvents[eventName].triggerAddress = releaseEvent.triggerAddress;
-        beneficiaryReleaseEvents[eventName].amount = releaseEvent.amount;
     }
 
-    function removeBeneficiaryReleaseEvent(string memory eventName)
+    function removeTriggerEvents(string[] memory eventNames)
         external
         virtual
         override
         onlyInitialized
         onlyGrantor
+        onlyRevocable
     {
-        if (this.isIrrevocable()) {
-            revert Irrevocable();
+        for (uint256 i = 0; i < eventNames.length; i++) {
+            if (keccak256(bytes(eventNames[i])) == keccak256(bytes(""))) {
+                revert EventNameIsEmpty();
+            }
+            if (beneficiaryTriggerEvents[eventNames[i]].amount == 0) {
+                revert EventNameNotFound();
+            }
+            delete beneficiaryTriggerEvents[eventNames[i]];
         }
-        if (keccak256(bytes(eventName)) == keccak256(bytes(""))) {
-            revert EventNameIsEmpty();
-        }
-        if (beneficiaryReleaseEvents[eventName].amount == 0) {
-            revert EventNameNotFound();
-        }
-        delete beneficiaryReleaseEvents[eventName];
     }
 
     function getMoneyFromEvent(string memory eventName) external virtual override onlyInitialized {
         if (keccak256(bytes(eventName)) == keccak256(bytes(""))) {
             revert EventNameIsEmpty();
         }
-        if (beneficiaryReleaseEvents[eventName].amount == 0) {
+        if (beneficiaryTriggerEvents[eventName].amount == 0) {
             revert EventNameNotFound();
         }
-        if (beneficiaryReleaseEvents[eventName].triggerAddress != msg.sender) {
+        if (beneficiaryTriggerEvents[eventName].triggerAddress != msg.sender) {
             revert EventTriggerError();
         }
-        _getMoney(beneficiaryReleaseEvents[eventName].amount);
-        delete beneficiaryReleaseEvents[eventName];
+        _getMoney(beneficiaryTriggerEvents[eventName].amount);
+        delete beneficiaryTriggerEvents[eventName];
     }
 
     function addTimeEvents(uint256[] memory timestamps, uint256[] memory amounts)
@@ -288,9 +284,10 @@ abstract contract Trust is ITrust {
         override
         onlyInitialized
         onlyGrantor
+        onlyRevocable
     {
         if (timestamps.length != amounts.length) {
-            revert TimestampLengthMismatch();
+            revert LengthMismatch();
         }
         for (uint256 i = 0; i < timestamps.length; i++) {
             if (timestamps[i] == 0) {
@@ -306,7 +303,14 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function removeTimeEvents(uint256[] memory timestamps) external virtual override onlyInitialized onlyGrantor {
+    function removeTimeEvents(uint256[] memory timestamps)
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyGrantor
+        onlyRevocable
+    {
         for (uint256 i = 0; i < timestamps.length; i++) {
             if (timestamps[i] == 0) {
                 revert TimestampIsZero();
