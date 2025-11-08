@@ -31,6 +31,14 @@ contract BittyVault is AssetManager, Trust {
     }
 
     /**
+     * @notice Override to resolve conflict between AssetManager and Trust onlyGrantor modifiers
+     */
+    modifier onlyGrantor() override(AssetManager, Trust) {
+        require(msg.sender == grantor, "Only grantor");
+        _;
+    }
+
+    /**
      * @notice Override to resolve conflict between AssetManager and Trust onlyTrustee modifiers
      */
     modifier onlyTrustee() override(AssetManager, Trust) {

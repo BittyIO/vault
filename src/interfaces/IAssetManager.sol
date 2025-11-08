@@ -63,18 +63,19 @@ interface IAssetManager {
         external;
 
     /**
-     * @notice Buy The Limited assets with assets not in AssetType.
-     * @dev Buy the limited assets with the sell assets.
-     * @param buyAssetType The type of the buy asset.
+     * @notice This contract can receive any assets ERC20 that is not in the AssetType enum, Trustee can sell them.
+     * @dev Sell the assets not in the AssetType enum to the AssetType
      * @param sellAssetAddress The address of the sell asset.
-     * @param buyAmountMin The minimum amount of the buy asset.
      * @param sellAmount The amount of the sell asset.
+     * @param toAssetType The type of the to asset.
+     * @param buyAmountMin The minimum amount of the buy asset.
+     * @param data The data for the sell.
      */
-    function buy(
-        AssetType buyAssetType,
+    function sellAssetsNotWhiteListed(
         address sellAssetAddress,
-        uint256 buyAmountMin,
         uint256 sellAmount,
+        AssetType toAssetType,
+        uint256 buyAmountMin,
         bytes calldata data
     ) external;
 }

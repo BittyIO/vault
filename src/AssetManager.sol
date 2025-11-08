@@ -20,6 +20,7 @@ abstract contract AssetManager is IAssetManager {
 
     modifier onlyTrustee() virtual;
     modifier onlyInitialized() virtual;
+    modifier onlyGrantor() virtual;
 
     mapping(AssetType => address) public assets;
     ITrustee.RebalanceLimit public rebalanceLimit;
@@ -53,7 +54,7 @@ abstract contract AssetManager is IAssetManager {
         assets[assetType] = assetAddress;
     }
 
-    function setRebalanceRules(ITrustee.RebalanceLimit memory rebalanceLimit_) external onlyInitialized {
+    function setRebalanceRules(ITrustee.RebalanceLimit memory rebalanceLimit_) external onlyInitialized onlyGrantor {
         rebalanceLimit = rebalanceLimit_;
     }
 
@@ -101,11 +102,11 @@ abstract contract AssetManager is IAssetManager {
         require(buyAssetBalanceAfter - buyAssetBalanceBefore >= buyAmountMin, "buy amount not enough");
     }
 
-    function buy(
-        AssetType buyAssetType,
+    function sellAssetsNotWhiteListed(
         address sellAssetAddress,
-        uint256 buyAmountMin,
         uint256 sellAmount,
+        AssetType toAssetType,
+        uint256 buyAmountMin,
         bytes calldata data
     ) external override onlyInitialized onlyTrustee {
         if (sellAssetAddress == address(0)) {
@@ -116,12 +117,12 @@ abstract contract AssetManager is IAssetManager {
 
         uint256 sellAssetBalanceBefore = addressBalance(sellAssetAddress);
         require(sellAssetBalanceBefore >= sellAmount, "Insufficient balance");
-        uint256 buyAssetBalanceBefore = assetBalance(buyAssetType);
+        uint256 buyAssetBalanceBefore = assetBalance(toAssetType);
 
         IUniswapV4Router04(uniswapV4Router).swap(data, block.timestamp);
         uint256 sellAssetBalanceAfter = addressBalance(sellAssetAddress);
         require(buyAssetBalanceBefore - sellAssetBalanceAfter != sellAmount, "sell amount mismatch");
-        uint256 buyAssetBalanceAfter = assetBalance(buyAssetType);
+        uint256 buyAssetBalanceAfter = assetBalance(toAssetType);
         require(buyAssetBalanceAfter - buyAssetBalanceBefore >= buyAmountMin, "buy amount not enough");
     }
 
