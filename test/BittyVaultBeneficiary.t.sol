@@ -58,6 +58,8 @@ contract BittyVaultBeneficiaryTest is Test {
     address public beneficiary;
     address public eventInputAddress;
     IBeneficiary.BeneficiarySettings public beneficiarySettings;
+    string[] public eventNames;
+    IBeneficiary.TriggerEvent[] public triggerEvents;
     uint256[] public timestamps;
     uint256[] public amounts;
 
@@ -76,6 +78,8 @@ contract BittyVaultBeneficiaryTest is Test {
         beneficiarySettings = IBeneficiary.BeneficiarySettings({
             amountPerWithdrawal: 100 * 1e6, minimalDaysBetweenWithdrawals: 30, withdrawUSDTFirst: true
         });
+        eventNames = new string[](1);
+        triggerEvents = new IBeneficiary.TriggerEvent[](1);
         timestamps = new uint256[](1);
         amounts = new uint256[](1);
     }
@@ -125,87 +129,106 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.getMoney();
     }
 
-    function test_SetBeneficiaryReleaseEventFailedIfEventNameIsEmpty() public {
+    function test_AddTriggerEventsFailedIfEventNameIsEmpty() public {
+        eventNames[0] = "";
+        triggerEvents[0] = IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: 1000000});
         vm.expectRevert(Trust.EventNameIsEmpty.selector);
-        bittyVault.addBeneficiaryReleaseEvent(
-            "", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 1000000})
-        );
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
     }
 
-    function test_SetBeneficiaryReleaseEventFailedIfEventInputAddressIsZero() public {
+    function test_AddTriggerEventsFailedIfEventInputAddressIsZero() public {
+        eventNames[0] = "Marriage";
+        triggerEvents[0] = IBeneficiary.TriggerEvent({triggerAddress: address(0), amount: 1000000});
         vm.expectRevert(Trust.AddressZero.selector);
-        bittyVault.addBeneficiaryReleaseEvent(
-            "Marriage", IBeneficiary.ReleaseEvent({triggerAddress: address(0), amount: 1000000})
-        );
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
     }
 
-    function test_SetBeneficiaryReleaseEventFailedIfAmountIsZero() public {
+    function test_AddTriggerEventsFailedIfAmountIsZero() public {
+        eventNames[0] = "Marriage";
+        triggerEvents[0] = IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: 0});
         vm.expectRevert(Trust.AmountIsZero.selector);
-        bittyVault.addBeneficiaryReleaseEvent(
-            "Marriage", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 0})
-        );
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
     }
 
-    function test_SetBeneficiaryReleaseEventFailedIfEventNameDuplicated() public {
-        bittyVault.addBeneficiaryReleaseEvent(
-            "Marriage", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 1000000})
-        );
+    function test_AddTriggerEventsFailedIfEventNameDuplicated() public {
+        eventNames[0] = "Marriage";
+        triggerEvents[0] = IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: 1000000});
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
         vm.expectRevert(Trust.EventNameDuplicated.selector);
-        bittyVault.addBeneficiaryReleaseEvent(
-            "Marriage", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 1000000})
-        );
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
     }
 
-    function test_SetBeneficiaryReleaseEventFailedIfEventTriggerError() public {
-        bittyVault.addBeneficiaryReleaseEvent(
-            "Marriage", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 1000000})
-        );
+    function test_AddTriggerEventsFailedIfEventTriggerError() public {
+        eventNames[0] = "Marriage";
+        triggerEvents[0] = IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: 1000000});
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
         vm.expectRevert(Trust.EventTriggerError.selector);
         bittyVault.getMoneyFromEvent("Marriage");
     }
 
-    function test_SetBenefciaryReleaseEventFailedIfIrrevocable() public {
+    function test_RemoveTriggerEventsFailedIfIrrevocable() public {
+        eventNames[0] = "Marriage";
+        triggerEvents[0] = IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: 1000000});
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
         bittyVault.setToIrrevocable();
-        vm.expectRevert(Trust.Irrevocable.selector);
-        bittyVault.addBeneficiaryReleaseEvent(
-            "Marriage", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 1000000})
-        );
+        vm.expectRevert("Only revocable");
+        bittyVault.removeTriggerEvents(eventNames);
     }
 
-    function test_RemoveBeneficiaryReleaseEventFailedIfIrrevocable() public {
-        bittyVault.setToIrrevocable();
-        vm.expectRevert(Trust.Irrevocable.selector);
-        bittyVault.removeBeneficiaryReleaseEvent("Marriage");
-    }
-
-    function test_RemoveBeneficiaryReleaseEventFailedIfEventNameIsEmpty() public {
+    function test_RemoveTriggerEventsFailedIfEventNameIsEmpty() public {
+        eventNames[0] = "";
         vm.expectRevert(Trust.EventNameIsEmpty.selector);
-        bittyVault.removeBeneficiaryReleaseEvent("");
+        bittyVault.removeTriggerEvents(eventNames);
     }
 
-    function test_RemoveBeneficiaryReleaseEventFailedIfEventNameNotFound() public {
+    function test_RemoveTriggerEventsFailedIfEventNameNotFound() public {
+        eventNames[0] = "Marriage";
+        triggerEvents[0] = IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: 1000000});
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
+        string[] memory eventNamesNotFound = new string[](1);
+        eventNamesNotFound[0] = "MarriageNotFound";
         vm.expectRevert(Trust.EventNameNotFound.selector);
-        bittyVault.removeBeneficiaryReleaseEvent("Marriage");
-    }
-
-    function test_RemoveBeneficiaryReleaseEventSuccess() public {
-        bittyVault.addBeneficiaryReleaseEvent(
-            "Marriage", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: 1000000})
-        );
-        bittyVault.removeBeneficiaryReleaseEvent("Marriage");
+        bittyVault.removeTriggerEvents(eventNamesNotFound);
     }
 
     function test_GetMoneyFromEventSuccess() public {
         uint256 MarriageMoney = 1000000;
+        eventNames[0] = "Marriage";
+        triggerEvents[0] = IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: MarriageMoney});
         bittyVault.setBeneficiarySettings(beneficiarySettings);
-        bittyVault.addBeneficiaryReleaseEvent(
-            "Marriage", IBeneficiary.ReleaseEvent({triggerAddress: eventInputAddress, amount: MarriageMoney})
-        );
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
         mockUSDT.mint(address(bittyVault), MarriageMoney);
         vm.prank(eventInputAddress);
         bittyVault.getMoneyFromEvent("Marriage");
         assertEq(mockUSDT.balanceOf(beneficiary), MarriageMoney, "Beneficiary should receive 1000000 USDT");
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");
+    }
+
+    function test_AddTriggerEventsFailedIfIrrevocableBySetting() public {
+        eventNames[0] = "Marriage";
+        triggerEvents[0] = IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: 1000000});
+        bittyVault.setToIrrevocable();
+        vm.expectRevert("Only revocable");
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
+    }
+
+    function test_AddTriggerEventsFailedIfIrrevocableByPing() public {
+        eventNames[0] = "Marriage";
+        triggerEvents[0] = IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: 1000000});
+        bittyVault.setAutoIrrevocableAfterNoPing(1);
+        vm.warp(block.timestamp + 2);
+        vm.expectRevert("Only revocable");
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
+    }
+
+    function test_RemoveTriggerEventsSuccess() public {
+        eventNames[0] = "Marriage";
+        triggerEvents[0] = IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: 1000000});
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
+        bittyVault.removeTriggerEvents(eventNames);
+        vm.prank(beneficiary);
+        vm.expectRevert(Trust.EventNameNotFound.selector);
+        bittyVault.getMoneyFromEvent(eventNames[0]);
     }
 
     function test_AddTimeEventsFailedIfTimestampIsZero() public {
@@ -235,7 +258,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256[] memory accountsMismatch = new uint256[](2);
         accountsMismatch[0] = 1000000;
         accountsMismatch[1] = 1000000;
-        vm.expectRevert(Trust.TimestampLengthMismatch.selector);
+        vm.expectRevert(Trust.LengthMismatch.selector);
         bittyVault.addTimeEvents(timestamps, accountsMismatch);
     }
 
