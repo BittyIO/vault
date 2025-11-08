@@ -62,6 +62,44 @@ interface IGrantor {
     function setBeneficiarySettings(IBeneficiary.BeneficiarySettings memory beneficiarySettings) external;
 
     /**
+     * @notice Add the money to the beneficiary from the event.
+     * @dev Add the money to the beneficiary from the event.
+     * @param eventNames The names of the events.
+     * @param triggerEvents The trigger events.
+     *
+     * This is not working anymore if the trust is irrevocable.
+     */
+    function addTriggerEvents(string[] memory eventNames, IBeneficiary.TriggerEvent[] memory triggerEvents) external;
+
+    /**
+     * @notice Remove the release event.
+     * @dev Remove the release event.
+     * @param eventNames The names of the events.
+     *
+     * This is not working anymore if the trust is irrevocable.
+     */
+    function removeTriggerEvents(string[] memory eventNames) external;
+
+    /**
+     * @notice Add the time events.
+     * @dev Add the time events.
+     * @param timestamps The timestamps of the events.
+     * @param amounts The amounts of the money to release.
+     *
+     * This is not working anymore if the trust is irrevocable.
+     */
+    function addTimeEvents(uint256[] memory timestamps, uint256[] memory amounts) external;
+
+    /**
+     * @notice Remove the time events.
+     * @dev Remove the time events.
+     * @param timestamps The timestamps of the events.
+     *
+     * This is not working anymore if the trust is irrevocable.
+     */
+    function removeTimeEvents(uint256[] memory timestamps) external;
+
+    /**
      * @notice Revoke the trust.
      * @dev Revoke the trust if the trust is revocable.
      * @param moneyWithdrawTo The address to withdraw the money.
