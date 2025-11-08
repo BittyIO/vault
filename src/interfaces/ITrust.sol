@@ -11,6 +11,27 @@ import {ITrustee} from "./ITrustee.sol";
  *
  */
 interface ITrust is IGrantor, IBeneficiary, ITrustee {
+    error AddressZero();
+    error AlreadyInitialized();
+    error AutoIrrevocableAfterNoPingNotSet();
+    error StartDistributionTimestampAlreadySet();
+    error AmountPerWithdrawalIsZero();
+    error MinimalDaysBetweenWithdrawalsIsZero();
+    error BeneficiarySettingsNotSet();
+    error BeneficiaryWithdrawalInLimitDays();
+    error InsufficientStablecoinBalance();
+    error StablecoinTransferFailed();
+    error EventNameIsEmpty();
+    error EventNameDuplicated();
+    error EventNameNotFound();
+    error AmountIsZero();
+    error EventTriggerError();
+    error TimestampIsZero();
+    error TimestampNotFound();
+    error TimestampDuplicated();
+    error LengthMismatch();
+    error TimestampIsInTheFuture();
+
     /**
      * @notice Set the trust to irrevocable.
      * @dev Set the trust to irrevocable.
