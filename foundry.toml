@@ -10,5 +10,7 @@ gas_price = 0
 optimizer = true
 # optimizer runs
 optimizer_runs = 200
+# Use IR compilation to support struct array copying from interfaces
+via_ir = true
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
