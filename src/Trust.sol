@@ -49,6 +49,16 @@ abstract contract Trust is ITrust {
         _;
     }
 
+    modifier onlyGrantor() virtual {
+        require(msg.sender == grantor, "Only grantor");
+        _;
+    }
+
+    modifier onlyTrustee() virtual {
+        require(msg.sender == trustee, "Only trustee");
+        _;
+    }
+
     modifier onlyRevocable() {
         require(this.revocable(), "Only revocable");
         _;
@@ -59,18 +69,8 @@ abstract contract Trust is ITrust {
         _;
     }
 
-    modifier onlyGrantor() {
-        require(msg.sender == grantor, "Only grantor");
-        _;
-    }
-
     modifier onlyBeneficiary() {
         require(msg.sender == beneficiary, "Only beneficiary");
-        _;
-    }
-
-    modifier onlyTrustee() virtual {
-        require(msg.sender == trustee, "Only trustee");
         _;
     }
 
