@@ -8,6 +8,10 @@ on:
 env:
   FOUNDRY_PROFILE: ci
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   check:
     name: Compile and test
