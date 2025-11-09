@@ -3,30 +3,9 @@ pragma solidity ^0.8.27;
 
 import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
-import {IERC20} from "./common/IERC20.sol";
+import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 abstract contract Trust is ITrust {
-    error AddressZero();
-    error AlreadyInitialized();
-    error AutoIrrevocableAfterNoPingNotSet();
-    error StartDistributionTimestampAlreadySet();
-    error AmountPerWithdrawalIsZero();
-    error MinimalDaysBetweenWithdrawalsIsZero();
-    error BeneficiarySettingsNotSet();
-    error BeneficiaryWithdrawalInLimitDays();
-    error InsufficientStablecoinBalance();
-    error StablecoinTransferFailed();
-    error EventNameIsEmpty();
-    error EventNameDuplicated();
-    error EventNameNotFound();
-    error AmountIsZero();
-    error EventTriggerError();
-    error TimestampIsZero();
-    error TimestampNotFound();
-    error TimestampDuplicated();
-    error LengthMismatch();
-    error TimestampIsInTheFuture();
-
     address public grantor;
     address public trustee;
     address public beneficiary;

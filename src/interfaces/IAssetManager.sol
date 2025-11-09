@@ -2,6 +2,17 @@
 pragma solidity ^0.8.27;
 
 interface IAssetManager {
+    error WETHNotSet();
+    error AssetAlreadySet();
+    error InvalidAssetType();
+    error RebalanceInMinimalTime();
+    error InsufficientBalance();
+    error SellAmountMismatch();
+    error BuyAmountNotEnough();
+    error MinimalWBTCBalanceLimit();
+    error MinimalWETHBalanceLimit();
+    error MinimalStableCoinBalanceLimit();
+
     enum AssetType {
         WBTC,
         WETH,
@@ -13,8 +24,8 @@ interface IAssetManager {
         uint256 minimalWBTCBalance;
         uint256 minimalWETHBalance;
         uint256 minimalStableCoinBalance;
-        uint256 minimalDaysRebalance;
-        uint256 maxReblancePercentage;
+        uint256 minimalTimestampBetweenRebalances;
+        uint256 maxRebalancePercentage;
     }
 
     /**
