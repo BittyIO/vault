@@ -169,8 +169,8 @@ abstract contract Trust is ITrust {
         if (beneficiarySettings_.amountPerWithdrawal == 0) {
             revert AmountPerWithdrawalIsZero();
         }
-        if (beneficiarySettings_.minimalDaysBetweenWithdrawals == 0) {
-            revert MinimalDaysBetweenWithdrawalsIsZero();
+        if (beneficiarySettings_.minimalWithdrawDuration < 1 days) {
+            revert minimalWithdrawDurationLessThan1Day();
         }
         beneficiarySettings = beneficiarySettings_;
     }
@@ -320,8 +320,7 @@ abstract contract Trust is ITrust {
             revert BeneficiarySettingsNotSet();
         }
         if (
-            lastWithdrawalTime > 0
-                && block.timestamp - lastWithdrawalTime < beneficiarySettings.minimalDaysBetweenWithdrawals * 1 days
+            lastWithdrawalTime > 0 && block.timestamp - lastWithdrawalTime < beneficiarySettings.minimalWithdrawDuration
         ) {
             revert BeneficiaryWithdrawalInLimitDays();
         }

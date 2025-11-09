@@ -14,14 +14,16 @@ interface IBeneficiary {
          * This is USD value of the money to get per withdrawal, if the trust do not have enough stablecoin,
          * it will convert the assets to stablecoin with market price and withdraw to the beneficiary.
          *
-         * Since we only support USDT and USDC, the unit is 10^6.
+         * Since we only support USDT and USDC, the amount can be like 2000 * 10e6 (2000 USD) for both of them.
          */
         uint256 amountPerWithdrawal;
         /**
          * @dev The minimal days between withdrawals.
-         * @param minimalDaysBetweenWithdrawals The minimal days between withdrawals.
+         * @param minimalWithdrawDuration The minimal timestamp between withdrawals.
+         *
+         * It can not be 0 for security, should > 1 day.
          */
-        uint256 minimalDaysBetweenWithdrawals;
+        uint256 minimalWithdrawDuration;
         /**
          * @dev Whether to withdraw USDT first if the trust has enough USDT.
          * @param withdrawUSDTFirst Whether to withdraw USDT first if the trust has enough USDT.

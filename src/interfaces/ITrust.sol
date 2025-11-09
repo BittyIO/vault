@@ -16,7 +16,7 @@ interface ITrust is IGrantor, IBeneficiary, ITrustee {
     error AutoIrrevocableAfterNoPingNotSet();
     error StartDistributionTimestampAlreadySet();
     error AmountPerWithdrawalIsZero();
-    error MinimalDaysBetweenWithdrawalsIsZero();
+    error minimalWithdrawDurationLessThan1Day();
     error BeneficiarySettingsNotSet();
     error BeneficiaryWithdrawalInLimitDays();
     error InsufficientStablecoinBalance();
