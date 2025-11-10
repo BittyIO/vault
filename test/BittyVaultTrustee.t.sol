@@ -186,7 +186,7 @@ contract BittyVaultTrusteeTest is Test {
     MockUniswapV4Router public mockUniswap;
     address public trustee;
     IAssetManager.RebalanceLimit public rebalanceLimits;
-    ITrustee.TrusteeFee public trusteeFee;
+    IAssetManager.ManageFee public manageFee;
 
     function setUp() public {
         mockWETH = new MockWETH();
@@ -212,37 +212,73 @@ contract BittyVaultTrusteeTest is Test {
             maxRebalancePercentage: 10
         });
         bittyVault.setRebalanceRules(rebalanceLimits);
-        trusteeFee =
-            ITrustee.TrusteeFee({baseFeeAmount: 100 * 1e6, baseFeeDuration: 30 days, isBaseFeePercentage: false});
+        manageFee = IAssetManager.ManageFee({
+            baseFeeAmount: 100 * 1e6,
+            baseFeeDuration: 30 days,
+            isBaseFeePercentage: false,
+            revenuePercentage: 0,
+            revenueDuration: 0
+        });
+    }
+
+    function test_SetManageFeeFailedIfAmountIsZero() public {
+        manageFee.baseFeeAmount = 0;
+        manageFee.revenuePercentage = 0;
+        vm.expectRevert(ITrust.AmountIsZero.selector);
+        bittyVault.setManageFee(manageFee);
+    }
+
+    function test_SetManageFeeFailedIfRevenueDurationIsZero() public {
+        manageFee.revenueDuration = 0;
+        manageFee.revenuePercentage = 10;
+        vm.expectRevert(IAssetManager.RevenueDurationIsZero.selector);
+        bittyVault.setManageFee(manageFee);
     }
 
     function test_TrusteeGetBaseFeeFailedBeforeDuration() public {
-        bittyVault.setTrusteeFee(trusteeFee);
-        vm.expectRevert(ITrustee.BaseFeeDurationNotMet.selector);
+        bittyVault.setManageFee(manageFee);
+        vm.expectRevert(IAssetManager.BaseFeeDurationNotMet.selector);
         vm.prank(trustee);
-        bittyVault.getTrusteeBaseFee();
+        bittyVault.getBaseFee();
     }
 
     function test_TrusteeGetBaseFeeShouldBeFine() public {
-        bittyVault.setTrusteeFee(trusteeFee);
-        mockUSDT.mint(address(bittyVault), trusteeFee.baseFeeAmount);
+        bittyVault.setManageFee(manageFee);
+        mockUSDT.mint(address(bittyVault), manageFee.baseFeeAmount);
         vm.warp(block.timestamp + 30 days + 1);
         vm.prank(trustee);
-        bittyVault.getTrusteeBaseFee();
-        assertEq(mockUSDT.balanceOf(trustee), trusteeFee.baseFeeAmount);
+        bittyVault.getBaseFee();
+        assertEq(mockUSDT.balanceOf(trustee), manageFee.baseFeeAmount);
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
     }
 
     function test_TrusteeGetBaseFeeShouldBeFineByPercentage() public {
-        trusteeFee.isBaseFeePercentage = true;
-        trusteeFee.baseFeeAmount = 1000;
-        bittyVault.setTrusteeFee(trusteeFee);
+        manageFee.isBaseFeePercentage = true;
+        manageFee.baseFeeAmount = 1000;
+        bittyVault.setManageFee(manageFee);
         mockUSDT.mint(address(bittyVault), 100 * 1e6);
         vm.warp(block.timestamp + 30 days + 1);
         vm.prank(trustee);
-        bittyVault.getTrusteeBaseFee();
+        bittyVault.getBaseFee();
         assertEq(mockUSDT.balanceOf(trustee), 10 * 1e6);
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 90 * 1e6);
+    }
+
+    function test_TrusteeGetRevenueFeeFailedIfRevenuePercentageIsZero() public {
+        manageFee.revenuePercentage = 0;
+        manageFee.revenueDuration = 30 days;
+        vm.expectRevert(IAssetManager.RevenuePercentageIsZero.selector);
+        bittyVault.setManageFee(manageFee);
+    }
+
+    function test_TrusteeGetRevenueFailedIfDurationIsNotMet() public {
+        manageFee.revenuePercentage = 10;
+        manageFee.revenueDuration = 30 days;
+        bittyVault.setManageFee(manageFee);
+        vm.warp(block.timestamp + manageFee.revenueDuration - 1);
+        vm.prank(trustee);
+        vm.expectRevert(IAssetManager.RevenueDurationNotMet.selector);
+        bittyVault.getRevenueFee();
     }
 
     function test_RebalanceFailedIfRebalanceIsZero() public {

@@ -12,6 +12,11 @@ interface IAssetManager {
     error MinimalWBTCBalanceLimit();
     error MinimalWETHBalanceLimit();
     error MinimalStableCoinBalanceLimit();
+    error BaseFeeDurationNotMet();
+    error RevenueDurationNotMet();
+    error RevenueIsZero();
+    error RevenuePercentageIsZero();
+    error RevenueDurationIsZero();
 
     enum AssetType {
         WBTC,
@@ -26,6 +31,37 @@ interface IAssetManager {
         uint256 minimalStableCoinBalance;
         uint256 minimalTimestampBetweenRebalances;
         uint256 maxRebalancePercentage;
+    }
+
+    struct ManageFee {
+        /**
+         *
+         * @param baseFeeAmount The base fee amount.
+         * @dev The base fee amount, if isBaseFeePercentage is true, this is 1 / 10000 as unit.
+         */
+        uint256 baseFeeAmount;
+        /**
+         * @dev The base fee duration.
+         * @param baseFeeDuration The base fee duration.
+         */
+        uint256 baseFeeDuration;
+        /**
+         * @dev Whether the base fee is a percentage.
+         * @param isBaseFeePercentage Whether the base fee is a percentage.
+         */
+        bool isBaseFeePercentage;
+
+        /**
+         * @dev The revenue percentage, this is 1 / 10000 as unit.
+         * @param revenuePercentage The revenue percentage.
+         */
+        uint256 revenuePercentage;
+
+        /**
+         * @dev The revenue duration.
+         * @param revenueDuration The revenue duration.
+         */
+        uint256 revenueDuration;
     }
 
     /**
@@ -89,4 +125,16 @@ interface IAssetManager {
         uint256 buyAmountMin,
         bytes calldata data
     ) external;
+
+    /**
+     * @notice Get the trustee base fee.
+     * @dev Get the trustee base fee.
+     */
+    function getBaseFee() external;
+
+    /**
+     * @notice Get the revenue fee.
+     * @dev Get the revenue fee.
+     */
+    function getRevenueFee() external;
 }

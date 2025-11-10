@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {ITrustee} from "./ITrustee.sol";
 import {IBeneficiary} from "./IBeneficiary.sol";
+import {IAssetManager} from "./IAssetManager.sol";
 
 /**
  * @title Create and set the rules of the Trust.
@@ -48,10 +49,11 @@ interface IGrantor {
     function setTrustee(address trusteeAddress) external;
 
     /**
-     * @notice Set the trustee fee.
-     * @param trusteeFee The trustee fee.
+     * @notice Set the manage fee.
+     * @dev Set the manage fee.
+     * @param manageFee The manage fee.
      */
-    function setTrusteeFee(ITrustee.TrusteeFee memory trusteeFee) external;
+    function setManageFee(IAssetManager.ManageFee memory manageFee) external;
 
     /**
      * @notice Set the beneficiary.
