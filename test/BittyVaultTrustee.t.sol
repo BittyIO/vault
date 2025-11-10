@@ -4,7 +4,7 @@ pragma solidity ^0.8.27;
 import {Test} from "forge-std/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {ITrust} from "../src/interfaces/ITrust.sol";
-import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
+import {ITrustee} from "../src/interfaces/ITrustee.sol";
 import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
@@ -186,6 +186,7 @@ contract BittyVaultTrusteeTest is Test {
     MockUniswapV4Router public mockUniswap;
     address public trustee;
     IAssetManager.RebalanceLimit public rebalanceLimits;
+    ITrustee.TrusteeFee public trusteeFee;
 
     function setUp() public {
         mockWETH = new MockWETH();
@@ -211,6 +212,37 @@ contract BittyVaultTrusteeTest is Test {
             maxRebalancePercentage: 10
         });
         bittyVault.setRebalanceRules(rebalanceLimits);
+        trusteeFee =
+            ITrustee.TrusteeFee({baseFeeAmount: 100 * 1e6, baseFeeDuration: 30 days, isBaseFeePercentage: false});
+    }
+
+    function test_TrusteeGetBaseFeeFailedBeforeDuration() public {
+        bittyVault.setTrusteeFee(trusteeFee);
+        vm.expectRevert(ITrustee.BaseFeeDurationNotMet.selector);
+        vm.prank(trustee);
+        bittyVault.getTrusteeBaseFee();
+    }
+
+    function test_TrusteeGetBaseFeeShouldBeFine() public {
+        bittyVault.setTrusteeFee(trusteeFee);
+        mockUSDT.mint(address(bittyVault), trusteeFee.baseFeeAmount);
+        vm.warp(block.timestamp + 30 days + 1);
+        vm.prank(trustee);
+        bittyVault.getTrusteeBaseFee();
+        assertEq(mockUSDT.balanceOf(trustee), trusteeFee.baseFeeAmount);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
+    }
+
+    function test_TrusteeGetBaseFeeShouldBeFineByPercentage() public {
+        trusteeFee.isBaseFeePercentage = true;
+        trusteeFee.baseFeeAmount = 1000;
+        bittyVault.setTrusteeFee(trusteeFee);
+        mockUSDT.mint(address(bittyVault), 100 * 1e6);
+        vm.warp(block.timestamp + 30 days + 1);
+        vm.prank(trustee);
+        bittyVault.getTrusteeBaseFee();
+        assertEq(mockUSDT.balanceOf(trustee), 10 * 1e6);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), 90 * 1e6);
     }
 
     function test_RebalanceFailedIfRebalanceIsZero() public {

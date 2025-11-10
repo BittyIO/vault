@@ -3,11 +3,13 @@ pragma solidity ^0.8.27;
 
 import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
+import {ITrustee} from "./interfaces/ITrustee.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 abstract contract Trust is ITrust {
     address public grantor;
     address public trustee;
+    ITrustee.TrusteeFee public trusteeFee;
     address public beneficiary;
 
     bool public isInitialized;
@@ -19,6 +21,7 @@ abstract contract Trust is ITrust {
     IBeneficiary.BeneficiarySettings public beneficiarySettings;
     uint256 public lastWithdrawalTime;
     uint256 public startDistributionTimestamp;
+    uint256 public lastBaseFeeTime;
 
     mapping(string => IBeneficiary.TriggerEvent) public beneficiaryTriggerEvents;
     mapping(uint256 => IBeneficiary.TimeEvent) public beneficiaryTimeEvents;
@@ -150,6 +153,20 @@ abstract contract Trust is ITrust {
             revert AddressZero();
         }
         trustee = trusteeAddress;
+        lastBaseFeeTime = block.timestamp;
+    }
+
+    function setTrusteeFee(ITrustee.TrusteeFee memory trusteeFee_)
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyGrantor
+    {
+        if (trusteeFee_.baseFeeAmount == 0) {
+            revert AmountIsZero();
+        }
+        trusteeFee = trusteeFee_;
     }
 
     function setBeneficiary(address beneficiaryAddress) external virtual override onlyInitialized onlyGrantor {
@@ -260,9 +277,9 @@ abstract contract Trust is ITrust {
             revert EventTriggerError();
         }
         if (!triggerEvent.isPercentage) {
-            _getMoney(beneficiaryTriggerEvents[eventName].amount);
+            _getMoney(beneficiaryTriggerEvents[eventName].amount, beneficiary);
         } else {
-            _getPercentageMoney(triggerEvent.amount);
+            _getPercentageMoney(triggerEvent.amount, beneficiary);
         }
         delete beneficiaryTriggerEvents[eventName];
     }
@@ -323,9 +340,9 @@ abstract contract Trust is ITrust {
             revert TimestampIsInTheFuture();
         }
         if (!beneficiaryTimeEvents[timestamp].isPercentage) {
-            _getMoney(beneficiaryTimeEvents[timestamp].amount);
+            _getMoney(beneficiaryTimeEvents[timestamp].amount, beneficiary);
         } else {
-            _getPercentageMoney(beneficiaryTimeEvents[timestamp].amount);
+            _getPercentageMoney(beneficiaryTimeEvents[timestamp].amount, beneficiary);
         }
         delete beneficiaryTimeEvents[timestamp];
     }
@@ -339,11 +356,11 @@ abstract contract Trust is ITrust {
         ) {
             revert BeneficiaryWithdrawalInLimitDays();
         }
-        _getMoney(beneficiarySettings.amountPerWithdrawal);
+        _getMoney(beneficiarySettings.amountPerWithdrawal, beneficiary);
         lastWithdrawalTime = block.timestamp;
     }
 
-    function _getMoney(uint256 amount) internal {
+    function _getMoney(uint256 amount, address to) internal {
         IERC20 firstWithdrawStableCoin = beneficiarySettings.withdrawUSDTFirst ? this.usdt() : this.usdc();
         IERC20 secondWithdrawStableCoin = beneficiarySettings.withdrawUSDTFirst ? this.usdc() : this.usdt();
 
@@ -351,7 +368,7 @@ abstract contract Trust is ITrust {
             address(firstWithdrawStableCoin) != address(0) ? firstWithdrawStableCoin.balanceOf(address(this)) : 0;
 
         if (address(firstWithdrawStableCoin) != address(0) && firstWithdrawStableCoinBalance >= amount) {
-            if (!firstWithdrawStableCoin.transfer(beneficiary, amount)) {
+            if (!firstWithdrawStableCoin.transfer(to, amount)) {
                 revert TransferFailed();
             }
             return;
@@ -362,28 +379,40 @@ abstract contract Trust is ITrust {
         ) {
             revert InsufficientStablecoinBalance();
         }
-        if (!secondWithdrawStableCoin.transfer(beneficiary, amount)) {
+        if (!secondWithdrawStableCoin.transfer(to, amount)) {
             revert TransferFailed();
         }
     }
 
     // TODO, should send other ERC20 tokens like aave deposit tokens, etc.
-    function _getPercentageMoney(uint256 persentage) internal {
-        _transferERC20Token(this.usdt(), persentage);
-        _transferERC20Token(this.usdc(), persentage);
-        _transferERC20Token(this.wbtc(), persentage);
-        _transferERC20Token(this.weth(), persentage);
+    function _getPercentageMoney(uint256 persentage, address to) internal {
+        _transferERC20Token(this.usdt(), persentage, to);
+        _transferERC20Token(this.usdc(), persentage, to);
+        _transferERC20Token(this.wbtc(), persentage, to);
+        _transferERC20Token(this.weth(), persentage, to);
     }
 
-    function _transferERC20Token(IERC20 token, uint256 percentage) internal {
+    function _transferERC20Token(IERC20 token, uint256 percentage, address to) internal {
         if (address(token) == address(0) || percentage == 0) {
             return;
         }
         uint256 amount = token.balanceOf(address(this)) * percentage / 10000;
         if (amount > 0) {
-            if (!token.transfer(beneficiary, amount)) {
+            if (!token.transfer(to, amount)) {
                 revert TransferFailed();
             }
+        }
+    }
+
+    function getTrusteeBaseFee() external virtual override onlyInitialized onlyTrustee {
+        if (block.timestamp - lastBaseFeeTime < trusteeFee.baseFeeDuration) {
+            revert BaseFeeDurationNotMet();
+        }
+        lastBaseFeeTime = block.timestamp;
+        if (!trusteeFee.isBaseFeePercentage) {
+            _getMoney(trusteeFee.baseFeeAmount, trustee);
+        } else {
+            _getPercentageMoney(trusteeFee.baseFeeAmount, trustee);
         }
     }
 

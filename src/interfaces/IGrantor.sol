@@ -48,6 +48,12 @@ interface IGrantor {
     function setTrustee(address trusteeAddress) external;
 
     /**
+     * @notice Set the trustee fee.
+     * @param trusteeFee The trustee fee.
+     */
+    function setTrusteeFee(ITrustee.TrusteeFee memory trusteeFee) external;
+
+    /**
      * @notice Set the beneficiary.
      * @dev Set the beneficiary.
      * @param beneficiaryAddress The address of the beneficiary.
