@@ -21,7 +21,7 @@ abstract contract Trust is ITrust {
     uint256 public startDistributionTimestamp;
 
     mapping(string => IBeneficiary.TriggerEvent) public beneficiaryTriggerEvents;
-    mapping(uint256 => uint256) public beneficiaryTimeEvents;
+    mapping(uint256 => IBeneficiary.TimeEvent) public beneficiaryTimeEvents;
 
     modifier onlyInitialized() virtual {
         require(isInitialized, "Trust not initialized");
@@ -267,7 +267,7 @@ abstract contract Trust is ITrust {
         delete beneficiaryTriggerEvents[eventName];
     }
 
-    function addTimeEvents(uint256[] memory timestamps, uint256[] memory amounts)
+    function addTimeEvents(uint256[] memory timestamps, IBeneficiary.TimeEvent[] memory timeEvents)
         external
         virtual
         override
@@ -275,20 +275,21 @@ abstract contract Trust is ITrust {
         onlyGrantor
         onlyRevocable
     {
-        if (timestamps.length != amounts.length) {
+        if (timestamps.length != timeEvents.length) {
             revert LengthMismatch();
         }
         for (uint256 i = 0; i < timestamps.length; i++) {
             if (timestamps[i] == 0) {
                 revert TimestampIsZero();
             }
-            if (amounts[i] == 0) {
+            TimeEvent memory timeEvent = timeEvents[i];
+            if (timeEvent.amount == 0) {
                 revert AmountIsZero();
             }
-            if (beneficiaryTimeEvents[timestamps[i]] > 0) {
+            if (beneficiaryTimeEvents[timestamps[i]].amount > 0) {
                 revert TimestampDuplicated();
             }
-            beneficiaryTimeEvents[timestamps[i]] = amounts[i];
+            beneficiaryTimeEvents[timestamps[i]] = timeEvent;
         }
     }
 
@@ -304,7 +305,7 @@ abstract contract Trust is ITrust {
             if (timestamps[i] == 0) {
                 revert TimestampIsZero();
             }
-            if (beneficiaryTimeEvents[timestamps[i]] == 0) {
+            if (beneficiaryTimeEvents[timestamps[i]].amount == 0) {
                 revert TimestampNotFound();
             }
             delete beneficiaryTimeEvents[timestamps[i]];
@@ -315,13 +316,17 @@ abstract contract Trust is ITrust {
         if (timestamp == 0) {
             revert TimestampIsZero();
         }
-        if (beneficiaryTimeEvents[timestamp] == 0) {
+        if (beneficiaryTimeEvents[timestamp].amount == 0) {
             revert TimestampNotFound();
         }
         if (timestamp > block.timestamp) {
             revert TimestampIsInTheFuture();
         }
-        _getMoney(beneficiaryTimeEvents[timestamp]);
+        if (!beneficiaryTimeEvents[timestamp].isPercentage) {
+            _getMoney(beneficiaryTimeEvents[timestamp].amount);
+        } else {
+            _getPercentageMoney(beneficiaryTimeEvents[timestamp].amount);
+        }
         delete beneficiaryTimeEvents[timestamp];
     }
 

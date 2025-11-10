@@ -54,6 +54,21 @@ interface IBeneficiary {
         bool isPercentage;
     }
 
+    struct TimeEvent {
+
+
+        /**
+         * @dev The amount or percentage(1 / 10000 as unit) of the money to release.
+         */
+        uint256 amount;
+
+        /**
+         * @dev whether the amount is the percentage of money distribute the money to the beneficiary.
+         * @param isPesentage
+         */
+        bool isPercentage;
+    }
+
     /**
      * @notice only works if beneficiary address is set.
      * @dev only works for beneficiary to change address.

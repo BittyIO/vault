@@ -60,6 +60,7 @@ contract BittyVaultBeneficiaryTest is Test {
     IBeneficiary.BeneficiarySettings public beneficiarySettings;
     string[] public eventNames;
     IBeneficiary.TriggerEvent[] public triggerEvents;
+    IBeneficiary.TimeEvent[] public timeEvents;
     uint256[] public timestamps;
     uint256[] public amounts;
     uint256 public withdrawMoney;
@@ -84,6 +85,7 @@ contract BittyVaultBeneficiaryTest is Test {
         });
         eventNames = new string[](1);
         triggerEvents = new IBeneficiary.TriggerEvent[](1);
+        timeEvents = new IBeneficiary.TimeEvent[](1);
         timestamps = new uint256[](1);
         amounts = new uint256[](1);
     }
@@ -274,38 +276,37 @@ contract BittyVaultBeneficiaryTest is Test {
 
     function test_AddTimeEventsFailedIfTimestampIsZero() public {
         timestamps[0] = 0;
-        amounts[0] = marriageMoney;
+        timeEvents[0] = IBeneficiary.TimeEvent({amount: marriageMoney, isPercentage: false});
         vm.expectRevert(ITrust.TimestampIsZero.selector);
-        bittyVault.addTimeEvents(timestamps, amounts);
+        bittyVault.addTimeEvents(timestamps, timeEvents);
     }
 
     function test_AddTimeEventsFailedIfAmountIsZero() public {
         timestamps[0] = block.timestamp;
-        amounts[0] = 0;
+        timeEvents[0] = IBeneficiary.TimeEvent({amount: 0, isPercentage: false});
         vm.expectRevert(ITrust.AmountIsZero.selector);
-        bittyVault.addTimeEvents(timestamps, amounts);
+        bittyVault.addTimeEvents(timestamps, timeEvents);
     }
 
     function test_AddTimeEventsFailedIfEventNameDuplicated() public {
         timestamps[0] = block.timestamp;
-        amounts[0] = marriageMoney;
-        bittyVault.addTimeEvents(timestamps, amounts);
+        timeEvents[0] = IBeneficiary.TimeEvent({amount: marriageMoney, isPercentage: false});
+        bittyVault.addTimeEvents(timestamps, timeEvents);
         vm.expectRevert(ITrust.TimestampDuplicated.selector);
-        bittyVault.addTimeEvents(timestamps, amounts);
+        bittyVault.addTimeEvents(timestamps, timeEvents);
     }
 
     function test_AddTimeEventsFailedIfEventNameLengthMismatch() public {
         timestamps[0] = block.timestamp;
-        uint256[] memory accountsMismatch = new uint256[](2);
-        accountsMismatch[0] = marriageMoney;
-        accountsMismatch[1] = marriageMoney;
+        IBeneficiary.TimeEvent[] memory timeEventsMismatch = new IBeneficiary.TimeEvent[](2);
+        timeEventsMismatch[0] = IBeneficiary.TimeEvent({amount: marriageMoney, isPercentage: false});
+        timeEventsMismatch[1] = IBeneficiary.TimeEvent({amount: marriageMoney, isPercentage: false});
         vm.expectRevert(ITrust.LengthMismatch.selector);
-        bittyVault.addTimeEvents(timestamps, accountsMismatch);
+        bittyVault.addTimeEvents(timestamps, timeEventsMismatch);
     }
 
     function test_GetMoneyByTimestampFailedIfTimestampIsZero() public {
         timestamps[0] = 0;
-        amounts[0] = marriageMoney;
         vm.expectRevert(ITrust.TimestampIsZero.selector);
         vm.prank(beneficiary);
         bittyVault.getMoneyByTimestamp(timestamps[0]);
@@ -313,7 +314,6 @@ contract BittyVaultBeneficiaryTest is Test {
 
     function test_GetMoneyByTimestampFailedIfTimestampNotFound() public {
         timestamps[0] = block.timestamp;
-        amounts[0] = marriageMoney;
         vm.expectRevert(ITrust.TimestampNotFound.selector);
         vm.prank(beneficiary);
         bittyVault.getMoneyByTimestamp(timestamps[0]);
@@ -321,23 +321,48 @@ contract BittyVaultBeneficiaryTest is Test {
 
     function test_GetMoneyByTimestampFailedIfTimestampIsInTheFuture() public {
         timestamps[0] = block.timestamp + 1 days;
-        amounts[0] = marriageMoney;
-        bittyVault.addTimeEvents(timestamps, amounts);
+        timeEvents[0] = IBeneficiary.TimeEvent({amount: marriageMoney, isPercentage: false});
+        bittyVault.addTimeEvents(timestamps, timeEvents);
         vm.expectRevert(ITrust.TimestampIsInTheFuture.selector);
         vm.prank(beneficiary);
         bittyVault.getMoneyByTimestamp(timestamps[0]);
     }
 
-    function test_GetMoneyFromTimeEventSuccess() public {
+    function test_GetMoneyFromTimeEventSuccessByAmount() public {
         bittyVault.setBeneficiarySettings(beneficiarySettings);
         timestamps[0] = block.timestamp;
-        amounts[0] = marriageMoney;
-        bittyVault.addTimeEvents(timestamps, amounts);
-        mockUSDT.mint(address(bittyVault), amounts[0]);
+        timeEvents[0] = IBeneficiary.TimeEvent({amount: marriageMoney, isPercentage: false});
+        bittyVault.addTimeEvents(timestamps, timeEvents);
+        mockUSDT.mint(address(bittyVault), marriageMoney);
         vm.prank(beneficiary);
         bittyVault.getMoneyByTimestamp(timestamps[0]);
-        assertEq(mockUSDT.balanceOf(beneficiary), amounts[0], "Beneficiary should receive 100000 USDT");
+        assertEq(mockUSDT.balanceOf(beneficiary), marriageMoney, "Beneficiary should receive 100000 USDT");
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");
+    }
+
+    function test_GetMoneyFromTimeEventSuccessByPercentage() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+        timestamps[0] = block.timestamp;
+        timeEvents[0] = IBeneficiary.TimeEvent({amount: 1000, isPercentage: true});
+        bittyVault.addTimeEvents(timestamps, timeEvents);
+        mockUSDT.mint(address(bittyVault), marriageMoney);
+        mockUSDC.mint(address(bittyVault), marriageMoney);
+        vm.prank(beneficiary);
+        bittyVault.getMoneyByTimestamp(timestamps[0]);
+
+        uint256 percentageMoney = marriageMoney * 1000 / 10000;
+        assertEq(mockUSDT.balanceOf(beneficiary), percentageMoney, "Beneficiary should receive 10000 USDT");
+        assertEq(mockUSDC.balanceOf(beneficiary), percentageMoney, "Beneficiary should receive 10000 USDC");
+        assertEq(
+            mockUSDT.balanceOf(address(bittyVault)),
+            marriageMoney - percentageMoney,
+            "Trust should have 0 USDT after transfer"
+        );
+        assertEq(
+            mockUSDC.balanceOf(address(bittyVault)),
+            marriageMoney - percentageMoney,
+            "Trust should have 0 USDC after transfer"
+        );
     }
 
     function test_GetUSDTSuccessFromTrustFor100USD() public {
