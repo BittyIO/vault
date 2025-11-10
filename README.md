@@ -1,3 +1,4 @@
+[![codecov](https://codecov.io/gh/BittyIO/trust-contracts/graph/badge.svg?token=HYIKKNAA1I)](https://codecov.io/gh/BittyIO/trust-contracts)
 ## Foundry
 
 **Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
