@@ -3,7 +3,7 @@ pragma solidity ^0.8.27;
 
 import {AssetManager} from "./AssetManager.sol";
 import {Trust} from "./Trust.sol";
-import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title BittyVault
@@ -62,6 +62,24 @@ contract BittyVault is AssetManager, Trust {
      */
     function usdc() external view override returns (IERC20) {
         return IERC20(assets[AssetType.USDC]);
+    }
+
+    /**
+     * @notice Returns WBTC contract address
+     * @dev Required by Trust._getPercentageMoney() to access WBTC contract
+     * @return IERC20 The WBTC contract interface
+     */
+    function wbtc() external view override returns (IERC20) {
+        return IERC20(assets[AssetType.WBTC]);
+    }
+
+    /**
+     * @notice Returns WETH contract address
+     * @dev Required by Trust._getPercentageMoney() to access WETH contract
+     * @return IERC20 The WETH contract interface
+     */
+    function weth() external view override returns (IERC20) {
+        return IERC20(assets[AssetType.WETH]);
     }
 
     // All asset management functions are inherited from AssetManager:

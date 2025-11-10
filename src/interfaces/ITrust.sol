@@ -20,11 +20,12 @@ interface ITrust is IGrantor, IBeneficiary, ITrustee {
     error BeneficiarySettingsNotSet();
     error BeneficiaryWithdrawalInLimitDays();
     error InsufficientStablecoinBalance();
-    error StablecoinTransferFailed();
+    error TransferFailed();
     error EventNameIsEmpty();
     error EventNameDuplicated();
     error EventNameNotFound();
     error AmountIsZero();
+    error percentageMoreThan10K();
     error EventTriggerError();
     error TimestampIsZero();
     error TimestampNotFound();
