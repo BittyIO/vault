@@ -84,11 +84,11 @@ interface IGrantor {
      * @notice Add the time events.
      * @dev Add the time events.
      * @param timestamps The timestamps of the events.
-     * @param amounts The amounts of the money to release.
+     * @param timeEvents The time events.
      *
      * This is not working anymore if the trust is irrevocable.
      */
-    function addTimeEvents(uint256[] memory timestamps, uint256[] memory amounts) external;
+    function addTimeEvents(uint256[] memory timestamps, IBeneficiary.TimeEvent[] memory timeEvents) external;
 
     /**
      * @notice Remove the time events.
