@@ -3,12 +3,12 @@
 - Receive WBTC, WETH or ETH
 2. Set trustee address/ENS to manage fund with rebalancing by limits
 - minimal StableCoin number
-- minimal StableCoin persentage
+- minimal StableCoin percentage
 - minimal BTC number
 - minimal ETH number
 - BTC_total/ETH_total range, like buy them with marketcap size ratio, 5:1 +- 20%
 - minimal timestamp between each non-stable-coin-rebalancing, like 1 week after rebalancing
-- max reblance persentage for each non-stable-coin asset, like 10%, 20% in one rebalancing
+- max reblance percentage for each non-stable-coin asset, like 10%, 20% in one rebalancing
 - Set trustee payment, none or monthly pay or m% base fee + n% revenue carry fee
 - in V1, trustee can only supply on aave v3 and reblance on uniswap v3
 3. Set protector address/ENS to pause fund management by Trustee if it is not going well

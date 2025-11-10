@@ -207,20 +207,25 @@ abstract contract Trust is ITrust {
             revert LengthMismatch();
         }
         for (uint256 i = 0; i < eventNames.length; i++) {
+            IBeneficiary.TriggerEvent memory triggerEvent = triggerEvents[i];
             if (keccak256(bytes(eventNames[i])) == keccak256(bytes(""))) {
                 revert EventNameIsEmpty();
             }
-            if (triggerEvents[i].triggerAddress == address(0)) {
+            if (triggerEvent.triggerAddress == address(0)) {
                 revert AddressZero();
             }
-            if (triggerEvents[i].amount == 0) {
+            if (triggerEvent.amount == 0) {
                 revert AmountIsZero();
             }
             if (beneficiaryTriggerEvents[eventNames[i]].amount > 0) {
                 revert EventNameDuplicated();
             }
-            beneficiaryTriggerEvents[eventNames[i]].triggerAddress = triggerEvents[i].triggerAddress;
-            beneficiaryTriggerEvents[eventNames[i]].amount = triggerEvents[i].amount;
+            if (triggerEvent.isPercentage && triggerEvent.amount > 10000) {
+                revert percentageMoreThan10K();
+            }
+            beneficiaryTriggerEvents[eventNames[i]].triggerAddress = triggerEvent.triggerAddress;
+            beneficiaryTriggerEvents[eventNames[i]].amount = triggerEvent.amount;
+            beneficiaryTriggerEvents[eventNames[i]].isPercentage = triggerEvent.isPercentage;
         }
     }
 
@@ -247,13 +252,18 @@ abstract contract Trust is ITrust {
         if (keccak256(bytes(eventName)) == keccak256(bytes(""))) {
             revert EventNameIsEmpty();
         }
-        if (beneficiaryTriggerEvents[eventName].amount == 0) {
+        IBeneficiary.TriggerEvent memory triggerEvent = beneficiaryTriggerEvents[eventName];
+        if (triggerEvent.amount == 0) {
             revert EventNameNotFound();
         }
-        if (beneficiaryTriggerEvents[eventName].triggerAddress != msg.sender) {
+        if (triggerEvent.triggerAddress != msg.sender) {
             revert EventTriggerError();
         }
-        _getMoney(beneficiaryTriggerEvents[eventName].amount);
+        if (!triggerEvent.isPercentage) {
+            _getMoney(beneficiaryTriggerEvents[eventName].amount);
+        } else {
+            _getPercentageMoney(triggerEvent.amount);
+        }
         delete beneficiaryTriggerEvents[eventName];
     }
 
@@ -337,7 +347,7 @@ abstract contract Trust is ITrust {
 
         if (address(firstWithdrawStableCoin) != address(0) && firstWithdrawStableCoinBalance >= amount) {
             if (!firstWithdrawStableCoin.transfer(beneficiary, amount)) {
-                revert StablecoinTransferFailed();
+                revert TransferFailed();
             }
             return;
         }
@@ -348,12 +358,34 @@ abstract contract Trust is ITrust {
             revert InsufficientStablecoinBalance();
         }
         if (!secondWithdrawStableCoin.transfer(beneficiary, amount)) {
-            revert StablecoinTransferFailed();
+            revert TransferFailed();
+        }
+    }
+
+    // TODO, should send other ERC20 tokens like aave deposit tokens, etc.
+    function _getPercentageMoney(uint256 persentage) internal {
+        _transferERC20Token(this.usdt(), persentage);
+        _transferERC20Token(this.usdc(), persentage);
+        _transferERC20Token(this.wbtc(), persentage);
+        _transferERC20Token(this.weth(), persentage);
+    }
+
+    function _transferERC20Token(IERC20 token, uint256 percentage) internal {
+        if (address(token) == address(0) || percentage == 0) {
+            return;
+        }
+        uint256 amount = token.balanceOf(address(this)) * percentage / 10000;
+        if (amount > 0) {
+            if (!token.transfer(beneficiary, amount)) {
+                revert TransferFailed();
+            }
         }
     }
 
     function usdt() external view virtual returns (IERC20);
     function usdc() external view virtual returns (IERC20);
+    function wbtc() external view virtual returns (IERC20);
+    function weth() external view virtual returns (IERC20);
 
     function revocable() external view virtual returns (bool) {
         if (isIrrevocable) {

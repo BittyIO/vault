@@ -40,10 +40,18 @@ interface IBeneficiary {
          */
         address triggerAddress;
         /**
-         * @dev The amount of the money to release.
-         * @param amount The amount of the money to release.
+         * @dev The amount or percentage(1 / 10000 as unit) of the money to release.
+         * @param amount
+         * The amount of the money to release if ispercentage is false.
+         * The percentage of the money to release if ispercentage is true.
          */
         uint256 amount;
+
+        /**
+         * @dev whether the amount is the percentage of money distribute the money to the beneficiary.
+         * @param isPesentage
+         */
+        bool isPercentage;
     }
 
     /**
