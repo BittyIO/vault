@@ -3,13 +3,13 @@ pragma solidity ^0.8.27;
 
 import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
-import {ITrustee} from "./interfaces/ITrustee.sol";
+import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 abstract contract Trust is ITrust {
     address public grantor;
     address public trustee;
-    ITrustee.TrusteeFee public trusteeFee;
+    IAssetManager.ManageFee public manageFee;
     address public beneficiary;
 
     bool public isInitialized;
@@ -22,6 +22,8 @@ abstract contract Trust is ITrust {
     uint256 public lastWithdrawalTime;
     uint256 public startDistributionTimestamp;
     uint256 public lastBaseFeeTime;
+    uint256 public revenue;
+    uint256 public lastRevenueTime;
 
     mapping(string => IBeneficiary.TriggerEvent) public beneficiaryTriggerEvents;
     mapping(uint256 => IBeneficiary.TimeEvent) public beneficiaryTimeEvents;
@@ -154,19 +156,26 @@ abstract contract Trust is ITrust {
         }
         trustee = trusteeAddress;
         lastBaseFeeTime = block.timestamp;
+        lastRevenueTime = block.timestamp;
     }
 
-    function setTrusteeFee(ITrustee.TrusteeFee memory trusteeFee_)
+    function setManageFee(IAssetManager.ManageFee memory manageFee_)
         external
         virtual
         override
         onlyInitialized
         onlyGrantor
     {
-        if (trusteeFee_.baseFeeAmount == 0) {
+        if (manageFee_.baseFeeAmount == 0 && manageFee_.revenuePercentage == 0) {
             revert AmountIsZero();
         }
-        trusteeFee = trusteeFee_;
+        if (manageFee_.revenuePercentage > 0 && manageFee_.revenueDuration == 0) {
+            revert RevenueDurationIsZero();
+        }
+        if (manageFee_.revenuePercentage == 0 && manageFee_.revenueDuration > 0) {
+            revert RevenuePercentageIsZero();
+        }
+        manageFee = manageFee_;
     }
 
     function setBeneficiary(address beneficiaryAddress) external virtual override onlyInitialized onlyGrantor {
@@ -404,16 +413,29 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function getTrusteeBaseFee() external virtual override onlyInitialized onlyTrustee {
-        if (block.timestamp - lastBaseFeeTime < trusteeFee.baseFeeDuration) {
+    function getBaseFee() external virtual override onlyInitialized onlyTrustee {
+        if (block.timestamp - lastBaseFeeTime < manageFee.baseFeeDuration) {
             revert BaseFeeDurationNotMet();
         }
         lastBaseFeeTime = block.timestamp;
-        if (!trusteeFee.isBaseFeePercentage) {
-            _getMoney(trusteeFee.baseFeeAmount, trustee);
+        if (!manageFee.isBaseFeePercentage) {
+            _getMoney(manageFee.baseFeeAmount, trustee);
         } else {
-            _getPercentageMoney(trusteeFee.baseFeeAmount, trustee);
+            _getPercentageMoney(manageFee.baseFeeAmount, trustee);
         }
+    }
+
+    // TODO, when listing higher with buy low, sell to add revenues and get revenue fee from that
+    function getRevenueFee() external virtual override onlyInitialized onlyTrustee {
+        if (block.timestamp - lastRevenueTime < manageFee.revenueDuration) {
+            revert RevenueDurationNotMet();
+        }
+        if (revenue == 0) {
+            revert RevenueIsZero();
+        }
+        _getMoney(revenue * manageFee.revenuePercentage / 10000, trustee);
+        lastRevenueTime = block.timestamp;
+        revenue = 0;
     }
 
     function usdt() external view virtual returns (IERC20);
