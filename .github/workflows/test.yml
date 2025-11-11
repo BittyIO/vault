@@ -38,17 +38,25 @@ jobs:
         id: build
 
       - name: Run Forge tests
+        env:
+          ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
         run: |
           forge test -vvv
         id: test
 
       - name: Run Forge coverage
+        env:
+          ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
+          LCOV_FILE: ./${{ github.sha }}-lcov.info
         run: |
-          forge coverage --ir-minimum --no-match-coverage 'test|node_modules|script|src/libs' --report lcov --lcov-version '5.2.0'
+          forge coverage --no-cache --ir-minimum --no-match-coverage 'test|node_modules|script|src/libs' --report lcov --lcov-version '5.2.0' -r $LCOV_FILE
+          cat $LCOV_FILE
         id: coverage
 
       - uses: codecov/codecov-action@v5
+        env:
+          LCOV_FILE: ./${{ github.sha }}-lcov.info
         with:
           fail_ci_if_error: true
-          files: ./lcov.info
+          files: ${{ env.LCOV_FILE }}
           token: ${{ secrets.CODECOV_TOKEN }}
