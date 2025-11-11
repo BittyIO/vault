@@ -16,6 +16,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          # For pull_request_target events, checkout the pr's repository code
+          # Otherwise use the default behavior
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
+          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
