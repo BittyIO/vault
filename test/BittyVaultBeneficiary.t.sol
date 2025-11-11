@@ -73,10 +73,9 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault = new BittyVault();
         beneficiary = makeAddr("alice");
         eventInputAddress = makeAddr("anyone");
-        bittyVault.setAsset(IAssetManager.AssetType.WETH, address(mockWETH));
-        bittyVault.setAsset(IAssetManager.AssetType.USDT, address(mockUSDT));
-        bittyVault.setAsset(IAssetManager.AssetType.USDC, address(mockUSDC));
-        bittyVault.initialize(address(this));
+        bittyVault.initialize(
+            address(this), address(mockWETH), address(0), address(mockUSDT), address(mockUSDC), address(0), address(0)
+        );
         bittyVault.setBeneficiary(beneficiary);
         withdrawMoney = 100 * 1e6;
         marriageMoney = 100000 * 10e6;
