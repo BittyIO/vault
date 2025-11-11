@@ -26,7 +26,6 @@ contract BittyVaultTest is Test {
     function setUp() public {
         mockWETH = new MockWETH();
         bittyVault = new BittyVault();
-        bittyVault.setAsset(IAssetManager.AssetType.WETH, address(mockWETH));
     }
 
     function test_InitErrorWithGrantorAddressZero() public {
@@ -59,25 +58,5 @@ contract BittyVaultTest is Test {
         bittyVault.ping();
         vm.warp(block.timestamp + 1);
         assertEq(bittyVault.revocable(), true);
-    }
-
-    function test_SetWETHCanOnlyBeCalledOnce() public {
-        BittyVault newTrust = new BittyVault();
-        address weth1 = address(0x1);
-        address weth2 = address(0x2);
-
-        assertEq(address(newTrust.assets(IAssetManager.AssetType.WETH)), address(0));
-        newTrust.setAsset(IAssetManager.AssetType.WETH, weth1);
-        assertEq(address(newTrust.assets(IAssetManager.AssetType.WETH)), weth1);
-        assertTrue(address(newTrust.assets(IAssetManager.AssetType.WETH)) != address(0));
-
-        vm.expectRevert(IAssetManager.AssetAlreadySet.selector);
-        newTrust.setAsset(IAssetManager.AssetType.WETH, weth2);
-    }
-
-    function test_SetWETHRevertsOnZeroAddress() public {
-        BittyVault newTrust = new BittyVault();
-        vm.expectRevert(ITrust.AddressZero.selector);
-        newTrust.setAsset(IAssetManager.AssetType.WETH, address(0));
     }
 }

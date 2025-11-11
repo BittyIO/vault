@@ -27,10 +27,11 @@ contract BittyVaultForKidsTest is Test {
     function setUp() public {
         mockWETH = new MockWETH();
         bittyVaultForKids = new BittyVault();
-        bittyVaultForKids.setAsset(IAssetManager.AssetType.WETH, address(mockWETH));
+        bittyVaultForKids.initialize(
+            address(this), address(mockWETH), address(0), address(0), address(0), address(0), address(0)
+        );
         kidAddress = makeAddr("alice");
         trusteeAddress = makeAddr("trustee");
-        bittyVaultForKids.initialize(address(this));
         bittyVaultForKids.setTrustee(trusteeAddress);
         bittyVaultForKids.setBeneficiary(kidAddress);
         bittyVaultForKids.setToIrrevocable();

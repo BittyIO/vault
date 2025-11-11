@@ -5,6 +5,7 @@ import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {ITrustee} from "./interfaces/ITrustee.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {IAaveV3} from "./libs/Aave.sol";
 import {IUniswapV4Router04} from "./libs/Uniswap.sol";
 
@@ -13,7 +14,7 @@ interface IWETH {
     function balanceOf(address account) external view returns (uint256);
 }
 
-abstract contract AssetManager is IAssetManager {
+abstract contract AssetManager is IAssetManager, Initializable {
     modifier onlyTrustee() virtual;
     modifier onlyInitialized() virtual;
     modifier onlyGrantor() virtual;
@@ -25,31 +26,32 @@ abstract contract AssetManager is IAssetManager {
     IAaveV3 public aave;
     IUniswapV4Router04 public uniswapV4Router;
 
-    function setAaveV3(address aaveV3Address) external onlyInitialized onlyTrustee {
-        if (aaveV3Address == address(0)) {
-            revert ITrust.AddressZero();
+    function initialize(
+        address wethAddress,
+        address wbtcAddress,
+        address usdtAddress,
+        address usdcAddress,
+        address aaveV3Address,
+        address uniswapV4RouterAddress
+    ) external initializer {
+        if (wethAddress != address(0)) {
+            assets[IAssetManager.AssetType.WETH] = wethAddress;
         }
-        aave = IAaveV3(aaveV3Address);
-    }
-
-    function setUniswapV4Router(address uniswapV4RouterAddress) external onlyInitialized onlyTrustee {
-        if (uniswapV4RouterAddress == address(0)) {
-            revert ITrust.AddressZero();
+        if (wbtcAddress != address(0)) {
+            assets[IAssetManager.AssetType.WBTC] = wbtcAddress;
         }
-        uniswapV4Router = IUniswapV4Router04(uniswapV4RouterAddress);
-    }
-
-    function setAsset(AssetType assetType, address assetAddress) external {
-        if (uint8(assetType) > uint8(AssetType.USDC)) {
-            revert InvalidAssetType();
+        if (usdtAddress != address(0)) {
+            assets[IAssetManager.AssetType.USDT] = usdtAddress;
         }
-        if (assetAddress == address(0)) {
-            revert ITrust.AddressZero();
+        if (usdcAddress != address(0)) {
+            assets[IAssetManager.AssetType.USDC] = usdcAddress;
         }
-        if (address(assets[assetType]) != address(0)) {
-            revert AssetAlreadySet();
+        if (aaveV3Address != address(0)) {
+            aave = IAaveV3(aaveV3Address);
         }
-        assets[assetType] = assetAddress;
+        if (uniswapV4RouterAddress != address(0)) {
+            uniswapV4Router = IUniswapV4Router04(uniswapV4RouterAddress);
+        }
     }
 
     function setRebalanceRules(ITrustee.RebalanceLimit memory rebalanceLimit_) external onlyInitialized onlyGrantor {

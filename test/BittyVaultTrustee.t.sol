@@ -196,14 +196,16 @@ contract BittyVaultTrusteeTest is Test {
         mockUniswap = new MockUniswapV4Router();
         bittyVault = new BittyVault();
         trustee = makeAddr("alice");
-        bittyVault.setAsset(IAssetManager.AssetType.WETH, address(mockWETH));
-        bittyVault.setAsset(IAssetManager.AssetType.WBTC, address(mockWBTC));
-        bittyVault.setAsset(IAssetManager.AssetType.USDT, address(mockUSDT));
-        bittyVault.setAsset(IAssetManager.AssetType.USDC, address(mockUSDC));
-        bittyVault.initialize(address(this));
+        bittyVault.initialize(
+            address(this),
+            address(mockWETH),
+            address(mockWBTC),
+            address(mockUSDT),
+            address(mockUSDC),
+            address(0),
+            address(mockUniswap)
+        );
         bittyVault.setTrustee(trustee);
-        vm.prank(trustee);
-        bittyVault.setUniswapV4Router(address(mockUniswap));
         rebalanceLimits = IAssetManager.RebalanceLimit({
             minimalWBTCBalance: 1 * 1e8,
             minimalWETHBalance: 100 * 1e18,
