@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {ITrust} from "../src/interfaces/ITrust.sol";
+import {AddressZero} from "../src/interfaces/Errors.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -32,7 +33,7 @@ contract BittyVaultGrantorTest is Test {
 
     function test_InitErrorWithGrantorAddressZero() public {
         BittyVault newVault = new BittyVault();
-        vm.expectRevert(ITrust.AddressZero.selector);
+        vm.expectRevert(AddressZero.selector);
         newVault.initialize(address(0), address(0), address(0), address(0), address(0), address(0), address(0));
     }
 

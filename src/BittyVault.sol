@@ -6,7 +6,8 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.so
 import {ITrust} from "./interfaces/ITrust.sol";
 import {IAaveV3} from "./libs/Aave.sol";
 import {IUniswapV4Router04} from "./libs/Uniswap.sol";
-import {AssetType, RebalanceLimit, AssetManager} from "./AssetManager.sol";
+import {AssetManager} from "./AssetManager.sol";
+import {AddressZero, AlreadyInitialized, TransferFailed} from "./interfaces/Errors.sol";
 
 /**
  * @title BittyVault
@@ -40,10 +41,10 @@ contract BittyVault is Trust, AssetManager {
         );
 
         if (grantorAddress == address(0)) {
-            revert ITrust.AddressZero();
+            revert AddressZero();
         }
         if (isInitialized) {
-            revert ITrust.AlreadyInitialized();
+            revert AlreadyInitialized();
         }
         grantor = grantorAddress;
         isInitialized = true;
@@ -81,11 +82,11 @@ contract BittyVault is Trust, AssetManager {
      */
     function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor {
         if (moneyWithdrawTo == address(0)) {
-            revert ITrust.AddressZero();
+            revert AddressZero();
         }
         // Check if revocable (onlyRevocable modifier logic)
         if (!this.revocable()) {
-            revert ITrust.AddressZero();
+            revert AddressZero();
         }
 
         // Convert ETH to WETH first if there's any ETH
@@ -103,7 +104,7 @@ contract BittyVault is Trust, AssetManager {
         if (address(this).balance > 0) {
             (bool success,) = payable(moneyWithdrawTo).call{value: address(this).balance}("");
             if (!success) {
-                revert ITrust.TransferFailed();
+                revert TransferFailed();
             }
         }
     }
@@ -119,7 +120,7 @@ contract BittyVault is Trust, AssetManager {
         uint256 balance = token.balanceOf(address(this));
         if (balance > 0) {
             if (!token.transfer(to, balance)) {
-                revert ITrust.TransferFailed();
+                revert TransferFailed();
             }
         }
     }

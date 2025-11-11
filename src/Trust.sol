@@ -5,6 +5,34 @@ import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IGrantor} from "./interfaces/IGrantor.sol";
+import {
+    AddressZero,
+    AlreadyInitialized,
+    AutoIrrevocableAfterNoPingNotSet,
+    StartDistributionTimestampAlreadySet,
+    AmountIsZero,
+    AmountPerWithdrawalIsZero,
+    minimalWithdrawDurationLessThan1Day,
+    BeneficiarySettingsNotSet,
+    BeneficiaryWithdrawalInLimitDays,
+    InsufficientStablecoinBalance,
+    TransferFailed,
+    EventNameIsEmpty,
+    EventNameDuplicated,
+    EventNameNotFound,
+    percentageMoreThan10K,
+    EventTriggerError,
+    TimestampIsZero,
+    TimestampNotFound,
+    TimestampDuplicated,
+    LengthMismatch,
+    TimestampIsInTheFuture,
+    BaseFeeDurationNotMet,
+    RevenueDurationNotMet,
+    RevenueIsZero,
+    RevenueDurationIsZero,
+    RevenuePercentageIsZero
+} from "./interfaces/Errors.sol";
 
 abstract contract Trust is ITrust {
     address public grantor;
@@ -164,10 +192,10 @@ abstract contract Trust is ITrust {
             revert AmountIsZero();
         }
         if (manageFee_.revenuePercentage > 0 && manageFee_.revenueDuration == 0) {
-            revert IGrantor.RevenueDurationIsZero();
+            revert RevenueDurationIsZero();
         }
         if (manageFee_.revenuePercentage == 0 && manageFee_.revenueDuration > 0) {
-            revert IGrantor.RevenuePercentageIsZero();
+            revert RevenuePercentageIsZero();
         }
         manageFee = manageFee_;
     }

@@ -8,11 +8,6 @@ import {IBeneficiary} from "./IBeneficiary.sol";
  * @dev
  */
 interface IGrantor {
-    error BaseFeeDurationNotMet();
-    error RevenueDurationNotMet();
-    error RevenueIsZero();
-    error RevenuePercentageIsZero();
-    error RevenueDurationIsZero();
 
     struct ManageFee {
         /**

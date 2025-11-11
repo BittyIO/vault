@@ -12,14 +12,13 @@ import {console} from "lib/forge-std/src/console.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {
-    AssetType,
-    InvalidAssetType,
-    AssetAlreadySet,
-    RebalanceLimit,
-    InsufficientBalance,
     AmountIsZero,
-    AddressZero
-} from "../src/AssetManager.sol";
+    AddressZero,
+    InsufficientBalance,
+    MinimalWBTCBalanceLimit,
+    MinimalWETHBalanceLimit,
+    MinimalStableCoinBalanceLimit
+} from "../src/interfaces/Errors.sol";
 import {IPoolDataProvider} from "../src/libs/Aave.sol";
 
 import {

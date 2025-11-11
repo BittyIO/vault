@@ -7,41 +7,40 @@ import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/In
 import {IAaveV3} from "./libs/Aave.sol";
 import {IUniswapV4Router04} from "./libs/Uniswap.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    AddressZero,
+    AmountIsZero,
+    WETHNotSet,
+    RebalanceInMinimalTime,
+    InsufficientBalance,
+    SellAmountMismatch,
+    BuyAmountNotEnough,
+    MinimalWBTCBalanceLimit,
+    MinimalWETHBalanceLimit,
+    MinimalStableCoinBalanceLimit
+} from "./interfaces/Errors.sol";
 
 interface IWETH {
     function deposit() external payable;
     function balanceOf(address account) external view returns (uint256);
 }
 
-error AddressZero();
-error AmountIsZero();
-error WETHNotSet();
-error AssetAlreadySet();
-error InvalidAssetType();
-error RebalanceInMinimalTime();
-error InsufficientBalance();
-error SellAmountMismatch();
-error BuyAmountNotEnough();
-error MinimalWBTCBalanceLimit();
-error MinimalWETHBalanceLimit();
-error MinimalStableCoinBalanceLimit();
-
-enum AssetType {
-    WBTC,
-    WETH,
-    USDT,
-    USDC
-}
-
-struct RebalanceLimit {
-    uint256 minimalWBTCBalance;
-    uint256 minimalWETHBalance;
-    uint256 minimalStableCoinBalance;
-    uint256 minimalTimestampBetweenRebalances;
-    uint256 maxRebalancePercentage;
-}
-
 abstract contract AssetManager is Initializable {
+    enum AssetType {
+        WBTC,
+        WETH,
+        USDT,
+        USDC
+    }
+
+    struct RebalanceLimit {
+        uint256 minimalWBTCBalance;
+        uint256 minimalWETHBalance;
+        uint256 minimalStableCoinBalance;
+        uint256 minimalTimestampBetweenRebalances;
+        uint256 maxRebalancePercentage;
+    }
+
     using SafeERC20 for IERC20;
     mapping(AssetType => address) public assets;
     // only WETH and WBTC rebalance will be recorded

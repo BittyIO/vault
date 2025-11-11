@@ -6,15 +6,19 @@ import {BittyVault} from "../src/BittyVault.sol";
 import {ITrust} from "../src/interfaces/ITrust.sol";
 import {ITrustee} from "../src/interfaces/ITrustee.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {AssetManager} from "../src/AssetManager.sol";
+import {IGrantor} from "../src/interfaces/IGrantor.sol";
 import {
-    RebalanceLimit,
-    AssetType,
+    AmountIsZero,
+    RevenueDurationIsZero,
+    BaseFeeDurationNotMet,
+    RevenuePercentageIsZero,
+    RevenueDurationNotMet,
     RebalanceInMinimalTime,
     MinimalWBTCBalanceLimit,
     MinimalWETHBalanceLimit,
     MinimalStableCoinBalanceLimit
-} from "../src/AssetManager.sol";
-import {IGrantor} from "../src/interfaces/IGrantor.sol";
+} from "../src/interfaces/Errors.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -193,7 +197,7 @@ contract BittyVaultTrusteeTest is Test {
     MockUSDC public mockUSDC;
     MockUniswapV4Router public mockUniswap;
     address public trustee;
-    RebalanceLimit public rebalanceLimits;
+    AssetManager.RebalanceLimit public rebalanceLimits;
     IGrantor.ManageFee public manageFee;
 
     function setUp() public {
@@ -214,7 +218,7 @@ contract BittyVaultTrusteeTest is Test {
             address(mockUniswap)
         );
         bittyVault.setTrustee(trustee);
-        rebalanceLimits = RebalanceLimit({
+        rebalanceLimits = AssetManager.RebalanceLimit({
             minimalWBTCBalance: 1 * 1e8,
             minimalWETHBalance: 100 * 1e18,
             minimalStableCoinBalance: 100 * 1e6,
@@ -234,20 +238,20 @@ contract BittyVaultTrusteeTest is Test {
     function test_SetManageFeeFailedIfAmountIsZero() public {
         manageFee.baseFeeAmount = 0;
         manageFee.revenuePercentage = 0;
-        vm.expectRevert(ITrust.AmountIsZero.selector);
+        vm.expectRevert(AmountIsZero.selector);
         bittyVault.setManageFee(manageFee);
     }
 
     function test_SetManageFeeFailedIfRevenueDurationIsZero() public {
         manageFee.revenueDuration = 0;
         manageFee.revenuePercentage = 10;
-        vm.expectRevert(IGrantor.RevenueDurationIsZero.selector);
+        vm.expectRevert(RevenueDurationIsZero.selector);
         bittyVault.setManageFee(manageFee);
     }
 
     function test_TrusteeGetBaseFeeFailedBeforeDuration() public {
         bittyVault.setManageFee(manageFee);
-        vm.expectRevert(IGrantor.BaseFeeDurationNotMet.selector);
+        vm.expectRevert(BaseFeeDurationNotMet.selector);
         vm.prank(trustee);
         bittyVault.getBaseFee();
     }
@@ -277,7 +281,7 @@ contract BittyVaultTrusteeTest is Test {
     function test_TrusteeGetRevenueFeeFailedIfRevenuePercentageIsZero() public {
         manageFee.revenuePercentage = 0;
         manageFee.revenueDuration = 30 days;
-        vm.expectRevert(IGrantor.RevenuePercentageIsZero.selector);
+        vm.expectRevert(RevenuePercentageIsZero.selector);
         bittyVault.setManageFee(manageFee);
     }
 
@@ -287,15 +291,15 @@ contract BittyVaultTrusteeTest is Test {
         bittyVault.setManageFee(manageFee);
         vm.warp(block.timestamp + manageFee.revenueDuration - 1);
         vm.prank(trustee);
-        vm.expectRevert(IGrantor.RevenueDurationNotMet.selector);
+        vm.expectRevert(RevenueDurationNotMet.selector);
         bittyVault.getRevenueFee();
     }
 
     function test_RebalanceFailedIfRebalanceIsZero() public {
         mockWETH.mint(address(bittyVault), rebalanceLimits.minimalWETHBalance);
-        vm.expectRevert(ITrust.AmountIsZero.selector);
+        vm.expectRevert(AmountIsZero.selector);
         vm.prank(trustee);
-        bittyVault.rebalance(AssetType.WETH, AssetType.USDT, 0, 100 * 1e6, "");
+        bittyVault.rebalance(AssetManager.AssetType.WETH, AssetManager.AssetType.USDT, 0, 100 * 1e6, "");
     }
 
     function test_RebalanceFailedIfRebalanceInMinimalTime() public {
@@ -311,7 +315,7 @@ contract BittyVaultTrusteeTest is Test {
 
         vm.warp(block.timestamp + 30 + 1);
         vm.prank(trustee);
-        bittyVault.rebalance(AssetType.WETH, AssetType.USDT, sellAmount, buyAmount, "");
+        bittyVault.rebalance(AssetManager.AssetType.WETH, AssetManager.AssetType.USDT, sellAmount, buyAmount, "");
 
         mockUniswap.setNextSwap(address(mockWETH), address(mockUSDT), sellAmount, buyAmount);
         mockUSDT.mint(address(mockUniswap), buyAmount);
@@ -319,7 +323,7 @@ contract BittyVaultTrusteeTest is Test {
         vm.expectRevert(RebalanceInMinimalTime.selector);
         vm.warp(block.timestamp + rebalanceLimits.minimalTimestampBetweenRebalances - 1);
         vm.prank(trustee);
-        bittyVault.rebalance(AssetType.WETH, AssetType.USDT, sellAmount, buyAmount, "");
+        bittyVault.rebalance(AssetManager.AssetType.WETH, AssetManager.AssetType.USDT, sellAmount, buyAmount, "");
     }
 
     function test_RebalanceFailedIfMinimalWBTCBalanceIsNotMet() public {
@@ -334,7 +338,7 @@ contract BittyVaultTrusteeTest is Test {
 
         vm.expectRevert(MinimalWBTCBalanceLimit.selector);
         vm.prank(trustee);
-        bittyVault.rebalance(AssetType.WBTC, AssetType.USDT, sellAmount, 10 * 1e6, "");
+        bittyVault.rebalance(AssetManager.AssetType.WBTC, AssetManager.AssetType.USDT, sellAmount, 10 * 1e6, "");
     }
 
     function test_RebalanceFailedIfMinimalWETHBalanceIsNotMet() public {
@@ -349,7 +353,7 @@ contract BittyVaultTrusteeTest is Test {
 
         vm.expectRevert(MinimalWETHBalanceLimit.selector);
         vm.prank(trustee);
-        bittyVault.rebalance(AssetType.WETH, AssetType.USDT, sellAmount, 10 * 1e6, "");
+        bittyVault.rebalance(AssetManager.AssetType.WETH, AssetManager.AssetType.USDT, sellAmount, 10 * 1e6, "");
     }
 
     function test_RebalanceFailedIfMinimalStableCoinBalanceIsNotMet() public {
@@ -364,7 +368,7 @@ contract BittyVaultTrusteeTest is Test {
 
         vm.expectRevert(MinimalStableCoinBalanceLimit.selector);
         vm.prank(trustee);
-        bittyVault.rebalance(AssetType.USDT, AssetType.WETH, sellAmount, 1, "");
+        bittyVault.rebalance(AssetManager.AssetType.USDT, AssetManager.AssetType.WETH, sellAmount, 1, "");
     }
 
     function test_RebalanceBetweenStableCoinsShouldBeFine() public {
@@ -378,7 +382,7 @@ contract BittyVaultTrusteeTest is Test {
         mockUSDT.approve(address(mockUniswap), sellAmount);
 
         vm.prank(trustee);
-        bittyVault.rebalance(AssetType.USDT, AssetType.USDC, sellAmount, 1, "");
+        bittyVault.rebalance(AssetManager.AssetType.USDT, AssetManager.AssetType.USDC, sellAmount, 1, "");
         assertEq(mockUSDT.balanceOf(address(bittyVault)), rebalanceLimits.minimalStableCoinBalance - sellAmount);
         assertEq(mockUSDC.balanceOf(address(bittyVault)), sellAmount);
     }
