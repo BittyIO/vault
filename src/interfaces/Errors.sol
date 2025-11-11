@@ -20,6 +20,7 @@ error MinimalStableCoinBalanceLimit();
 
 // Trust errors
 error AlreadyInitialized();
+error NotInitialized();
 error AutoIrrevocableAfterNoPingNotSet();
 error StartDistributionTimestampAlreadySet();
 error AmountPerWithdrawalIsZero();

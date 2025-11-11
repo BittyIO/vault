@@ -17,7 +17,8 @@ import {
     BuyAmountNotEnough,
     MinimalWBTCBalanceLimit,
     MinimalWETHBalanceLimit,
-    MinimalStableCoinBalanceLimit
+    MinimalStableCoinBalanceLimit,
+    NotInitialized
 } from "./interfaces/Errors.sol";
 
 interface IWETH {
@@ -50,18 +51,13 @@ abstract contract AssetManager is Initializable {
     IUniswapV4Router04 public uniswapV4Router;
 
     modifier _onlyInitialized() {
-        InitializableStorage storage $;
-        bytes32 slot = _initializableStorageSlot();
-        assembly {
-            $.slot := slot
-        }
-        if ($._initialized == 0) {
-            revert InvalidInitialization();
+        if (_getInitializedVersion() == 0) {
+            revert NotInitialized();
         }
         _;
     }
 
-    function initialize(
+    function _initialize(
         address wethAddress,
         address wbtcAddress,
         address usdtAddress,
@@ -125,7 +121,7 @@ abstract contract AssetManager is Initializable {
         return IERC20(assetAddress).balanceOf(address(this));
     }
 
-    function _rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmountMin, bytes calldata data)
+    function _rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmountMin, bytes memory data)
         internal
         _onlyInitialized
     {

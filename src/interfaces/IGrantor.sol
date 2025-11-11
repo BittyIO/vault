@@ -8,7 +8,6 @@ import {IBeneficiary} from "./IBeneficiary.sol";
  * @dev
  */
 interface IGrantor {
-
     struct ManageFee {
         /**
          *

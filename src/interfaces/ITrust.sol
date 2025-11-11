@@ -11,7 +11,6 @@ import {ITrustee} from "./ITrustee.sol";
  *
  */
 interface ITrust is IGrantor, IBeneficiary, ITrustee {
-
     /**
      * @notice Set the trust to irrevocable.
      * @dev Set the trust to irrevocable.

@@ -26,7 +26,8 @@ contract BittyVaultFactory is Initializable, Ownable {
     address public aaveV3Address;
     address public uniswapV4RouterAddress;
 
-    constructor() Ownable(tx.origin) {
+    constructor() {
+        transferOwnership(tx.origin);
     }
 
     function initialize(

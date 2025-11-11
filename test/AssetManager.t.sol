@@ -17,7 +17,9 @@ import {
     InsufficientBalance,
     MinimalWBTCBalanceLimit,
     MinimalWETHBalanceLimit,
-    MinimalStableCoinBalanceLimit
+    MinimalStableCoinBalanceLimit,
+    WETHNotSet,
+    NotInitialized
 } from "../src/interfaces/Errors.sol";
 import {IPoolDataProvider} from "../src/libs/Aave.sol";
 
@@ -38,8 +40,14 @@ contract TestAssetManager is Test, AssetManager {
     using Address for address;
     using PoolStateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
-    IPoolDataProvider public poolDataProvider;
-    IPoolManager public poolManager;
+
+    function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external {
+        _setRebalanceRules(rebalanceLimit);
+    }
+
+    function turnETHToWETH() external {
+        _turnETHToWETH();
+    }
 
     function swap(
         address sellAssetAddress,
@@ -59,13 +67,50 @@ contract TestAssetManager is Test, AssetManager {
         _withdraw(assetAddress, amount);
     }
 
-    function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external {
-        _setRebalanceRules(rebalanceLimit);
+    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmountMin, bytes memory data)
+        external
+    {
+        _rebalance(from, to, sellAmount, buyAmountMin, data);
     }
 
-    function setUp() public initializer {
-        vm.createSelectFork("mainnet");
-        initialize(
+    function initialize(
+        address wethAddress,
+        address wbtcAddress,
+        address usdtAddress,
+        address usdcAddress,
+        address aaveV3Address,
+        address uniswapV4RouterAddress
+    ) public initializer {
+        _initialize(wethAddress, wbtcAddress, usdtAddress, usdcAddress, aaveV3Address, uniswapV4RouterAddress);
+    }
+
+    function setUp() public {}
+
+    function test_RevertNotInitialized() public {
+        vm.expectRevert(NotInitialized.selector);
+        this.turnETHToWETH();
+        vm.expectRevert(NotInitialized.selector);
+        this.setRebalanceRules(
+            RebalanceLimit({
+                minimalWBTCBalance: 1 * 1e8,
+                minimalWETHBalance: 100 * 1e18,
+                minimalStableCoinBalance: 100 * 1e6,
+                minimalTimestampBetweenRebalances: 30,
+                maxRebalancePercentage: 10
+            })
+        );
+        vm.expectRevert(NotInitialized.selector);
+        this.supply(address(0), 1 ether);
+        vm.expectRevert(NotInitialized.selector);
+        this.withdraw(address(0), 1 ether);
+        vm.expectRevert(NotInitialized.selector);
+        this.swap(address(0), 1 ether, AssetType.USDT, 1 ether, "");
+        vm.expectRevert(NotInitialized.selector);
+        this.rebalance(AssetType.USDT, AssetType.USDC, 1 ether, 1 ether, "");
+    }
+
+    function doInitialize() public {
+        this.initialize(
             address(mainnet.WETH),
             address(mainnet.WBTC),
             address(mainnet.USDT),
@@ -73,61 +118,113 @@ contract TestAssetManager is Test, AssetManager {
             address(mainnet.AAVE_V3),
             address(mainnet.UNISWAP_V4_ROUTER)
         );
-        poolDataProvider = IPoolDataProvider(mainnet.POOL_DATA_PROVIDER);
-        poolManager = IPoolManager(mainnet.POOL_MANAGER);
     }
 
-    function addWethToAddress(address to, uint256 amount) public {
-        vm.deal(to, amount);
-        vm.prank(to);
-        Address.sendValue(payable(mainnet.WETH), amount);
+    function test_InitializeWithAddressZero() public {
+        uint256 snapshot = vm.snapshot();
+        this.initialize(
+            address(0),
+            address(mainnet.WBTC),
+            address(mainnet.USDT),
+            address(mainnet.USDC),
+            address(mainnet.AAVE_V3),
+            address(mainnet.UNISWAP_V4_ROUTER)
+        );
+        assertEq(assets[AssetType.WETH], address(0));
+        assertEq(assets[AssetType.WBTC], address(mainnet.WBTC));
+        assertEq(assets[AssetType.USDT], address(mainnet.USDT));
+        assertEq(assets[AssetType.USDC], address(mainnet.USDC));
+        assertEq(address(aave), address(mainnet.AAVE_V3));
+        assertEq(address(uniswapV4Router), address(mainnet.UNISWAP_V4_ROUTER));
+        vm.revertTo(snapshot);
+        this.initialize(
+            address(mainnet.WETH),
+            address(0),
+            address(mainnet.USDT),
+            address(mainnet.USDC),
+            address(mainnet.AAVE_V3),
+            address(mainnet.UNISWAP_V4_ROUTER)
+        );
+        assertEq(assets[AssetType.WETH], address(mainnet.WETH));
+        assertEq(assets[AssetType.WBTC], address(0));
+        assertEq(assets[AssetType.USDT], address(mainnet.USDT));
+        assertEq(assets[AssetType.USDC], address(mainnet.USDC));
+        assertEq(address(aave), address(mainnet.AAVE_V3));
+        assertEq(address(uniswapV4Router), address(mainnet.UNISWAP_V4_ROUTER));
+        vm.revertTo(snapshot);
+        this.initialize(
+            address(mainnet.WETH),
+            address(mainnet.WBTC),
+            address(0),
+            address(mainnet.USDC),
+            address(mainnet.AAVE_V3),
+            address(mainnet.UNISWAP_V4_ROUTER)
+        );
+        assertEq(assets[AssetType.WETH], address(mainnet.WETH));
+        assertEq(assets[AssetType.WBTC], address(mainnet.WBTC));
+        assertEq(assets[AssetType.USDT], address(0));
+        assertEq(assets[AssetType.USDC], address(mainnet.USDC));
+        assertEq(address(aave), address(mainnet.AAVE_V3));
+        assertEq(address(uniswapV4Router), address(mainnet.UNISWAP_V4_ROUTER));
+        vm.revertTo(snapshot);
+        this.initialize(
+            address(mainnet.WETH),
+            address(mainnet.WBTC),
+            address(mainnet.USDT),
+            address(0),
+            address(mainnet.AAVE_V3),
+            address(mainnet.UNISWAP_V4_ROUTER)
+        );
+        assertEq(assets[AssetType.WETH], address(mainnet.WETH));
+        assertEq(assets[AssetType.WBTC], address(mainnet.WBTC));
+        assertEq(assets[AssetType.USDT], address(mainnet.USDT));
+        assertEq(assets[AssetType.USDC], address(0));
+        assertEq(address(aave), address(mainnet.AAVE_V3));
+        assertEq(address(uniswapV4Router), address(mainnet.UNISWAP_V4_ROUTER));
+        vm.revertTo(snapshot);
+        this.initialize(
+            address(mainnet.WETH),
+            address(mainnet.WBTC),
+            address(mainnet.USDT),
+            address(mainnet.USDC),
+            address(0),
+            address(mainnet.UNISWAP_V4_ROUTER)
+        );
+        assertEq(assets[AssetType.WETH], address(mainnet.WETH));
+        assertEq(assets[AssetType.WBTC], address(mainnet.WBTC));
+        assertEq(assets[AssetType.USDT], address(mainnet.USDT));
+        assertEq(assets[AssetType.USDC], address(mainnet.USDC));
+        assertEq(address(aave), address(0));
+        assertEq(address(uniswapV4Router), address(mainnet.UNISWAP_V4_ROUTER));
+        vm.revertTo(snapshot);
+        this.initialize(
+            address(mainnet.WETH),
+            address(mainnet.WBTC),
+            address(mainnet.USDT),
+            address(mainnet.USDC),
+            address(mainnet.AAVE_V3),
+            address(0)
+        );
+        assertEq(assets[AssetType.WETH], address(mainnet.WETH));
+        assertEq(assets[AssetType.WBTC], address(mainnet.WBTC));
+        assertEq(assets[AssetType.USDT], address(mainnet.USDT));
+        assertEq(assets[AssetType.USDC], address(mainnet.USDC));
+        assertEq(address(aave), address(mainnet.AAVE_V3));
+        assertEq(address(uniswapV4Router), address(0));
     }
 
-    function test_Supply() public {
-        addWethToAddress(address(this), 1 ether);
-        uint256 balanceBefore = IERC20(address(mainnet.WETH)).balanceOf(address(this));
-        _supply(address(mainnet.WETH), 1 ether);
-
-        uint256 balanceAfter = IERC20(address(mainnet.WETH)).balanceOf(address(this));
-        assertEq(balanceAfter, balanceBefore - 1 ether);
-
-        (uint256 currentATokenBalance,,,,,,,,) =
-            poolDataProvider.getUserReserveData(address(mainnet.WETH), address(this));
-        // Aave may have small rounding differences, allow up to 10 wei difference
-        assertApproxEqAbs(currentATokenBalance, 1 ether, 10);
-    }
-
-    function test_SupplyRevertAmountIsZero() public {
-        vm.expectRevert(AmountIsZero.selector);
-        this.supply(mainnet.WETH, 0);
-    }
-
-    function test_SupplyRevertAddressZero() public {
-        vm.expectRevert(AddressZero.selector);
-        this.supply(address(0), 1 ether);
-    }
-
-    function test_Withdraw() public {
-        addWethToAddress(address(this), 1 ether);
-        _supply(address(mainnet.WETH), 1 ether);
-        uint256 balanceBefore = IERC20(address(mainnet.WETH)).balanceOf(address(this));
-        (uint256 aTokenBalance,,,,,,,,) = poolDataProvider.getUserReserveData(address(mainnet.WETH), address(this));
-        _withdraw(address(mainnet.WETH), aTokenBalance);
-        uint256 balanceAfter = IERC20(address(mainnet.WETH)).balanceOf(address(this));
-        assertApproxEqAbs(balanceAfter, balanceBefore + 1 ether, 1);
-    }
-
-    function test_WithdrawRevertAmountIsZero() public {
-        vm.expectRevert(AmountIsZero.selector);
-        this.withdraw(mainnet.WETH, 0);
-    }
-
-    function test_WithdrawRevertAddressZero() public {
-        vm.expectRevert(AddressZero.selector);
-        this.withdraw(address(0), 1 ether);
+    function test_Initialize() public {
+        this.doInitialize();
+        assertEq(assets[AssetType.WETH], address(mainnet.WETH));
+        assertEq(assets[AssetType.WBTC], address(mainnet.WBTC));
+        assertEq(assets[AssetType.USDT], address(mainnet.USDT));
+        assertEq(assets[AssetType.USDC], address(mainnet.USDC));
+        assertEq(address(aave), address(mainnet.AAVE_V3));
+        assertEq(address(uniswapV4Router), address(mainnet.UNISWAP_V4_ROUTER));
     }
 
     function test_SetRebalanceRules() public {
+        this.doInitialize();
         RebalanceLimit memory rebalanceLimit = RebalanceLimit({
             minimalWBTCBalance: 1 * 1e8,
             minimalWETHBalance: 100 * 1e18,
@@ -135,26 +232,47 @@ contract TestAssetManager is Test, AssetManager {
             minimalTimestampBetweenRebalances: 30,
             maxRebalancePercentage: 10
         });
-        _setRebalanceRules(rebalanceLimit);
-        assertEq(rebalanceLimit.minimalWBTCBalance, 1 * 1e8);
-        assertEq(rebalanceLimit.minimalWETHBalance, 100 * 1e18);
-        assertEq(rebalanceLimit.minimalStableCoinBalance, 100 * 1e6);
-        assertEq(rebalanceLimit.minimalTimestampBetweenRebalances, 30);
-        assertEq(rebalanceLimit.maxRebalancePercentage, 10);
+        this.setRebalanceRules(rebalanceLimit);
+        (
+            uint256 minimalWBTCBalance,
+            uint256 minimalWETHBalance,
+            uint256 minimalStableCoinBalance,
+            uint256 minimalTimestampBetweenRebalances,
+            uint256 maxRebalancePercentage
+        ) = this.rebalanceLimit();
+        assertEq(minimalWBTCBalance, 1 * 1e8);
+        assertEq(minimalWETHBalance, 100 * 1e18);
+        assertEq(minimalStableCoinBalance, 100 * 1e6);
+        assertEq(minimalTimestampBetweenRebalances, 30);
+        assertEq(maxRebalancePercentage, 10);
     }
 
-    function getPoolPrice(PoolKey memory key) internal view returns (uint256) {
-        PoolId poolId = PoolIdLibrary.toId(key);
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        // price = (sqrtPriceX96 / 2^96)^2 = (sqrtPriceX96^2) / (2^192)
-        // Use mulDiv to avoid overflow and maintain precision
-        // Calculate price with 18 decimals precision: price = (sqrtPriceX96^2 * 1e18) / (2^192)
-        // Use nested mulDiv to avoid overflow: first multiply sqrtPriceX96 * 1e18, then multiply by sqrtPriceX96, then divide by Q192
-        uint256 Q192 = 2 ** 192;
-        return Math.mulDiv(Math.mulDiv(uint256(sqrtPriceX96), 1e18, 1), uint256(sqrtPriceX96), Q192);
+    function test_SupplyRevertAddressZero() public {
+        this.doInitialize();
+        vm.expectRevert(AddressZero.selector);
+        this.supply(address(0), 1 ether);
+    }
+
+    function test_SupplyRevertAmountIsZero() public {
+        this.doInitialize();
+        vm.expectRevert(AmountIsZero.selector);
+        this.supply(address(mainnet.WETH), 0);
+    }
+
+    function test_WithdrawRevertAmountIsZero() public {
+        this.doInitialize();
+        vm.expectRevert(AmountIsZero.selector);
+        this.withdraw(mainnet.WETH, 0);
+    }
+
+    function test_WithdrawRevertAddressZero() public {
+        this.doInitialize();
+        vm.expectRevert(AddressZero.selector);
+        this.withdraw(address(0), 1 ether);
     }
 
     function test_SwapRevertAmountIsZero() public {
+        this.doInitialize();
         PoolKey memory poolKey = PoolKey({
             currency0: address(0), currency1: address(mainnet.USDT), fee: 3000, tickSpacing: 60, hooks: address(0)
         });
@@ -176,6 +294,7 @@ contract TestAssetManager is Test, AssetManager {
     }
 
     function test_SwapRevertInsufficientBalance() public {
+        this.doInitialize();
         // Ensure test contract has no ETH balance
         vm.deal(address(this), 0);
 
@@ -199,25 +318,29 @@ contract TestAssetManager is Test, AssetManager {
         this.swap(address(0), sellAmount, AssetType.USDT, buyAmountMin, swapData);
     }
 
-    function test_Swap() public {
-        PoolKey memory poolKey = PoolKey({
-            currency0: address(0), currency1: address(mainnet.USDT), fee: 3000, tickSpacing: 60, hooks: address(0)
-        });
+    function test_revertTurnETHToWETH() public {
+        this.initialize(
+            address(0),
+            address(mainnet.WBTC),
+            address(mainnet.USDT),
+            address(mainnet.USDC),
+            address(mainnet.AAVE_V3),
+            address(mainnet.UNISWAP_V4_ROUTER)
+        );
+        vm.expectRevert(WETHNotSet.selector);
+        this.turnETHToWETH();
+    }
 
-        uint256 price = getPoolPrice(poolKey);
-        uint256 sellAmount = 1 ether;
-        uint256 buyAmountMin = Math.mulDiv(price, 95, 100);
-
-        BaseData memory baseData = BaseData({
-            amount: sellAmount,
-            amountLimit: buyAmountMin,
-            payer: address(this),
-            receiver: address(this),
-            flags: SwapFlags.SINGLE_SWAP
-        });
-
-        bytes memory swapData = abi.encode(baseData, true, poolKey, "");
-        vm.deal(address(this), 1 ether);
-        this.swap(address(0), sellAmount, AssetType.USDT, buyAmountMin, swapData);
+    function test_revertGetWETHBalance() public {
+        this.initialize(
+            address(0),
+            address(mainnet.WBTC),
+            address(mainnet.USDT),
+            address(mainnet.USDC),
+            address(mainnet.AAVE_V3),
+            address(mainnet.UNISWAP_V4_ROUTER)
+        );
+        vm.expectRevert(WETHNotSet.selector);
+        this.getWETHBalance();
     }
 }

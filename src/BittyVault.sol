@@ -36,7 +36,7 @@ contract BittyVault is Trust, AssetManager {
         address aaveV3Address,
         address uniswapV4RouterAddress
     ) external initializer {
-        AssetManager.initialize(
+        AssetManager._initialize(
             wethAddress, wbtcAddress, usdtAddress, usdcAddress, aaveV3Address, uniswapV4RouterAddress
         );
 
