@@ -2,7 +2,6 @@
 pragma solidity ^0.8.27;
 
 import {BittyVault} from "./BittyVault.sol";
-import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 
@@ -26,8 +25,7 @@ contract BittyVaultFactory is Initializable, Ownable {
     address public aaveV3Address;
     address public uniswapV4RouterAddress;
 
-    constructor() {
-        transferOwnership(tx.origin);
+    constructor() Ownable(tx.origin) {
     }
 
     function initialize(

@@ -39,4 +39,16 @@ interface ITrust is IGrantor, IBeneficiary, ITrustee {
      * @return The status of the trust.
      */
     function revocable() external view returns (bool);
+
+    /**
+     * @notice Get the trustee base fee.
+     * @dev Get the trustee base fee.
+     */
+    function getBaseFee() external;
+
+    /**
+     * @notice Get the revenue fee.
+     * @dev Get the revenue fee.
+     */
+    function getRevenueFee() external;
 }

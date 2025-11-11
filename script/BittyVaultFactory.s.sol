@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Script} from "forge-std/Script.sol";
+import {Script} from "lib/forge-std/src/Script.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {BittyVaultFactory} from "../src/BittyVaultFactory.sol";
-import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
 import {mainnet, sepolia} from "../script/addresses.sol";
 
 contract BittyVaultFactoryScript is Script {

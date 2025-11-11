@@ -3,13 +3,13 @@ pragma solidity ^0.8.27;
 
 import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
-import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IGrantor} from "./interfaces/IGrantor.sol";
 
 abstract contract Trust is ITrust {
     address public grantor;
     address public trustee;
-    IAssetManager.ManageFee public manageFee;
+    IGrantor.ManageFee public manageFee;
     address public beneficiary;
 
     bool public isInitialized;
@@ -159,7 +159,7 @@ abstract contract Trust is ITrust {
         lastRevenueTime = block.timestamp;
     }
 
-    function setManageFee(IAssetManager.ManageFee memory manageFee_)
+    function setManageFee(IGrantor.ManageFee memory manageFee_)
         external
         virtual
         override
@@ -170,10 +170,10 @@ abstract contract Trust is ITrust {
             revert AmountIsZero();
         }
         if (manageFee_.revenuePercentage > 0 && manageFee_.revenueDuration == 0) {
-            revert RevenueDurationIsZero();
+            revert IGrantor.RevenueDurationIsZero();
         }
         if (manageFee_.revenuePercentage == 0 && manageFee_.revenueDuration > 0) {
-            revert RevenuePercentageIsZero();
+            revert IGrantor.RevenuePercentageIsZero();
         }
         manageFee = manageFee_;
     }
