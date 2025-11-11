@@ -120,6 +120,9 @@ abstract contract AssetManager is Initializable {
     }
 
     function addressBalance(address assetAddress) internal view returns (uint256) {
+        if (assetAddress == address(0)) {
+            return address(this).balance;
+        }
         return IERC20(assetAddress).balanceOf(address(this));
     }
 
@@ -165,26 +168,14 @@ abstract contract AssetManager is Initializable {
         }
     }
 
-    function _sellAssetsNotWhiteListed(
-        address sellAssetAddress,
-        uint256 sellAmount,
-        AssetType toAssetType,
-        uint256 buyAmountMin,
-        bytes calldata data
-    ) internal _onlyInitialized {
-        _swap(sellAssetAddress, sellAmount, toAssetType, buyAmountMin, data);
-    }
-
+    //TODO: verify data is matching with the parms
     function _swap(
         address sellAssetAddress,
         uint256 sellAmount,
         AssetType toAssetType,
         uint256 buyAmountMin,
-        bytes calldata data
+        bytes memory data
     ) internal _onlyInitialized {
-        if (sellAssetAddress == address(0)) {
-            revert AddressZero();
-        }
         if (sellAmount == 0 || buyAmountMin == 0) {
             revert AmountIsZero();
         }
@@ -193,7 +184,12 @@ abstract contract AssetManager is Initializable {
             revert InsufficientBalance();
         }
         uint256 buyAssetBalanceBefore = assetBalance(toAssetType);
-        IUniswapV4Router04(uniswapV4Router).swap(data, block.timestamp);
+        if (sellAssetAddress == address(0)) {
+            IUniswapV4Router04(uniswapV4Router).swap{value: sellAmount}(data, block.timestamp);
+        } else {
+            IUniswapV4Router04(uniswapV4Router).swap(data, block.timestamp);
+        }
+
         uint256 sellAssetBalanceAfter = addressBalance(sellAssetAddress);
         if (sellAssetBalanceBefore - sellAssetBalanceAfter != sellAmount) {
             revert SellAmountMismatch();

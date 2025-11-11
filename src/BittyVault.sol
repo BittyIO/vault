@@ -147,7 +147,7 @@ contract BittyVault is Trust, AssetManager {
         uint256 buyAmountMin,
         bytes calldata data
     ) external onlyInitialized onlyTrustee {
-        _sellAssetsNotWhiteListed(sellAssetAddress, sellAmount, toAssetType, buyAmountMin, data);
+        _swap(sellAssetAddress, sellAmount, toAssetType, buyAmountMin, data);
     }
 
     function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external onlyInitialized onlyGrantor {
