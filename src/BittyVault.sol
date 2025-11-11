@@ -5,9 +5,9 @@ import {AssetManager} from "./AssetManager.sol";
 import {Trust} from "./Trust.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
-import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {IAaveV3} from "./libs/Aave.sol";
 import {IUniswapV4Router04} from "./libs/Uniswap.sol";
+import {AssetType, RebalanceLimit} from "./AssetManager.sol";
 
 /**
  * @title BittyVault
@@ -25,7 +25,7 @@ import {IUniswapV4Router04} from "./libs/Uniswap.sol";
  * 1. Resolving inheritance conflicts (modifiers, abstract functions)
  * 2. Bridging between the two modules (usdt/usdc functions for Trust.getMoney)
  */
-contract BittyVault is AssetManager, Trust {
+contract BittyVault is Trust, AssetManager {
     // Full initialize with all parameters (used by factory)
     function initialize(
         address grantorAddress,
@@ -36,12 +36,9 @@ contract BittyVault is AssetManager, Trust {
         address aaveV3Address,
         address uniswapV4RouterAddress
     ) external initializer {
-        assets[IAssetManager.AssetType.WETH] = wethAddress;
-        assets[IAssetManager.AssetType.WBTC] = wbtcAddress;
-        assets[IAssetManager.AssetType.USDT] = usdtAddress;
-        assets[IAssetManager.AssetType.USDC] = usdcAddress;
-        aave = IAaveV3(aaveV3Address);
-        uniswapV4Router = IUniswapV4Router04(uniswapV4RouterAddress);
+        AssetManager.initialize(
+            wethAddress, wbtcAddress, usdtAddress, usdcAddress, aaveV3Address, uniswapV4RouterAddress
+        );
 
         if (grantorAddress == address(0)) {
             revert ITrust.AddressZero();
@@ -51,30 +48,6 @@ contract BittyVault is AssetManager, Trust {
         }
         grantor = grantorAddress;
         isInitialized = true;
-    }
-
-    /**
-     * @notice Override to resolve conflict between AssetManager and Trust onlyInitialized modifiers
-     */
-    modifier onlyInitialized() override(AssetManager, Trust) {
-        require(isInitialized, "Trust not initialized");
-        _;
-    }
-
-    /**
-     * @notice Override to resolve conflict between AssetManager and Trust onlyGrantor modifiers
-     */
-    modifier onlyGrantor() override(AssetManager, Trust) {
-        require(msg.sender == grantor, "Only grantor");
-        _;
-    }
-
-    /**
-     * @notice Override to resolve conflict between AssetManager and Trust onlyTrustee modifiers
-     */
-    modifier onlyTrustee() override(AssetManager, Trust) {
-        require(msg.sender == trustee, "Only trustee");
-        _;
     }
 
     /**
@@ -118,7 +91,7 @@ contract BittyVault is AssetManager, Trust {
 
         // Convert ETH to WETH first if there's any ETH
         if (address(this).balance > 0) {
-            this.turnETHToWETH();
+            _turnETHToWETH();
         }
 
         // Transfer all ERC20 assets
@@ -152,11 +125,39 @@ contract BittyVault is AssetManager, Trust {
         }
     }
 
-    // All asset management functions are inherited from AssetManager:
-    // - setWETH, setUSDT, setUSDC
-    // - supply, withdraw, rebalance, buy
-    // - turnETHToWETH, getETHBalance, getWETHBalance
-    // - setRebalanceRules
+    function supply(address assetAddress, uint256 amount) external onlyInitialized onlyTrustee {
+        _supply(assetAddress, amount);
+    }
+
+    function withdraw(address assetAddress, uint256 amount) external onlyInitialized onlyTrustee {
+        _withdraw(assetAddress, amount);
+    }
+
+    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmountMin, bytes calldata data)
+        external
+        onlyInitialized
+        onlyTrustee
+    {
+        _rebalance(from, to, sellAmount, buyAmountMin, data);
+    }
+
+    function sellAssetsNotWhiteListed(
+        address sellAssetAddress,
+        uint256 sellAmount,
+        AssetType toAssetType,
+        uint256 buyAmountMin,
+        bytes calldata data
+    ) external onlyInitialized onlyTrustee {
+        _sellAssetsNotWhiteListed(sellAssetAddress, sellAmount, toAssetType, buyAmountMin, data);
+    }
+
+    function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external onlyInitialized onlyGrantor {
+        _setRebalanceRules(rebalanceLimit);
+    }
+
+    function turnETHToWETH() external onlyInitialized onlyTrustee {
+        _turnETHToWETH();
+    }
 
     // All trust management functions are inherited from Trust:
     // - initialize, initaialize (multiple overloads)

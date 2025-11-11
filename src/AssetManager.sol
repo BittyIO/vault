@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {ITrustee} from "./interfaces/ITrustee.sol";
-import {ITrust} from "./interfaces/ITrust.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {IAaveV3} from "./libs/Aave.sol";
@@ -14,17 +12,53 @@ interface IWETH {
     function balanceOf(address account) external view returns (uint256);
 }
 
-abstract contract AssetManager is IAssetManager, Initializable {
-    modifier onlyTrustee() virtual;
-    modifier onlyInitialized() virtual;
-    modifier onlyGrantor() virtual;
+error AddressZero();
+error AmountIsZero();
+error WETHNotSet();
+error AssetAlreadySet();
+error InvalidAssetType();
+error RebalanceInMinimalTime();
+error InsufficientBalance();
+error SellAmountMismatch();
+error BuyAmountNotEnough();
+error MinimalWBTCBalanceLimit();
+error MinimalWETHBalanceLimit();
+error MinimalStableCoinBalanceLimit();
 
+enum AssetType {
+    WBTC,
+    WETH,
+    USDT,
+    USDC
+}
+
+struct RebalanceLimit {
+    uint256 minimalWBTCBalance;
+    uint256 minimalWETHBalance;
+    uint256 minimalStableCoinBalance;
+    uint256 minimalTimestampBetweenRebalances;
+    uint256 maxRebalancePercentage;
+}
+
+abstract contract AssetManager is Initializable {
     mapping(AssetType => address) public assets;
     // only WETH and WBTC rebalance will be recorded
     mapping(AssetType => uint256) public lastRebalances;
-    ITrustee.RebalanceLimit public rebalanceLimit;
+    RebalanceLimit public rebalanceLimit;
     IAaveV3 public aave;
     IUniswapV4Router04 public uniswapV4Router;
+
+    modifier _onlyInitialized() {
+        InitializableStorage storage $;
+        bytes32 slot = _initializableStorageSlot();
+        assembly {
+            $.slot := slot
+        }
+        if ($._initialized == 0) {
+            revert InvalidInitialization();
+        }
+        _;
+    }
 
     function initialize(
         address wethAddress,
@@ -33,18 +67,18 @@ abstract contract AssetManager is IAssetManager, Initializable {
         address usdcAddress,
         address aaveV3Address,
         address uniswapV4RouterAddress
-    ) external initializer {
+    ) internal {
         if (wethAddress != address(0)) {
-            assets[IAssetManager.AssetType.WETH] = wethAddress;
+            assets[AssetType.WETH] = wethAddress;
         }
         if (wbtcAddress != address(0)) {
-            assets[IAssetManager.AssetType.WBTC] = wbtcAddress;
+            assets[AssetType.WBTC] = wbtcAddress;
         }
         if (usdtAddress != address(0)) {
-            assets[IAssetManager.AssetType.USDT] = usdtAddress;
+            assets[AssetType.USDT] = usdtAddress;
         }
         if (usdcAddress != address(0)) {
-            assets[IAssetManager.AssetType.USDC] = usdcAddress;
+            assets[AssetType.USDC] = usdcAddress;
         }
         if (aaveV3Address != address(0)) {
             aave = IAaveV3(aaveV3Address);
@@ -54,26 +88,26 @@ abstract contract AssetManager is IAssetManager, Initializable {
         }
     }
 
-    function setRebalanceRules(ITrustee.RebalanceLimit memory rebalanceLimit_) external onlyInitialized onlyGrantor {
+    function _setRebalanceRules(RebalanceLimit memory rebalanceLimit_) internal _onlyInitialized {
         rebalanceLimit = rebalanceLimit_;
     }
 
-    function supply(address assetAddress, uint256 amount) external override onlyInitialized onlyTrustee {
+    function _supply(address assetAddress, uint256 amount) internal _onlyInitialized {
         if (assetAddress == address(0)) {
-            revert ITrust.AddressZero();
+            revert AddressZero();
         }
         if (amount == 0) {
-            revert ITrust.AmountIsZero();
+            revert AmountIsZero();
         }
         aave.getPool().supply(assetAddress, amount, address(this), 0);
     }
 
-    function withdraw(address assetAddress, uint256 amount) external override onlyInitialized onlyTrustee {
+    function _withdraw(address assetAddress, uint256 amount) internal _onlyInitialized {
         if (assetAddress == address(0)) {
-            revert ITrust.AddressZero();
+            revert AddressZero();
         }
         if (amount == 0) {
-            revert ITrust.AmountIsZero();
+            revert AmountIsZero();
         }
         aave.getPool().withdraw(assetAddress, amount, address(this));
     }
@@ -86,29 +120,27 @@ abstract contract AssetManager is IAssetManager, Initializable {
         return IERC20(assetAddress).balanceOf(address(this));
     }
 
-    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmountMin, bytes calldata data)
-        external
-        override
-        onlyInitialized
-        onlyTrustee
+    function _rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmountMin, bytes calldata data)
+        internal
+        _onlyInitialized
     {
         if ((from == AssetType.WETH || to == AssetType.WETH) && lastRebalances[AssetType.WETH] != 0) {
             if (block.timestamp - lastRebalances[AssetType.WETH] < rebalanceLimit.minimalTimestampBetweenRebalances) {
-                revert IAssetManager.RebalanceInMinimalTime();
+                revert RebalanceInMinimalTime();
             }
         }
         if ((from == AssetType.WBTC || to == AssetType.WBTC) && lastRebalances[AssetType.WBTC] != 0) {
             if (block.timestamp - lastRebalances[AssetType.WBTC] < rebalanceLimit.minimalTimestampBetweenRebalances) {
-                revert IAssetManager.RebalanceInMinimalTime();
+                revert RebalanceInMinimalTime();
             }
         }
         if (from == AssetType.WBTC) {
             if (assetBalance(AssetType.WBTC) < (rebalanceLimit.minimalWBTCBalance + sellAmount)) {
-                revert IAssetManager.MinimalWBTCBalanceLimit();
+                revert MinimalWBTCBalanceLimit();
             }
         } else if (from == AssetType.WETH) {
             if (assetBalance(AssetType.WETH) < (rebalanceLimit.minimalWETHBalance + sellAmount)) {
-                revert IAssetManager.MinimalWETHBalanceLimit();
+                revert MinimalWETHBalanceLimit();
             }
         } else if ((from == AssetType.USDT || from == AssetType.USDC) && (to == AssetType.WETH || to == AssetType.WBTC))
         {
@@ -116,7 +148,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
                 assetBalance(AssetType.USDT) + assetBalance(AssetType.USDC)
                     < (rebalanceLimit.minimalStableCoinBalance + sellAmount)
             ) {
-                revert IAssetManager.MinimalStableCoinBalanceLimit();
+                revert MinimalStableCoinBalanceLimit();
             }
         }
 
@@ -130,13 +162,13 @@ abstract contract AssetManager is IAssetManager, Initializable {
         }
     }
 
-    function sellAssetsNotWhiteListed(
+    function _sellAssetsNotWhiteListed(
         address sellAssetAddress,
         uint256 sellAmount,
         AssetType toAssetType,
         uint256 buyAmountMin,
         bytes calldata data
-    ) external override onlyInitialized onlyTrustee {
+    ) internal _onlyInitialized {
         _swap(sellAssetAddress, sellAmount, toAssetType, buyAmountMin, data);
     }
 
@@ -146,34 +178,34 @@ abstract contract AssetManager is IAssetManager, Initializable {
         AssetType toAssetType,
         uint256 buyAmountMin,
         bytes calldata data
-    ) internal {
+    ) internal _onlyInitialized {
         if (sellAssetAddress == address(0)) {
-            revert ITrust.AddressZero();
+            revert AddressZero();
         }
         if (sellAmount == 0 || buyAmountMin == 0) {
-            revert ITrust.AmountIsZero();
+            revert AmountIsZero();
         }
         uint256 sellAssetBalanceBefore = addressBalance(sellAssetAddress);
         if (sellAssetBalanceBefore < sellAmount) {
-            revert IAssetManager.InsufficientBalance();
+            revert InsufficientBalance();
         }
         uint256 buyAssetBalanceBefore = assetBalance(toAssetType);
         IUniswapV4Router04(uniswapV4Router).swap(data, block.timestamp);
         uint256 sellAssetBalanceAfter = addressBalance(sellAssetAddress);
         if (sellAssetBalanceBefore - sellAssetBalanceAfter != sellAmount) {
-            revert IAssetManager.SellAmountMismatch();
+            revert SellAmountMismatch();
         }
         uint256 buyAssetBalanceAfter = assetBalance(toAssetType);
         if (buyAssetBalanceAfter - buyAssetBalanceBefore < buyAmountMin) {
-            revert IAssetManager.BuyAmountNotEnough();
+            revert BuyAmountNotEnough();
         }
     }
 
-    function getETHBalance() external view virtual override returns (uint256) {
+    function getETHBalance() external view returns (uint256) {
         return address(this).balance;
     }
 
-    function turnETHToWETH() external virtual override onlyInitialized {
+    function _turnETHToWETH() internal _onlyInitialized {
         if (address(assets[AssetType.WETH]) == address(0)) {
             revert WETHNotSet();
         }
@@ -183,7 +215,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
         }
     }
 
-    function getWETHBalance() external view virtual override returns (uint256) {
+    function getWETHBalance() external view returns (uint256) {
         if (address(assets[AssetType.WETH]) == address(0)) {
             revert WETHNotSet();
         }

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {Test} from "forge-std/Test.sol";
+import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVaultFactory} from "../src/BittyVaultFactory.sol";
 import {BittyVault} from "../src/BittyVault.sol";
-import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
+import {AssetType} from "../src/AssetManager.sol";
 
 contract BittyVaultFactoryTest is Test {
     BittyVaultFactory public factory;
@@ -65,10 +65,10 @@ contract BittyVaultFactoryTest is Test {
         assertTrue(vault.isInitialized(), "Vault should be initialized");
         assertEq(vault.grantor(), grantor1, "Grantor should be set correctly");
 
-        assertEq(address(vault.assets(IAssetManager.AssetType.WETH)), wethAddress, "WETH address should be set");
-        assertEq(address(vault.assets(IAssetManager.AssetType.WBTC)), wbtcAddress, "WBTC address should be set");
-        assertEq(address(vault.assets(IAssetManager.AssetType.USDT)), usdtAddress, "USDT address should be set");
-        assertEq(address(vault.assets(IAssetManager.AssetType.USDC)), usdcAddress, "USDC address should be set");
+        assertEq(address(vault.assets(AssetType.WETH)), wethAddress, "WETH address should be set");
+        assertEq(address(vault.assets(AssetType.WBTC)), wbtcAddress, "WBTC address should be set");
+        assertEq(address(vault.assets(AssetType.USDT)), usdtAddress, "USDT address should be set");
+        assertEq(address(vault.assets(AssetType.USDC)), usdcAddress, "USDC address should be set");
     }
 
     function test_MultipleVaultsForSameGrantor() public {

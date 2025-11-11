@@ -3,13 +3,49 @@ pragma solidity ^0.8.27;
 
 import {ITrustee} from "./ITrustee.sol";
 import {IBeneficiary} from "./IBeneficiary.sol";
-import {IAssetManager} from "./IAssetManager.sol";
 
 /**
  * @title Create and set the rules of the Trust.
  * @dev
  */
 interface IGrantor {
+    error BaseFeeDurationNotMet();
+    error RevenueDurationNotMet();
+    error RevenueIsZero();
+    error RevenuePercentageIsZero();
+    error RevenueDurationIsZero();
+
+    struct ManageFee {
+        /**
+         *
+         * @param baseFeeAmount The base fee amount.
+         * @dev The base fee amount, if isBaseFeePercentage is true, this is 1 / 10000 as unit.
+         */
+        uint256 baseFeeAmount;
+        /**
+         * @dev The base fee duration.
+         * @param baseFeeDuration The base fee duration.
+         */
+        uint256 baseFeeDuration;
+        /**
+         * @dev Whether the base fee is a percentage.
+         * @param isBaseFeePercentage Whether the base fee is a percentage.
+         */
+        bool isBaseFeePercentage;
+
+        /**
+         * @dev The revenue percentage, this is 1 / 10000 as unit.
+         * @param revenuePercentage The revenue percentage.
+         */
+        uint256 revenuePercentage;
+
+        /**
+         * @dev The revenue duration.
+         * @param revenueDuration The revenue duration.
+         */
+        uint256 revenueDuration;
+    }
+
     /**
      * @notice Initialize the trust.
      * @dev Initialize the trust.
@@ -53,7 +89,7 @@ interface IGrantor {
      * @dev Set the manage fee.
      * @param manageFee The manage fee.
      */
-    function setManageFee(IAssetManager.ManageFee memory manageFee) external;
+    function setManageFee(ManageFee memory manageFee) external;
 
     /**
      * @notice Set the beneficiary.
