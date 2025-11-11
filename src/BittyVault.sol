@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {AssetManager} from "./AssetManager.sol";
 import {Trust} from "./Trust.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
 import {IAaveV3} from "./libs/Aave.sol";
 import {IUniswapV4Router04} from "./libs/Uniswap.sol";
-import {AssetType, RebalanceLimit} from "./AssetManager.sol";
+import {AssetType, RebalanceLimit, AssetManager} from "./AssetManager.sol";
 
 /**
  * @title BittyVault

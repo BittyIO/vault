@@ -28,17 +28,17 @@ abstract contract Trust is ITrust {
     mapping(string => IBeneficiary.TriggerEvent) public beneficiaryTriggerEvents;
     mapping(uint256 => IBeneficiary.TimeEvent) public beneficiaryTimeEvents;
 
-    modifier onlyInitialized() virtual {
+    modifier onlyInitialized() {
         require(isInitialized, "Trust not initialized");
         _;
     }
 
-    modifier onlyGrantor() virtual {
+    modifier onlyGrantor() {
         require(msg.sender == grantor, "Only grantor");
         _;
     }
 
-    modifier onlyTrustee() virtual {
+    modifier onlyTrustee() {
         require(msg.sender == trustee, "Only trustee");
         _;
     }
@@ -159,13 +159,7 @@ abstract contract Trust is ITrust {
         lastRevenueTime = block.timestamp;
     }
 
-    function setManageFee(IGrantor.ManageFee memory manageFee_)
-        external
-        virtual
-        override
-        onlyInitialized
-        onlyGrantor
-    {
+    function setManageFee(IGrantor.ManageFee memory manageFee_) external virtual override onlyInitialized onlyGrantor {
         if (manageFee_.baseFeeAmount == 0 && manageFee_.revenuePercentage == 0) {
             revert AmountIsZero();
         }

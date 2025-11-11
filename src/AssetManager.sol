@@ -6,6 +6,7 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.so
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {IAaveV3} from "./libs/Aave.sol";
 import {IUniswapV4Router04} from "./libs/Uniswap.sol";
+import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -41,6 +42,7 @@ struct RebalanceLimit {
 }
 
 abstract contract AssetManager is Initializable {
+    using SafeERC20 for IERC20;
     mapping(AssetType => address) public assets;
     // only WETH and WBTC rebalance will be recorded
     mapping(AssetType => uint256) public lastRebalances;
@@ -99,6 +101,7 @@ abstract contract AssetManager is Initializable {
         if (amount == 0) {
             revert AmountIsZero();
         }
+        IERC20(assetAddress).safeIncreaseAllowance(address(aave.getPool()), amount);
         aave.getPool().supply(assetAddress, amount, address(this), 0);
     }
 
