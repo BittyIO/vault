@@ -7,7 +7,7 @@ import {ITrust} from "../src/interfaces/ITrust.sol";
 import {ITrustee} from "../src/interfaces/ITrustee.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {AssetManager} from "../src/AssetManager.sol";
-import {IGrantor} from "../src/interfaces/IGrantor.sol";
+
 import {
     AmountIsZero,
     RevenueDurationIsZero,
@@ -198,7 +198,7 @@ contract BittyVaultTrusteeTest is Test {
     MockUniswapV4Router public mockUniswap;
     address public trustee;
     AssetManager.RebalanceLimit public rebalanceLimits;
-    IGrantor.ManageFee public manageFee;
+    AssetManager.ManageFee public manageFee;
 
     function setUp() public {
         mockWETH = new MockWETH();
@@ -226,7 +226,7 @@ contract BittyVaultTrusteeTest is Test {
             maxRebalancePercentage: 10
         });
         bittyVault.setRebalanceRules(rebalanceLimits);
-        manageFee = IGrantor.ManageFee({
+        manageFee = AssetManager.ManageFee({
             baseFeeAmount: 100 * 1e6,
             baseFeeDuration: 30 days,
             isBaseFeePercentage: false,
