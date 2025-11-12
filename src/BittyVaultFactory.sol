@@ -2,9 +2,9 @@
 pragma solidity ^0.8.27;
 
 import {BittyVault} from "./BittyVault.sol";
-import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
+import {InvalidGrantor, DeploymentFailed} from "./interfaces/Errors.sol";
 
 /**
  * @title BittyVaultFactory
@@ -108,8 +108,5 @@ contract BittyVaultFactory is Initializable, Ownable {
             addr := and(keccak256(start, 0x55), 0xffffffffffffffffffffffffffffffffffffffff)
         }
     }
-
-    error InvalidGrantor();
-    error DeploymentFailed();
 }
 

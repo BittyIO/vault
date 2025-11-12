@@ -41,11 +41,15 @@ jobs:
         run: |
           forge test -vvv
         id: test
+        env:
+          ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
 
       - name: Run Forge coverage
         run: |
-          forge coverage --ir-minimum --no-match-coverage 'test|node_modules|script' --report lcov
+          forge coverage --ir-minimum --no-match-coverage 'test|node_modules|script|src/libs' --report lcov
         id: coverage
+        env:
+          ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
 
       - uses: codecov/codecov-action@v5
         with:

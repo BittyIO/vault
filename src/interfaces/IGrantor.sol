@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {ITrustee} from "./ITrustee.sol";
 import {IBeneficiary} from "./IBeneficiary.sol";
-import {IAssetManager} from "./IAssetManager.sol";
+import {AssetManager} from "../AssetManager.sol";
 
 /**
  * @title Create and set the rules of the Trust.
@@ -53,7 +52,7 @@ interface IGrantor {
      * @dev Set the manage fee.
      * @param manageFee The manage fee.
      */
-    function setManageFee(IAssetManager.ManageFee memory manageFee) external;
+    function setManageFee(AssetManager.ManageFee memory manageFee) external;
 
     /**
      * @notice Set the beneficiary.

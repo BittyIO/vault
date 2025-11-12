@@ -3,13 +3,42 @@ pragma solidity ^0.8.27;
 
 import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
-import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {AssetManager} from "./AssetManager.sol";
+import {
+    AddressZero,
+    AlreadyInitialized,
+    AutoIrrevocableAfterNoPingNotSet,
+    StartDistributionTimestampAlreadySet,
+    AmountIsZero,
+    AmountPerWithdrawalIsZero,
+    minimalWithdrawDurationLessThan1Day,
+    BeneficiarySettingsNotSet,
+    BeneficiaryWithdrawalInLimitDays,
+    InsufficientStablecoinBalance,
+    TransferFailed,
+    EventNameIsEmpty,
+    EventNameDuplicated,
+    EventNameNotFound,
+    percentageMoreThan10K,
+    EventTriggerError,
+    TimestampIsZero,
+    TimestampNotFound,
+    TimestampDuplicated,
+    LengthMismatch,
+    TimestampIsInTheFuture,
+    BaseFeeDurationNotMet,
+    RevenueDurationNotMet,
+    RevenueIsZero,
+    RevenueDurationIsZero,
+    RevenuePercentageIsZero
+} from "./interfaces/Errors.sol";
+import {AssetManager} from "./AssetManager.sol";
 
 abstract contract Trust is ITrust {
     address public grantor;
     address public trustee;
-    IAssetManager.ManageFee public manageFee;
+    AssetManager.ManageFee public manageFee;
     address public beneficiary;
 
     bool public isInitialized;
@@ -28,17 +57,17 @@ abstract contract Trust is ITrust {
     mapping(string => IBeneficiary.TriggerEvent) public beneficiaryTriggerEvents;
     mapping(uint256 => IBeneficiary.TimeEvent) public beneficiaryTimeEvents;
 
-    modifier onlyInitialized() virtual {
+    modifier onlyInitialized() {
         require(isInitialized, "Trust not initialized");
         _;
     }
 
-    modifier onlyGrantor() virtual {
+    modifier onlyGrantor() {
         require(msg.sender == grantor, "Only grantor");
         _;
     }
 
-    modifier onlyTrustee() virtual {
+    modifier onlyTrustee() {
         require(msg.sender == trustee, "Only trustee");
         _;
     }
@@ -159,7 +188,7 @@ abstract contract Trust is ITrust {
         lastRevenueTime = block.timestamp;
     }
 
-    function setManageFee(IAssetManager.ManageFee memory manageFee_)
+    function setManageFee(AssetManager.ManageFee memory manageFee_)
         external
         virtual
         override

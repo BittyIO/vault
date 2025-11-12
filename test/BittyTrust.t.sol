@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {Test} from "forge-std/Test.sol";
+import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {ITrust} from "../src/interfaces/ITrust.sol";
-import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
+import {AddressZero, AlreadyInitialized} from "../src/interfaces/Errors.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -29,13 +29,13 @@ contract BittyVaultTest is Test {
     }
 
     function test_InitErrorWithGrantorAddressZero() public {
-        vm.expectRevert(ITrust.AddressZero.selector);
+        vm.expectRevert(AddressZero.selector);
         bittyVault.initialize(address(0));
     }
 
     function test_InitErrorWithAlreadyInitialized() public {
         bittyVault.initialize(address(1));
-        vm.expectRevert(ITrust.AlreadyInitialized.selector);
+        vm.expectRevert(AlreadyInitialized.selector);
         bittyVault.initialize(address(1));
     }
 

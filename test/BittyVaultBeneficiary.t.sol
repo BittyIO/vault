@@ -1,11 +1,29 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {Test} from "forge-std/Test.sol";
+import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {ITrust} from "../src/interfaces/ITrust.sol";
 import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
-import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
+import {
+    AddressZero,
+    AmountIsZero,
+    BeneficiarySettingsNotSet,
+    AmountPerWithdrawalIsZero,
+    minimalWithdrawDurationLessThan1Day,
+    BeneficiaryWithdrawalInLimitDays,
+    EventNameIsEmpty,
+    EventNameDuplicated,
+    percentageMoreThan10K,
+    EventTriggerError,
+    EventNameNotFound,
+    TimestampIsZero,
+    TimestampDuplicated,
+    LengthMismatch,
+    TimestampNotFound,
+    TimestampIsInTheFuture,
+    InsufficientStablecoinBalance
+} from "../src/interfaces/Errors.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -97,13 +115,13 @@ contract BittyVaultBeneficiaryTest is Test {
 
     function test_GetMoneyFailedIfNoBeneficiarySettings() public {
         vm.deal(address(bittyVault), 10 ether);
-        vm.expectRevert(ITrust.BeneficiarySettingsNotSet.selector);
+        vm.expectRevert(BeneficiarySettingsNotSet.selector);
         vm.prank(beneficiary);
         bittyVault.getMoney();
     }
 
     function test_SetBeneficiarySettingFailedIfAmountPerWithdrawalIsZero() public {
-        vm.expectRevert(ITrust.AmountPerWithdrawalIsZero.selector);
+        vm.expectRevert(AmountPerWithdrawalIsZero.selector);
         bittyVault.setBeneficiarySettings(
             IBeneficiary.BeneficiarySettings({
                 amountPerWithdrawal: 0, minimalWithdrawDuration: 30 days, withdrawUSDTFirst: false
@@ -112,7 +130,7 @@ contract BittyVaultBeneficiaryTest is Test {
     }
 
     function test_SetBeneficiarySettingFailedIfMinimalWithdrawDurationLessThan1Day() public {
-        vm.expectRevert(ITrust.minimalWithdrawDurationLessThan1Day.selector);
+        vm.expectRevert(minimalWithdrawDurationLessThan1Day.selector);
         bittyVault.setBeneficiarySettings(
             IBeneficiary.BeneficiarySettings({
                 amountPerWithdrawal: withdrawMoney, minimalWithdrawDuration: 23 hours, withdrawUSDTFirst: false
@@ -129,7 +147,7 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.getMoney();
         mockUSDT.mint(address(bittyVault), usdtAmount);
         vm.warp(block.timestamp + 29 days);
-        vm.expectRevert(ITrust.BeneficiaryWithdrawalInLimitDays.selector);
+        vm.expectRevert(BeneficiaryWithdrawalInLimitDays.selector);
         vm.prank(beneficiary);
         bittyVault.getMoney();
     }
@@ -138,7 +156,7 @@ contract BittyVaultBeneficiaryTest is Test {
         eventNames[0] = "";
         triggerEvents[0] =
             IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: marriageMoney, isPercentage: false});
-        vm.expectRevert(ITrust.EventNameIsEmpty.selector);
+        vm.expectRevert(EventNameIsEmpty.selector);
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
     }
 
@@ -146,7 +164,7 @@ contract BittyVaultBeneficiaryTest is Test {
         eventNames[0] = "Marriage";
         triggerEvents[0] =
             IBeneficiary.TriggerEvent({triggerAddress: address(0), amount: marriageMoney, isPercentage: false});
-        vm.expectRevert(ITrust.AddressZero.selector);
+        vm.expectRevert(AddressZero.selector);
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
     }
 
@@ -154,7 +172,7 @@ contract BittyVaultBeneficiaryTest is Test {
         eventNames[0] = "Marriage";
         triggerEvents[0] =
             IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: 0, isPercentage: false});
-        vm.expectRevert(ITrust.AmountIsZero.selector);
+        vm.expectRevert(AmountIsZero.selector);
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
     }
 
@@ -162,7 +180,7 @@ contract BittyVaultBeneficiaryTest is Test {
         eventNames[0] = "Marriage";
         triggerEvents[0] =
             IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: 10001, isPercentage: true});
-        vm.expectRevert(ITrust.percentageMoreThan10K.selector);
+        vm.expectRevert(percentageMoreThan10K.selector);
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
     }
 
@@ -171,7 +189,7 @@ contract BittyVaultBeneficiaryTest is Test {
         triggerEvents[0] =
             IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: marriageMoney, isPercentage: false});
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
-        vm.expectRevert(ITrust.EventNameDuplicated.selector);
+        vm.expectRevert(EventNameDuplicated.selector);
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
     }
 
@@ -180,7 +198,7 @@ contract BittyVaultBeneficiaryTest is Test {
         triggerEvents[0] =
             IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: marriageMoney, isPercentage: false});
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
-        vm.expectRevert(ITrust.EventTriggerError.selector);
+        vm.expectRevert(EventTriggerError.selector);
         bittyVault.getMoneyFromEvent("Marriage");
     }
 
@@ -196,7 +214,7 @@ contract BittyVaultBeneficiaryTest is Test {
 
     function test_RemoveTriggerEventsFailedIfEventNameIsEmpty() public {
         eventNames[0] = "";
-        vm.expectRevert(ITrust.EventNameIsEmpty.selector);
+        vm.expectRevert(EventNameIsEmpty.selector);
         bittyVault.removeTriggerEvents(eventNames);
     }
 
@@ -207,7 +225,7 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
         string[] memory eventNamesNotFound = new string[](1);
         eventNamesNotFound[0] = "MarriageNotFound";
-        vm.expectRevert(ITrust.EventNameNotFound.selector);
+        vm.expectRevert(EventNameNotFound.selector);
         bittyVault.removeTriggerEvents(eventNamesNotFound);
     }
 
@@ -269,21 +287,21 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
         bittyVault.removeTriggerEvents(eventNames);
         vm.prank(beneficiary);
-        vm.expectRevert(ITrust.EventNameNotFound.selector);
+        vm.expectRevert(EventNameNotFound.selector);
         bittyVault.getMoneyFromEvent(eventNames[0]);
     }
 
     function test_AddTimeEventsFailedIfTimestampIsZero() public {
         timestamps[0] = 0;
         timeEvents[0] = IBeneficiary.TimeEvent({amount: marriageMoney, isPercentage: false});
-        vm.expectRevert(ITrust.TimestampIsZero.selector);
+        vm.expectRevert(TimestampIsZero.selector);
         bittyVault.addTimeEvents(timestamps, timeEvents);
     }
 
     function test_AddTimeEventsFailedIfAmountIsZero() public {
         timestamps[0] = block.timestamp;
         timeEvents[0] = IBeneficiary.TimeEvent({amount: 0, isPercentage: false});
-        vm.expectRevert(ITrust.AmountIsZero.selector);
+        vm.expectRevert(AmountIsZero.selector);
         bittyVault.addTimeEvents(timestamps, timeEvents);
     }
 
@@ -291,7 +309,7 @@ contract BittyVaultBeneficiaryTest is Test {
         timestamps[0] = block.timestamp;
         timeEvents[0] = IBeneficiary.TimeEvent({amount: marriageMoney, isPercentage: false});
         bittyVault.addTimeEvents(timestamps, timeEvents);
-        vm.expectRevert(ITrust.TimestampDuplicated.selector);
+        vm.expectRevert(TimestampDuplicated.selector);
         bittyVault.addTimeEvents(timestamps, timeEvents);
     }
 
@@ -300,20 +318,20 @@ contract BittyVaultBeneficiaryTest is Test {
         IBeneficiary.TimeEvent[] memory timeEventsMismatch = new IBeneficiary.TimeEvent[](2);
         timeEventsMismatch[0] = IBeneficiary.TimeEvent({amount: marriageMoney, isPercentage: false});
         timeEventsMismatch[1] = IBeneficiary.TimeEvent({amount: marriageMoney, isPercentage: false});
-        vm.expectRevert(ITrust.LengthMismatch.selector);
+        vm.expectRevert(LengthMismatch.selector);
         bittyVault.addTimeEvents(timestamps, timeEventsMismatch);
     }
 
     function test_GetMoneyByTimestampFailedIfTimestampIsZero() public {
         timestamps[0] = 0;
-        vm.expectRevert(ITrust.TimestampIsZero.selector);
+        vm.expectRevert(TimestampIsZero.selector);
         vm.prank(beneficiary);
         bittyVault.getMoneyByTimestamp(timestamps[0]);
     }
 
     function test_GetMoneyByTimestampFailedIfTimestampNotFound() public {
         timestamps[0] = block.timestamp;
-        vm.expectRevert(ITrust.TimestampNotFound.selector);
+        vm.expectRevert(TimestampNotFound.selector);
         vm.prank(beneficiary);
         bittyVault.getMoneyByTimestamp(timestamps[0]);
     }
@@ -322,7 +340,7 @@ contract BittyVaultBeneficiaryTest is Test {
         timestamps[0] = block.timestamp + 1 days;
         timeEvents[0] = IBeneficiary.TimeEvent({amount: marriageMoney, isPercentage: false});
         bittyVault.addTimeEvents(timestamps, timeEvents);
-        vm.expectRevert(ITrust.TimestampIsInTheFuture.selector);
+        vm.expectRevert(TimestampIsInTheFuture.selector);
         vm.prank(beneficiary);
         bittyVault.getMoneyByTimestamp(timestamps[0]);
     }
@@ -413,7 +431,7 @@ contract BittyVaultBeneficiaryTest is Test {
         mockUSDT.mint(address(bittyVault), partialAmount);
         mockUSDC.mint(address(bittyVault), partialAmount);
 
-        vm.expectRevert(ITrust.InsufficientStablecoinBalance.selector);
+        vm.expectRevert(InsufficientStablecoinBalance.selector);
         vm.prank(beneficiary);
         bittyVault.getMoney();
     }
