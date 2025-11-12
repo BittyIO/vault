@@ -6,6 +6,7 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.so
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {IAaveV3} from "./libs/Aave.sol";
 import {IUniswapV4Router04} from "./libs/Uniswap.sol";
+import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {
     AddressZero,
@@ -26,53 +27,7 @@ interface IWETH {
     function balanceOf(address account) external view returns (uint256);
 }
 
-abstract contract AssetManager is Initializable {
-    enum AssetType {
-        WBTC,
-        WETH,
-        USDT,
-        USDC
-    }
-
-    struct RebalanceLimit {
-        uint256 minimalWBTCBalance;
-        uint256 minimalWETHBalance;
-        uint256 minimalStableCoinBalance;
-        uint256 minimalTimestampBetweenRebalances;
-        uint256 maxRebalancePercentage;
-    }
-
-    struct ManageFee {
-        /**
-         *
-         * @param baseFeeAmount The base fee amount.
-         * @dev The base fee amount, if isBaseFeePercentage is true, this is 1 / 10000 as unit.
-         */
-        uint256 baseFeeAmount;
-        /**
-         * @dev The base fee duration.
-         * @param baseFeeDuration The base fee duration.
-         */
-        uint256 baseFeeDuration;
-        /**
-         * @dev Whether the base fee is a percentage.
-         * @param isBaseFeePercentage Whether the base fee is a percentage.
-         */
-        bool isBaseFeePercentage;
-
-        /**
-         * @dev The revenue percentage, this is 1 / 10000 as unit.
-         * @param revenuePercentage The revenue percentage.
-         */
-        uint256 revenuePercentage;
-
-        /**
-         * @dev The revenue duration.
-         * @param revenueDuration The revenue duration.
-         */
-        uint256 revenueDuration;
-    }
-
+abstract contract AssetManager is IAssetManager, Initializable {
     using SafeERC20 for IERC20;
     mapping(AssetType => address) public assets;
     // only WETH and WBTC rebalance will be recorded
