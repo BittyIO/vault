@@ -4,7 +4,7 @@ pragma solidity ^0.8.27;
 import {BittyVault} from "./BittyVault.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {InvalidGrantor, DeploymentFailed} from "./interfaces/Errors.sol";
+import {InvalidGrantor, DeploymentFailed, AddressZero} from "./interfaces/Errors.sol";
 
 /**
  * @title BittyVaultFactory
@@ -20,11 +20,10 @@ contract BittyVaultFactory is Initializable, Ownable {
     event VaultDeployed(address indexed vault, address indexed grantor);
 
     address public wethAddress;
-    address public wbtcAddress;
-    address public usdtAddress;
-    address public usdcAddress;
-    address public aaveV3Address;
-    address public uniswapV4RouterAddress;
+    mapping(address => bool) public assetAddresses;
+    mapping(address => bool) public stableCoinAddresses;
+    mapping(address => bool) public yieldProviders;
+    mapping(address => bool) public swapProviders;
 
     constructor() {
         transferOwnership(tx.origin);
@@ -32,27 +31,49 @@ contract BittyVaultFactory is Initializable, Ownable {
 
     function initialize(
         address wethAddress_,
-        address wbtcAddress_,
-        address usdtAddress_,
-        address usdcAddress_,
-        address aaveV3Address_,
-        address uniswapV4RouterAddress_
+        address[] memory assetAddresses_,
+        address[] memory stableCoinAddresses_,
+        address[] memory yieldProviders_,
+        address[] memory swapProviders_
     ) public initializer {
+        if (wethAddress_ == address(0)) {
+            revert AddressZero();
+        }
         wethAddress = wethAddress_;
-        wbtcAddress = wbtcAddress_;
-        usdtAddress = usdtAddress_;
-        usdcAddress = usdcAddress_;
-        aaveV3Address = aaveV3Address_;
-        uniswapV4RouterAddress = uniswapV4RouterAddress_;
+        for (uint256 i = 0; i < assetAddresses_.length; i++) {
+            if (assetAddresses_[i] == address(0)) {
+                revert AddressZero();
+            }
+            assetAddresses[assetAddresses_[i]] = true;
+        }
+        for (uint256 i = 0; i < stableCoinAddresses_.length; i++) {
+            if (stableCoinAddresses_[i] == address(0)) {
+                revert AddressZero();
+            }
+            stableCoinAddresses[stableCoinAddresses_[i]] = true;
+        }
+        for (uint256 i = 0; i < yieldProviders_.length; i++) {
+            if (yieldProviders_[i] == address(0)) {
+                revert AddressZero();
+            }
+            yieldProviders[yieldProviders_[i]] = true;
+        }
+        for (uint256 i = 0; i < swapProviders_.length; i++) {
+            if (swapProviders_[i] == address(0)) {
+                revert AddressZero();
+            }
+            swapProviders[swapProviders_[i]] = true;
+        }
     }
 
-    /**
-     * @notice Deploys a new BittyVault for a specific grantor using CREATE2
-     * @dev The vault address is deterministic based on the grantor address
-     * @param grantor The address of the grantor who will initialize the vault
-     * @return vault The address of the deployed BittyVault
-     */
-    function deployVault(address grantor) external returns (address vault) {
+    function deployVault(
+        address grantor,
+        address wethAddress_,
+        address[] memory assetAddresses_,
+        address[] memory stableCoinAddresses_,
+        address[] memory yieldProviders_,
+        address[] memory swapProviders_
+    ) external returns (address vault) {
         if (grantor == address(0)) {
             revert InvalidGrantor();
         }
@@ -63,15 +84,12 @@ contract BittyVaultFactory is Initializable, Ownable {
         if (computedAddress.code.length > 0) {
             return computedAddress;
         }
-
         assembly {
             vault := create2(0, add(bytecode, 0x20), mload(bytecode), salt)
         }
 
         BittyVault(payable(vault))
-            .initialize(
-                grantor, wethAddress, wbtcAddress, usdtAddress, usdcAddress, aaveV3Address, uniswapV4RouterAddress
-            );
+            .initialize(grantor, wethAddress_, assetAddresses_, stableCoinAddresses_, yieldProviders_, swapProviders_);
 
         if (vault == address(0)) {
             revert DeploymentFailed();

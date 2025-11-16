@@ -24,11 +24,6 @@ interface IBeneficiary {
          * It can not be 0 for security, should > 1 day.
          */
         uint256 minimalWithdrawDuration;
-        /**
-         * @dev Whether to withdraw USDT first if the trust has enough USDT.
-         * @param withdrawUSDTFirst Whether to withdraw USDT first if the trust has enough USDT.
-         */
-        bool withdrawUSDTFirst;
     }
 
     struct TriggerEvent {
@@ -79,10 +74,11 @@ interface IBeneficiary {
     /**
      * @notice Get the money from the trust.
      * @dev Get the money from the trust.
+     * @param stableCoinAddress The address of the stablecoin to get the money.
      * @param to The address to get the money.
      *
      */
-    function getMoney(address to) external;
+    function getMoney(address stableCoinAddress, address to) external;
 
     /**
      * @notice Get the money from the event.
@@ -92,7 +88,7 @@ interface IBeneficiary {
      *
      * This is beneficiary only, if the beneficiary address is lost, no one can get money.
      */
-    function getMoneyFromEvent(string memory eventName, address to) external;
+    function getMoneyFromEvent(string memory eventName, address stableCoinAddress, address to) external;
 
     /**
      * @notice Get the money from the time event.
@@ -102,5 +98,5 @@ interface IBeneficiary {
      *
      * This is beneficiary only, if the beneficiary address is lost, no one can get money.
      */
-    function getMoneyByTimestamp(uint256 timestamp, address to) external;
+    function getMoneyByTimestamp(uint256 timestamp, address stableCoinAddress, address to) external;
 }

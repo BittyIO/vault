@@ -15,18 +15,22 @@ contract BittyVaultFactoryScript is Script {
         vm.startBroadcast();
 
         factory = new BittyVaultFactory();
-        factory.initialize(
-            getWETHAddress(),
-            getWBTCAddress(),
-            getUSDTAddress(),
-            getUSDCAddress(),
-            getAAVEV3Address(),
-            getUniswapV4RouterAddress()
-        );
+        address[] memory assetAddresses = new address[](2);
+        assetAddresses[0] = getWBTCAddress();
+        assetAddresses[1] = getWETHAddress();
+        address[] memory stableCoinAddresses = new address[](2);
+        stableCoinAddresses[0] = getUSDTAddress();
+        stableCoinAddresses[1] = getUSDCAddress();
+        address[] memory yieldProviders = new address[](0);
+        address[] memory swapProviders = new address[](1);
+        swapProviders[0] = getUniswapV4RouterAddress();
+        factory.initialize(getWETHAddress(), assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
 
         address grantor = vm.envOr("GRANTOR_ADDRESS", msg.sender);
 
-        address vaultAddress = factory.deployVault(grantor);
+        address vaultAddress = factory.deployVault(
+            grantor, getWETHAddress(), assetAddresses, stableCoinAddresses, yieldProviders, swapProviders
+        );
 
         address computedAddress = factory.computeVaultAddress(grantor);
         require(vaultAddress == computedAddress, "Address mismatch");

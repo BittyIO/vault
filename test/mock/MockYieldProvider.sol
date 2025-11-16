@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {ILendingProvider} from "../../src/interfaces/IAssetManager.sol";
+import {IYieldProvider} from "../../src/interfaces/IAssetManager.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
-contract MockLendingProvider is ILendingProvider {
+contract MockYieldProvider is IYieldProvider {
     mapping(address => uint256) public balances;
     mapping(address => IERC20) public tokens;
 

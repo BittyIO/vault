@@ -4,10 +4,21 @@ pragma solidity ^0.8.27;
 import {Trust} from "./Trust.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
+import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 import {IAaveV3} from "./libs/Aave.sol";
+import {IWETH} from "./interfaces/IWETH.sol";
 import {IUniswapV4Router04} from "./libs/Uniswap.sol";
 import {AssetManager} from "./AssetManager.sol";
-import {AddressZero, AlreadyInitialized, TransferFailed} from "./interfaces/Errors.sol";
+import {IAssetManager} from "./interfaces/IAssetManager.sol";
+import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
+import {
+    AddressZero,
+    AlreadyInitialized,
+    TransferFailed,
+    WETHNotSet,
+    InsufficientStablecoinBalance,
+    NotRevocable
+} from "./interfaces/Errors.sol";
 
 /**
  * @title BittyVault
@@ -26,19 +37,18 @@ import {AddressZero, AlreadyInitialized, TransferFailed} from "./interfaces/Erro
  * 2. Bridging between the two modules (usdt/usdc functions for Trust.getMoney)
  */
 contract BittyVault is Trust, AssetManager {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
     // Full initialize with all parameters (used by factory)
     function initialize(
         address grantorAddress,
         address wethAddress,
-        address wbtcAddress,
-        address usdtAddress,
-        address usdcAddress,
-        address aaveV3Address,
-        address uniswapV4RouterAddress
+        address[] memory assetAddresses,
+        address[] memory stableCoinAddresses,
+        address[] memory yieldProviders,
+        address[] memory swapProviders
     ) external initializer {
-        AssetManager._initialize(
-            wethAddress, wbtcAddress, usdtAddress, usdcAddress, aaveV3Address, uniswapV4RouterAddress
-        );
+        AssetManager._initialize(wethAddress, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
 
         if (grantorAddress == address(0)) {
             revert AddressZero();
@@ -51,32 +61,6 @@ contract BittyVault is Trust, AssetManager {
     }
 
     /**
-     * @notice Returns USDT contract address
-     * @dev Required by Trust.getMoney() to access stablecoin contracts
-     * @return IERC20 The USDT contract interface
-     */
-    function usdt() external view override returns (IERC20) {
-        return IERC20(assets(AssetType.USDT));
-    }
-
-    /**
-     * @notice Returns USDC contract address
-     * @dev Required by Trust.getMoney() to access stablecoin contracts
-     * @return IERC20 The USDC contract interface
-     */
-    function usdc() external view override returns (IERC20) {
-        return IERC20(assets(AssetType.USDC));
-    }
-
-    function wbtc() external view override returns (IERC20) {
-        return IERC20(assets(AssetType.WBTC));
-    }
-
-    function weth() external view override returns (IERC20) {
-        return IERC20(assets(AssetType.WETH));
-    }
-
-    /**
      * @notice Override revoke to transfer all assets to the grantor
      * @dev Transfers all assets (USDT, USDC, WBTC, WETH, ETH) and withdraws from Aave if needed
      */
@@ -84,21 +68,17 @@ contract BittyVault is Trust, AssetManager {
         if (moneyWithdrawTo == address(0)) {
             revert AddressZero();
         }
-        // Check if revocable (onlyRevocable modifier logic)
         if (!this.revocable()) {
-            revert AddressZero();
+            revert NotRevocable();
         }
 
-        // Convert ETH to WETH first if there's any ETH
-        if (address(this).balance > 0) {
-            _turnETHToWETH();
+        for (uint256 i = 0; i < _assets.length(); i++) {
+            _transferAllERC20(_assets.at(i), moneyWithdrawTo);
         }
 
-        // Transfer all ERC20 assets
-        _transferAllERC20(assets(AssetType.USDT), moneyWithdrawTo);
-        _transferAllERC20(assets(AssetType.USDC), moneyWithdrawTo);
-        _transferAllERC20(assets(AssetType.WBTC), moneyWithdrawTo);
-        _transferAllERC20(assets(AssetType.WETH), moneyWithdrawTo);
+        for (uint256 i = 0; i < _stableCoins.length(); i++) {
+            _transferAllERC20(_stableCoins.at(i), moneyWithdrawTo);
+        }
 
         // Transfer any remaining ETH
         if (address(this).balance > 0) {
@@ -125,38 +105,133 @@ contract BittyVault is Trust, AssetManager {
         }
     }
 
-    function supply(address assetAddress, uint256 amount) external onlyInitialized onlyAssetManager {
-        _supply(assetAddress, amount);
-    }
-
-    function withdraw(address assetAddress, uint256 amount) external onlyInitialized onlyAssetManager {
-        _withdraw(assetAddress, amount);
-    }
-
-    function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmountMin, bytes calldata data)
+    function supply(address yieldProvider, address assetAddress, uint256 amount)
         external
         onlyInitialized
         onlyAssetManager
     {
-        _rebalance(from, to, sellAmount, buyAmountMin, data);
+        _supply(yieldProvider, assetAddress, amount);
     }
 
-    function sellAssetsNotWhiteListed(
-        address sellAssetAddress,
+    function withdraw(address yieldProvider, address assetAddress, uint256 amount)
+        external
+        onlyInitialized
+        onlyAssetManager
+    {
+        _withdraw(yieldProvider, assetAddress, amount);
+    }
+
+    function rebalance(
+        address swapProvider,
+        address from,
+        address to,
         uint256 sellAmount,
-        AssetType toAssetType,
         uint256 buyAmountMin,
         bytes calldata data
     ) external onlyInitialized onlyAssetManager {
-        _swap(sellAssetAddress, sellAmount, assets(toAssetType), buyAmountMin, data);
+        _rebalance(swapProvider, from, to, sellAmount, buyAmountMin, data);
+    }
+
+    function turnETHToWETH() external onlyInitialized {
+        if (wethAddress == address(0)) {
+            revert WETHNotSet();
+        }
+        uint256 ethBalance = address(this).balance;
+        if (ethBalance > 0) {
+            IWETH(wethAddress).deposit{value: ethBalance}();
+        }
+    }
+
+    function sellAssetsNotWhiteListed(
+        address swapProvider,
+        address sellAssetAddress,
+        uint256 sellAmount,
+        address toAssetAddress,
+        uint256 buyAmountMin,
+        bytes calldata data
+    ) external onlyInitialized onlyAssetManager {
+        _swap(swapProvider, sellAssetAddress, sellAmount, toAssetAddress, buyAmountMin, data);
     }
 
     function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external onlyInitialized onlyTrustee {
         _setRebalanceRules(rebalanceLimit);
     }
 
-    function turnETHToWETH() external onlyInitialized {
-        _turnETHToWETH();
+    function addWhiteListedAssets(address[] memory assetAddresses) external onlyInitialized onlyTrustee {
+        for (uint256 i = 0; i < assetAddresses.length; i++) {
+            _addWhiteListedAsset(assetAddresses[i]);
+        }
+    }
+
+    function removeWhiteListedAssets(address[] memory assetAddresses) external onlyInitialized onlyTrustee {
+        for (uint256 i = 0; i < assetAddresses.length; i++) {
+            _removeWhiteListedAsset(assetAddresses[i]);
+        }
+    }
+
+    function _addWhiteListedAsset(address assetAddress) internal {
+        _assets.add(assetAddress);
+    }
+
+    function _removeWhiteListedAsset(address assetAddress) internal {
+        _assets.remove(assetAddress);
+    }
+
+    /**
+     * @notice Override _getMoney to use internal EnumerableSets
+     * @dev Transfers stablecoin amount to beneficiary, trying each stablecoin until one has sufficient balance
+     */
+    function _getMoney(uint256 amount, address stableCoinAddress, address to) internal override {
+        IERC20 stableCoin = IERC20(stableCoinAddress);
+        uint256 balance = stableCoin.balanceOf(address(this));
+        if (balance < amount) {
+            revert InsufficientStablecoinBalance();
+        }
+        if (!stableCoin.transfer(to, amount)) {
+            revert TransferFailed();
+        }
+    }
+
+    /**
+     * @notice Override _getPercentageMoney to use internal EnumerableSets
+     * @dev Transfers percentage of all stablecoins and assets to beneficiary
+     */
+    function _getPercentageMoney(uint256 percentage, address to) internal override {
+        // Transfer percentage from all stablecoins
+        uint256 stableCoinsLength = _stableCoins.length();
+        for (uint256 i = 0; i < stableCoinsLength; i++) {
+            address stableCoinAddress = _stableCoins.at(i);
+            IERC20 stableCoin = IERC20(stableCoinAddress);
+            uint256 balance = stableCoin.balanceOf(address(this));
+            uint256 amount = balance * percentage / 10000;
+            if (amount > 0) {
+                if (!stableCoin.transfer(to, amount)) {
+                    revert TransferFailed();
+                }
+            }
+        }
+
+        // Transfer percentage from all assets
+        uint256 assetsLength = _assets.length();
+        for (uint256 i = 0; i < assetsLength; i++) {
+            address assetAddress = _assets.at(i);
+            IERC20 asset = IERC20(assetAddress);
+            uint256 balance = asset.balanceOf(address(this));
+            uint256 amount = balance * percentage / 10000;
+            if (amount > 0) {
+                if (!asset.transfer(to, amount)) {
+                    revert TransferFailed();
+                }
+            }
+        }
+    }
+
+    function setAssetConfig(address assetAddress, IAssetManager.AssetConfig memory assetConfig)
+        external
+        onlyInitialized
+        onlyTrustee
+    {
+        _assetConfigs[assetAddress] = assetConfig;
     }
 
     // All trust management functions are inherited from Trust:

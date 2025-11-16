@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {ILendingProvider} from "../interfaces/IAssetManager.sol";
+import {IYieldProvider} from "../interfaces/IAssetManager.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
@@ -11,7 +11,7 @@ import {IWETH} from "../interfaces/IWETH.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 
-contract LidoProvider is ILendingProvider, Ownable, Initializable {
+contract LidoProvider is IYieldProvider, Ownable, Initializable {
     using SafeERC20 for IERC20;
     using SafeERC20 for IWETH;
     using EnumerableSet for EnumerableSet.UintSet;
