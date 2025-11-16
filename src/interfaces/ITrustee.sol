@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
+import {IAssetManager} from "./IAssetManager.sol";
+
 /**
  * @title Manage the fund of the Trust.
  * @dev Trustee can manage the fund of the Trust, including rebalancing, getting fees, etc.
@@ -13,4 +15,18 @@ interface ITrustee {
      * @param newTrusteeAddress The new trustee address.
      */
     function changeTrusteeAddress(address newTrusteeAddress) external;
+
+    /**
+     * @notice Set the asset manager address.
+     * @dev Set the asset manager address.
+     * @param assetManagerAddress The address of the asset manager.
+     */
+    function setAssetManager(address assetManagerAddress) external;
+
+    /**
+     * @notice Set the manage fee.
+     * @dev Set the manage fee.
+     * @param manageFee The manage fee.
+     */
+    function setManageFee(IAssetManager.ManageFee memory manageFee) external;
 }

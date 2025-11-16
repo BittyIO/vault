@@ -38,6 +38,7 @@ import {AssetManager} from "./AssetManager.sol";
 abstract contract Trust is ITrust {
     address public grantor;
     address public trustee;
+    address public assetManager;
     AssetManager.ManageFee public manageFee;
     address public beneficiary;
 
@@ -69,6 +70,11 @@ abstract contract Trust is ITrust {
 
     modifier onlyTrustee() {
         require(msg.sender == trustee, "Only trustee");
+        _;
+    }
+
+    modifier onlyAssetManager() {
+        require(msg.sender == assetManager, "Only asset manager");
         _;
     }
 
@@ -188,12 +194,19 @@ abstract contract Trust is ITrust {
         lastRevenueTime = block.timestamp;
     }
 
+    function setAssetManager(address assetManagerAddress) external virtual override onlyInitialized onlyTrustee {
+        if (assetManagerAddress == address(0)) {
+            revert AddressZero();
+        }
+        assetManager = assetManagerAddress;
+    }
+
     function setManageFee(AssetManager.ManageFee memory manageFee_)
         external
         virtual
         override
         onlyInitialized
-        onlyGrantor
+        onlyTrustee
     {
         if (manageFee_.baseFeeAmount == 0 && manageFee_.revenuePercentage == 0) {
             revert AmountIsZero();
@@ -442,27 +455,27 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function getBaseFee() external virtual override onlyInitialized onlyTrustee {
+    function getBaseFee() external virtual override onlyInitialized onlyAssetManager {
         if (block.timestamp - lastBaseFeeTime < manageFee.baseFeeDuration) {
             revert BaseFeeDurationNotMet();
         }
         lastBaseFeeTime = block.timestamp;
         if (!manageFee.isBaseFeePercentage) {
-            _getMoney(manageFee.baseFeeAmount, trustee);
+            _getMoney(manageFee.baseFeeAmount, assetManager);
         } else {
-            _getPercentageMoney(manageFee.baseFeeAmount, trustee);
+            _getPercentageMoney(manageFee.baseFeeAmount, assetManager);
         }
     }
 
     // TODO, when listing higher with buy low, sell to add revenues and get revenue fee from that
-    function getRevenueFee() external virtual override onlyInitialized onlyTrustee {
+    function getRevenueFee() external virtual override onlyInitialized onlyAssetManager {
         if (block.timestamp - lastRevenueTime < manageFee.revenueDuration) {
             revert RevenueDurationNotMet();
         }
         if (revenue == 0) {
             revert RevenueIsZero();
         }
-        _getMoney(revenue * manageFee.revenuePercentage / 10000, trustee);
+        _getMoney(revenue * manageFee.revenuePercentage / 10000, assetManager);
         lastRevenueTime = block.timestamp;
         revenue = 0;
     }
