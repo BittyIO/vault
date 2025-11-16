@@ -125,18 +125,18 @@ contract BittyVault is Trust, AssetManager {
         }
     }
 
-    function supply(address assetAddress, uint256 amount) external onlyInitialized onlyTrustee {
+    function supply(address assetAddress, uint256 amount) external onlyInitialized onlyAssetManager {
         _supply(assetAddress, amount);
     }
 
-    function withdraw(address assetAddress, uint256 amount) external onlyInitialized onlyTrustee {
+    function withdraw(address assetAddress, uint256 amount) external onlyInitialized onlyAssetManager {
         _withdraw(assetAddress, amount);
     }
 
     function rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmountMin, bytes calldata data)
         external
         onlyInitialized
-        onlyTrustee
+        onlyAssetManager
     {
         _rebalance(from, to, sellAmount, buyAmountMin, data);
     }
@@ -147,15 +147,15 @@ contract BittyVault is Trust, AssetManager {
         AssetType toAssetType,
         uint256 buyAmountMin,
         bytes calldata data
-    ) external onlyInitialized onlyTrustee {
+    ) external onlyInitialized onlyAssetManager {
         _swap(sellAssetAddress, sellAmount, toAssetType, buyAmountMin, data);
     }
 
-    function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external onlyInitialized onlyGrantor {
+    function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external onlyInitialized onlyTrustee {
         _setRebalanceRules(rebalanceLimit);
     }
 
-    function turnETHToWETH() external onlyInitialized onlyTrustee {
+    function turnETHToWETH() external onlyInitialized {
         _turnETHToWETH();
     }
 
