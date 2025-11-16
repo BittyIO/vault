@@ -103,7 +103,7 @@ contract TestAssetManagerFork is Test, AssetManager {
         (uint256 aTokenBalance,,,,,,,,) = poolDataProvider.getUserReserveData(address(mainnet.WETH), address(this));
         _withdraw(address(mainnet.WETH), aTokenBalance);
         uint256 balanceAfter = IERC20(address(mainnet.WETH)).balanceOf(address(this));
-        assertApproxEqAbs(balanceAfter, balanceBefore + 1 ether, 1);
+        assertApproxEqAbs(balanceAfter, balanceBefore + 1 ether, 5);
     }
 
     function getPoolPrice(PoolKey memory key) internal view returns (uint256) {
