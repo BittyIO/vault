@@ -6,6 +6,7 @@ library mainnet {
     address public constant UNISWAP_V4_ROUTER = 0x00000000000044a361Ae3cAc094c9D1b14Eece97;
     address public constant POOL_DATA_PROVIDER = 0x0a16f2FCC0D44FaE41cc54e079281D84A363bECD;
     address public constant POOL_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
+    address public constant UNISWAP_PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
     address public constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
     address public constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address public constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
@@ -17,6 +18,7 @@ library sepolia {
     address public constant UNISWAP_V4_ROUTER = 0x00000000000044a361Ae3cAc094c9D1b14Eece97;
     address public constant POOL_DATA_PROVIDER = 0x3e9708d80f7B3e43118013075F7e95CE3AB31F31;
     address public constant POOL_MANAGER = 0xE03A1074c86CFeDd5C142C4F04F1a1536e203543;
+    address public constant UNISWAP_PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
     address public constant WBTC = 0x29f2D40B0605204364af54EC677bD022dA425d03;
     address public constant WETH = 0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9;
     address public constant USDT = 0x7169D38820dfd117C3FA1f22a697dBA58d90BA06;

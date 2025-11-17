@@ -48,3 +48,15 @@ interface IAssetManager {
         uint256 revenueDuration;
     }
 }
+
+interface ILendingProvider {
+    function initialize(address newOwner) external;
+    function supply(address asset, uint256 amount) external;
+    function withdraw(address asset, uint256 amount) external;
+    function getBalance(address asset) external view returns (uint256);
+}
+
+interface ISwapProvider {
+    function initialize(address newOwner) external;
+    function swap(bytes memory data) external payable;
+}
