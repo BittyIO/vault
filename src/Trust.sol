@@ -316,7 +316,7 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function getMoneyFromEvent(string memory eventName) external virtual override onlyInitialized {
+    function getMoneyFromEvent(string memory eventName, address to) external virtual override onlyInitialized {
         if (keccak256(bytes(eventName)) == keccak256(bytes(""))) {
             revert EventNameIsEmpty();
         }
@@ -328,9 +328,9 @@ abstract contract Trust is ITrust {
             revert EventTriggerError();
         }
         if (!triggerEvent.isPercentage) {
-            _getMoney(beneficiaryTriggerEvents[eventName].amount, beneficiary);
+            _getMoney(beneficiaryTriggerEvents[eventName].amount, to);
         } else {
-            _getPercentageMoney(triggerEvent.amount, beneficiary);
+            _getPercentageMoney(triggerEvent.amount, to);
         }
         delete beneficiaryTriggerEvents[eventName];
     }
@@ -380,7 +380,13 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function getMoneyByTimestamp(uint256 timestamp) external virtual override onlyInitialized onlyBeneficiary {
+    function getMoneyByTimestamp(uint256 timestamp, address to)
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyBeneficiary
+    {
         if (timestamp == 0) {
             revert TimestampIsZero();
         }
@@ -391,14 +397,14 @@ abstract contract Trust is ITrust {
             revert TimestampIsInTheFuture();
         }
         if (!beneficiaryTimeEvents[timestamp].isPercentage) {
-            _getMoney(beneficiaryTimeEvents[timestamp].amount, beneficiary);
+            _getMoney(beneficiaryTimeEvents[timestamp].amount, to);
         } else {
-            _getPercentageMoney(beneficiaryTimeEvents[timestamp].amount, beneficiary);
+            _getPercentageMoney(beneficiaryTimeEvents[timestamp].amount, to);
         }
         delete beneficiaryTimeEvents[timestamp];
     }
 
-    function getMoney() external virtual override onlyInitialized onlyBeneficiary {
+    function getMoney(address to) external virtual override onlyInitialized onlyBeneficiary {
         if (beneficiarySettings.amountPerWithdrawal == 0) {
             revert BeneficiarySettingsNotSet();
         }
@@ -407,7 +413,7 @@ abstract contract Trust is ITrust {
         ) {
             revert BeneficiaryWithdrawalInLimitDays();
         }
-        _getMoney(beneficiarySettings.amountPerWithdrawal, beneficiary);
+        _getMoney(beneficiarySettings.amountPerWithdrawal, to);
         lastWithdrawalTime = block.timestamp;
     }
 
@@ -455,27 +461,27 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function getBaseFee() external virtual override onlyInitialized onlyAssetManager {
+    function getBaseFee(address to) external virtual override onlyInitialized onlyAssetManager {
         if (block.timestamp - lastBaseFeeTime < manageFee.baseFeeDuration) {
             revert BaseFeeDurationNotMet();
         }
         lastBaseFeeTime = block.timestamp;
         if (!manageFee.isBaseFeePercentage) {
-            _getMoney(manageFee.baseFeeAmount, assetManager);
+            _getMoney(manageFee.baseFeeAmount, to);
         } else {
-            _getPercentageMoney(manageFee.baseFeeAmount, assetManager);
+            _getPercentageMoney(manageFee.baseFeeAmount, to);
         }
     }
 
     // TODO, when listing higher with buy low, sell to add revenues and get revenue fee from that
-    function getRevenueFee() external virtual override onlyInitialized onlyAssetManager {
+    function getRevenueFee(address to) external virtual override onlyInitialized onlyAssetManager {
         if (block.timestamp - lastRevenueTime < manageFee.revenueDuration) {
             revert RevenueDurationNotMet();
         }
         if (revenue == 0) {
             revert RevenueIsZero();
         }
-        _getMoney(revenue * manageFee.revenuePercentage / 10000, assetManager);
+        _getMoney(revenue * manageFee.revenuePercentage / 10000, to);
         lastRevenueTime = block.timestamp;
         revenue = 0;
     }

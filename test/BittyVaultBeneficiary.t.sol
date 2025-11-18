@@ -110,14 +110,14 @@ contract BittyVaultBeneficiaryTest is Test {
     function test_GetMoneyFailedIfNotBeneficiary() public {
         vm.deal(address(bittyVault), 10 ether);
         vm.expectRevert("Only beneficiary");
-        bittyVault.getMoney();
+        bittyVault.getMoney(beneficiary);
     }
 
     function test_GetMoneyFailedIfNoBeneficiarySettings() public {
         vm.deal(address(bittyVault), 10 ether);
         vm.expectRevert(BeneficiarySettingsNotSet.selector);
         vm.prank(beneficiary);
-        bittyVault.getMoney();
+        bittyVault.getMoney(beneficiary);
     }
 
     function test_SetBeneficiarySettingFailedIfAmountPerWithdrawalIsZero() public {
@@ -144,12 +144,12 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 usdtAmount = beneficiarySettings.amountPerWithdrawal;
         mockUSDT.mint(address(bittyVault), usdtAmount);
         vm.prank(beneficiary);
-        bittyVault.getMoney();
+        bittyVault.getMoney(beneficiary);
         mockUSDT.mint(address(bittyVault), usdtAmount);
         vm.warp(block.timestamp + 29 days);
         vm.expectRevert(BeneficiaryWithdrawalInLimitDays.selector);
         vm.prank(beneficiary);
-        bittyVault.getMoney();
+        bittyVault.getMoney(beneficiary);
     }
 
     function test_AddTriggerEventsFailedIfEventNameIsEmpty() public {
@@ -199,7 +199,7 @@ contract BittyVaultBeneficiaryTest is Test {
             IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: marriageMoney, isPercentage: false});
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
         vm.expectRevert(EventTriggerError.selector);
-        bittyVault.getMoneyFromEvent("Marriage");
+        bittyVault.getMoneyFromEvent("Marriage", beneficiary);
     }
 
     function test_RemoveTriggerEventsFailedIfIrrevocable() public {
@@ -237,7 +237,7 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
         mockUSDT.mint(address(bittyVault), marriageMoney);
         vm.prank(eventInputAddress);
-        bittyVault.getMoneyFromEvent("Marriage");
+        bittyVault.getMoneyFromEvent("Marriage", beneficiary);
         assertEq(mockUSDT.balanceOf(beneficiary), marriageMoney, "Beneficiary should receive 100000 USDT");
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");
     }
@@ -251,7 +251,7 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
         mockUSDT.mint(address(bittyVault), marriageMoney);
         vm.prank(eventInputAddress);
-        bittyVault.getMoneyFromEvent("Marriage");
+        bittyVault.getMoneyFromEvent("Marriage", beneficiary);
         uint256 percentageMoney = marriageMoney * percentage / 10000;
         assertEq(mockUSDT.balanceOf(beneficiary), percentageMoney, "Beneficiary should receive 10000 USDT");
         assertEq(
@@ -288,7 +288,7 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.removeTriggerEvents(eventNames);
         vm.prank(beneficiary);
         vm.expectRevert(EventNameNotFound.selector);
-        bittyVault.getMoneyFromEvent(eventNames[0]);
+        bittyVault.getMoneyFromEvent(eventNames[0], beneficiary);
     }
 
     function test_AddTimeEventsFailedIfTimestampIsZero() public {
@@ -326,14 +326,14 @@ contract BittyVaultBeneficiaryTest is Test {
         timestamps[0] = 0;
         vm.expectRevert(TimestampIsZero.selector);
         vm.prank(beneficiary);
-        bittyVault.getMoneyByTimestamp(timestamps[0]);
+        bittyVault.getMoneyByTimestamp(timestamps[0], beneficiary);
     }
 
     function test_GetMoneyByTimestampFailedIfTimestampNotFound() public {
         timestamps[0] = block.timestamp;
         vm.expectRevert(TimestampNotFound.selector);
         vm.prank(beneficiary);
-        bittyVault.getMoneyByTimestamp(timestamps[0]);
+        bittyVault.getMoneyByTimestamp(timestamps[0], beneficiary);
     }
 
     function test_GetMoneyByTimestampFailedIfTimestampIsInTheFuture() public {
@@ -342,7 +342,7 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.addTimeEvents(timestamps, timeEvents);
         vm.expectRevert(TimestampIsInTheFuture.selector);
         vm.prank(beneficiary);
-        bittyVault.getMoneyByTimestamp(timestamps[0]);
+        bittyVault.getMoneyByTimestamp(timestamps[0], beneficiary);
     }
 
     function test_GetMoneyFromTimeEventSuccessByAmount() public {
@@ -352,7 +352,7 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.addTimeEvents(timestamps, timeEvents);
         mockUSDT.mint(address(bittyVault), marriageMoney);
         vm.prank(beneficiary);
-        bittyVault.getMoneyByTimestamp(timestamps[0]);
+        bittyVault.getMoneyByTimestamp(timestamps[0], beneficiary);
         assertEq(mockUSDT.balanceOf(beneficiary), marriageMoney, "Beneficiary should receive 100000 USDT");
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");
     }
@@ -365,7 +365,7 @@ contract BittyVaultBeneficiaryTest is Test {
         mockUSDT.mint(address(bittyVault), marriageMoney);
         mockUSDC.mint(address(bittyVault), marriageMoney);
         vm.prank(beneficiary);
-        bittyVault.getMoneyByTimestamp(timestamps[0]);
+        bittyVault.getMoneyByTimestamp(timestamps[0], beneficiary);
 
         uint256 percentageMoney = marriageMoney * 1000 / 10000;
         assertEq(mockUSDT.balanceOf(beneficiary), percentageMoney, "Beneficiary should receive 10000 USDT");
@@ -392,7 +392,7 @@ contract BittyVaultBeneficiaryTest is Test {
         assertEq(mockUSDT.balanceOf(beneficiary), 0, "Beneficiary should start with 0 USDT");
 
         vm.prank(beneficiary);
-        bittyVault.getMoney();
+        bittyVault.getMoney(beneficiary);
 
         assertEq(mockUSDT.balanceOf(beneficiary), usdtAmount, "Beneficiary should receive 100 USDT");
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");
@@ -414,7 +414,7 @@ contract BittyVaultBeneficiaryTest is Test {
         assertEq(mockUSDC.balanceOf(beneficiary), 0, "Beneficiary should start with 0 USDC");
 
         vm.prank(beneficiary);
-        bittyVault.getMoney();
+        bittyVault.getMoney(beneficiary);
 
         assertEq(mockUSDC.balanceOf(beneficiary), tokenAmount, "Beneficiary should receive 100 USDC");
         assertEq(mockUSDC.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDC after transfer");
@@ -433,7 +433,7 @@ contract BittyVaultBeneficiaryTest is Test {
 
         vm.expectRevert(InsufficientStablecoinBalance.selector);
         vm.prank(beneficiary);
-        bittyVault.getMoney();
+        bittyVault.getMoney(beneficiary);
     }
 
     function test_GetUSDCFirstWhenWithdrawUSDTFirstIsFalse() public {
@@ -451,7 +451,7 @@ contract BittyVaultBeneficiaryTest is Test {
         assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDC");
 
         vm.prank(beneficiary);
-        bittyVault.getMoney();
+        bittyVault.getMoney(beneficiary);
 
         assertEq(mockUSDC.balanceOf(beneficiary), tokenAmount, "Beneficiary should receive 100 USDC");
         assertEq(mockUSDC.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDC after transfer");
@@ -472,7 +472,7 @@ contract BittyVaultBeneficiaryTest is Test {
         assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDC");
 
         vm.prank(beneficiary);
-        bittyVault.getMoney();
+        bittyVault.getMoney(beneficiary);
 
         assertEq(mockUSDT.balanceOf(beneficiary), tokenAmount, "Beneficiary should receive 100 USDT");
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");
@@ -496,7 +496,7 @@ contract BittyVaultBeneficiaryTest is Test {
         assertEq(mockUSDT.balanceOf(beneficiary), 0, "Beneficiary should start with 0 USDT");
 
         vm.prank(beneficiary);
-        bittyVault.getMoney();
+        bittyVault.getMoney(beneficiary);
 
         assertEq(mockUSDT.balanceOf(beneficiary), tokenAmount, "Beneficiary should receive 100 USDT");
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");

@@ -260,7 +260,7 @@ contract BittyVaultTrusteeTest is Test {
     function test_GetBaseFeeFailedIfNotFromAssetManager() public {
         vm.expectRevert("Only asset manager");
         vm.prank(trustee);
-        bittyVault.getBaseFee();
+        bittyVault.getBaseFee(assetManager);
     }
 
     function test_TrusteeGetBaseFeeFailedBeforeDuration() public {
@@ -268,7 +268,7 @@ contract BittyVaultTrusteeTest is Test {
         bittyVault.setManageFee(manageFee);
         vm.expectRevert(BaseFeeDurationNotMet.selector);
         vm.prank(assetManager);
-        bittyVault.getBaseFee();
+        bittyVault.getBaseFee(assetManager);
     }
 
     function test_TrusteeGetBaseFeeShouldBeFine() public {
@@ -277,7 +277,7 @@ contract BittyVaultTrusteeTest is Test {
         mockUSDT.mint(address(bittyVault), manageFee.baseFeeAmount);
         vm.warp(block.timestamp + 30 days + 1);
         vm.prank(assetManager);
-        bittyVault.getBaseFee();
+        bittyVault.getBaseFee(assetManager);
         assertEq(mockUSDT.balanceOf(assetManager), manageFee.baseFeeAmount);
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
     }
@@ -290,7 +290,7 @@ contract BittyVaultTrusteeTest is Test {
         mockUSDT.mint(address(bittyVault), 100 * 1e6);
         vm.warp(block.timestamp + 30 days + 1);
         vm.prank(assetManager);
-        bittyVault.getBaseFee();
+        bittyVault.getBaseFee(assetManager);
         assertEq(mockUSDT.balanceOf(assetManager), 10 * 1e6);
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 90 * 1e6);
     }
@@ -308,7 +308,7 @@ contract BittyVaultTrusteeTest is Test {
         manageFee.revenueDuration = 30 days;
         vm.expectRevert("Only asset manager");
         vm.prank(trustee);
-        bittyVault.getRevenueFee();
+        bittyVault.getRevenueFee(assetManager);
     }
 
     function test_TrusteeGetRevenueFailedIfDurationIsNotMet() public {
@@ -319,7 +319,7 @@ contract BittyVaultTrusteeTest is Test {
         vm.warp(block.timestamp + manageFee.revenueDuration - 1);
         vm.prank(assetManager);
         vm.expectRevert(RevenueDurationNotMet.selector);
-        bittyVault.getRevenueFee();
+        bittyVault.getRevenueFee(assetManager);
     }
 
     function test_RebalanceFailedIfNotFromAssetManager() public {

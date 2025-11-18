@@ -79,24 +79,28 @@ interface IBeneficiary {
     /**
      * @notice Get the money from the trust.
      * @dev Get the money from the trust.
+     * @param to The address to get the money.
+     *
      */
-    function getMoney() external;
+    function getMoney(address to) external;
 
     /**
      * @notice Get the money from the event.
      * @dev Get the money from the event.
      * @param eventName The name of the event.
+     * @param to The address to get the money.
      *
      * This is beneficiary only, if the beneficiary address is lost, no one can get money.
      */
-    function getMoneyFromEvent(string memory eventName) external;
+    function getMoneyFromEvent(string memory eventName, address to) external;
 
     /**
      * @notice Get the money from the time event.
      * @dev Get the money from the time event.
      * @param timestamp The timestamp of the event.
+     * @param to The address to get the money.
      *
      * This is beneficiary only, if the beneficiary address is lost, no one can get money.
      */
-    function getMoneyByTimestamp(uint256 timestamp) external;
+    function getMoneyByTimestamp(uint256 timestamp, address to) external;
 }
