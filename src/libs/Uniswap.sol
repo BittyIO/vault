@@ -125,6 +125,10 @@ interface IPoolManager {
     function extsload(bytes32 slot) external view returns (bytes32);
 }
 
+interface IAllowanceTransfer {
+    function approve(address token, address spender, uint160 amount, uint48 expiration) external;
+}
+
 interface IUniswapV4Router04 {
     /// @notice Generic multi-pool swap function that accepts pre-encoded calldata
     /// @dev Minor optimization to reduce the number of onchain abi.encode calls

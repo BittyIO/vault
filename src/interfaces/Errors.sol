@@ -17,6 +17,8 @@ error BuyAmountNotEnough();
 error MinimalWBTCBalanceLimit();
 error MinimalWETHBalanceLimit();
 error MinimalStableCoinBalanceLimit();
+error SupplyAmountMismatch();
+error WithdrawAmountMismatch();
 
 // Trust errors
 error AlreadyInitialized();

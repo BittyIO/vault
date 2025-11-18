@@ -56,7 +56,7 @@ contract BittyVault is Trust, AssetManager {
      * @return IERC20 The USDT contract interface
      */
     function usdt() external view override returns (IERC20) {
-        return IERC20(assets[AssetType.USDT]);
+        return IERC20(assets(AssetType.USDT));
     }
 
     /**
@@ -65,15 +65,15 @@ contract BittyVault is Trust, AssetManager {
      * @return IERC20 The USDC contract interface
      */
     function usdc() external view override returns (IERC20) {
-        return IERC20(assets[AssetType.USDC]);
+        return IERC20(assets(AssetType.USDC));
     }
 
     function wbtc() external view override returns (IERC20) {
-        return IERC20(assets[AssetType.WBTC]);
+        return IERC20(assets(AssetType.WBTC));
     }
 
     function weth() external view override returns (IERC20) {
-        return IERC20(assets[AssetType.WETH]);
+        return IERC20(assets(AssetType.WETH));
     }
 
     /**
@@ -95,10 +95,10 @@ contract BittyVault is Trust, AssetManager {
         }
 
         // Transfer all ERC20 assets
-        _transferAllERC20(assets[AssetType.USDT], moneyWithdrawTo);
-        _transferAllERC20(assets[AssetType.USDC], moneyWithdrawTo);
-        _transferAllERC20(assets[AssetType.WBTC], moneyWithdrawTo);
-        _transferAllERC20(assets[AssetType.WETH], moneyWithdrawTo);
+        _transferAllERC20(assets(AssetType.USDT), moneyWithdrawTo);
+        _transferAllERC20(assets(AssetType.USDC), moneyWithdrawTo);
+        _transferAllERC20(assets(AssetType.WBTC), moneyWithdrawTo);
+        _transferAllERC20(assets(AssetType.WETH), moneyWithdrawTo);
 
         // Transfer any remaining ETH
         if (address(this).balance > 0) {
@@ -148,7 +148,7 @@ contract BittyVault is Trust, AssetManager {
         uint256 buyAmountMin,
         bytes calldata data
     ) external onlyInitialized onlyAssetManager {
-        _swap(sellAssetAddress, sellAmount, toAssetType, buyAmountMin, data);
+        _swap(sellAssetAddress, sellAmount, assets(toAssetType), buyAmountMin, data);
     }
 
     function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external onlyInitialized onlyTrustee {
