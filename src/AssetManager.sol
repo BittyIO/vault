@@ -22,11 +22,7 @@ import {
     WithdrawAmountMismatch,
     InvalidAssetType
 } from "./interfaces/Errors.sol";
-
-interface IWETH {
-    function deposit() external payable;
-    function balanceOf(address account) external view returns (uint256);
-}
+import {IWETH} from "./interfaces/IWETH.sol";
 
 abstract contract AssetManager is IAssetManager, Initializable {
     using SafeERC20 for IERC20;

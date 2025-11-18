@@ -23,7 +23,7 @@ contract AaveProvider is ILendingProvider, Ownable, Initializable {
         _transferOwnership(newOwner);
     }
 
-    function supply(address asset, uint256 amount) external override onlyOwner {
+    function supply(address asset, uint256 amount) external payable override onlyOwner {
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         IAavePool pool = IAaveV3(aaveV3).getPool();
         IERC20(asset).safeIncreaseAllowance(address(pool), amount);

@@ -28,7 +28,7 @@ contract TestAaveProviderFork is Test {
         IERC20(address(mainnet.WETH)).safeApprove(address(aaveProvider), 1 ether);
         deal(address(mainnet.WETH), address(this), 1 ether);
         uint256 balanceBefore = IERC20(address(mainnet.WETH)).balanceOf(address(this));
-        
+
         // Now supply from AaveProvider (it will transfer and approve internally)
         aaveProvider.supply(address(mainnet.WETH), 1 ether);
 
@@ -62,7 +62,7 @@ contract TestAaveProviderFork is Test {
         // Check AaveProvider WETH balance after withdraw (should be 0, as it transfers to msg.sender)
         uint256 aaveProviderBalanceAfter = IERC20(address(mainnet.WETH)).balanceOf(address(aaveProvider));
         assertEq(aaveProviderBalanceAfter, 0);
-        
+
         // Check that WETH was transferred back to this test contract
         uint256 balanceAfterWithdraw = IERC20(address(mainnet.WETH)).balanceOf(address(this));
         assertApproxEqAbs(balanceAfterWithdraw, balanceBeforeSupply, 5);

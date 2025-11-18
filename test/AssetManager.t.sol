@@ -136,7 +136,7 @@ contract TestAssetManager is Test, AssetManager {
         MockLendingProvider testLendingProvider = new MockLendingProvider();
         MockSwapProvider testSwapProvider = new MockSwapProvider();
 
-        uint256 snapshot = vm.snapshot();
+        uint256 snapshotId = vm.snapshotState();
         this.initialize(
             address(0),
             address(mockWBTC),
@@ -151,7 +151,7 @@ contract TestAssetManager is Test, AssetManager {
         assertEq(assets(AssetType.USDC), address(mockUSDC));
         assertEq(address(lendingProvider), address(testLendingProvider));
         assertEq(address(swapProvider), address(testSwapProvider));
-        vm.revertTo(snapshot);
+        vm.revertToState(snapshotId);
         this.initialize(
             address(mockWETH),
             address(0),
@@ -166,7 +166,7 @@ contract TestAssetManager is Test, AssetManager {
         assertEq(assets(AssetType.USDC), address(mockUSDC));
         assertEq(address(lendingProvider), address(testLendingProvider));
         assertEq(address(swapProvider), address(testSwapProvider));
-        vm.revertTo(snapshot);
+        vm.revertToState(snapshotId);
         this.initialize(
             address(mockWETH),
             address(mockWBTC),
@@ -181,7 +181,7 @@ contract TestAssetManager is Test, AssetManager {
         assertEq(assets(AssetType.USDC), address(mockUSDC));
         assertEq(address(lendingProvider), address(testLendingProvider));
         assertEq(address(swapProvider), address(testSwapProvider));
-        vm.revertTo(snapshot);
+        vm.revertToState(snapshotId);
         this.initialize(
             address(mockWETH),
             address(mockWBTC),
@@ -196,7 +196,7 @@ contract TestAssetManager is Test, AssetManager {
         assertEq(assets(AssetType.USDC), address(0));
         assertEq(address(lendingProvider), address(testLendingProvider));
         assertEq(address(swapProvider), address(testSwapProvider));
-        vm.revertTo(snapshot);
+        vm.revertToState(snapshotId);
         this.initialize(
             address(mockWETH),
             address(mockWBTC),
@@ -211,7 +211,7 @@ contract TestAssetManager is Test, AssetManager {
         assertEq(assets(AssetType.USDC), address(mockUSDC));
         assertEq(address(lendingProvider), address(0));
         assertEq(address(swapProvider), address(testSwapProvider));
-        vm.revertTo(snapshot);
+        vm.revertToState(snapshotId);
         this.initialize(
             address(mockWETH),
             address(mockWBTC),

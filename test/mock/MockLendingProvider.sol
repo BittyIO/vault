@@ -10,7 +10,7 @@ contract MockLendingProvider is ILendingProvider {
 
     function initialize(address newOwner) external override {}
 
-    function supply(address asset, uint256 amount) external override {
+    function supply(address asset, uint256 amount) external payable override {
         IERC20(asset).transferFrom(msg.sender, address(this), amount);
         balances[asset] += amount;
     }

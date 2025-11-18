@@ -51,7 +51,7 @@ interface IAssetManager {
 
 interface ILendingProvider {
     function initialize(address newOwner) external;
-    function supply(address asset, uint256 amount) external;
+    function supply(address asset, uint256 amount) external payable;
     function withdraw(address asset, uint256 amount) external;
     function getBalance(address asset) external view returns (uint256);
 }

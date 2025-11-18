@@ -7,14 +7,11 @@ contract MockWETH is MockERC20 {
     constructor() MockERC20("WETH", "WETH", 18) {}
 
     function deposit() external payable {
-        balanceOf[msg.sender] += msg.value;
-        totalSupply += msg.value;
+        _mint(msg.sender, msg.value);
     }
 
     function withdraw(uint256 amount) external {
-        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
-        balanceOf[msg.sender] -= amount;
-        totalSupply -= amount;
+        _burn(msg.sender, amount);
         payable(msg.sender).transfer(amount);
     }
 }

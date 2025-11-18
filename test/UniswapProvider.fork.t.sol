@@ -32,6 +32,7 @@ contract TestUniswapProviderFork is Test {
     function setUp() public {
         vm.createSelectFork("mainnet");
         uniswapProvider = new UniswapProvider(mainnet.UNISWAP_V4_ROUTER, mainnet.POOL_MANAGER);
+        uniswapProvider.initialize(address(this));
         vm.deal(address(uniswapProvider), 0);
         poolManager = IPoolManager(mainnet.POOL_MANAGER);
     }
