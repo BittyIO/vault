@@ -27,33 +27,43 @@ contract BittyVaultGrantorTest is Test {
         mockWETH = new MockWETH();
         bittyVault = new BittyVault();
         bittyVault.initialize(
-            address(this), address(mockWETH), address(0), address(0), address(0), address(0), address(0)
+            address(this), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
         );
     }
 
     function test_InitErrorWithGrantorAddressZero() public {
         BittyVault newVault = new BittyVault();
         vm.expectRevert(AddressZero.selector);
-        newVault.initialize(address(0), address(0), address(0), address(0), address(0), address(0), address(0));
+        newVault.initialize(
+            address(0), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+        );
     }
 
     function test_InitErrorWithAlreadyInitialized() public {
         BittyVault newVault = new BittyVault();
-        newVault.initialize(address(1), address(0), address(0), address(0), address(0), address(0), address(0));
+        newVault.initialize(
+            address(1), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+        );
         vm.expectRevert();
-        newVault.initialize(address(1), address(0), address(0), address(0), address(0), address(0), address(0));
+        newVault.initialize(
+            address(1), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+        );
     }
 
     function test_SetTrustToIrrevocable() public {
         BittyVault newVault = new BittyVault();
-        newVault.initialize(address(this), address(0), address(0), address(0), address(0), address(0), address(0));
+        newVault.initialize(
+            address(this), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+        );
         newVault.setToIrrevocable();
         assertEq(newVault.revocable(), false);
     }
 
     function test_RevocableAfterPing() public {
         BittyVault newVault = new BittyVault();
-        newVault.initialize(address(this), address(0), address(0), address(0), address(0), address(0), address(0));
+        newVault.initialize(
+            address(this), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+        );
         newVault.setAutoIrrevocableAfterNoPing(2);
         newVault.ping();
         vm.warp(block.timestamp + 1);
@@ -62,7 +72,9 @@ contract BittyVaultGrantorTest is Test {
 
     function test_AutoIrrevocableAfterNoPing() public {
         BittyVault newVault = new BittyVault();
-        newVault.initialize(address(this), address(0), address(0), address(0), address(0), address(0), address(0));
+        newVault.initialize(
+            address(this), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+        );
         newVault.setAutoIrrevocableAfterNoPing(1);
         vm.warp(block.timestamp + 2);
         assertEq(newVault.revocable(), false);

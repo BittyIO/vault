@@ -4,8 +4,9 @@ pragma solidity ^0.8.27;
 import {ITrustee} from "./interfaces/ITrustee.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {IAssetManager, ILendingProvider, ISwapProvider} from "./interfaces/IAssetManager.sol";
+import {IAssetManager, IYieldProvider, ISwapProvider} from "./interfaces/IAssetManager.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {
     AddressZero,
     AmountIsZero,
@@ -14,24 +15,29 @@ import {
     InsufficientBalance,
     SellAmountMismatch,
     BuyAmountNotEnough,
-    MinimalWBTCBalanceLimit,
-    MinimalWETHBalanceLimit,
-    MinimalStableCoinBalanceLimit,
+    MinimalBalanceNotMet,
     NotInitialized,
     SupplyAmountMismatch,
     WithdrawAmountMismatch,
-    InvalidAssetType
+    InvalidAssetType,
+    InvalidStableCoinType,
+    InvalidYieldProvider,
+    InvalidSwapProvider
 } from "./interfaces/Errors.sol";
 import {IWETH} from "./interfaces/IWETH.sol";
 
 abstract contract AssetManager is IAssetManager, Initializable {
     using SafeERC20 for IERC20;
-    mapping(AssetType => address) internal _assets;
-    // only WETH and WBTC rebalance will be recorded
-    mapping(AssetType => uint256) public lastRebalances;
+    using EnumerableSet for EnumerableSet.AddressSet;
+    address public wethAddress;
+    EnumerableSet.AddressSet internal _assets;
+    EnumerableSet.AddressSet internal _stableCoins;
+    mapping(address => bool) internal _yieldProviders;
+    mapping(address => bool) internal _swapProviders;
+    mapping(address => IAssetManager.AssetConfig) internal _assetConfigs;
+    mapping(address => uint256) internal lastRebalanceTimestamps;
+    uint256 public lastRebalanceTimestamp;
     RebalanceLimit public rebalanceLimit;
-    ILendingProvider public lendingProvider;
-    ISwapProvider public swapProvider;
 
     modifier _onlyInitialized() {
         if (_getInitializedVersion() == 0) {
@@ -40,38 +46,40 @@ abstract contract AssetManager is IAssetManager, Initializable {
         _;
     }
 
-    function assets(AssetType assetType) public view returns (address) {
-        if (uint256(assetType) > uint256(AssetType.USDC)) {
-            revert InvalidAssetType();
-        }
-        return _assets[assetType];
-    }
-
     function _initialize(
-        address wethAddress,
-        address wbtcAddress,
-        address usdtAddress,
-        address usdcAddress,
-        address lendingProvider_,
-        address swapProvider_
+        address wethAddress_,
+        address[] memory assetAddresses,
+        address[] memory stableCoinAddresses,
+        address[] memory yieldProviders,
+        address[] memory swapProviders
     ) internal {
-        if (wethAddress != address(0)) {
-            _assets[AssetType.WETH] = wethAddress;
+        if (wethAddress_ == address(0)) {
+            revert AddressZero();
         }
-        if (wbtcAddress != address(0)) {
-            _assets[AssetType.WBTC] = wbtcAddress;
+        wethAddress = wethAddress_;
+        for (uint256 i = 0; i < assetAddresses.length; i++) {
+            if (assetAddresses[i] == address(0)) {
+                revert AddressZero();
+            }
+            _assets.add(assetAddresses[i]);
         }
-        if (usdtAddress != address(0)) {
-            _assets[AssetType.USDT] = usdtAddress;
+        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
+            if (stableCoinAddresses[i] == address(0)) {
+                revert AddressZero();
+            }
+            _stableCoins.add(stableCoinAddresses[i]);
         }
-        if (usdcAddress != address(0)) {
-            _assets[AssetType.USDC] = usdcAddress;
+        for (uint256 i = 0; i < yieldProviders.length; i++) {
+            if (yieldProviders[i] == address(0)) {
+                revert AddressZero();
+            }
+            _yieldProviders[yieldProviders[i]] = true;
         }
-        if (address(lendingProvider_) != address(0)) {
-            lendingProvider = ILendingProvider(lendingProvider_);
-        }
-        if (address(swapProvider_) != address(0)) {
-            swapProvider = ISwapProvider(swapProvider_);
+        for (uint256 i = 0; i < swapProviders.length; i++) {
+            if (swapProviders[i] == address(0)) {
+                revert AddressZero();
+            }
+            _swapProviders[swapProviders[i]] = true;
         }
     }
 
@@ -79,146 +87,166 @@ abstract contract AssetManager is IAssetManager, Initializable {
         rebalanceLimit = rebalanceLimit_;
     }
 
-    function _supply(address assetAddress, uint256 amount) internal _onlyInitialized {
+    function _supply(address yieldProvider, address assetAddress, uint256 amount) internal _onlyInitialized {
         if (assetAddress == address(0)) {
             revert AddressZero();
         }
         if (amount == 0) {
             revert AmountIsZero();
         }
-        IERC20(assetAddress).safeApprove(address(lendingProvider), amount);
-        uint256 balanceBefore = lendingProvider.getBalance(assetAddress);
-        lendingProvider.supply(assetAddress, amount);
-        IERC20(assetAddress).safeApprove(address(lendingProvider), 0);
-        uint256 balanceAfter = lendingProvider.getBalance(assetAddress);
+        if (!_yieldProviders[yieldProvider]) {
+            revert InvalidYieldProvider();
+        }
+        IERC20(assetAddress).safeApprove(address(yieldProvider), amount);
+        uint256 balanceBefore = IYieldProvider(yieldProvider).getBalance(assetAddress);
+        IYieldProvider(yieldProvider).supply(assetAddress, amount);
+        IERC20(assetAddress).safeApprove(address(yieldProvider), 0);
+        uint256 balanceAfter = IYieldProvider(yieldProvider).getBalance(assetAddress);
         if (balanceAfter - balanceBefore != amount) {
             revert SupplyAmountMismatch();
         }
     }
 
-    function _withdraw(address assetAddress, uint256 amount) internal _onlyInitialized {
+    function _withdraw(address yieldProvider, address assetAddress, uint256 amount) internal _onlyInitialized {
         if (assetAddress == address(0)) {
             revert AddressZero();
         }
         if (amount == 0) {
             revert AmountIsZero();
         }
-        uint256 supplyAmount = lendingProvider.getBalance(assetAddress);
+        if (!_yieldProviders[yieldProvider]) {
+            revert InvalidYieldProvider();
+        }
+        uint256 supplyAmount = IYieldProvider(yieldProvider).getBalance(assetAddress);
         if (supplyAmount < amount) {
             revert InsufficientBalance();
         }
         uint256 balanceBefore = _addressBalance(assetAddress);
-        lendingProvider.withdraw(assetAddress, amount);
+        IYieldProvider(yieldProvider).withdraw(assetAddress, amount);
         uint256 balanceAfter = _addressBalance(assetAddress);
         if (balanceAfter - balanceBefore != amount) {
             revert WithdrawAmountMismatch();
         }
     }
 
-    function _assetBalance(AssetType assetType) internal view returns (uint256) {
-        return IERC20(assets(assetType)).balanceOf(address(this));
-    }
-
     function _addressBalance(address assetAddress) internal view returns (uint256) {
         if (assetAddress == address(0)) {
-            return address(this).balance;
+            revert AddressZero();
         }
         return IERC20(assetAddress).balanceOf(address(this));
     }
 
-    function _rebalance(AssetType from, AssetType to, uint256 sellAmount, uint256 buyAmountMin, bytes memory data)
-        internal
-        _onlyInitialized
-    {
-        if ((from == AssetType.WETH || to == AssetType.WETH) && lastRebalances[AssetType.WETH] != 0) {
-            if (block.timestamp - lastRebalances[AssetType.WETH] < rebalanceLimit.minimalTimestampBetweenRebalances) {
-                revert RebalanceInMinimalTime();
-            }
-        }
-        if ((from == AssetType.WBTC || to == AssetType.WBTC) && lastRebalances[AssetType.WBTC] != 0) {
-            if (block.timestamp - lastRebalances[AssetType.WBTC] < rebalanceLimit.minimalTimestampBetweenRebalances) {
-                revert RebalanceInMinimalTime();
-            }
-        }
-        if (from == AssetType.WBTC) {
-            if (_assetBalance(AssetType.WBTC) < (rebalanceLimit.minimalWBTCBalance + sellAmount)) {
-                revert MinimalWBTCBalanceLimit();
-            }
-        } else if (from == AssetType.WETH) {
-            if (_assetBalance(AssetType.WETH) < (rebalanceLimit.minimalWETHBalance + sellAmount)) {
-                revert MinimalWETHBalanceLimit();
-            }
-        } else if ((from == AssetType.USDT || from == AssetType.USDC) && (to == AssetType.WETH || to == AssetType.WBTC))
-        {
-            if (
-                _assetBalance(AssetType.USDT) + _assetBalance(AssetType.USDC)
-                    < (rebalanceLimit.minimalStableCoinBalance + sellAmount)
-            ) {
-                revert MinimalStableCoinBalanceLimit();
-            }
-        }
-
-        _swap(assets(from), sellAmount, assets(to), buyAmountMin, data);
-
-        if (from == AssetType.WETH || to == AssetType.WETH) {
-            lastRebalances[AssetType.WETH] = block.timestamp;
-        }
-        if (from == AssetType.WBTC || to == AssetType.WBTC) {
-            lastRebalances[AssetType.WBTC] = block.timestamp;
-        }
-    }
-
-    //TODO: verify data is matching with the parms
-    function _swap(
-        address sellAssetAddress,
+    function _rebalance(
+        address swapProvider,
+        address from,
+        address to,
         uint256 sellAmount,
-        address buyAssetAddress,
         uint256 buyAmountMin,
         bytes memory data
     ) internal _onlyInitialized {
+        if (
+            (!_assets.contains(from) && !_stableCoins.contains(from))
+                || (!_assets.contains(to) && !_stableCoins.contains(to))
+        ) {
+            revert InvalidAssetType();
+        }
+        AssetConfig memory assetConfigFrom = _assetConfigs[from];
+        AssetConfig memory assetConfigTo = _assetConfigs[to];
+        if (
+            rebalanceLimit.minimalTimestampBetweenRebalances > 0 && lastRebalanceTimestamp > 0
+                && block.timestamp - lastRebalanceTimestamp < rebalanceLimit.minimalTimestampBetweenRebalances
+        ) {
+            revert RebalanceInMinimalTime();
+        }
+        if (
+            (assetConfigFrom.minimalDurationBetweenRebalances > 0
+                    && lastRebalanceTimestamps[from] > 0
+                    && block.timestamp - lastRebalanceTimestamps[from]
+                        < assetConfigFrom.minimalDurationBetweenRebalances)
+                || (assetConfigTo.minimalDurationBetweenRebalances > 0
+                    && lastRebalanceTimestamps[to] > 0
+                    && block.timestamp - lastRebalanceTimestamps[to] < assetConfigTo.minimalDurationBetweenRebalances)
+        ) {
+            revert RebalanceInMinimalTime();
+        }
+        if (assetConfigFrom.minimalBalance > 0 && _addressBalance(from) - sellAmount < assetConfigFrom.minimalBalance) {
+            revert MinimalBalanceNotMet();
+        }
+        if (_stableCoins.contains(from) && rebalanceLimit.minimalStableCoinBalance > 0) {
+            uint256 stableCoinBalanceTotalBalance = 0;
+            for (uint256 i = 0; i < _stableCoins.length(); i++) {
+                stableCoinBalanceTotalBalance += _addressBalance(_stableCoins.at(i));
+            }
+            if (stableCoinBalanceTotalBalance - sellAmount < rebalanceLimit.minimalStableCoinBalance) {
+                revert MinimalBalanceNotMet();
+            }
+        }
+
+        _swap(swapProvider, from, sellAmount, to, buyAmountMin, data);
+
+        if (assetConfigFrom.minimalDurationBetweenRebalances > 0) {
+            lastRebalanceTimestamps[from] = block.timestamp;
+        }
+        if (assetConfigTo.minimalDurationBetweenRebalances > 0) {
+            lastRebalanceTimestamps[to] = block.timestamp;
+        }
+        if (rebalanceLimit.minimalTimestampBetweenRebalances > 0) {
+            lastRebalanceTimestamp = block.timestamp;
+        }
+    }
+
+    //TODO: verify data is matching with the params, to asset type should be whitelisted
+    function _swap(
+        address swapProvider,
+        address sellAssetAddress,
+        uint256 sellAmount,
+        address toAssetType,
+        uint256 buyAmountMin,
+        bytes memory data
+    ) internal _onlyInitialized {
+        if (!_swapProviders[swapProvider]) {
+            revert InvalidSwapProvider();
+        }
         if (sellAmount == 0 || buyAmountMin == 0) {
             revert AmountIsZero();
+        }
+        if (!_assets.contains(toAssetType) && !_stableCoins.contains(toAssetType)) {
+            revert InvalidAssetType();
         }
         uint256 sellAssetBalanceBefore = _addressBalance(sellAssetAddress);
         if (sellAssetBalanceBefore < sellAmount) {
             revert InsufficientBalance();
         }
-        uint256 buyAssetBalanceBefore = _addressBalance(buyAssetAddress);
-        if (sellAssetAddress == address(0)) {
-            swapProvider.swap{value: sellAmount}(data);
-        } else {
-            swapProvider.swap(data);
-        }
+        uint256 buyAssetBalanceBefore = _addressBalance(toAssetType);
+
+        ISwapProvider(swapProvider).swap(data);
 
         uint256 sellAssetBalanceAfter = _addressBalance(sellAssetAddress);
         if (sellAssetBalanceBefore - sellAssetBalanceAfter != sellAmount) {
             revert SellAmountMismatch();
         }
-        uint256 buyAssetBalanceAfter = _addressBalance(buyAssetAddress);
+        uint256 buyAssetBalanceAfter = _addressBalance(toAssetType);
         if (buyAssetBalanceAfter - buyAssetBalanceBefore < buyAmountMin) {
             revert BuyAmountNotEnough();
         }
     }
 
-    function getETHBalance() external view returns (uint256) {
-        return address(this).balance;
-    }
-
     function _turnETHToWETH() internal _onlyInitialized {
-        if (address(assets(AssetType.WETH)) == address(0)) {
+        if (wethAddress == address(0)) {
             revert WETHNotSet();
         }
         uint256 ethBalance = address(this).balance;
         if (ethBalance > 0) {
-            IWETH(assets(AssetType.WETH)).deposit{value: ethBalance}();
+            IWETH(wethAddress).deposit{value: ethBalance}();
         }
     }
 
-    function getWETHBalance() external view returns (uint256) {
-        if (address(assets(AssetType.WETH)) == address(0)) {
-            revert WETHNotSet();
-        }
-        return IWETH(assets(AssetType.WETH)).balanceOf(address(this));
+    function getAssets() external view override returns (address[] memory) {
+        return _assets.values();
+    }
+
+    function getStableCoins() external view override returns (address[] memory) {
+        return _stableCoins.values();
     }
 
     receive() external payable {}

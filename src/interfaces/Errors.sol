@@ -10,20 +10,22 @@ error LengthMismatch();
 error WETHNotSet();
 error AssetAlreadySet();
 error InvalidAssetType();
+error InvalidStableCoinType();
 error RebalanceInMinimalTime();
 error InsufficientBalance();
 error SellAmountMismatch();
 error BuyAmountNotEnough();
-error MinimalWBTCBalanceLimit();
-error MinimalWETHBalanceLimit();
-error MinimalStableCoinBalanceLimit();
+error MinimalBalanceNotMet();
 error SupplyAmountMismatch();
 error WithdrawAmountMismatch();
+error InvalidYieldProvider();
+error InvalidSwapProvider();
 
 // Trust errors
 error AlreadyInitialized();
 error NotInitialized();
 error AutoIrrevocableAfterNoPingNotSet();
+error NotRevocable();
 error StartDistributionTimestampAlreadySet();
 error AmountPerWithdrawalIsZero();
 error minimalWithdrawDurationLessThan1Day();

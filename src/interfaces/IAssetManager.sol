@@ -2,16 +2,20 @@
 pragma solidity ^0.8.27;
 
 interface IAssetManager {
-    enum AssetType {
-        WBTC,
-        WETH,
-        USDT,
-        USDC
+    struct AssetConfig {
+        /**
+         * @dev The minimal balance of the asset.
+         * @param minimalBalance The minimal balance of the asset.
+         */
+        uint256 minimalBalance;
+        /**
+         * @dev The minimal duration between rebalances.
+         * @param minimalDurationBetweenRebalances The minimal duration between rebalances.
+         */
+        uint256 minimalDurationBetweenRebalances;
     }
 
     struct RebalanceLimit {
-        uint256 minimalWBTCBalance;
-        uint256 minimalWETHBalance;
         uint256 minimalStableCoinBalance;
         uint256 minimalTimestampBetweenRebalances;
         uint256 maxRebalancePercentage;
@@ -47,9 +51,12 @@ interface IAssetManager {
          */
         uint256 revenueDuration;
     }
+
+    function getAssets() external view returns (address[] memory);
+    function getStableCoins() external view returns (address[] memory);
 }
 
-interface ILendingProvider {
+interface IYieldProvider {
     function initialize(address newOwner) external;
     function supply(address asset, uint256 amount) external payable;
     function withdraw(address asset, uint256 amount) external;

@@ -21,14 +21,16 @@ interface ITrust is IGrantor, IBeneficiary, ITrustee {
     /**
      * @notice Get the trustee base fee.
      * @dev Get the trustee base fee.
+     * @param stableCoinAddress The address of the stablecoin to get the money.
      * @param to The address to get the money.
      */
-    function getBaseFee(address to) external;
+    function getBaseFee(address stableCoinAddress, address to) external;
 
     /**
      * @notice Get the revenue fee.
      * @dev Get the revenue fee.
+     * @param stableCoinAddress The address of the stablecoin to get the money.
      * @param to The address to get the money.
      */
-    function getRevenueFee(address to) external;
+    function getRevenueFee(address stableCoinAddress, address to) external;
 }

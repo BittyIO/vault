@@ -316,7 +316,12 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function getMoneyFromEvent(string memory eventName, address to) external virtual override onlyInitialized {
+    function getMoneyFromEvent(string memory eventName, address stableCoinAddress, address to)
+        external
+        virtual
+        override
+        onlyInitialized
+    {
         if (keccak256(bytes(eventName)) == keccak256(bytes(""))) {
             revert EventNameIsEmpty();
         }
@@ -328,7 +333,7 @@ abstract contract Trust is ITrust {
             revert EventTriggerError();
         }
         if (!triggerEvent.isPercentage) {
-            _getMoney(beneficiaryTriggerEvents[eventName].amount, to);
+            _getMoney(beneficiaryTriggerEvents[eventName].amount, stableCoinAddress, to);
         } else {
             _getPercentageMoney(triggerEvent.amount, to);
         }
@@ -380,7 +385,7 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function getMoneyByTimestamp(uint256 timestamp, address to)
+    function getMoneyByTimestamp(uint256 timestamp, address stableCoinAddress, address to)
         external
         virtual
         override
@@ -397,14 +402,14 @@ abstract contract Trust is ITrust {
             revert TimestampIsInTheFuture();
         }
         if (!beneficiaryTimeEvents[timestamp].isPercentage) {
-            _getMoney(beneficiaryTimeEvents[timestamp].amount, to);
+            _getMoney(beneficiaryTimeEvents[timestamp].amount, stableCoinAddress, to);
         } else {
             _getPercentageMoney(beneficiaryTimeEvents[timestamp].amount, to);
         }
         delete beneficiaryTimeEvents[timestamp];
     }
 
-    function getMoney(address to) external virtual override onlyInitialized onlyBeneficiary {
+    function getMoney(address stableCoinAddress, address to) external virtual override onlyInitialized onlyBeneficiary {
         if (beneficiarySettings.amountPerWithdrawal == 0) {
             revert BeneficiarySettingsNotSet();
         }
@@ -413,41 +418,13 @@ abstract contract Trust is ITrust {
         ) {
             revert BeneficiaryWithdrawalInLimitDays();
         }
-        _getMoney(beneficiarySettings.amountPerWithdrawal, to);
+        _getMoney(beneficiarySettings.amountPerWithdrawal, stableCoinAddress, to);
         lastWithdrawalTime = block.timestamp;
     }
 
-    function _getMoney(uint256 amount, address to) internal {
-        IERC20 firstWithdrawStableCoin = beneficiarySettings.withdrawUSDTFirst ? this.usdt() : this.usdc();
-        IERC20 secondWithdrawStableCoin = beneficiarySettings.withdrawUSDTFirst ? this.usdc() : this.usdt();
+    function _getMoney(uint256 amount, address stableCoinAddress, address to) internal virtual {}
 
-        uint256 firstWithdrawStableCoinBalance =
-            address(firstWithdrawStableCoin) != address(0) ? firstWithdrawStableCoin.balanceOf(address(this)) : 0;
-
-        if (address(firstWithdrawStableCoin) != address(0) && firstWithdrawStableCoinBalance >= amount) {
-            if (!firstWithdrawStableCoin.transfer(to, amount)) {
-                revert TransferFailed();
-            }
-            return;
-        }
-        if (
-            address(secondWithdrawStableCoin) == address(0)
-                || secondWithdrawStableCoin.balanceOf(address(this)) < amount
-        ) {
-            revert InsufficientStablecoinBalance();
-        }
-        if (!secondWithdrawStableCoin.transfer(to, amount)) {
-            revert TransferFailed();
-        }
-    }
-
-    // TODO, should send other ERC20 tokens like aave deposit tokens, etc.
-    function _getPercentageMoney(uint256 persentage, address to) internal {
-        _transferERC20Token(this.usdt(), persentage, to);
-        _transferERC20Token(this.usdc(), persentage, to);
-        _transferERC20Token(this.wbtc(), persentage, to);
-        _transferERC20Token(this.weth(), persentage, to);
-    }
+    function _getPercentageMoney(uint256 persentage, address to) internal virtual {}
 
     function _transferERC20Token(IERC20 token, uint256 percentage, address to) internal {
         if (address(token) == address(0) || percentage == 0) {
@@ -461,35 +438,42 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function getBaseFee(address to) external virtual override onlyInitialized onlyAssetManager {
+    function getBaseFee(address stableCoinAddress, address to)
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyAssetManager
+    {
         if (block.timestamp - lastBaseFeeTime < manageFee.baseFeeDuration) {
             revert BaseFeeDurationNotMet();
         }
         lastBaseFeeTime = block.timestamp;
         if (!manageFee.isBaseFeePercentage) {
-            _getMoney(manageFee.baseFeeAmount, to);
+            _getMoney(manageFee.baseFeeAmount, stableCoinAddress, to);
         } else {
             _getPercentageMoney(manageFee.baseFeeAmount, to);
         }
     }
 
     // TODO, when listing higher with buy low, sell to add revenues and get revenue fee from that
-    function getRevenueFee(address to) external virtual override onlyInitialized onlyAssetManager {
+    function getRevenueFee(address stableCoinAddress, address to)
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyAssetManager
+    {
         if (block.timestamp - lastRevenueTime < manageFee.revenueDuration) {
             revert RevenueDurationNotMet();
         }
         if (revenue == 0) {
             revert RevenueIsZero();
         }
-        _getMoney(revenue * manageFee.revenuePercentage / 10000, to);
+        _getMoney(revenue * manageFee.revenuePercentage / 10000, stableCoinAddress, to);
         lastRevenueTime = block.timestamp;
         revenue = 0;
     }
-
-    function usdt() external view virtual returns (IERC20);
-    function usdc() external view virtual returns (IERC20);
-    function wbtc() external view virtual returns (IERC20);
-    function weth() external view virtual returns (IERC20);
 
     function revocable() external view virtual returns (bool) {
         if (isIrrevocable) {

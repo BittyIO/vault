@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {ILendingProvider} from "../interfaces/IAssetManager.sol";
+import {IYieldProvider} from "../interfaces/IAssetManager.sol";
 import {IAaveV3, IAavePool} from "../libs/Aave.sol";
 import {IPoolDataProvider} from "../libs/Aave.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -9,7 +9,7 @@ import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 
-contract AaveProvider is ILendingProvider, Ownable, Initializable {
+contract AaveProvider is IYieldProvider, Ownable, Initializable {
     using SafeERC20 for IERC20;
     address public immutable aaveV3;
     address public immutable poolDataProvider;

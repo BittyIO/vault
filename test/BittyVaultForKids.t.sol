@@ -27,7 +27,7 @@ contract BittyVaultForKidsTest is Test {
         mockWETH = new MockWETH();
         bittyVaultForKids = new BittyVault();
         bittyVaultForKids.initialize(
-            address(this), address(mockWETH), address(0), address(0), address(0), address(0), address(0)
+            address(this), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
         );
         kidAddress = makeAddr("alice");
         trusteeAddress = makeAddr("trustee");
@@ -53,14 +53,14 @@ contract BittyVaultForKidsTest is Test {
 
     function test_TrustTurnETHToWETH() public {
         vm.deal(address(bittyVaultForKids), 10 ether);
-        assertEq(bittyVaultForKids.getETHBalance(), 10 ether);
-        assertEq(bittyVaultForKids.getWETHBalance(), 0);
+        assertEq(address(bittyVaultForKids).balance, 10 ether);
+        assertEq(mockWETH.balanceOf(address(bittyVaultForKids)), 0);
 
         vm.prank(trusteeAddress);
         bittyVaultForKids.turnETHToWETH();
 
-        assertEq(bittyVaultForKids.getETHBalance(), 0);
-        assertEq(bittyVaultForKids.getWETHBalance(), 10 ether);
+        assertEq(address(bittyVaultForKids).balance, 0);
+        assertEq(mockWETH.balanceOf(address(bittyVaultForKids)), 10 ether);
     }
 
     function test_TrustBeneficiaryChangeAddress() public {
