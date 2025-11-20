@@ -19,7 +19,9 @@ import {
     InvalidGrantor,
     InvalidYieldProvider,
     InvalidSwapProvider,
-    InvalidAssetType
+    InvalidAssetType,
+    NotWhiteListed,
+    Deprecated
 } from "../src/interfaces/Errors.sol";
 
 import {IERC20Metadata} from "lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -30,6 +32,8 @@ import {MockWETH} from "./mock/MockWETH.sol";
 import {MockERC20} from "./mock/MockERC20.sol";
 import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
+import {WhiteList} from "../src/WhiteList.sol";
+import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 
 contract TestAssetManager is Test, AssetManager {
     using SafeERC20 for IERC20;
@@ -43,9 +47,36 @@ contract TestAssetManager is Test, AssetManager {
     address[] public stableCoins;
     address[] public yieldProviders;
     address[] public swapProviders;
+    address public whiteListAddress;
 
     MockYieldProvider public mockYieldProvider;
     MockSwapProvider public mockSwapProvider;
+
+    function setUp() public {
+        mockWETH = address(new MockWETH());
+        mockWBTC = address(new MockERC20("WBTC", "WBTC", 18));
+        mockUSDT = address(new MockERC20("USDT", "USDT", 18));
+        mockUSDC = address(new MockERC20("USDC", "USDC", 18));
+        assets = new address[](2);
+        assets[0] = address(mockWETH);
+        assets[1] = address(mockWBTC);
+        stableCoins = new address[](2);
+        stableCoins[0] = address(mockUSDT);
+        stableCoins[1] = address(mockUSDC);
+        yieldProviders = new address[](1);
+        mockYieldProvider = new MockYieldProvider();
+        yieldProviders[0] = address(mockYieldProvider);
+        swapProviders = new address[](1);
+        mockSwapProvider = new MockSwapProvider();
+        swapProviders[0] = address(mockSwapProvider);
+        whiteListAddress = address(new WhiteList());
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addAssets(assets);
+        IWhiteList(whiteListAddress).addStableCoins(stableCoins);
+        IWhiteList(whiteListAddress).addYieldProviders(yieldProviders);
+        IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
+        vm.stopPrank();
+    }
 
     function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external {
         _setRebalanceRules(rebalanceLimit);
@@ -87,26 +118,7 @@ contract TestAssetManager is Test, AssetManager {
         address[] memory yieldProviders_,
         address[] memory swapProviders_
     ) public initializer {
-        _initialize(wethAddress, assetAddresses, stableCoinAddresses, yieldProviders_, swapProviders_);
-    }
-
-    function setUp() public {
-        mockWETH = address(new MockWETH());
-        mockWBTC = address(new MockERC20("WBTC", "WBTC", 18));
-        mockUSDT = address(new MockERC20("USDT", "USDT", 18));
-        mockUSDC = address(new MockERC20("USDC", "USDC", 18));
-        assets = new address[](2);
-        assets[0] = address(mockWETH);
-        assets[1] = address(mockWBTC);
-        stableCoins = new address[](2);
-        stableCoins[0] = address(mockUSDT);
-        stableCoins[1] = address(mockUSDC);
-        yieldProviders = new address[](1);
-        mockYieldProvider = new MockYieldProvider();
-        yieldProviders[0] = address(mockYieldProvider);
-        swapProviders = new address[](1);
-        mockSwapProvider = new MockSwapProvider();
-        swapProviders[0] = address(mockSwapProvider);
+        _initialize(wethAddress, whiteListAddress, assetAddresses, stableCoinAddresses, yieldProviders_, swapProviders_);
     }
 
     function test_RevertNotInitialized() public {
@@ -244,7 +256,7 @@ contract TestAssetManager is Test, AssetManager {
         this.supply(invalidYieldProvider, address(mockWETH), 1 ether);
     }
 
-    function test_Supply() public {
+    function test_SupplySuccess() public {
         this.doInitialize();
 
         MockERC20 mockToken = new MockERC20("MockToken", "MTK", 18);
@@ -263,7 +275,7 @@ contract TestAssetManager is Test, AssetManager {
         assertEq(mockToken.balanceOf(address(this)), 0);
     }
 
-    function test_Withdraw() public {
+    function test_WithdrawSuccess() public {
         this.doInitialize();
 
         MockERC20 mockToken = new MockERC20("MockToken", "MTK", 18);
@@ -325,7 +337,7 @@ contract TestAssetManager is Test, AssetManager {
 
         deal(address(buyToken), address(mockSwapProvider), buyAmount);
 
-        vm.expectRevert(InvalidAssetType.selector);
+        vm.expectRevert(NotWhiteListed.selector);
         this.swap(address(mockSwapProvider), abi.encode(address(mockWETH), sellAmount, address(buyToken), buyAmountMin));
     }
 
@@ -356,6 +368,73 @@ contract TestAssetManager is Test, AssetManager {
 
         uint256 wethBalanceAfter = MockWETH(mockWETH).balanceOf(address(this));
         assertGe(wethBalanceAfter - wethBalanceBefore, buyAmountMin);
+    }
+
+    function test_SwapFailedIfToAssetIsNotSelectedByUser() public {
+        this.doInitialize();
+
+        MockERC20 sellToken = new MockERC20("SellToken", "STK", 18);
+
+        uint256 sellAmount = 1000 * 1e18;
+        uint256 buyAmount = 2000 * 1e18; // 1:2 exchange rate
+        uint256 buyAmountMin = 1500 * 1e18;
+
+        MockERC20 buyToken = new MockERC20("BuyToken", "BTK", 18);
+        deal(address(buyToken), address(mockSwapProvider), buyAmount);
+
+        vm.expectRevert(NotWhiteListed.selector);
+        this.swap(
+            address(mockSwapProvider), abi.encode(address(sellToken), sellAmount, address(buyToken), buyAmountMin)
+        );
+    }
+
+    function test_SwapFailedIfToAssetIsNotWhiteListed() public {
+        this.doInitialize();
+
+        MockERC20 sellToken = new MockERC20("SellToken", "STK", 18);
+
+        uint256 sellAmount = 1000 * 1e18;
+        uint256 buyAmount = 2000 * 1e18;
+        uint256 buyAmountMin = 1500 * 1e18;
+        deal(address(sellToken), address(this), sellAmount);
+        sellToken.approve(address(mockSwapProvider), sellAmount);
+        deal(address(mockWETH), address(mockSwapProvider), buyAmount);
+        address[] memory removedAssets = new address[](1);
+        removedAssets[0] = address(mockWETH);
+        vm.prank(tx.origin);
+        IWhiteList(whiteListAddress).removeAssets(removedAssets);
+        vm.expectRevert(NotWhiteListed.selector);
+        this.swap(
+            address(mockSwapProvider), abi.encode(address(sellToken), sellAmount, address(mockWETH), buyAmountMin)
+        );
+    }
+
+    function test_YieldProviderRevertIfNotWhiteListed() public {
+        this.doInitialize();
+
+        address invalidYieldProvider = makeAddr("InvalidYieldProvider");
+        vm.expectRevert(InvalidYieldProvider.selector);
+        this.supply(invalidYieldProvider, address(mockWETH), 1 ether);
+    }
+
+    function test_YieldProviderDeprecateIfYieldProviderGotDeprecated() public {
+        this.doInitialize();
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).deprecateYieldProviders(yieldProviders);
+        vm.stopPrank();
+        vm.expectRevert(Deprecated.selector);
+        this.supply(address(mockYieldProvider), address(mockWETH), 1 ether);
+    }
+
+    function test_WithdrawMoneySuccessFromDeprecateYieldProvider() public {
+        this.doInitialize();
+        deal(address(mockWETH), address(this), 1 ether);
+        this.supply(address(mockYieldProvider), address(mockWETH), 1 ether);
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).deprecateYieldProviders(yieldProviders);
+        vm.stopPrank();
+        this.withdraw(address(mockYieldProvider), address(mockWETH), 1 ether);
+        assertEq(MockWETH(mockWETH).balanceOf(address(this)), 1 ether);
     }
 }
 

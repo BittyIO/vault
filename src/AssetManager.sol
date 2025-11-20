@@ -7,6 +7,7 @@ import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/In
 import {IAssetManager, IYieldProvider, ISwapProvider} from "./interfaces/IAssetManager.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
+import {IWhiteList} from "./interfaces/IWhiteList.sol";
 import {
     AddressZero,
     AmountIsZero,
@@ -22,7 +23,10 @@ import {
     InvalidAssetType,
     InvalidStableCoinType,
     InvalidYieldProvider,
-    InvalidSwapProvider
+    InvalidSwapProvider,
+    Deprecated,
+    NotWhiteListed,
+    InvalidSwapData
 } from "./interfaces/Errors.sol";
 import {IWETH} from "./interfaces/IWETH.sol";
 
@@ -30,6 +34,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
     address public wethAddress;
+    IWhiteList public whiteList;
     EnumerableSet.AddressSet internal _assets;
     EnumerableSet.AddressSet internal _stableCoins;
     mapping(address => bool) internal _yieldProviders;
@@ -48,6 +53,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
 
     function _initialize(
         address wethAddress_,
+        address whiteListAddress_,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory yieldProviders,
@@ -57,6 +63,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
             revert AddressZero();
         }
         wethAddress = wethAddress_;
+        whiteList = IWhiteList(whiteListAddress_);
         for (uint256 i = 0; i < assetAddresses.length; i++) {
             if (assetAddresses[i] == address(0)) {
                 revert AddressZero();
@@ -97,6 +104,12 @@ abstract contract AssetManager is IAssetManager, Initializable {
         if (!_yieldProviders[yieldProvider]) {
             revert InvalidYieldProvider();
         }
+        if (whiteList.isYieldProviderDeprecated(yieldProvider)) {
+            revert Deprecated();
+        }
+        if (!whiteList.isYieldProviderWhiteListed(yieldProvider)) {
+            revert NotWhiteListed();
+        }
         IERC20(assetAddress).safeApprove(address(yieldProvider), amount);
         uint256 balanceBefore = IYieldProvider(yieldProvider).getBalance(assetAddress);
         IYieldProvider(yieldProvider).supply(assetAddress, amount);
@@ -116,6 +129,10 @@ abstract contract AssetManager is IAssetManager, Initializable {
         }
         if (!_yieldProviders[yieldProvider]) {
             revert InvalidYieldProvider();
+        }
+        if (!whiteList.isYieldProviderDeprecated(yieldProvider) && !whiteList.isYieldProviderWhiteListed(yieldProvider))
+        {
+            revert NotWhiteListed();
         }
         uint256 supplyAmount = IYieldProvider(yieldProvider).getBalance(assetAddress);
         if (supplyAmount < amount) {
@@ -149,6 +166,12 @@ abstract contract AssetManager is IAssetManager, Initializable {
                 || (!_assets.contains(to) && !_stableCoins.contains(to))
         ) {
             revert InvalidAssetType();
+        }
+        if (
+            !(whiteList.isAssetWhiteListed(to) || whiteList.isStableCoinWhiteListed(to))
+                || !whiteList.isSwapProviderWhiteListed(swapProvider)
+        ) {
+            revert NotWhiteListed();
         }
         AssetConfig memory assetConfigFrom = _assetConfigs[from];
         AssetConfig memory assetConfigTo = _assetConfigs[to];
@@ -195,7 +218,6 @@ abstract contract AssetManager is IAssetManager, Initializable {
         }
     }
 
-    //TODO: verify data is matching with the params, to asset type should be whitelisted
     function _swap(
         address swapProvider,
         address sellAssetAddress,
@@ -210,8 +232,19 @@ abstract contract AssetManager is IAssetManager, Initializable {
         if (sellAmount == 0 || buyAmountMin == 0) {
             revert AmountIsZero();
         }
+        (address sellToken_, uint256 sellAmount_, address buyToken_, uint256 buyAmountMin_) =
+            abi.decode(data, (address, uint256, address, uint256));
+        if (
+            sellToken_ != sellAssetAddress || sellAmount_ != sellAmount || buyToken_ != toAssetType
+                || buyAmountMin_ != buyAmountMin
+        ) {
+            revert InvalidSwapData();
+        }
         if (!_assets.contains(toAssetType) && !_stableCoins.contains(toAssetType)) {
-            revert InvalidAssetType();
+            revert NotWhiteListed();
+        }
+        if (!whiteList.isAssetWhiteListed(toAssetType) && !whiteList.isStableCoinWhiteListed(toAssetType)) {
+            revert NotWhiteListed();
         }
         uint256 sellAssetBalanceBefore = _addressBalance(sellAssetAddress);
         if (sellAssetBalanceBefore < sellAmount) {

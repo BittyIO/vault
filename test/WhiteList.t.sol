@@ -1,0 +1,114 @@
+// SPDX-License-Identifier: CC0-1.0
+pragma solidity ^0.8.27;
+
+import {Test} from "lib/forge-std/src/Test.sol";
+import {WhiteList} from "../src/WhiteList.sol";
+import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
+import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
+import {MockERC20} from "./mock/MockERC20.sol";
+
+contract WhiteListTest is Test {
+    WhiteList public whiteList;
+    address public protocolOwner;
+    MockSwapProvider public mockSwapProvider;
+    MockYieldProvider public mockYieldProvider;
+    MockERC20 public mockWETH;
+    MockERC20 public mockWBTC;
+    MockERC20 public mockUSDT;
+    MockERC20 public mockUSDC;
+    address[] public assets;
+    address[] public stableCoins;
+    address[] public yieldProviders;
+    address[] public swapProviders;
+
+    function setUp() public {
+        protocolOwner = makeAddr("protocolOwner");
+        mockSwapProvider = new MockSwapProvider();
+        mockYieldProvider = new MockYieldProvider();
+        mockWETH = new MockERC20("WETH", "WETH", 18);
+        mockWBTC = new MockERC20("WBTC", "WBTC", 8);
+        mockUSDT = new MockERC20("USDT", "USDT", 6);
+        mockUSDC = new MockERC20("USDC", "USDC", 6);
+        whiteList = new WhiteList();
+        address txOrigin = tx.origin;
+        vm.prank(txOrigin);
+        whiteList.transferOwnership(protocolOwner);
+        assets = new address[](2);
+        assets[0] = address(mockWETH);
+        assets[1] = address(mockWBTC);
+        stableCoins = new address[](2);
+        stableCoins[0] = address(mockUSDT);
+        stableCoins[1] = address(mockUSDC);
+        yieldProviders = new address[](1);
+        yieldProviders[0] = address(mockYieldProvider);
+        swapProviders = new address[](1);
+        swapProviders[0] = address(mockSwapProvider);
+    }
+
+    function test_AddWhiteListedAssets() public {
+        vm.prank(protocolOwner);
+        whiteList.addAssets(assets);
+        assertEq(whiteList.isAssetWhiteListed(address(mockWETH)), true);
+        assertEq(whiteList.isAssetWhiteListed(address(mockWBTC)), true);
+    }
+
+    function test_RemoveAssets() public {
+        vm.prank(protocolOwner);
+        whiteList.removeAssets(assets);
+        assertEq(whiteList.isAssetWhiteListed(address(mockWETH)), false);
+        assertEq(whiteList.isAssetWhiteListed(address(mockWBTC)), false);
+    }
+
+    function test_AddStableCoins() public {
+        vm.prank(protocolOwner);
+        whiteList.addStableCoins(stableCoins);
+        assertEq(whiteList.isStableCoinWhiteListed(address(mockUSDT)), true);
+        assertEq(whiteList.isStableCoinWhiteListed(address(mockUSDC)), true);
+    }
+
+    function test_RemoveStableCoins() public {
+        vm.prank(protocolOwner);
+        whiteList.removeStableCoins(stableCoins);
+        assertEq(whiteList.isStableCoinWhiteListed(address(mockUSDT)), false);
+        assertEq(whiteList.isStableCoinWhiteListed(address(mockUSDC)), false);
+    }
+
+    function test_AddYieldProviders() public {
+        vm.prank(protocolOwner);
+        whiteList.addYieldProviders(yieldProviders);
+        assertEq(whiteList.isYieldProviderWhiteListed(address(mockYieldProvider)), true);
+    }
+
+    function test_DeprecateYieldProviders() public {
+        vm.prank(protocolOwner);
+        whiteList.deprecateYieldProviders(yieldProviders);
+        assertEq(whiteList.isYieldProviderWhiteListed(address(mockYieldProvider)), false);
+        assertEq(whiteList.isYieldProviderDeprecated(address(mockYieldProvider)), true);
+    }
+
+    function test_AddSwapProviders() public {
+        vm.prank(protocolOwner);
+        whiteList.addSwapProviders(swapProviders);
+        assertEq(whiteList.isSwapProviderWhiteListed(address(mockSwapProvider)), true);
+    }
+
+    function test_RemoveSwapProviders() public {
+        vm.prank(protocolOwner);
+        whiteList.removeSwapProviders(swapProviders);
+        assertEq(whiteList.isSwapProviderWhiteListed(address(mockSwapProvider)), false);
+    }
+
+    function test_AddWhiteListedNeedToRemoveDeprecated() public {
+        vm.prank(protocolOwner);
+        whiteList.addYieldProviders(yieldProviders);
+        assertEq(whiteList.isYieldProviderWhiteListed(address(mockYieldProvider)), true);
+        vm.prank(protocolOwner);
+        whiteList.deprecateYieldProviders(yieldProviders);
+        assertEq(whiteList.isYieldProviderWhiteListed(address(mockYieldProvider)), false);
+        assertEq(whiteList.isYieldProviderDeprecated(address(mockYieldProvider)), true);
+        vm.prank(protocolOwner);
+        whiteList.addYieldProviders(yieldProviders);
+        assertEq(whiteList.isYieldProviderWhiteListed(address(mockYieldProvider)), true);
+        assertEq(whiteList.isYieldProviderDeprecated(address(mockYieldProvider)), false);
+    }
+}

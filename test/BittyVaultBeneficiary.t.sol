@@ -5,6 +5,7 @@ import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {ITrust} from "../src/interfaces/ITrust.sol";
 import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
+import {WhiteList} from "../src/WhiteList.sol";
 import {
     AddressZero,
     AmountIsZero,
@@ -95,6 +96,7 @@ contract BittyVaultBeneficiaryTest is Test {
     uint256[] public amounts;
     uint256 public withdrawMoney;
     uint256 public marriageMoney;
+    address public whiteListAddress;
 
     function setUp() public {
         mockWETH = new MockWETH();
@@ -112,8 +114,15 @@ contract BittyVaultBeneficiaryTest is Test {
         stableCoinAddresses[1] = address(mockUSDC);
         address[] memory yieldProviders = new address[](0);
         address[] memory swapProviders = new address[](0);
+        whiteListAddress = address(new WhiteList());
         bittyVault.initialize(
-            address(this), address(mockWETH), assetAddresses, stableCoinAddresses, yieldProviders, swapProviders
+            address(this),
+            address(mockWETH),
+            whiteListAddress,
+            assetAddresses,
+            stableCoinAddresses,
+            yieldProviders,
+            swapProviders
         );
         bittyVault.setBeneficiary(beneficiary);
         withdrawMoney = 100 * 1e6;

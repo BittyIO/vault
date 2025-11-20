@@ -4,14 +4,16 @@ pragma solidity ^0.8.27;
 import {BittyVault} from "./BittyVault.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {InvalidGrantor, DeploymentFailed, AddressZero} from "./interfaces/Errors.sol";
+import {InvalidGrantor, DeploymentFailed, AddressZero, NotInitialized, NotWhiteListed} from "./interfaces/Errors.sol";
+import {IWhiteList} from "./interfaces/IWhiteList.sol";
 
 /**
  * @title BittyVaultFactory
  * @notice Factory contract for deploying BittyVault instances using CREATE2
  * @dev Each grantor address will generate a unique, deterministic BittyVault address
  */
-contract BittyVaultFactory is Initializable, Ownable {
+contract BittyVaultFactory is Initializable {
+    IWhiteList public whiteList;
     /**
      * @notice Emitted when a new BittyVault is deployed
      * @param vault The address of the deployed vault
@@ -20,59 +22,21 @@ contract BittyVaultFactory is Initializable, Ownable {
     event VaultDeployed(address indexed vault, address indexed grantor);
 
     address public wethAddress;
-    mapping(address => bool) public assetAddresses;
-    mapping(address => bool) public stableCoinAddresses;
-    mapping(address => bool) public yieldProviders;
-    mapping(address => bool) public swapProviders;
 
-    constructor() {
-        transferOwnership(tx.origin);
-    }
-
-    function initialize(
-        address wethAddress_,
-        address[] memory assetAddresses_,
-        address[] memory stableCoinAddresses_,
-        address[] memory yieldProviders_,
-        address[] memory swapProviders_
-    ) public initializer {
+    function initialize(address wethAddress_, address whiteListAddress_) public initializer {
         if (wethAddress_ == address(0)) {
             revert AddressZero();
         }
         wethAddress = wethAddress_;
-        for (uint256 i = 0; i < assetAddresses_.length; i++) {
-            if (assetAddresses_[i] == address(0)) {
-                revert AddressZero();
-            }
-            assetAddresses[assetAddresses_[i]] = true;
-        }
-        for (uint256 i = 0; i < stableCoinAddresses_.length; i++) {
-            if (stableCoinAddresses_[i] == address(0)) {
-                revert AddressZero();
-            }
-            stableCoinAddresses[stableCoinAddresses_[i]] = true;
-        }
-        for (uint256 i = 0; i < yieldProviders_.length; i++) {
-            if (yieldProviders_[i] == address(0)) {
-                revert AddressZero();
-            }
-            yieldProviders[yieldProviders_[i]] = true;
-        }
-        for (uint256 i = 0; i < swapProviders_.length; i++) {
-            if (swapProviders_[i] == address(0)) {
-                revert AddressZero();
-            }
-            swapProviders[swapProviders_[i]] = true;
-        }
+        whiteList = IWhiteList(whiteListAddress_);
     }
 
     function deployVault(
         address grantor,
-        address wethAddress_,
-        address[] memory assetAddresses_,
-        address[] memory stableCoinAddresses_,
-        address[] memory yieldProviders_,
-        address[] memory swapProviders_
+        address[] memory assetAddresses,
+        address[] memory stableCoinAddresses,
+        address[] memory yieldProviders,
+        address[] memory swapProviders
     ) external returns (address vault) {
         if (grantor == address(0)) {
             revert InvalidGrantor();
@@ -88,14 +52,52 @@ contract BittyVaultFactory is Initializable, Ownable {
             vault := create2(0, add(bytecode, 0x20), mload(bytecode), salt)
         }
 
+        _checkWhiteList(assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+
         BittyVault(payable(vault))
-            .initialize(grantor, wethAddress_, assetAddresses_, stableCoinAddresses_, yieldProviders_, swapProviders_);
+            .initialize(
+                grantor,
+                wethAddress,
+                address(whiteList),
+                assetAddresses,
+                stableCoinAddresses,
+                yieldProviders,
+                swapProviders
+            );
 
         if (vault == address(0)) {
             revert DeploymentFailed();
         }
 
         emit VaultDeployed(vault, grantor);
+    }
+
+    function _checkWhiteList(
+        address[] memory assetAddresses,
+        address[] memory stableCoinAddresses,
+        address[] memory yieldProviders,
+        address[] memory swapProviders
+    ) internal view {
+        for (uint256 i = 0; i < assetAddresses.length; i++) {
+            if (!whiteList.isAssetWhiteListed(assetAddresses[i])) {
+                revert NotWhiteListed();
+            }
+        }
+        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
+            if (!whiteList.isStableCoinWhiteListed(stableCoinAddresses[i])) {
+                revert NotWhiteListed();
+            }
+        }
+        for (uint256 i = 0; i < yieldProviders.length; i++) {
+            if (!whiteList.isYieldProviderWhiteListed(yieldProviders[i])) {
+                revert NotWhiteListed();
+            }
+        }
+        for (uint256 i = 0; i < swapProviders.length; i++) {
+            if (!whiteList.isSwapProviderWhiteListed(swapProviders[i])) {
+                revert NotWhiteListed();
+            }
+        }
     }
 
     /**

@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
+import {WhiteList} from "../src/WhiteList.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -22,12 +23,20 @@ contract BittyVaultForKidsTest is Test {
     address kidAddress;
     address trusteeAddress;
     MockWETH mockWETH;
+    address public whiteListAddress;
 
     function setUp() public {
         mockWETH = new MockWETH();
         bittyVaultForKids = new BittyVault();
+        whiteListAddress = address(new WhiteList());
         bittyVaultForKids.initialize(
-            address(this), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+            address(this),
+            address(mockWETH),
+            whiteListAddress,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
         );
         kidAddress = makeAddr("alice");
         trusteeAddress = makeAddr("trustee");
