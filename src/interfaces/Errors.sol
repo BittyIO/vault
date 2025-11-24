@@ -20,6 +20,7 @@ error SupplyAmountMismatch();
 error WithdrawAmountMismatch();
 error InvalidYieldProvider();
 error InvalidSwapProvider();
+error InvalidSwapData();
 
 // Trust errors
 error AlreadyInitialized();
@@ -53,3 +54,5 @@ error RevenueDurationIsZero();
 // Factory errors
 error InvalidGrantor();
 error DeploymentFailed();
+error NotWhiteListed();
+error Deprecated();

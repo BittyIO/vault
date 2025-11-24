@@ -11,6 +11,7 @@ import {IUniswapV4Router04} from "./libs/Uniswap.sol";
 import {AssetManager} from "./AssetManager.sol";
 import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
+import {IVault} from "./interfaces/IVault.sol";
 import {
     AddressZero,
     AlreadyInitialized,
@@ -36,19 +37,22 @@ import {
  * 1. Resolving inheritance conflicts (modifiers, abstract functions)
  * 2. Bridging between the two modules (usdt/usdc functions for Trust.getMoney)
  */
-contract BittyVault is Trust, AssetManager {
+contract BittyVault is Trust, AssetManager, IVault {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     // Full initialize with all parameters (used by factory)
     function initialize(
         address grantorAddress,
         address wethAddress,
+        address whiteListAddress,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory yieldProviders,
         address[] memory swapProviders
     ) external initializer {
-        AssetManager._initialize(wethAddress, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+        AssetManager._initialize(
+            wethAddress, whiteListAddress, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders
+        );
 
         if (grantorAddress == address(0)) {
             revert AddressZero();
@@ -157,26 +161,6 @@ contract BittyVault is Trust, AssetManager {
         _setRebalanceRules(rebalanceLimit);
     }
 
-    function addWhiteListedAssets(address[] memory assetAddresses) external onlyInitialized onlyTrustee {
-        for (uint256 i = 0; i < assetAddresses.length; i++) {
-            _addWhiteListedAsset(assetAddresses[i]);
-        }
-    }
-
-    function removeWhiteListedAssets(address[] memory assetAddresses) external onlyInitialized onlyTrustee {
-        for (uint256 i = 0; i < assetAddresses.length; i++) {
-            _removeWhiteListedAsset(assetAddresses[i]);
-        }
-    }
-
-    function _addWhiteListedAsset(address assetAddress) internal {
-        _assets.add(assetAddress);
-    }
-
-    function _removeWhiteListedAsset(address assetAddress) internal {
-        _assets.remove(assetAddress);
-    }
-
     /**
      * @notice Override _getMoney to use internal EnumerableSets
      * @dev Transfers stablecoin amount to beneficiary, trying each stablecoin until one has sufficient balance
@@ -232,6 +216,54 @@ contract BittyVault is Trust, AssetManager {
         onlyTrustee
     {
         _assetConfigs[assetAddress] = assetConfig;
+    }
+
+    function addAssets(address[] memory assetAddresses) external onlyInitialized onlyTrustee {
+        for (uint256 i = 0; i < assetAddresses.length; i++) {
+            _assets.add(assetAddresses[i]);
+        }
+    }
+
+    function removeAssets(address[] memory assetAddresses) external onlyInitialized onlyTrustee {
+        for (uint256 i = 0; i < assetAddresses.length; i++) {
+            _assets.remove(assetAddresses[i]);
+        }
+    }
+
+    function addStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrustee {
+        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
+            _stableCoins.add(stableCoinAddresses[i]);
+        }
+    }
+
+    function removeStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrustee {
+        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
+            _stableCoins.remove(stableCoinAddresses[i]);
+        }
+    }
+
+    function addYieldProviders(address[] memory yieldProviderAddresses) external onlyInitialized onlyTrustee {
+        for (uint256 i = 0; i < yieldProviderAddresses.length; i++) {
+            _yieldProviders[yieldProviderAddresses[i]] = true;
+        }
+    }
+
+    function removeYieldProviders(address[] memory yieldProviderAddresses) external onlyInitialized onlyTrustee {
+        for (uint256 i = 0; i < yieldProviderAddresses.length; i++) {
+            _yieldProviders[yieldProviderAddresses[i]] = false;
+        }
+    }
+
+    function addSwapProviders(address[] memory swapProviderAddresses) external onlyInitialized onlyTrustee {
+        for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
+            _swapProviders[swapProviderAddresses[i]] = true;
+        }
+    }
+
+    function removeSwapProviders(address[] memory swapProviderAddresses) external onlyInitialized onlyTrustee {
+        for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
+            _swapProviders[swapProviderAddresses[i]] = false;
+        }
     }
 
     // All trust management functions are inherited from Trust:

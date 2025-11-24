@@ -24,13 +24,13 @@ contract BittyVaultFactoryScript is Script {
         address[] memory yieldProviders = new address[](0);
         address[] memory swapProviders = new address[](1);
         swapProviders[0] = getUniswapV4RouterAddress();
-        factory.initialize(getWETHAddress(), assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+        address whiteListAddress = getWhiteListAddress();
+        factory.initialize(getWETHAddress(), whiteListAddress);
 
         address grantor = vm.envOr("GRANTOR_ADDRESS", msg.sender);
 
-        address vaultAddress = factory.deployVault(
-            grantor, getWETHAddress(), assetAddresses, stableCoinAddresses, yieldProviders, swapProviders
-        );
+        address vaultAddress =
+            factory.deployVault(grantor, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
 
         address computedAddress = factory.computeVaultAddress(grantor);
         require(vaultAddress == computedAddress, "Address mismatch");
@@ -95,6 +95,16 @@ contract BittyVaultFactoryScript is Script {
             return mainnet.UNISWAP_V4_ROUTER;
         } else if (chainId == 11155111) {
             return sepolia.UNISWAP_V4_ROUTER;
+        }
+        return address(0);
+    }
+
+    function getWhiteListAddress() internal view returns (address) {
+        uint256 chainId = block.chainid;
+        if (chainId == 1) {
+            return mainnet.WHITE_LIST;
+        } else if (chainId == 11155111) {
+            return sepolia.WHITE_LIST;
         }
         return address(0);
     }

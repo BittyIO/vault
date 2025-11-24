@@ -5,6 +5,7 @@ import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {ITrust} from "../src/interfaces/ITrust.sol";
 import {AddressZero} from "../src/interfaces/Errors.sol";
+import {WhiteList} from "../src/WhiteList.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -22,12 +23,20 @@ contract MockWETH {
 contract BittyVaultGrantorTest is Test {
     BittyVault public bittyVault;
     MockWETH public mockWETH;
+    address public whiteListAddress;
 
     function setUp() public {
         mockWETH = new MockWETH();
         bittyVault = new BittyVault();
+        whiteListAddress = address(new WhiteList());
         bittyVault.initialize(
-            address(this), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+            address(this),
+            address(mockWETH),
+            whiteListAddress,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
         );
     }
 
@@ -35,25 +44,49 @@ contract BittyVaultGrantorTest is Test {
         BittyVault newVault = new BittyVault();
         vm.expectRevert(AddressZero.selector);
         newVault.initialize(
-            address(0), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+            address(0),
+            address(mockWETH),
+            whiteListAddress,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
         );
     }
 
     function test_InitErrorWithAlreadyInitialized() public {
         BittyVault newVault = new BittyVault();
         newVault.initialize(
-            address(1), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+            address(1),
+            address(mockWETH),
+            whiteListAddress,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
         );
         vm.expectRevert();
         newVault.initialize(
-            address(1), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+            address(1),
+            address(mockWETH),
+            whiteListAddress,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
         );
     }
 
     function test_SetTrustToIrrevocable() public {
         BittyVault newVault = new BittyVault();
         newVault.initialize(
-            address(this), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+            address(this),
+            address(mockWETH),
+            whiteListAddress,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
         );
         newVault.setToIrrevocable();
         assertEq(newVault.revocable(), false);
@@ -62,7 +95,13 @@ contract BittyVaultGrantorTest is Test {
     function test_RevocableAfterPing() public {
         BittyVault newVault = new BittyVault();
         newVault.initialize(
-            address(this), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+            address(this),
+            address(mockWETH),
+            whiteListAddress,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
         );
         newVault.setAutoIrrevocableAfterNoPing(2);
         newVault.ping();
@@ -73,7 +112,13 @@ contract BittyVaultGrantorTest is Test {
     function test_AutoIrrevocableAfterNoPing() public {
         BittyVault newVault = new BittyVault();
         newVault.initialize(
-            address(this), address(mockWETH), new address[](0), new address[](0), new address[](0), new address[](0)
+            address(this),
+            address(mockWETH),
+            whiteListAddress,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
         );
         newVault.setAutoIrrevocableAfterNoPing(1);
         vm.warp(block.timestamp + 2);

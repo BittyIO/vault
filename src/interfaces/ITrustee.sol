@@ -29,18 +29,4 @@ interface ITrustee {
      * @param manageFee The manage fee.
      */
     function setManageFee(IAssetManager.ManageFee memory manageFee) external;
-
-    /**
-     * @notice Add white listed assets.
-     * @dev Add white listed assets.
-     * @param assetAddresses The addresses of the assets.
-     */
-    function addWhiteListedAssets(address[] memory assetAddresses) external;
-
-    /**
-     * @notice Remove white listed assets.
-     * @dev Remove white listed assets.
-     * @param assetAddresses The addresses of the assets.
-     */
-    function removeWhiteListedAssets(address[] memory assetAddresses) external;
 }

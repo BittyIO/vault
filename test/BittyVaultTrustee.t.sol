@@ -21,6 +21,8 @@ import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
 import {ISwapProvider} from "../src/interfaces/IAssetManager.sol";
 import {MockWETH} from "./mock/MockWETH.sol";
 import {MockERC20} from "./mock/MockERC20.sol";
+import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
+import {WhiteList} from "../src/WhiteList.sol";
 
 interface IWETH {
     function deposit() external payable;
@@ -39,6 +41,7 @@ contract BittyVaultTrusteeTest is Test {
     address public assetManager;
     IAssetManager.RebalanceLimit public rebalanceLimits;
     IAssetManager.ManageFee public manageFee;
+    address public whiteListAddress;
 
     function setUp() public {
         mockWETH = new MockWETH();
@@ -47,10 +50,10 @@ contract BittyVaultTrusteeTest is Test {
         mockUSDC = new MockERC20("USDC", "USDC", 18);
         mockSwapProvider = new MockSwapProvider();
         bittyVault = new BittyVault();
+        whiteListAddress = address(new WhiteList());
         grantor = makeAddr("grantor");
         trustee = makeAddr("alice");
         assetManager = makeAddr("bob");
-        vm.prank(grantor);
         address[] memory assetAddresses = new address[](2);
         assetAddresses[0] = address(mockWBTC);
         assetAddresses[1] = address(mockWETH);
@@ -59,8 +62,19 @@ contract BittyVaultTrusteeTest is Test {
         stableCoinAddresses[1] = address(mockUSDC);
         address[] memory swapProviders = new address[](1);
         swapProviders[0] = address(mockSwapProvider);
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addAssets(assetAddresses);
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinAddresses);
+        IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
+        vm.stopPrank();
         bittyVault.initialize(
-            grantor, address(mockWETH), assetAddresses, stableCoinAddresses, new address[](0), swapProviders
+            grantor,
+            address(mockWETH),
+            whiteListAddress,
+            assetAddresses,
+            stableCoinAddresses,
+            new address[](0),
+            swapProviders
         );
         vm.prank(grantor);
         bittyVault.setTrustee(trustee);
