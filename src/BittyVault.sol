@@ -17,7 +17,8 @@ import {
     AlreadyInitialized,
     TransferFailed,
     WETHNotSet,
-    InsufficientStablecoinBalance
+    InsufficientStablecoinBalance,
+    NotWhiteListed
 } from "./interfaces/Errors.sol";
 
 /**
@@ -215,6 +216,9 @@ contract BittyVault is Trust, AssetManager, IVault {
 
     function addAssets(address[] memory assetAddresses) external onlyInitialized onlyTrustee {
         for (uint256 i = 0; i < assetAddresses.length; i++) {
+            if (!whiteList.isAssetWhiteListed(assetAddresses[i])) {
+                revert NotWhiteListed();
+            }
             _assets.add(assetAddresses[i]);
         }
     }
@@ -227,6 +231,9 @@ contract BittyVault is Trust, AssetManager, IVault {
 
     function addStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrustee {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
+            if (!whiteList.isStableCoinWhiteListed(stableCoinAddresses[i])) {
+                revert NotWhiteListed();
+            }
             _stableCoins.add(stableCoinAddresses[i]);
         }
     }
@@ -239,6 +246,9 @@ contract BittyVault is Trust, AssetManager, IVault {
 
     function addYieldProviders(address[] memory yieldProviderAddresses) external onlyInitialized onlyTrustee {
         for (uint256 i = 0; i < yieldProviderAddresses.length; i++) {
+            if (!whiteList.isYieldProviderWhiteListed(yieldProviderAddresses[i])) {
+                revert NotWhiteListed();
+            }
             _yieldProviders[yieldProviderAddresses[i]] = true;
         }
     }
@@ -251,6 +261,9 @@ contract BittyVault is Trust, AssetManager, IVault {
 
     function addSwapProviders(address[] memory swapProviderAddresses) external onlyInitialized onlyTrustee {
         for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
+            if (!whiteList.isSwapProviderWhiteListed(swapProviderAddresses[i])) {
+                revert NotWhiteListed();
+            }
             _swapProviders[swapProviderAddresses[i]] = true;
         }
     }

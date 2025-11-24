@@ -14,11 +14,13 @@ import {
     RevenuePercentageIsZero,
     RevenueDurationNotMet,
     RebalanceInMinimalTime,
-    MinimalBalanceNotMet
+    MinimalBalanceNotMet,
+    NotWhiteListed
 } from "../src/interfaces/Errors.sol";
 
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
-import {ISwapProvider} from "../src/interfaces/IAssetManager.sol";
+import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
+import {IYieldProvider, ISwapProvider} from "../src/interfaces/IAssetManager.sol";
 import {MockWETH} from "./mock/MockWETH.sol";
 import {MockERC20} from "./mock/MockERC20.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
@@ -35,6 +37,7 @@ contract BittyVaultTrusteeTest is Test {
     MockERC20 public mockWBTC;
     MockERC20 public mockUSDT;
     MockERC20 public mockUSDC;
+    IYieldProvider public mockYieldProvider;
     ISwapProvider public mockSwapProvider;
     address public grantor;
     address public trustee;
@@ -49,6 +52,7 @@ contract BittyVaultTrusteeTest is Test {
         mockUSDT = new MockERC20("USDT", "USDT", 18);
         mockUSDC = new MockERC20("USDC", "USDC", 18);
         mockSwapProvider = new MockSwapProvider();
+        mockYieldProvider = new MockYieldProvider();
         bittyVault = new BittyVault();
         whiteListAddress = address(new WhiteList());
         grantor = makeAddr("grantor");
@@ -62,10 +66,13 @@ contract BittyVaultTrusteeTest is Test {
         stableCoinAddresses[1] = address(mockUSDC);
         address[] memory swapProviders = new address[](1);
         swapProviders[0] = address(mockSwapProvider);
+        address[] memory yieldProviderAddresses = new address[](1);
+        yieldProviderAddresses[0] = address(mockYieldProvider);
         vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addAssets(assetAddresses);
         IWhiteList(whiteListAddress).addStableCoins(stableCoinAddresses);
         IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
+        IWhiteList(whiteListAddress).addYieldProviders(yieldProviderAddresses);
         vm.stopPrank();
         bittyVault.initialize(
             grantor,
@@ -309,5 +316,67 @@ contract BittyVaultTrusteeTest is Test {
         bittyVault.rebalance(address(mockSwapProvider), usdtAddress, usdcAddress, sellAmount, buyAmount, swapData);
         assertEq(mockUSDT.balanceOf(address(bittyVault)), rebalanceLimits.minimalStableCoinBalance);
         assertEq(mockUSDC.balanceOf(address(bittyVault)), buyAmount);
+    }
+
+    function test_AddAssetFailedIfNotInWhiteList() public {
+        address[] memory assetAddresses = new address[](1);
+        assetAddresses[0] = address(new MockERC20("Test", "TEST", 18));
+        vm.expectRevert(NotWhiteListed.selector);
+        vm.prank(trustee);
+        bittyVault.addAssets(assetAddresses);
+    }
+
+    function test_AddAssetShouldBeFine() public {
+        address[] memory assetAddresses = new address[](1);
+        assetAddresses[0] = address(mockWBTC);
+        vm.prank(trustee);
+        bittyVault.addAssets(assetAddresses);
+        assertEq(bittyVault.getAssets()[0], address(mockWBTC));
+    }
+
+    function test_AddStableCoinFailedIfNotInWhiteList() public {
+        address[] memory stableCoinAddresses = new address[](1);
+        stableCoinAddresses[0] = address(new MockERC20("Test", "TEST", 18));
+        vm.expectRevert(NotWhiteListed.selector);
+        vm.prank(trustee);
+        bittyVault.addStableCoins(stableCoinAddresses);
+    }
+
+    function test_AddStableCoinShouldBeFine() public {
+        address[] memory stableCoinAddresses = new address[](1);
+        stableCoinAddresses[0] = address(mockUSDT);
+        vm.prank(trustee);
+        bittyVault.addStableCoins(stableCoinAddresses);
+        assertEq(bittyVault.getStableCoins()[0], address(mockUSDT));
+    }
+
+    function test_AddYieldProviderFailedIfNotInWhiteList() public {
+        address[] memory yieldProviderAddresses = new address[](1);
+        yieldProviderAddresses[0] = makeAddr("InvalidYieldProvider");
+        vm.expectRevert(NotWhiteListed.selector);
+        vm.prank(trustee);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+    }
+
+    function test_AddYieldProviderShouldBeFine() public {
+        address[] memory yieldProviderAddresses = new address[](1);
+        yieldProviderAddresses[0] = address(mockYieldProvider);
+        vm.prank(trustee);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+    }
+
+    function test_AddSwapProviderFailedIfNotInWhiteList() public {
+        address[] memory swapProviderAddresses = new address[](1);
+        swapProviderAddresses[0] = makeAddr("InvalidSwapProvider");
+        vm.expectRevert(NotWhiteListed.selector);
+        vm.prank(trustee);
+        bittyVault.addSwapProviders(swapProviderAddresses);
+    }
+
+    function test_AddSwapProviderShouldBeFine() public {
+        address[] memory swapProviderAddresses = new address[](1);
+        swapProviderAddresses[0] = address(mockSwapProvider);
+        vm.prank(trustee);
+        bittyVault.addSwapProviders(swapProviderAddresses);
     }
 }
