@@ -1,4 +1,4 @@
-[![codecov](https://codecov.io/gh/BittyIO/trust-contracts/graph/badge.svg?token=HYIKKNAA1I)](https://codecov.io/gh/BittyIO/trust-contracts)
+[![codecov](https://codecov.io/github/bittyio/vault-contracts/graph/badge.svg?token=HYIKKNAA1I)](https://codecov.io/github/bittyio/vault-contracts)
 ## Trust
 
 ### 
