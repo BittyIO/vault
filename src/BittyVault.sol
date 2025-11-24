@@ -142,17 +142,6 @@ contract BittyVault is Trust, AssetManager, IVault {
         }
     }
 
-    function sellAssetsNotWhiteListed(
-        address swapProvider,
-        address sellAssetAddress,
-        uint256 sellAmount,
-        address toAssetAddress,
-        uint256 buyAmountMin,
-        bytes calldata data
-    ) external onlyInitialized onlyAssetManager {
-        _swap(swapProvider, sellAssetAddress, sellAmount, toAssetAddress, buyAmountMin, data);
-    }
-
     function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external onlyInitialized onlyTrustee {
         _setRebalanceRules(rebalanceLimit);
     }
