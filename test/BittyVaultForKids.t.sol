@@ -5,6 +5,7 @@ import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
+import {Migrator} from "../src/Migrator.sol";
 
 contract BittyVaultForKidsTest is Test {
     BittyVault public bittyVaultForKids;
@@ -13,6 +14,7 @@ contract BittyVaultForKidsTest is Test {
     address trusteeAddress;
     WETH mockWETH;
     address public whiteListAddress;
+    address public migratorAddress;
 
     function setUp() public {
         mockWETH = new WETH();
@@ -20,10 +22,12 @@ contract BittyVaultForKidsTest is Test {
         whiteListAddress = address(new WhiteList());
         grantor = makeAddr("grantor");
         kidAddress = makeAddr("alice");
+        migratorAddress = address(new Migrator());
         bittyVaultForKids.initialize(
             grantor,
             address(mockWETH),
             whiteListAddress,
+            migratorAddress,
             new address[](0),
             new address[](0),
             new address[](0),

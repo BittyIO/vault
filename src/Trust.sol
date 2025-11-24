@@ -104,7 +104,7 @@ abstract contract Trust is ITrust {
         isInitialized = true;
     }
 
-    function initaialize(address grantorAddress, address beneficiaryAddress) external virtual override {
+    function initialize(address grantorAddress, address beneficiaryAddress) external virtual override {
         if (grantorAddress == address(0) || beneficiaryAddress == address(0)) {
             revert AddressZero();
         }

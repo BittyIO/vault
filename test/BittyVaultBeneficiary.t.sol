@@ -11,6 +11,8 @@ import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
 import {IYieldProvider} from "../src/interfaces/IAssetManager.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
+import {WhiteList} from "../src/WhiteList.sol";
+import {Migrator} from "../src/Migrator.sol";
 import {
     AddressZero,
     AmountIsZero,
@@ -51,6 +53,7 @@ contract BittyVaultBeneficiaryTest is Test {
     MockYieldProvider public mockYieldProvider1;
     MockYieldProvider public mockYieldProvider2;
     MockYieldProvider public mockYieldProvider3;
+    address public migratorAddress;
 
     function setUp() public {
         mockWETH = new WETH();
@@ -82,10 +85,12 @@ contract BittyVaultBeneficiaryTest is Test {
         IWhiteList(whiteListAddress).addYieldProviders(yieldProviderAddresses);
         vm.stopPrank();
 
+        migratorAddress = address(new Migrator());
         bittyVault.initialize(
             address(this),
             address(mockWETH),
             whiteListAddress,
+            migratorAddress,
             assetAddresses,
             stableCoinAddresses,
             yieldProviders,

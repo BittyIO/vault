@@ -7,20 +7,24 @@ import {ITrust} from "../src/interfaces/ITrust.sol";
 import {AddressZero} from "../src/interfaces/Errors.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
+import {Migrator} from "../src/Migrator.sol";
 
 contract BittyVaultGrantorTest is Test {
     BittyVault public bittyVault;
     WETH public mockWETH;
     address public whiteListAddress;
+    address public migratorAddress;
 
     function setUp() public {
         mockWETH = new WETH();
         bittyVault = new BittyVault();
         whiteListAddress = address(new WhiteList());
+        migratorAddress = address(new Migrator());
         bittyVault.initialize(
             address(this),
             address(mockWETH),
             whiteListAddress,
+            migratorAddress,
             new address[](0),
             new address[](0),
             new address[](0),
@@ -35,6 +39,7 @@ contract BittyVaultGrantorTest is Test {
             address(0),
             address(mockWETH),
             whiteListAddress,
+            migratorAddress,
             new address[](0),
             new address[](0),
             new address[](0),
@@ -48,6 +53,7 @@ contract BittyVaultGrantorTest is Test {
             address(1),
             address(mockWETH),
             whiteListAddress,
+            migratorAddress,
             new address[](0),
             new address[](0),
             new address[](0),
@@ -58,6 +64,7 @@ contract BittyVaultGrantorTest is Test {
             address(1),
             address(mockWETH),
             whiteListAddress,
+            migratorAddress,
             new address[](0),
             new address[](0),
             new address[](0),
@@ -71,6 +78,7 @@ contract BittyVaultGrantorTest is Test {
             address(this),
             address(mockWETH),
             whiteListAddress,
+            migratorAddress,
             new address[](0),
             new address[](0),
             new address[](0),
@@ -86,6 +94,7 @@ contract BittyVaultGrantorTest is Test {
             address(this),
             address(mockWETH),
             whiteListAddress,
+            migratorAddress,
             new address[](0),
             new address[](0),
             new address[](0),
@@ -99,7 +108,7 @@ contract BittyVaultGrantorTest is Test {
 
     function test_AutoIrrevocableAfterNoPing() public {
         BittyVault newVault = new BittyVault();
-        newVault.initaialize(address(this), address(1));
+        newVault.initialize(address(this), address(1), migratorAddress);
         newVault.setAutoIrrevocableAfterNoPing(1);
         vm.warp(block.timestamp + 2);
         assertEq(newVault.revocable(), false);
@@ -107,7 +116,7 @@ contract BittyVaultGrantorTest is Test {
 
     function test_ChangeGrantorAddressErrorWithNotRevocable() public {
         BittyVault newVault = new BittyVault();
-        newVault.initaialize(address(this), address(1));
+        newVault.initialize(address(this), address(1), migratorAddress);
         newVault.setToIrrevocable();
         vm.expectRevert("Only revocable");
         newVault.changeGrantorAddress(address(1));
@@ -115,7 +124,7 @@ contract BittyVaultGrantorTest is Test {
 
     function test_ChangeGrantorAddressErrorWithAddressZero() public {
         BittyVault newVault = new BittyVault();
-        newVault.initaialize(address(this), address(1));
+        newVault.initialize(address(this), address(1), migratorAddress);
         vm.expectRevert(AddressZero.selector);
         newVault.changeGrantorAddress(address(0));
     }

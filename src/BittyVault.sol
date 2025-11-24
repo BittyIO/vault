@@ -14,6 +14,7 @@ import {AssetManager} from "./AssetManager.sol";
 import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IVault} from "./interfaces/IVault.sol";
+import {IMigrator} from "./interfaces/IMigrator.sol";
 import {
     AddressZero,
     AlreadyInitialized,
@@ -42,11 +43,14 @@ import {
 contract BittyVault is Trust, AssetManager, IVault {
     using EnumerableSet for EnumerableSet.AddressSet;
 
+    IMigrator public override migrator;
+
     // Full initialize with all parameters (used by factory)
     function initialize(
         address grantorAddress,
         address wethAddress,
         address whiteListAddress,
+        address migratorAddress,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory yieldProviders,
@@ -55,15 +59,27 @@ contract BittyVault is Trust, AssetManager, IVault {
         AssetManager._initialize(
             wethAddress, whiteListAddress, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders
         );
+        if (migratorAddress == address(0)) {
+            revert AddressZero();
+        }
+        migrator = IMigrator(migratorAddress);
 
         if (grantorAddress == address(0)) {
             revert AddressZero();
         }
+        grantor = grantorAddress;
         if (isInitialized) {
             revert AlreadyInitialized();
         }
-        grantor = grantorAddress;
         isInitialized = true;
+    }
+
+    function migrate() external onlyInitialized onlyTrustee {
+        address nextVault = migrator.nextVault(address(this));
+        if (nextVault == address(0)) {
+            revert AddressZero();
+        }
+        _revoke(nextVault);
     }
 
     /**
@@ -71,6 +87,10 @@ contract BittyVault is Trust, AssetManager, IVault {
      * @dev Transfers all assets (USDT, USDC, WBTC, WETH, ETH) and withdraws from Aave if needed
      */
     function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor onlyRevocable {
+        _revoke(moneyWithdrawTo);
+    }
+
+    function _revoke(address moneyWithdrawTo) internal {
         if (moneyWithdrawTo == address(0)) {
             revert AddressZero();
         }

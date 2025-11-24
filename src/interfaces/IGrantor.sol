@@ -22,7 +22,7 @@ interface IGrantor {
      * @param grantorAddress The address of the grantor.
      * @param beneficiaryAddress The address of the beneficiary.
      */
-    function initaialize(address grantorAddress, address beneficiaryAddress) external;
+    function initialize(address grantorAddress, address beneficiaryAddress) external;
 
     /**
      * @notice Initialize the trust.
