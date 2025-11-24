@@ -178,7 +178,17 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function setGrantor(address grantorAddress) external virtual override onlyInitialized onlyGrantor {
+    function changeGrantorAddress(address grantorAddress)
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyGrantor
+        onlyRevocable
+    {
+        if (grantorAddress == grantor) {
+            return;
+        }
         if (grantorAddress == address(0)) {
             revert AddressZero();
         }
@@ -220,7 +230,17 @@ abstract contract Trust is ITrust {
         manageFee = manageFee_;
     }
 
-    function setBeneficiary(address beneficiaryAddress) external virtual override onlyInitialized onlyGrantor {
+    function setBeneficiary(address beneficiaryAddress)
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyGrantor
+        onlyRevocable
+    {
+        if (beneficiaryAddress == beneficiary) {
+            return;
+        }
         if (beneficiaryAddress == address(0)) {
             revert AddressZero();
         }
@@ -233,6 +253,7 @@ abstract contract Trust is ITrust {
         override
         onlyInitialized
         onlyGrantor
+        onlyRevocable
     {
         if (beneficiarySettings_.amountPerWithdrawal == 0) {
             revert AmountPerWithdrawalIsZero();

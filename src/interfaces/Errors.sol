@@ -26,7 +26,6 @@ error InvalidSwapData();
 error AlreadyInitialized();
 error NotInitialized();
 error AutoIrrevocableAfterNoPingNotSet();
-error NotRevocable();
 error StartDistributionTimestampAlreadySet();
 error AmountPerWithdrawalIsZero();
 error minimalWithdrawDurationLessThan1Day();

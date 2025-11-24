@@ -38,7 +38,7 @@ interface IGrantor {
      * @dev Set the grantor.
      * @param grantorAddress The address of the grantor.
      */
-    function setGrantor(address grantorAddress) external;
+    function changeGrantorAddress(address grantorAddress) external;
 
     /**
      * @notice Set the trustee.

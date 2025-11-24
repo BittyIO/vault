@@ -17,8 +17,7 @@ import {
     AlreadyInitialized,
     TransferFailed,
     WETHNotSet,
-    InsufficientStablecoinBalance,
-    NotRevocable
+    InsufficientStablecoinBalance
 } from "./interfaces/Errors.sol";
 
 /**
@@ -68,14 +67,10 @@ contract BittyVault is Trust, AssetManager, IVault {
      * @notice Override revoke to transfer all assets to the grantor
      * @dev Transfers all assets (USDT, USDC, WBTC, WETH, ETH) and withdraws from Aave if needed
      */
-    function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor {
+    function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor onlyRevocable {
         if (moneyWithdrawTo == address(0)) {
             revert AddressZero();
         }
-        if (!this.revocable()) {
-            revert NotRevocable();
-        }
-
         for (uint256 i = 0; i < _assets.length(); i++) {
             _transferAllERC20(_assets.at(i), moneyWithdrawTo);
         }
