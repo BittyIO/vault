@@ -25,11 +25,8 @@ import {MockWETH} from "./mock/MockWETH.sol";
 import {MockERC20} from "./mock/MockERC20.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 import {WhiteList} from "../src/WhiteList.sol";
-
-interface IWETH {
-    function deposit() external payable;
-    function balanceOf(address account) external view returns (uint256);
-}
+import {IWETH} from "../src/interfaces/IWETH.sol";
+import {MockWETH} from "./mock/MockWETH.sol";
 
 contract BittyVaultTrusteeTest is Test {
     BittyVault public bittyVault;

@@ -6,6 +6,10 @@ import {BittyVault} from "../src/BittyVault.sol";
 import {ITrust} from "../src/interfaces/ITrust.sol";
 import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
 import {WhiteList} from "../src/WhiteList.sol";
+import {IWETH} from "../src/interfaces/IWETH.sol";
+import {MockWETH} from "./mock/MockWETH.sol";
+import {MockERC20} from "./mock/MockERC20.sol";
+import {WhiteList} from "../src/WhiteList.sol";
 import {
     AddressZero,
     AmountIsZero,
@@ -26,66 +30,12 @@ import {
     InsufficientStablecoinBalance
 } from "../src/interfaces/Errors.sol";
 
-interface IWETH {
-    function deposit() external payable;
-    function balanceOf(address account) external view returns (uint256);
-}
-
-contract MockWETH {
-    mapping(address => uint256) public balanceOf;
-
-    function deposit() external payable {
-        balanceOf[msg.sender] += msg.value;
-    }
-}
-
-contract MockWBTC {
-    mapping(address => uint256) public balanceOf;
-
-    function transfer(address to, uint256 amount) external returns (bool) {
-        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
-        balanceOf[msg.sender] -= amount;
-        balanceOf[to] += amount;
-        return true;
-    }
-}
-
-contract MockUSDT {
-    mapping(address => uint256) public balanceOf;
-
-    function transfer(address to, uint256 amount) external returns (bool) {
-        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
-        balanceOf[msg.sender] -= amount;
-        balanceOf[to] += amount;
-        return true;
-    }
-
-    function mint(address to, uint256 amount) external {
-        balanceOf[to] += amount;
-    }
-}
-
-contract MockUSDC {
-    mapping(address => uint256) public balanceOf;
-
-    function transfer(address to, uint256 amount) external returns (bool) {
-        require(balanceOf[msg.sender] >= amount, "Insufficient balance");
-        balanceOf[msg.sender] -= amount;
-        balanceOf[to] += amount;
-        return true;
-    }
-
-    function mint(address to, uint256 amount) external {
-        balanceOf[to] += amount;
-    }
-}
-
 contract BittyVaultBeneficiaryTest is Test {
     BittyVault public bittyVault;
     MockWETH public mockWETH;
-    MockWBTC public mockWBTC;
-    MockUSDT public mockUSDT;
-    MockUSDC public mockUSDC;
+    MockERC20 public mockWBTC;
+    MockERC20 public mockUSDT;
+    MockERC20 public mockUSDC;
     address public beneficiary;
     address public eventInputAddress;
     IBeneficiary.BeneficiarySettings public beneficiarySettings;
@@ -100,9 +50,9 @@ contract BittyVaultBeneficiaryTest is Test {
 
     function setUp() public {
         mockWETH = new MockWETH();
-        mockUSDT = new MockUSDT();
-        mockUSDC = new MockUSDC();
-        mockWBTC = new MockWBTC();
+        mockUSDT = new MockERC20("USDT", "USDT", 6);
+        mockUSDC = new MockERC20("USDC", "USDC", 6);
+        mockWBTC = new MockERC20("WBTC", "WBTC", 8);
         bittyVault = new BittyVault();
         beneficiary = makeAddr("alice");
         eventInputAddress = makeAddr("anyone");
@@ -167,10 +117,10 @@ contract BittyVaultBeneficiaryTest is Test {
         vm.deal(address(bittyVault), 10 ether);
         bittyVault.setBeneficiarySettings(beneficiarySettings);
         uint256 usdtAmount = beneficiarySettings.amountPerWithdrawal;
-        mockUSDT.mint(address(bittyVault), usdtAmount);
+        deal(address(mockUSDT), address(bittyVault), usdtAmount);
         vm.prank(beneficiary);
         bittyVault.getMoney(address(mockUSDT), beneficiary);
-        mockUSDT.mint(address(bittyVault), usdtAmount);
+        deal(address(mockUSDT), address(bittyVault), usdtAmount);
         vm.warp(block.timestamp + 29 days);
         vm.expectRevert(BeneficiaryWithdrawalInLimitDays.selector);
         vm.prank(beneficiary);
@@ -266,7 +216,7 @@ contract BittyVaultBeneficiaryTest is Test {
             IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: marriageMoney, isPercentage: false});
         bittyVault.setBeneficiarySettings(beneficiarySettings);
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
-        mockUSDT.mint(address(bittyVault), marriageMoney);
+        deal(address(mockUSDT), address(bittyVault), marriageMoney);
         vm.prank(eventInputAddress);
         bittyVault.getMoneyFromEvent("Marriage", address(mockUSDT), beneficiary);
         assertEq(mockUSDT.balanceOf(beneficiary), marriageMoney, "Beneficiary should receive 100000 USDT");
@@ -280,7 +230,7 @@ contract BittyVaultBeneficiaryTest is Test {
             IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: percentage, isPercentage: true});
         bittyVault.setBeneficiarySettings(beneficiarySettings);
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
-        mockUSDT.mint(address(bittyVault), marriageMoney);
+        deal(address(mockUSDT), address(bittyVault), marriageMoney);
         vm.prank(eventInputAddress);
         bittyVault.getMoneyFromEvent("Marriage", address(mockUSDT), beneficiary);
         uint256 percentageMoney = marriageMoney * percentage / 10000;
@@ -381,7 +331,7 @@ contract BittyVaultBeneficiaryTest is Test {
         timestamps[0] = block.timestamp;
         timeEvents[0] = IBeneficiary.TimeEvent({amount: marriageMoney, isPercentage: false});
         bittyVault.addTimeEvents(timestamps, timeEvents);
-        mockUSDT.mint(address(bittyVault), marriageMoney);
+        deal(address(mockUSDT), address(bittyVault), marriageMoney);
         vm.prank(beneficiary);
         bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT), beneficiary);
         assertEq(mockUSDT.balanceOf(beneficiary), marriageMoney, "Beneficiary should receive 100000 USDT");
@@ -393,8 +343,8 @@ contract BittyVaultBeneficiaryTest is Test {
         timestamps[0] = block.timestamp;
         timeEvents[0] = IBeneficiary.TimeEvent({amount: 1000, isPercentage: true});
         bittyVault.addTimeEvents(timestamps, timeEvents);
-        mockUSDT.mint(address(bittyVault), marriageMoney);
-        mockUSDC.mint(address(bittyVault), marriageMoney);
+        deal(address(mockUSDT), address(bittyVault), marriageMoney);
+        deal(address(mockUSDC), address(bittyVault), marriageMoney);
         vm.prank(beneficiary);
         bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT), beneficiary);
 
@@ -417,7 +367,7 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.setBeneficiarySettings(beneficiarySettings);
 
         uint256 usdtAmount = beneficiarySettings.amountPerWithdrawal;
-        mockUSDT.mint(address(bittyVault), usdtAmount);
+        deal(address(mockUSDT), address(bittyVault), usdtAmount);
 
         assertEq(mockUSDT.balanceOf(address(bittyVault)), usdtAmount, "Trust should have 100 USDT");
         assertEq(mockUSDT.balanceOf(beneficiary), 0, "Beneficiary should start with 0 USDT");
@@ -436,8 +386,8 @@ contract BittyVaultBeneficiaryTest is Test {
 
         uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
         uint256 partialUSDT = beneficiarySettings.amountPerWithdrawal / 2;
-        mockUSDT.mint(address(bittyVault), partialUSDT);
-        mockUSDC.mint(address(bittyVault), tokenAmount);
+        deal(address(mockUSDT), address(bittyVault), partialUSDT);
+        deal(address(mockUSDC), address(bittyVault), tokenAmount);
 
         assertEq(mockUSDT.balanceOf(address(bittyVault)), partialUSDT, "Trust should have 50 USDT");
         assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDC");
@@ -453,8 +403,8 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.setBeneficiarySettings(beneficiarySettings);
 
         uint256 partialAmount = beneficiarySettings.amountPerWithdrawal / 2;
-        mockUSDT.mint(address(bittyVault), partialAmount);
-        mockUSDC.mint(address(bittyVault), partialAmount);
+        deal(address(mockUSDT), address(bittyVault), partialAmount);
+        deal(address(mockUSDC), address(bittyVault), partialAmount);
 
         vm.expectRevert(InsufficientStablecoinBalance.selector);
         vm.prank(beneficiary);
@@ -467,8 +417,8 @@ contract BittyVaultBeneficiaryTest is Test {
         );
 
         uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
-        mockUSDT.mint(address(bittyVault), tokenAmount);
-        mockUSDC.mint(address(bittyVault), tokenAmount);
+        deal(address(mockUSDT), address(bittyVault), tokenAmount);
+        deal(address(mockUSDC), address(bittyVault), tokenAmount);
 
         assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDT");
         assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDC");
@@ -488,8 +438,8 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.setBeneficiarySettings(beneficiarySettings);
 
         uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
-        mockUSDT.mint(address(bittyVault), tokenAmount);
-        mockUSDC.mint(address(bittyVault), tokenAmount);
+        deal(address(mockUSDT), address(bittyVault), tokenAmount);
+        deal(address(mockUSDC), address(bittyVault), tokenAmount);
 
         assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDT");
         assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDC");
@@ -510,8 +460,8 @@ contract BittyVaultBeneficiaryTest is Test {
 
         uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
         uint256 partialUSDC = tokenAmount / 2;
-        mockUSDC.mint(address(bittyVault), partialUSDC);
-        mockUSDT.mint(address(bittyVault), tokenAmount);
+        deal(address(mockUSDC), address(bittyVault), partialUSDC);
+        deal(address(mockUSDT), address(bittyVault), tokenAmount);
 
         assertEq(mockUSDC.balanceOf(address(bittyVault)), partialUSDC, "Trust should have 50 USDC");
         assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDT");
