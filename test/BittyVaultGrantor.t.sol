@@ -6,19 +6,8 @@ import {BittyVault} from "../src/BittyVault.sol";
 import {ITrust} from "../src/interfaces/ITrust.sol";
 import {AddressZero} from "../src/interfaces/Errors.sol";
 import {WhiteList} from "../src/WhiteList.sol";
-
-interface IWETH {
-    function deposit() external payable;
-    function balanceOf(address account) external view returns (uint256);
-}
-
-contract MockWETH {
-    mapping(address => uint256) public balanceOf;
-
-    function deposit() external payable {
-        balanceOf[msg.sender] += msg.value;
-    }
-}
+import {IWETH} from "../src/interfaces/IWETH.sol";
+import {MockWETH} from "./mock/MockWETH.sol";
 
 contract BittyVaultGrantorTest is Test {
     BittyVault public bittyVault;
