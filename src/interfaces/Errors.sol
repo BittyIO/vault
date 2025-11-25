@@ -55,3 +55,12 @@ error InvalidGrantor();
 error DeploymentFailed();
 error NotWhiteListed();
 error Deprecated();
+
+// Subscribe errors
+error AlreadySubscribed();
+error AlreadyPremium();
+error AlreadyBase();
+error SubscriptionNone();
+error SubscriptionDowngrade();
+error SubscriptionUpgrade();
+error InsufficientWithdrawableFee();
