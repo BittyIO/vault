@@ -5,7 +5,7 @@ import {Test} from "lib/forge-std/src/Test.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
 import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
-import {MockERC20} from "./mock/MockERC20.sol";
+import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 
 contract WhiteListTest is Test {
     WhiteList public whiteList;

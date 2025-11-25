@@ -5,15 +5,14 @@ import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {ITrust} from "../src/interfaces/ITrust.sol";
 import {AddressZero, AlreadyInitialized} from "../src/interfaces/Errors.sol";
-import {IWETH} from "../src/interfaces/IWETH.sol";
-import {MockWETH} from "./mock/MockWETH.sol";
+import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 
 contract BittyVaultTest is Test {
     BittyVault public bittyVault;
-    MockWETH public mockWETH;
+    WETH public mockWETH;
 
     function setUp() public {
-        mockWETH = new MockWETH();
+        mockWETH = new WETH();
         bittyVault = new BittyVault();
     }
 

@@ -6,7 +6,7 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.so
 import {ITrust} from "./interfaces/ITrust.sol";
 import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 import {IAaveV3} from "./libs/Aave.sol";
-import {IWETH} from "./interfaces/IWETH.sol";
+import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {IUniswapV4Router04} from "./libs/Uniswap.sol";
 import {AssetManager} from "./AssetManager.sol";
 import {IAssetManager} from "./interfaces/IAssetManager.sol";
@@ -138,7 +138,7 @@ contract BittyVault is Trust, AssetManager, IVault {
         }
         uint256 ethBalance = address(this).balance;
         if (ethBalance > 0) {
-            IWETH(wethAddress).deposit{value: ethBalance}();
+            WETH(payable(wethAddress)).deposit{value: ethBalance}();
         }
     }
 

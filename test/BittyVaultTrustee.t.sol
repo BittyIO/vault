@@ -21,16 +21,14 @@ import {
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
 import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
 import {IYieldProvider, ISwapProvider} from "../src/interfaces/IAssetManager.sol";
-import {MockWETH} from "./mock/MockWETH.sol";
-import {MockERC20} from "./mock/MockERC20.sol";
+import {WETH} from "lib/solmate/src/tokens/WETH.sol";
+import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 import {WhiteList} from "../src/WhiteList.sol";
-import {IWETH} from "../src/interfaces/IWETH.sol";
-import {MockWETH} from "./mock/MockWETH.sol";
 
 contract BittyVaultTrusteeTest is Test {
     BittyVault public bittyVault;
-    MockWETH public mockWETH;
+    WETH public mockWETH;
     MockERC20 public mockWBTC;
     MockERC20 public mockUSDT;
     MockERC20 public mockUSDC;
@@ -44,7 +42,7 @@ contract BittyVaultTrusteeTest is Test {
     address public whiteListAddress;
 
     function setUp() public {
-        mockWETH = new MockWETH();
+        mockWETH = new WETH();
         mockWBTC = new MockERC20("WBTC", "WBTC", 18);
         mockUSDT = new MockERC20("USDT", "USDT", 18);
         mockUSDC = new MockERC20("USDC", "USDC", 18);
