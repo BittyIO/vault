@@ -63,7 +63,6 @@ contract BittyVault is Trust, AssetManager, IVault {
             revert AddressZero();
         }
         migrator = IMigrator(migratorAddress);
-
         if (grantorAddress == address(0)) {
             revert AddressZero();
         }
@@ -247,7 +246,7 @@ contract BittyVault is Trust, AssetManager, IVault {
         onlyInitialized
         onlyTrustee
     {
-        _assetConfigs[assetAddress] = assetConfig;
+        _setAssetConfig(assetAddress, assetConfig);
     }
 
     function addAssets(address[] memory assetAddresses) external onlyInitialized onlyTrustee {

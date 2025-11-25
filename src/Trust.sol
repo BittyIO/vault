@@ -5,6 +5,7 @@ import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {AssetManager} from "./AssetManager.sol";
+import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {
     AddressZero,
     AlreadyInitialized,
@@ -57,6 +58,11 @@ abstract contract Trust is ITrust {
 
     mapping(string => IBeneficiary.TriggerEvent) public beneficiaryTriggerEvents;
     mapping(uint256 => IBeneficiary.TimeEvent) public beneficiaryTimeEvents;
+
+    using EnumerableSet for EnumerableSet.Bytes32Set;
+    using EnumerableSet for EnumerableSet.UintSet;
+    EnumerableSet.Bytes32Set private _triggerEventKeys;
+    EnumerableSet.UintSet private _timeEventKeys;
 
     modifier onlyInitialized() {
         require(isInitialized, "Trust not initialized");
@@ -315,6 +321,7 @@ abstract contract Trust is ITrust {
             beneficiaryTriggerEvents[eventNames[i]].triggerAddress = triggerEvent.triggerAddress;
             beneficiaryTriggerEvents[eventNames[i]].amount = triggerEvent.amount;
             beneficiaryTriggerEvents[eventNames[i]].isPercentage = triggerEvent.isPercentage;
+            _triggerEventKeys.add(keccak256(bytes(eventNames[i])));
         }
     }
 
@@ -334,6 +341,7 @@ abstract contract Trust is ITrust {
                 revert EventNameNotFound();
             }
             delete beneficiaryTriggerEvents[eventNames[i]];
+            _triggerEventKeys.remove(keccak256(bytes(eventNames[i])));
         }
     }
 
@@ -359,6 +367,7 @@ abstract contract Trust is ITrust {
             _getPercentageMoney(triggerEvent.amount, to);
         }
         delete beneficiaryTriggerEvents[eventName];
+        _triggerEventKeys.remove(keccak256(bytes(eventName)));
     }
 
     function addTimeEvents(uint256[] memory timestamps, IBeneficiary.TimeEvent[] memory timeEvents)
@@ -384,6 +393,7 @@ abstract contract Trust is ITrust {
                 revert TimestampDuplicated();
             }
             beneficiaryTimeEvents[timestamps[i]] = timeEvent;
+            _timeEventKeys.add(timestamps[i]);
         }
     }
 
@@ -403,6 +413,7 @@ abstract contract Trust is ITrust {
                 revert TimestampNotFound();
             }
             delete beneficiaryTimeEvents[timestamps[i]];
+            _timeEventKeys.remove(timestamps[i]);
         }
     }
 
@@ -428,6 +439,7 @@ abstract contract Trust is ITrust {
             _getPercentageMoney(beneficiaryTimeEvents[timestamp].amount, to);
         }
         delete beneficiaryTimeEvents[timestamp];
+        _timeEventKeys.remove(timestamp);
     }
 
     function getMoney(address stableCoinAddress, address to) external virtual override onlyInitialized onlyBeneficiary {
@@ -507,5 +519,13 @@ abstract contract Trust is ITrust {
             return block.timestamp - lastPingTime <= autoIrrevocableAfterNoPing;
         }
         return true;
+    }
+
+    function getAllTriggerEventKeys() external view returns (bytes32[] memory) {
+        return _triggerEventKeys.values();
+    }
+
+    function getAllTimeEventKeys() external view returns (uint256[] memory) {
+        return _timeEventKeys.values();
     }
 }
