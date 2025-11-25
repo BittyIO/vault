@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {IMigratable} from "./IMigratable.sol";
+import {IVersionizedVault} from "./IVersionizedVault.sol";
 
-interface IVault is IMigratable {
+interface IVault is IVersionizedVault {
     function addAssets(address[] memory assetAddresses) external;
 
     function removeAssets(address[] memory assetAddresses) external;

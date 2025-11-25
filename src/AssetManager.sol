@@ -40,7 +40,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
     EnumerableSet.AddressSet internal _assets;
     EnumerableSet.AddressSet internal _stableCoins;
     EnumerableSet.AddressSet internal _yieldProviders;
-    mapping(address => bool) internal _swapProviders;
+    EnumerableSet.AddressSet internal _swapProviders;
 
     address public wethAddress;
     IWhiteList public whiteList;
@@ -91,7 +91,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
             if (swapProviders[i] == address(0)) {
                 revert AddressZero();
             }
-            _swapProviders[swapProviders[i]] = true;
+            _swapProviders.add(swapProviders[i]);
         }
     }
 
@@ -241,7 +241,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
         uint256 buyAmountMin,
         bytes memory data
     ) internal _onlyInitialized {
-        if (!_swapProviders[swapProvider]) {
+        if (!_swapProviders.contains(swapProvider)) {
             revert InvalidSwapProvider();
         }
         if (sellAmount == 0 || buyAmountMin == 0) {
@@ -295,6 +295,14 @@ abstract contract AssetManager is IAssetManager, Initializable {
 
     function getStableCoins() external view override returns (address[] memory) {
         return _stableCoins.values();
+    }
+
+    function getYieldProviders() external view override returns (address[] memory) {
+        return _yieldProviders.values();
+    }
+
+    function getSwapProviders() external view override returns (address[] memory) {
+        return _swapProviders.values();
     }
 
     function getAllAssetConfigKeys() external view returns (address[] memory) {

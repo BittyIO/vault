@@ -54,6 +54,8 @@ interface IAssetManager {
 
     function getAssets() external view returns (address[] memory);
     function getStableCoins() external view returns (address[] memory);
+    function getYieldProviders() external view returns (address[] memory);
+    function getSwapProviders() external view returns (address[] memory);
 }
 
 interface IYieldProvider {

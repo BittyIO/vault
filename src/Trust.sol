@@ -56,7 +56,7 @@ abstract contract Trust is ITrust {
     uint256 public revenue;
     uint256 public lastRevenueTime;
 
-    mapping(string => IBeneficiary.TriggerEvent) public beneficiaryTriggerEvents;
+    mapping(bytes32 => IBeneficiary.TriggerEvent) public beneficiaryTriggerEvents;
     mapping(uint256 => IBeneficiary.TimeEvent) public beneficiaryTimeEvents;
 
     using EnumerableSet for EnumerableSet.Bytes32Set;
@@ -312,16 +312,17 @@ abstract contract Trust is ITrust {
             if (triggerEvent.amount == 0) {
                 revert AmountIsZero();
             }
-            if (beneficiaryTriggerEvents[eventNames[i]].amount > 0) {
+            bytes32 eventKey = keccak256(bytes(eventNames[i]));
+            if (beneficiaryTriggerEvents[eventKey].amount > 0) {
                 revert EventNameDuplicated();
             }
             if (triggerEvent.isPercentage && triggerEvent.amount > 10000) {
                 revert percentageMoreThan10K();
             }
-            beneficiaryTriggerEvents[eventNames[i]].triggerAddress = triggerEvent.triggerAddress;
-            beneficiaryTriggerEvents[eventNames[i]].amount = triggerEvent.amount;
-            beneficiaryTriggerEvents[eventNames[i]].isPercentage = triggerEvent.isPercentage;
-            _triggerEventKeys.add(keccak256(bytes(eventNames[i])));
+            beneficiaryTriggerEvents[eventKey].triggerAddress = triggerEvent.triggerAddress;
+            beneficiaryTriggerEvents[eventKey].amount = triggerEvent.amount;
+            beneficiaryTriggerEvents[eventKey].isPercentage = triggerEvent.isPercentage;
+            _triggerEventKeys.add(eventKey);
         }
     }
 
@@ -337,11 +338,12 @@ abstract contract Trust is ITrust {
             if (keccak256(bytes(eventNames[i])) == keccak256(bytes(""))) {
                 revert EventNameIsEmpty();
             }
-            if (beneficiaryTriggerEvents[eventNames[i]].amount == 0) {
+            bytes32 eventKey = keccak256(bytes(eventNames[i]));
+            if (beneficiaryTriggerEvents[eventKey].amount == 0) {
                 revert EventNameNotFound();
             }
-            delete beneficiaryTriggerEvents[eventNames[i]];
-            _triggerEventKeys.remove(keccak256(bytes(eventNames[i])));
+            delete beneficiaryTriggerEvents[eventKey];
+            _triggerEventKeys.remove(eventKey);
         }
     }
 
@@ -354,7 +356,8 @@ abstract contract Trust is ITrust {
         if (keccak256(bytes(eventName)) == keccak256(bytes(""))) {
             revert EventNameIsEmpty();
         }
-        IBeneficiary.TriggerEvent memory triggerEvent = beneficiaryTriggerEvents[eventName];
+        bytes32 eventKey = keccak256(bytes(eventName));
+        IBeneficiary.TriggerEvent memory triggerEvent = beneficiaryTriggerEvents[eventKey];
         if (triggerEvent.amount == 0) {
             revert EventNameNotFound();
         }
@@ -362,12 +365,12 @@ abstract contract Trust is ITrust {
             revert EventTriggerError();
         }
         if (!triggerEvent.isPercentage) {
-            _getMoney(beneficiaryTriggerEvents[eventName].amount, stableCoinAddress, to);
+            _getMoney(beneficiaryTriggerEvents[eventKey].amount, stableCoinAddress, to);
         } else {
             _getPercentageMoney(triggerEvent.amount, to);
         }
-        delete beneficiaryTriggerEvents[eventName];
-        _triggerEventKeys.remove(keccak256(bytes(eventName)));
+        delete beneficiaryTriggerEvents[eventKey];
+        _triggerEventKeys.remove(eventKey);
     }
 
     function addTimeEvents(uint256[] memory timestamps, IBeneficiary.TimeEvent[] memory timeEvents)

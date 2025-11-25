@@ -43,7 +43,8 @@ import {
 contract BittyVault is Trust, AssetManager, IVault {
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    IMigrator public override migrator;
+    address public override migrator;
+    uint256 public immutable override version = 1;
 
     // Full initialize with all parameters (used by factory)
     function initialize(
@@ -62,7 +63,7 @@ contract BittyVault is Trust, AssetManager, IVault {
         if (migratorAddress == address(0)) {
             revert AddressZero();
         }
-        migrator = IMigrator(migratorAddress);
+        migrator = migratorAddress;
         if (grantorAddress == address(0)) {
             revert AddressZero();
         }
@@ -73,8 +74,13 @@ contract BittyVault is Trust, AssetManager, IVault {
         isInitialized = true;
     }
 
-    function migrate() external onlyInitialized onlyTrustee {
-        address nextVault = migrator.nextVault(address(this));
+    function initialize(address, bytes memory) external pure override {
+        // first version, no migration needed
+        revert AlreadyInitialized();
+    }
+
+    function migrate() external override onlyInitialized onlyTrustee {
+        address nextVault = IMigrator(migrator).nextVersionVault(trustee, address(this));
         if (nextVault == address(0)) {
             revert AddressZero();
         }
@@ -299,13 +305,13 @@ contract BittyVault is Trust, AssetManager, IVault {
             if (!whiteList.isSwapProviderWhiteListed(swapProviderAddresses[i])) {
                 revert NotWhiteListed();
             }
-            _swapProviders[swapProviderAddresses[i]] = true;
+            _swapProviders.add(swapProviderAddresses[i]);
         }
     }
 
     function removeSwapProviders(address[] memory swapProviderAddresses) external onlyInitialized onlyTrustee {
         for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
-            _swapProviders[swapProviderAddresses[i]] = false;
+            _swapProviders.remove(swapProviderAddresses[i]);
         }
     }
 
