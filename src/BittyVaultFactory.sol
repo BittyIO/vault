@@ -4,7 +4,15 @@ pragma solidity ^0.8.27;
 import {BittyVault} from "./BittyVault.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {InvalidGrantor, DeploymentFailed, AddressZero, NotInitialized, NotWhiteListed} from "./interfaces/Errors.sol";
+import {
+    InvalidGrantor,
+    DeploymentFailed,
+    AddressZero,
+    NotInitialized,
+    NotWhiteListed,
+    Unauthorized,
+    VaultAlreadyDeployed
+} from "./interfaces/Errors.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
 
 /**
@@ -33,6 +41,7 @@ contract BittyVaultFactory is Initializable {
 
     function deployVault(
         address grantor,
+        string memory inputSalt,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory yieldProviders,
@@ -41,18 +50,26 @@ contract BittyVaultFactory is Initializable {
         if (grantor == address(0)) {
             revert InvalidGrantor();
         }
-        bytes32 salt = keccak256(abi.encodePacked(grantor));
-        bytes memory bytecode = type(BittyVault).creationCode;
-        bytes32 bytecodeHash = keccak256(bytecode);
-        address computedAddress = computeAddress(salt, bytecodeHash);
-        if (computedAddress.code.length > 0) {
-            return computedAddress;
-        }
-        assembly {
-            vault := create2(0, add(bytecode, 0x20), mload(bytecode), salt)
+
+        if (msg.sender != grantor) {
+            revert Unauthorized();
         }
 
         _checkWhiteList(assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+
+        bytes32 salt = keccak256(abi.encodePacked(grantor, inputSalt));
+        bytes memory bytecode = type(BittyVault).creationCode;
+        bytes32 bytecodeHash = keccak256(bytecode);
+        address computedAddress = computeAddress(salt, bytecodeHash);
+
+        // if got MEV attack, grantor can deploy another vault
+        if (computedAddress.code.length > 0) {
+            revert VaultAlreadyDeployed();
+        }
+
+        assembly {
+            vault := create2(0, add(bytecode, 0x20), mload(bytecode), salt)
+        }
 
         BittyVault(payable(vault))
             .initialize(
@@ -64,10 +81,6 @@ contract BittyVaultFactory is Initializable {
                 yieldProviders,
                 swapProviders
             );
-
-        if (vault == address(0)) {
-            revert DeploymentFailed();
-        }
 
         emit VaultDeployed(vault, grantor);
     }

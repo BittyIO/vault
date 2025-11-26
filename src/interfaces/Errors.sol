@@ -55,6 +55,8 @@ error InvalidGrantor();
 error DeploymentFailed();
 error NotWhiteListed();
 error Deprecated();
+error Unauthorized();
+error VaultAlreadyDeployed();
 
 // Subscribe errors
 error AlreadySubscribed();
