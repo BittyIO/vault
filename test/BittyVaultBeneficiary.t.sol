@@ -8,7 +8,9 @@ import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
-import {WhiteList} from "../src/WhiteList.sol";
+import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
+import {IYieldProvider} from "../src/interfaces/IAssetManager.sol";
+import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 import {
     AddressZero,
     AmountIsZero,
@@ -46,6 +48,9 @@ contract BittyVaultBeneficiaryTest is Test {
     uint256 public withdrawMoney;
     uint256 public marriageMoney;
     address public whiteListAddress;
+    MockYieldProvider public mockYieldProvider1;
+    MockYieldProvider public mockYieldProvider2;
+    MockYieldProvider public mockYieldProvider3;
 
     function setUp() public {
         mockWETH = new WETH();
@@ -64,6 +69,19 @@ contract BittyVaultBeneficiaryTest is Test {
         address[] memory yieldProviders = new address[](0);
         address[] memory swapProviders = new address[](0);
         whiteListAddress = address(new WhiteList());
+
+        mockYieldProvider1 = new MockYieldProvider();
+        mockYieldProvider2 = new MockYieldProvider();
+        mockYieldProvider3 = new MockYieldProvider();
+
+        vm.startPrank(tx.origin);
+        address[] memory yieldProviderAddresses = new address[](3);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        yieldProviderAddresses[1] = address(mockYieldProvider2);
+        yieldProviderAddresses[2] = address(mockYieldProvider3);
+        IWhiteList(whiteListAddress).addYieldProviders(yieldProviderAddresses);
+        vm.stopPrank();
+
         bittyVault.initialize(
             address(this),
             address(mockWETH),
@@ -74,6 +92,7 @@ contract BittyVaultBeneficiaryTest is Test {
             swapProviders
         );
         bittyVault.setBeneficiary(beneficiary);
+        bittyVault.setTrustee(address(this));
         withdrawMoney = 100 * 1e6;
         marriageMoney = 100000 * 10e6;
         beneficiarySettings =
@@ -218,8 +237,8 @@ contract BittyVaultBeneficiaryTest is Test {
         deal(address(mockUSDT), address(bittyVault), marriageMoney);
         vm.prank(eventInputAddress);
         bittyVault.getMoneyFromEvent("Marriage", address(mockUSDT), beneficiary);
-        assertEq(mockUSDT.balanceOf(beneficiary), marriageMoney, "Beneficiary should receive 100000 USDT");
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");
+        assertEq(mockUSDT.balanceOf(beneficiary), marriageMoney);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
     }
 
     function test_GetMoneyFromEventWithpercentageSuccess() public {
@@ -233,12 +252,8 @@ contract BittyVaultBeneficiaryTest is Test {
         vm.prank(eventInputAddress);
         bittyVault.getMoneyFromEvent("Marriage", address(mockUSDT), beneficiary);
         uint256 percentageMoney = marriageMoney * percentage / 10000;
-        assertEq(mockUSDT.balanceOf(beneficiary), percentageMoney, "Beneficiary should receive 10000 USDT");
-        assertEq(
-            mockUSDT.balanceOf(address(bittyVault)),
-            marriageMoney - percentageMoney,
-            "Trust should have 0 USDT after transfer"
-        );
+        assertEq(mockUSDT.balanceOf(beneficiary), percentageMoney);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), marriageMoney - percentageMoney);
     }
 
     function test_AddTriggerEventsFailedIfIrrevocableBySetting() public {
@@ -333,8 +348,8 @@ contract BittyVaultBeneficiaryTest is Test {
         deal(address(mockUSDT), address(bittyVault), marriageMoney);
         vm.prank(beneficiary);
         bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT), beneficiary);
-        assertEq(mockUSDT.balanceOf(beneficiary), marriageMoney, "Beneficiary should receive 100000 USDT");
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");
+        assertEq(mockUSDT.balanceOf(beneficiary), marriageMoney);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
     }
 
     function test_GetMoneyFromTimeEventSuccessByPercentage() public {
@@ -348,18 +363,10 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT), beneficiary);
 
         uint256 percentageMoney = marriageMoney * 1000 / 10000;
-        assertEq(mockUSDT.balanceOf(beneficiary), percentageMoney, "Beneficiary should receive 10000 USDT");
-        assertEq(mockUSDC.balanceOf(beneficiary), percentageMoney, "Beneficiary should receive 10000 USDC");
-        assertEq(
-            mockUSDT.balanceOf(address(bittyVault)),
-            marriageMoney - percentageMoney,
-            "Trust should have 0 USDT after transfer"
-        );
-        assertEq(
-            mockUSDC.balanceOf(address(bittyVault)),
-            marriageMoney - percentageMoney,
-            "Trust should have 0 USDC after transfer"
-        );
+        assertEq(mockUSDT.balanceOf(beneficiary), percentageMoney);
+        assertEq(mockUSDC.balanceOf(beneficiary), percentageMoney);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), marriageMoney - percentageMoney);
+        assertEq(mockUSDC.balanceOf(address(bittyVault)), marriageMoney - percentageMoney);
     }
 
     function test_GetUSDTSuccessFromTrustFor100USD() public {
@@ -368,16 +375,16 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 usdtAmount = beneficiarySettings.amountPerWithdrawal;
         deal(address(mockUSDT), address(bittyVault), usdtAmount);
 
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), usdtAmount, "Trust should have 100 USDT");
-        assertEq(mockUSDT.balanceOf(beneficiary), 0, "Beneficiary should start with 0 USDT");
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), usdtAmount);
+        assertEq(mockUSDT.balanceOf(beneficiary), 0);
 
         vm.prank(beneficiary);
         bittyVault.getMoney(address(mockUSDT), beneficiary);
 
-        assertEq(mockUSDT.balanceOf(beneficiary), usdtAmount, "Beneficiary should receive 100 USDT");
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");
+        assertEq(mockUSDT.balanceOf(beneficiary), usdtAmount);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
 
-        assertEq(bittyVault.lastWithdrawalTime(), block.timestamp, "lastWithdrawalTime should be updated");
+        assertEq(bittyVault.lastWithdrawalTime(), block.timestamp);
     }
 
     function test_GetUSDTFailedIfUSDTInsufficient() public {
@@ -388,10 +395,10 @@ contract BittyVaultBeneficiaryTest is Test {
         deal(address(mockUSDT), address(bittyVault), partialUSDT);
         deal(address(mockUSDC), address(bittyVault), tokenAmount);
 
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), partialUSDT, "Trust should have 50 USDT");
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDC");
-        assertEq(mockUSDT.balanceOf(beneficiary), 0, "Beneficiary should start with 0 USDT");
-        assertEq(mockUSDC.balanceOf(beneficiary), 0, "Beneficiary should start with 0 USDC");
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), partialUSDT);
+        assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount);
+        assertEq(mockUSDT.balanceOf(beneficiary), 0);
+        assertEq(mockUSDC.balanceOf(beneficiary), 0);
 
         vm.prank(beneficiary);
         vm.expectRevert(InsufficientStablecoinBalance.selector);
@@ -419,18 +426,18 @@ contract BittyVaultBeneficiaryTest is Test {
         deal(address(mockUSDT), address(bittyVault), tokenAmount);
         deal(address(mockUSDC), address(bittyVault), tokenAmount);
 
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDT");
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDC");
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount);
+        assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount);
 
         vm.prank(beneficiary);
         bittyVault.getMoney(address(mockUSDC), beneficiary);
 
-        assertEq(mockUSDC.balanceOf(beneficiary), tokenAmount, "Beneficiary should receive 100 USDC");
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDC after transfer");
-        assertEq(mockUSDT.balanceOf(beneficiary), 0, "Beneficiary should not receive USDT");
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount, "Trust should still have 100 USDT");
+        assertEq(mockUSDC.balanceOf(beneficiary), tokenAmount);
+        assertEq(mockUSDC.balanceOf(address(bittyVault)), 0);
+        assertEq(mockUSDT.balanceOf(beneficiary), 0);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount);
 
-        assertEq(bittyVault.lastWithdrawalTime(), block.timestamp, "lastWithdrawalTime should be updated");
+        assertEq(bittyVault.lastWithdrawalTime(), block.timestamp);
     }
 
     function test_GetUSDTFirstWhenWithdrawUSDTFirstIsTrue() public {
@@ -440,18 +447,18 @@ contract BittyVaultBeneficiaryTest is Test {
         deal(address(mockUSDT), address(bittyVault), tokenAmount);
         deal(address(mockUSDC), address(bittyVault), tokenAmount);
 
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDT");
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDC");
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount);
+        assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount);
 
         vm.prank(beneficiary);
         bittyVault.getMoney(address(mockUSDT), beneficiary);
 
-        assertEq(mockUSDT.balanceOf(beneficiary), tokenAmount, "Beneficiary should receive 100 USDT");
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");
-        assertEq(mockUSDC.balanceOf(beneficiary), 0, "Beneficiary should not receive USDC");
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount, "Trust should still have 100 USDC");
+        assertEq(mockUSDT.balanceOf(beneficiary), tokenAmount);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
+        assertEq(mockUSDC.balanceOf(beneficiary), 0);
+        assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount);
 
-        assertEq(bittyVault.lastWithdrawalTime(), block.timestamp, "lastWithdrawalTime should be updated");
+        assertEq(bittyVault.lastWithdrawalTime(), block.timestamp);
     }
 
     function test_GetUSDTFallbackWhenUSDCInsufficientAndWithdrawUSDTFirstIsFalse() public {
@@ -462,19 +469,565 @@ contract BittyVaultBeneficiaryTest is Test {
         deal(address(mockUSDC), address(bittyVault), partialUSDC);
         deal(address(mockUSDT), address(bittyVault), tokenAmount);
 
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), partialUSDC, "Trust should have 50 USDC");
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount, "Trust should have 100 USDT");
-        assertEq(mockUSDC.balanceOf(beneficiary), 0, "Beneficiary should start with 0 USDC");
-        assertEq(mockUSDT.balanceOf(beneficiary), 0, "Beneficiary should start with 0 USDT");
+        assertEq(mockUSDC.balanceOf(address(bittyVault)), partialUSDC);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount);
+        assertEq(mockUSDC.balanceOf(beneficiary), 0);
+        assertEq(mockUSDT.balanceOf(beneficiary), 0);
 
         vm.prank(beneficiary);
         bittyVault.getMoney(address(mockUSDT), beneficiary);
 
-        assertEq(mockUSDT.balanceOf(beneficiary), tokenAmount, "Beneficiary should receive 100 USDT");
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "Trust should have 0 USDT after transfer");
-        assertEq(mockUSDC.balanceOf(beneficiary), 0, "Beneficiary should not receive USDC");
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), partialUSDC, "Trust should still have 50 USDC");
+        assertEq(mockUSDT.balanceOf(beneficiary), tokenAmount);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
+        assertEq(mockUSDC.balanceOf(beneficiary), 0);
+        assertEq(mockUSDC.balanceOf(address(bittyVault)), partialUSDC);
 
-        assertEq(bittyVault.lastWithdrawalTime(), block.timestamp, "lastWithdrawalTime should be updated");
+        assertEq(bittyVault.lastWithdrawalTime(), block.timestamp);
+    }
+
+    function test_GetMoneyFromYieldProviderIfNotEnoughMoney() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        deal(address(mockUSDT), address(bittyVault), tokenAmount);
+        deal(address(mockUSDC), address(bittyVault), tokenAmount);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+    }
+
+    function test_GetMoneyWithVaultBalanceSufficient_NoYieldProviderNeeded() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        deal(address(mockUSDT), address(bittyVault), tokenAmount);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+        uint256 vaultBalanceBefore = mockUSDT.balanceOf(address(bittyVault));
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), vaultBalanceBefore - tokenAmount);
+    }
+
+    function test_GetMoneyWithSingleYieldProviderHavingEnoughBalance() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](1);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 2;
+        uint256 yieldProviderBalance = tokenAmount;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDT), address(this), yieldProviderBalance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProviderBalance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProviderBalance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        uint256 yieldWithdrawAmount = tokenAmount - vaultBalance;
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), yieldProviderBalance - yieldWithdrawAmount);
+    }
+
+    function test_GetMoneyWithMultipleYieldProviders_FirstHasEnough() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](2);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        yieldProviderAddresses[1] = address(mockYieldProvider2);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 2;
+        uint256 yieldProvider1Balance = tokenAmount;
+        uint256 yieldProvider2Balance = tokenAmount / 2;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDT), address(this), yieldProvider1Balance + yieldProvider2Balance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1Balance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1Balance);
+        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2Balance);
+        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2Balance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        uint256 yieldWithdrawAmount = tokenAmount - vaultBalance;
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), yieldProvider1Balance - yieldWithdrawAmount);
+        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), yieldProvider2Balance);
+    }
+
+    function test_GetMoneyWithMultipleYieldProviders_NeedMultipleWithdrawals() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](3);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        yieldProviderAddresses[1] = address(mockYieldProvider2);
+        yieldProviderAddresses[2] = address(mockYieldProvider3);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 4;
+        uint256 yieldProvider1Balance = tokenAmount / 3;
+        uint256 yieldProvider2Balance = tokenAmount / 3;
+        uint256 yieldProvider3Balance = tokenAmount / 3;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDT), address(this), yieldProvider1Balance + yieldProvider2Balance + yieldProvider3Balance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1Balance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1Balance);
+        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2Balance);
+        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2Balance);
+        mockUSDT.approve(address(mockYieldProvider3), yieldProvider3Balance);
+        mockYieldProvider3.supply(address(mockUSDT), yieldProvider3Balance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        uint256 yieldWithdrawAmount = tokenAmount - vaultBalance;
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), 0);
+        assertEq(
+            mockYieldProvider3.getBalance(address(mockUSDT)),
+            yieldProvider3Balance - (yieldWithdrawAmount - yieldProvider1Balance - yieldProvider2Balance)
+        );
+    }
+
+    function test_GetMoneyWithMultipleYieldProviders_PartialWithdrawalFromLast() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](2);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        yieldProviderAddresses[1] = address(mockYieldProvider2);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 4;
+        uint256 yieldProvider1Balance = tokenAmount / 2;
+        uint256 yieldProvider2Balance = tokenAmount;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDT), address(this), yieldProvider1Balance + yieldProvider2Balance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1Balance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1Balance);
+        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2Balance);
+        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2Balance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+        uint256 yieldWithdrawAmount = tokenAmount - vaultBalance;
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+        uint256 remainingNeeded = yieldWithdrawAmount - yieldProvider1Balance;
+        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), yieldProvider2Balance - remainingNeeded);
+    }
+
+    function test_GetMoneyRevertsWhenTotalYieldBalanceInsufficient() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](2);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        yieldProviderAddresses[1] = address(mockYieldProvider2);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 4;
+        uint256 yieldProvider1Balance = tokenAmount / 4;
+        uint256 yieldProvider2Balance = tokenAmount / 4;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDT), address(this), yieldProvider1Balance + yieldProvider2Balance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1Balance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1Balance);
+        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2Balance);
+        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2Balance);
+
+        vm.prank(beneficiary);
+        vm.expectRevert(InsufficientStablecoinBalance.selector);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+    }
+
+    function test_GetMoneyWithEmptyYieldProvidersArray_RevertsIfInsufficient() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 2;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        vm.prank(beneficiary);
+        vm.expectRevert(InsufficientStablecoinBalance.selector);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+    }
+
+    function test_GetMoneyWithZeroYieldProviderBalances_RevertsIfInsufficient() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](2);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        yieldProviderAddresses[1] = address(mockYieldProvider2);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 2;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        vm.prank(beneficiary);
+        vm.expectRevert(InsufficientStablecoinBalance.selector);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+    }
+
+    function test_GetMoneyWithYieldProviderHavingExactAmountNeeded() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](1);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 yieldProviderBalance = tokenAmount;
+
+        deal(address(mockUSDT), address(this), yieldProviderBalance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProviderBalance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProviderBalance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+    }
+
+    function test_GetMoneyWithYieldProviderHavingMoreThanNeeded() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](1);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 yieldProviderBalance = tokenAmount * 2;
+
+        deal(address(mockUSDT), address(this), yieldProviderBalance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProviderBalance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProviderBalance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), yieldProviderBalance - tokenAmount);
+    }
+
+    function test_GetMoneyWithMultipleYieldProviders_OneHasZeroBalance() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](3);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        yieldProviderAddresses[1] = address(mockYieldProvider2);
+        yieldProviderAddresses[2] = address(mockYieldProvider3);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 2;
+        uint256 yieldProvider1Balance = tokenAmount / 2;
+        uint256 yieldProvider3Balance = tokenAmount / 2;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDT), address(this), yieldProvider1Balance + yieldProvider3Balance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1Balance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1Balance);
+        mockUSDT.approve(address(mockYieldProvider3), yieldProvider3Balance);
+        mockYieldProvider3.supply(address(mockUSDT), yieldProvider3Balance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), 0);
+        assertEq(mockYieldProvider3.getBalance(address(mockUSDT)), yieldProvider3Balance);
+    }
+
+    function test_GetMoneyWithExactSumFromMultipleProviders() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](3);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        yieldProviderAddresses[1] = address(mockYieldProvider2);
+        yieldProviderAddresses[2] = address(mockYieldProvider3);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 4;
+        uint256 yieldProvider1Balance = tokenAmount / 4;
+        uint256 yieldProvider2Balance = tokenAmount / 4;
+        uint256 yieldProvider3Balance = tokenAmount / 4;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDT), address(this), yieldProvider1Balance + yieldProvider2Balance + yieldProvider3Balance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1Balance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1Balance);
+        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2Balance);
+        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2Balance);
+        mockUSDT.approve(address(mockYieldProvider3), yieldProvider3Balance);
+        mockYieldProvider3.supply(address(mockUSDT), yieldProvider3Balance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), 0);
+        assertEq(mockYieldProvider3.getBalance(address(mockUSDT)), 0);
+    }
+
+    function test_GetMoneyWithVaultBalanceZero() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](1);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 yieldProviderBalance = tokenAmount;
+
+        deal(address(mockUSDT), address(this), yieldProviderBalance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProviderBalance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProviderBalance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+    }
+
+    function test_GetMoneyWithUSDCInsteadOfUSDT() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](1);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 2;
+        uint256 yieldProviderBalance = tokenAmount;
+
+        deal(address(mockUSDC), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDC), address(this), yieldProviderBalance);
+        mockUSDC.approve(address(mockYieldProvider1), yieldProviderBalance);
+        mockYieldProvider1.supply(address(mockUSDC), yieldProviderBalance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDC.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDC), beneficiary);
+
+        uint256 yieldWithdrawAmount = tokenAmount - vaultBalance;
+        assertEq(mockUSDC.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDC)), yieldProviderBalance - yieldWithdrawAmount);
+    }
+
+    function test_GetMoneyWithLastProviderHavingExactRemainingAmount() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](3);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        yieldProviderAddresses[1] = address(mockYieldProvider2);
+        yieldProviderAddresses[2] = address(mockYieldProvider3);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 2;
+        uint256 yieldProvider1Balance = tokenAmount / 3;
+        uint256 yieldProvider2Balance = tokenAmount / 3;
+        uint256 yieldProvider3Balance = tokenAmount / 6;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDT), address(this), yieldProvider1Balance + yieldProvider2Balance + yieldProvider3Balance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1Balance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1Balance);
+        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2Balance);
+        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2Balance);
+        mockUSDT.approve(address(mockYieldProvider3), yieldProvider3Balance);
+        mockYieldProvider3.supply(address(mockUSDT), yieldProvider3Balance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        uint256 yieldWithdrawAmount = tokenAmount - vaultBalance;
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+        uint256 expectedProvider2Balance = yieldProvider2Balance - (yieldWithdrawAmount - yieldProvider1Balance);
+        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), expectedProvider2Balance);
+        assertEq(mockYieldProvider3.getBalance(address(mockUSDT)), yieldProvider3Balance);
+    }
+
+    function test_GetMoneyWithMultipleProvidersWhereSecondHasExactAmount() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](2);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        yieldProviderAddresses[1] = address(mockYieldProvider2);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 2;
+        uint256 yieldProvider1Balance = tokenAmount / 4;
+        uint256 yieldProvider2Balance = tokenAmount / 4;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDT), address(this), yieldProvider1Balance + yieldProvider2Balance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1Balance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1Balance);
+        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2Balance);
+        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2Balance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), 0);
+    }
+
+    function test_GetMoneyWithProviderBalanceEqualToYieldWithdrawAmount() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](1);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 2;
+        uint256 yieldProviderBalance = tokenAmount / 2;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDT), address(this), yieldProviderBalance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProviderBalance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProviderBalance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+    }
+
+    function test_GetMoneyWithThreeProvidersWhereMiddleOneHasZero() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](3);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        yieldProviderAddresses[1] = address(mockYieldProvider2);
+        yieldProviderAddresses[2] = address(mockYieldProvider3);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 2;
+        uint256 yieldProvider1Balance = tokenAmount / 4;
+        uint256 yieldProvider3Balance = tokenAmount / 4;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDT), address(this), yieldProvider1Balance + yieldProvider3Balance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1Balance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1Balance);
+
+        mockUSDT.approve(address(mockYieldProvider3), yieldProvider3Balance);
+        mockYieldProvider3.supply(address(mockUSDT), yieldProvider3Balance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), 0);
+        assertEq(mockYieldProvider3.getBalance(address(mockUSDT)), 0);
+    }
+
+    function test_GetMoneyWithLargeNumberOfProviders() public {
+        bittyVault.setBeneficiarySettings(beneficiarySettings);
+
+        address[] memory yieldProviderAddresses = new address[](3);
+        yieldProviderAddresses[0] = address(mockYieldProvider1);
+        yieldProviderAddresses[1] = address(mockYieldProvider2);
+        yieldProviderAddresses[2] = address(mockYieldProvider3);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+
+        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
+        uint256 vaultBalance = tokenAmount / 10;
+        uint256 yieldProvider1Balance = tokenAmount / 10;
+        uint256 yieldProvider2Balance = tokenAmount / 10;
+        uint256 yieldProvider3Balance = tokenAmount * 7 / 10;
+
+        deal(address(mockUSDT), address(bittyVault), vaultBalance);
+
+        deal(address(mockUSDT), address(this), yieldProvider1Balance + yieldProvider2Balance + yieldProvider3Balance);
+        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1Balance);
+        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1Balance);
+        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2Balance);
+        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2Balance);
+        mockUSDT.approve(address(mockYieldProvider3), yieldProvider3Balance);
+        mockYieldProvider3.supply(address(mockUSDT), yieldProvider3Balance);
+
+        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+
+        vm.prank(beneficiary);
+        bittyVault.getMoney(address(mockUSDT), beneficiary);
+
+        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount);
+        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), 0);
+        assertEq(mockYieldProvider3.getBalance(address(mockUSDT)), 0);
     }
 }

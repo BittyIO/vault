@@ -37,7 +37,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
     IWhiteList public whiteList;
     EnumerableSet.AddressSet internal _assets;
     EnumerableSet.AddressSet internal _stableCoins;
-    mapping(address => bool) internal _yieldProviders;
+    EnumerableSet.AddressSet internal _yieldProviders;
     mapping(address => bool) internal _swapProviders;
     mapping(address => IAssetManager.AssetConfig) internal _assetConfigs;
     mapping(address => uint256) internal lastRebalanceTimestamps;
@@ -80,7 +80,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
             if (yieldProviders[i] == address(0)) {
                 revert AddressZero();
             }
-            _yieldProviders[yieldProviders[i]] = true;
+            _yieldProviders.add(yieldProviders[i]);
         }
         for (uint256 i = 0; i < swapProviders.length; i++) {
             if (swapProviders[i] == address(0)) {
@@ -101,7 +101,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
         if (amount == 0) {
             revert AmountIsZero();
         }
-        if (!_yieldProviders[yieldProvider]) {
+        if (!_yieldProviders.contains(yieldProvider)) {
             revert InvalidYieldProvider();
         }
         if (whiteList.isYieldProviderDeprecated(yieldProvider)) {
@@ -127,7 +127,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
         if (amount == 0) {
             revert AmountIsZero();
         }
-        if (!_yieldProviders[yieldProvider]) {
+        if (!_yieldProviders.contains(yieldProvider)) {
             revert InvalidYieldProvider();
         }
         if (!whiteList.isYieldProviderDeprecated(yieldProvider) && !whiteList.isYieldProviderWhiteListed(yieldProvider))

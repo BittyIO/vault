@@ -7,6 +7,7 @@ import {ITrust} from "./interfaces/ITrust.sol";
 import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 import {IAaveV3} from "./libs/Aave.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
+import {IYieldProvider} from "./interfaces/IAssetManager.sol";
 import {IUniswapV4Router04} from "./libs/Uniswap.sol";
 import {AssetManager} from "./AssetManager.sol";
 import {IAssetManager} from "./interfaces/IAssetManager.sol";
@@ -153,7 +154,31 @@ contract BittyVault is Trust, AssetManager, IVault {
     function _getMoney(uint256 amount, address stableCoinAddress, address to) internal override {
         IERC20 stableCoin = IERC20(stableCoinAddress);
         uint256 balance = stableCoin.balanceOf(address(this));
-        if (balance < amount) {
+        if (balance >= amount) {
+            if (!stableCoin.transfer(to, amount)) {
+                revert TransferFailed();
+            }
+            return;
+        }
+        uint256 yieldWithdrawAmount = amount - balance;
+        bool withdrawEnough = false;
+        for (uint256 i = 0; i < _yieldProviders.length(); i++) {
+            address yieldProvider = _yieldProviders.at(i);
+            uint256 yieldProviderBalance = IYieldProvider(yieldProvider).getBalance(stableCoinAddress);
+            if (yieldProviderBalance == 0) {
+                continue;
+            }
+            withdrawEnough = yieldProviderBalance >= yieldWithdrawAmount;
+            uint256 withdrawAmount = withdrawEnough ? yieldWithdrawAmount : yieldProviderBalance;
+            IYieldProvider(yieldProvider).withdraw(stableCoinAddress, withdrawAmount);
+            if (!withdrawEnough) {
+                yieldWithdrawAmount -= withdrawAmount;
+            }
+            if (withdrawEnough) {
+                break;
+            }
+        }
+        if (!withdrawEnough) {
             revert InsufficientStablecoinBalance();
         }
         if (!stableCoin.transfer(to, amount)) {
@@ -238,13 +263,13 @@ contract BittyVault is Trust, AssetManager, IVault {
             if (!whiteList.isYieldProviderWhiteListed(yieldProviderAddresses[i])) {
                 revert NotWhiteListed();
             }
-            _yieldProviders[yieldProviderAddresses[i]] = true;
+            _yieldProviders.add(yieldProviderAddresses[i]);
         }
     }
 
     function removeYieldProviders(address[] memory yieldProviderAddresses) external onlyInitialized onlyTrustee {
         for (uint256 i = 0; i < yieldProviderAddresses.length; i++) {
-            _yieldProviders[yieldProviderAddresses[i]] = false;
+            _yieldProviders.remove(yieldProviderAddresses[i]);
         }
     }
 

@@ -174,7 +174,7 @@ contract TestAssetManager is Test, AssetManager {
         assertEq(_stableCoins.length(), 2);
         assertEq(_stableCoins.at(0), address(mockUSDT));
         assertEq(_stableCoins.at(1), address(mockUSDC));
-        assertEq(_yieldProviders[address(mockYieldProvider)], true);
+        assertEq(_yieldProviders.contains(address(mockYieldProvider)), true);
         assertEq(_swapProviders[address(mockSwapProvider)], true);
     }
 
@@ -442,6 +442,13 @@ contract TestAssetManager is Test, AssetManager {
         vm.stopPrank();
         this.withdraw(address(mockYieldProvider), address(mockWETH), 1 ether);
         assertEq(WETH(payable(mockWETH)).balanceOf(address(this)), 1 ether);
+    }
+
+    function test_WithdrawFromInvalidYieldProvider() public {
+        this.doInitialize();
+        address invalidYieldProvider = makeAddr("InvalidYieldProvider");
+        vm.expectRevert(InvalidYieldProvider.selector);
+        this.withdraw(invalidYieldProvider, address(mockWETH), 1 ether);
     }
 }
 
