@@ -69,7 +69,6 @@ contract BittyVaultFactoryTest is Test {
         factory.initialize(wethAddress, whiteListAddress);
         vm.expectRevert(InvalidGrantor.selector);
         factory.deployVault(address(0), "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
-
         address[] memory invalidAddressArray = new address[](1);
         invalidAddressArray[0] = makeAddr("invalidAddress");
         vm.prank(grantor1);
@@ -108,7 +107,6 @@ contract BittyVaultFactoryTest is Test {
         address deployedAddress =
             factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
         assertTrue(deployedAddress != address(0), "Deployed address should not be zero");
-        // computeVaultAddress uses only grantor, deployVault uses grantor + inputSalt, so they differ
         assertTrue(computedAddress != deployedAddress, "Addresses should differ due to inputSalt");
     }
 
@@ -164,6 +162,7 @@ contract BittyVaultFactoryTest is Test {
         string memory testSalt = "salt1";
         bytes memory bytecode = type(BittyVault).creationCode;
         bytes32 salt = keccak256(abi.encodePacked(grantor1, testSalt));
+
         bytes32 bytecodeHash = keccak256(bytecode);
 
         address factoryAddr = address(factory);
@@ -205,6 +204,7 @@ contract BittyVaultFactoryTest is Test {
         vm.prank(grantor1);
         vm.expectRevert(NotWhiteListed.selector);
         factory.deployVault(grantor1, "salt1", assetAddresses, invalidStableCoinArray, yieldProviders, swapProviders);
+
     }
 
     function test_DeployVaultRevertsIfYieldProviderNotWhiteListed() public {
@@ -305,6 +305,7 @@ contract BittyVaultFactoryTest is Test {
 
         vm.prank(grantor1);
         address vault =
+
             factory.deployVault(grantor1, "salt1", assetAddresses, multipleStableCoins, yieldProviders, swapProviders);
 
         assertTrue(vault != address(0), "Vault should be deployed");
@@ -359,6 +360,7 @@ contract BittyVaultFactoryTest is Test {
 
         vm.prank(grantor1);
         vm.expectRevert(NotWhiteListed.selector);
+
         factory.deployVault(grantor1, "salt1", mixedAssets, stableCoinAddresses, yieldProviders, swapProviders);
     }
 
@@ -390,6 +392,7 @@ contract BittyVaultFactoryTest is Test {
         vm.prank(grantor1);
         vm.expectRevert(NotWhiteListed.selector);
         factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, mixedYieldProviders, swapProviders);
+
     }
 
     function test_DeployVaultRevertsIfMultipleSwapProvidersOneNotWhiteListed() public {
@@ -407,6 +410,7 @@ contract BittyVaultFactoryTest is Test {
 
         vm.prank(grantor1);
         vm.expectRevert(NotWhiteListed.selector);
+
         factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, mixedSwapProviders);
     }
 
