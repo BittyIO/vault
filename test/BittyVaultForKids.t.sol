@@ -4,19 +4,18 @@ pragma solidity ^0.8.27;
 import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {WhiteList} from "../src/WhiteList.sol";
-import {IWETH} from "../src/interfaces/IWETH.sol";
-import {MockWETH} from "./mock/MockWETH.sol";
+import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 
 contract BittyVaultForKidsTest is Test {
     BittyVault public bittyVaultForKids;
     address grantor;
     address kidAddress;
     address trusteeAddress;
-    MockWETH mockWETH;
+    WETH mockWETH;
     address public whiteListAddress;
 
     function setUp() public {
-        mockWETH = new MockWETH();
+        mockWETH = new WETH();
         bittyVaultForKids = new BittyVault();
         whiteListAddress = address(new WhiteList());
         grantor = makeAddr("grantor");

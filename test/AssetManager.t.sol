@@ -28,8 +28,8 @@ import {IERC20Metadata} from "lib/openzeppelin-contracts/contracts/token/ERC20/e
 import {IYieldProvider, ISwapProvider} from "../src/interfaces/IAssetManager.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
-import {MockWETH} from "./mock/MockWETH.sol";
-import {MockERC20} from "./mock/MockERC20.sol";
+import {WETH} from "lib/solmate/src/tokens/WETH.sol";
+import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
 import {WhiteList} from "../src/WhiteList.sol";
@@ -53,7 +53,7 @@ contract TestAssetManager is Test, AssetManager {
     MockSwapProvider public mockSwapProvider;
 
     function setUp() public {
-        mockWETH = address(new MockWETH());
+        mockWETH = address(new WETH());
         mockWBTC = address(new MockERC20("WBTC", "WBTC", 18));
         mockUSDT = address(new MockERC20("USDT", "USDT", 18));
         mockUSDC = address(new MockERC20("USDC", "USDC", 18));
@@ -249,6 +249,13 @@ contract TestAssetManager is Test, AssetManager {
         this.turnETHToWETH();
     }
 
+    function test_TurnETHToWETHSuccess() public {
+        this.doInitialize();
+        vm.deal(address(this), 1 ether);
+        this.turnETHToWETH();
+        assertEq(WETH(payable(mockWETH)).balanceOf(address(this)), 1 ether);
+    }
+
     function test_SupplyRevertInvalidYieldProvider() public {
         this.doInitialize();
         address invalidYieldProvider = address(new MockYieldProvider());
@@ -357,7 +364,7 @@ contract TestAssetManager is Test, AssetManager {
         deal(address(mockWETH), address(mockSwapProvider), buyAmount);
 
         uint256 sellBalanceBefore = sellToken.balanceOf(address(this));
-        uint256 wethBalanceBefore = MockWETH(mockWETH).balanceOf(address(this));
+        uint256 wethBalanceBefore = WETH(payable(mockWETH)).balanceOf(address(this));
 
         this.swap(
             address(mockSwapProvider), abi.encode(address(sellToken), sellAmount, address(mockWETH), buyAmountMin)
@@ -366,7 +373,7 @@ contract TestAssetManager is Test, AssetManager {
         uint256 sellBalanceAfter = sellToken.balanceOf(address(this));
         assertEq(sellBalanceBefore - sellBalanceAfter, sellAmount);
 
-        uint256 wethBalanceAfter = MockWETH(mockWETH).balanceOf(address(this));
+        uint256 wethBalanceAfter = WETH(payable(mockWETH)).balanceOf(address(this));
         assertGe(wethBalanceAfter - wethBalanceBefore, buyAmountMin);
     }
 
@@ -434,7 +441,7 @@ contract TestAssetManager is Test, AssetManager {
         IWhiteList(whiteListAddress).deprecateYieldProviders(yieldProviders);
         vm.stopPrank();
         this.withdraw(address(mockYieldProvider), address(mockWETH), 1 ether);
-        assertEq(MockWETH(mockWETH).balanceOf(address(this)), 1 ether);
+        assertEq(WETH(payable(mockWETH)).balanceOf(address(this)), 1 ether);
     }
 }
 

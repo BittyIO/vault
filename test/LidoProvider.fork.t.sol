@@ -5,7 +5,7 @@ import {Test} from "lib/forge-std/src/Test.sol";
 import {LidoProvider} from "../src/providers/LidoProvider.sol";
 import {mainnet} from "../script/addresses.sol";
 import {IStETH, IUnstETH} from "../src/libs/Lido.sol";
-import {IWETH} from "../src/interfaces/IWETH.sol";
+import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 
 contract TestLidoProviderFork is Test {
@@ -14,7 +14,7 @@ contract TestLidoProviderFork is Test {
     LidoProvider public lidoProvider;
     IStETH public stETH;
     IUnstETH public unstETH;
-    IWETH public weth;
+    WETH public weth;
 
     function setUp() public {
         vm.createSelectFork("mainnet");
@@ -22,7 +22,7 @@ contract TestLidoProviderFork is Test {
         lidoProvider.initialize(address(this));
         stETH = IStETH(mainnet.STETH);
         unstETH = IUnstETH(mainnet.UNSTETH);
-        weth = IWETH(mainnet.WETH);
+        weth = WETH(payable(mainnet.WETH));
     }
 
     function test_Initialize() public view {

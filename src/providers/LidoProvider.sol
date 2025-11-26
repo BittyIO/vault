@@ -7,25 +7,25 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.so
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {IStETH, IUnstETH} from "../libs/Lido.sol";
-import {IWETH} from "../interfaces/IWETH.sol";
+import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 
 contract LidoProvider is IYieldProvider, Ownable, Initializable {
     using SafeERC20 for IERC20;
-    using SafeERC20 for IWETH;
+    using SafeERC20 for WETH;
     using EnumerableSet for EnumerableSet.UintSet;
     EnumerableSet.UintSet private _withdrawalRequests;
     IStETH public immutable stETH;
     IUnstETH public immutable unstETH;
-    IWETH public immutable weth;
+    WETH public immutable weth;
 
     error InvalidAsset();
 
     constructor(address stETH_, address unstETH_, address weth_) {
         stETH = IStETH(stETH_);
         unstETH = IUnstETH(unstETH_);
-        weth = IWETH(weth_);
+        weth = WETH(payable(weth_));
     }
 
     function initialize(address newOwner) external override initializer {

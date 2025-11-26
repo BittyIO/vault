@@ -6,9 +6,8 @@ import {BittyVault} from "../src/BittyVault.sol";
 import {ITrust} from "../src/interfaces/ITrust.sol";
 import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
 import {WhiteList} from "../src/WhiteList.sol";
-import {IWETH} from "../src/interfaces/IWETH.sol";
-import {MockWETH} from "./mock/MockWETH.sol";
-import {MockERC20} from "./mock/MockERC20.sol";
+import {WETH} from "lib/solmate/src/tokens/WETH.sol";
+import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {
     AddressZero,
@@ -32,7 +31,7 @@ import {
 
 contract BittyVaultBeneficiaryTest is Test {
     BittyVault public bittyVault;
-    MockWETH public mockWETH;
+    WETH public mockWETH;
     MockERC20 public mockWBTC;
     MockERC20 public mockUSDT;
     MockERC20 public mockUSDC;
@@ -49,7 +48,7 @@ contract BittyVaultBeneficiaryTest is Test {
     address public whiteListAddress;
 
     function setUp() public {
-        mockWETH = new MockWETH();
+        mockWETH = new WETH();
         mockUSDT = new MockERC20("USDT", "USDT", 6);
         mockUSDC = new MockERC20("USDC", "USDC", 6);
         mockWBTC = new MockERC20("WBTC", "WBTC", 8);

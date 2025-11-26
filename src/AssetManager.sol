@@ -28,7 +28,7 @@ import {
     NotWhiteListed,
     InvalidSwapData
 } from "./interfaces/Errors.sol";
-import {IWETH} from "./interfaces/IWETH.sol";
+import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 
 abstract contract AssetManager is IAssetManager, Initializable {
     using SafeERC20 for IERC20;
@@ -270,7 +270,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
         }
         uint256 ethBalance = address(this).balance;
         if (ethBalance > 0) {
-            IWETH(wethAddress).deposit{value: ethBalance}();
+            WETH(payable(wethAddress)).deposit{value: ethBalance}();
         }
     }
 
