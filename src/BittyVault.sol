@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {Trust} from "./Trust.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
 import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 import {IAaveV3} from "./libs/Aave.sol";
@@ -152,15 +153,16 @@ contract BittyVault is Trust, AssetManager, IVault {
      * @dev Transfers stablecoin amount to beneficiary, trying each stablecoin until one has sufficient balance
      */
     function _getMoney(uint256 amount, address stableCoinAddress, address to) internal override {
+        uint256 withdrawAmountDecimals = amount * 10 ** ERC20(stableCoinAddress).decimals();
         IERC20 stableCoin = IERC20(stableCoinAddress);
         uint256 balance = stableCoin.balanceOf(address(this));
-        if (balance >= amount) {
-            if (!stableCoin.transfer(to, amount)) {
+        if (balance >= withdrawAmountDecimals) {
+            if (!stableCoin.transfer(to, withdrawAmountDecimals)) {
                 revert TransferFailed();
             }
             return;
         }
-        uint256 yieldWithdrawAmount = amount - balance;
+        uint256 yieldWithdrawAmount = withdrawAmountDecimals - balance;
         bool withdrawEnough = false;
         for (uint256 i = 0; i < _yieldProviders.length(); i++) {
             address yieldProvider = _yieldProviders.at(i);
@@ -181,7 +183,7 @@ contract BittyVault is Trust, AssetManager, IVault {
         if (!withdrawEnough) {
             revert InsufficientStablecoinBalance();
         }
-        if (!stableCoin.transfer(to, amount)) {
+        if (!stableCoin.transfer(to, withdrawAmountDecimals)) {
             revert TransferFailed();
         }
     }

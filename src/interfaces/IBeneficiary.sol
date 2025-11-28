@@ -14,7 +14,7 @@ interface IBeneficiary {
          * This is USD value of the money to get per withdrawal, if the trust do not have enough stablecoin,
          * it will convert the assets to stablecoin with market price and withdraw to the beneficiary.
          *
-         * Since we only support USDT and USDC, the amount can be like 2000 * 10e6 (2000 USD) for both of them.
+         * Since we will support multiple stablecoins, the amount would be USD valued, each assets will use it's decimals.
          */
         uint256 amountPerWithdrawal;
         /**
