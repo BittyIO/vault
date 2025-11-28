@@ -129,11 +129,11 @@ contract BittyVaultTrusteeTest is Test {
     function test_TrusteeGetBaseFeeShouldBeFine() public {
         vm.prank(trustee);
         bittyVault.setManageFee(manageFee);
-        deal(address(mockUSDT), address(bittyVault), manageFee.baseFeeAmount);
+        deal(address(mockUSDT), address(bittyVault), manageFee.baseFeeAmount * 10 ** mockUSDT.decimals());
         vm.warp(block.timestamp + 30 days + 1);
         vm.prank(assetManager);
         bittyVault.getBaseFee(address(mockUSDT), assetManager);
-        assertEq(mockUSDT.balanceOf(assetManager), manageFee.baseFeeAmount);
+        assertEq(mockUSDT.balanceOf(assetManager), manageFee.baseFeeAmount * 10 ** mockUSDT.decimals());
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
     }
 
@@ -358,6 +358,15 @@ contract BittyVaultTrusteeTest is Test {
         yieldProviderAddresses[0] = address(mockYieldProvider);
         vm.prank(trustee);
         bittyVault.addYieldProviders(yieldProviderAddresses);
+    }
+
+    function test_RemoveYieldProviderShouldBeFine() public {
+        address[] memory yieldProviderAddresses = new address[](1);
+        yieldProviderAddresses[0] = address(mockYieldProvider);
+        vm.prank(trustee);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+        vm.prank(trustee);
+        bittyVault.removeYieldProviders(yieldProviderAddresses);
     }
 
     function test_AddSwapProviderFailedIfNotInWhiteList() public {
