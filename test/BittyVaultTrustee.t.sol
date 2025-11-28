@@ -360,6 +360,15 @@ contract BittyVaultTrusteeTest is Test {
         bittyVault.addYieldProviders(yieldProviderAddresses);
     }
 
+    function test_RemoveYieldProviderShouldBeFine() public {
+        address[] memory yieldProviderAddresses = new address[](1);
+        yieldProviderAddresses[0] = address(mockYieldProvider);
+        vm.prank(trustee);
+        bittyVault.addYieldProviders(yieldProviderAddresses);
+        vm.prank(trustee);
+        bittyVault.removeYieldProviders(yieldProviderAddresses);
+    }
+
     function test_AddSwapProviderFailedIfNotInWhiteList() public {
         address[] memory swapProviderAddresses = new address[](1);
         swapProviderAddresses[0] = makeAddr("InvalidSwapProvider");
