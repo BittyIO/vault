@@ -28,6 +28,21 @@ interface ISubscribe {
     function unsubscribe() external;
 
     /**
+     * @notice Check the expired time of the subscription.
+     * @dev Check the expired time of the subscription.
+     * @param user The address to check the expired time of the subscription.
+     * @return uint256 The expired time of the subscription.
+     */
+    function expiredTime(address user) external view returns (uint256);
+
+    /**
+     * @notice Renew the subscription for a certain number of years.
+     * @dev Renew the subscription for a certain number of years.
+     * @param yearCount The number of years to renew the subscription.
+     */
+    function renew(uint8 yearCount) external;
+
+    /**
      * @notice Upgrade to a higher subscription.
      * @dev Upgrade to a higher subscription.
      * @param subscription The subscription to upgrade to.
