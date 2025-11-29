@@ -180,21 +180,18 @@ contract SubscribeTest is Test {
         subscribe.initialize(whiteList);
         uint256 premiumFee = subscribe.PREMIUM_FEE() * (10 ** mockStableCoin.decimals());
         uint256 standardFee = subscribe.STANDARD_FEE() * (10 ** mockStableCoin.decimals());
-        // Upgrade charges: premiumFee - refundFee (where refundFee = standardFee for full year remaining)
-        // So user needs: standardFee + (premiumFee - standardFee) = premiumFee
         deal(address(mockStableCoin), user, premiumFee);
         vm.prank(user);
         mockStableCoin.approve(address(subscribe), standardFee);
         vm.prank(user);
         subscribe.subscribe(ISubscribe.Subscription.STANDARD, address(mockStableCoin));
-        // After subscribing, approve the difference for upgrade
+
         uint256 upgradeDifference = premiumFee - standardFee;
         vm.prank(user);
         mockStableCoin.approve(address(subscribe), upgradeDifference);
         vm.prank(user);
         subscribe.upgrade(ISubscribe.Subscription.PREMIUM, address(mockStableCoin));
         assertEq(uint8(subscribe.subscriptionLevel(user)), uint8(ISubscribe.Subscription.PREMIUM));
-        // Contract should have: standardFee + (premiumFee - standardFee) = premiumFee
         assertEq(mockStableCoin.balanceOf(address(subscribe)), premiumFee);
         assertEq(mockStableCoin.balanceOf(user), 0);
     }
@@ -416,5 +413,57 @@ contract SubscribeTest is Test {
         uint256 expectedUsedFee = baseFee - expectedRefundFee;
         assertEq(mockStableCoin.balanceOf(user), expectedRefundFee);
         assertEq(mockStableCoin.balanceOf(address(subscribe)), expectedUsedFee);
+    }
+
+    function test_RenewFailedWhenNotSubscribed() public {
+        subscribe.initialize(whiteList);
+        vm.prank(user);
+        vm.expectRevert(SubscriptionNone.selector);
+        subscribe.renew(1);
+    }
+
+    function test_RenewFailedWhenInsufficientBalance() public {
+        subscribe.initialize(whiteList);
+        uint256 baseFee = subscribe.BASE_FEE() * (10 ** mockStableCoin.decimals());
+        deal(address(mockStableCoin), user, baseFee * 2 - 1);
+        vm.prank(user);
+        mockStableCoin.approve(address(subscribe), baseFee);
+        vm.prank(user);
+        subscribe.subscribe(ISubscribe.Subscription.BASE, address(mockStableCoin));
+        mockStableCoin.approve(address(subscribe), baseFee);
+        vm.expectRevert(InsufficientBalance.selector);
+        vm.prank(user);
+        subscribe.renew(1);
+    }
+
+    function test_GetExpiredTime() public {
+        subscribe.initialize(whiteList);
+        uint256 baseFee = subscribe.BASE_FEE() * (10 ** mockStableCoin.decimals());
+        deal(address(mockStableCoin), user, baseFee);
+        vm.prank(user);
+        mockStableCoin.approve(address(subscribe), baseFee);
+        vm.prank(user);
+        subscribe.subscribe(ISubscribe.Subscription.BASE, address(mockStableCoin));
+        assertEq(subscribe.expiredTime(user), block.timestamp + 365 days);
+    }
+
+    function test_RenewSuccess() public {
+        subscribe.initialize(whiteList);
+        uint256 baseFee = subscribe.BASE_FEE() * (10 ** mockStableCoin.decimals());
+        deal(address(mockStableCoin), user, baseFee * 2);
+        vm.prank(user);
+        mockStableCoin.approve(address(subscribe), baseFee);
+        vm.prank(user);
+        subscribe.subscribe(ISubscribe.Subscription.BASE, address(mockStableCoin));
+        uint256 originalExpirationTime = subscribe.expiredTime(user);
+        vm.warp(block.timestamp + 366 days);
+        vm.prank(user);
+        mockStableCoin.approve(address(subscribe), baseFee);
+        vm.prank(user);
+        subscribe.renew(1);
+        assertEq(uint8(subscribe.subscriptionLevel(user)), uint8(ISubscribe.Subscription.BASE));
+        assertEq(subscribe.expiredTime(user), originalExpirationTime + 365 days);
+        assertEq(mockStableCoin.balanceOf(address(subscribe)), baseFee * 2);
+        assertEq(mockStableCoin.balanceOf(user), 0);
     }
 }
