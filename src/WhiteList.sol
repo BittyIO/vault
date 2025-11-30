@@ -4,13 +4,17 @@ pragma solidity ^0.8.27;
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
+import {SwapProviderShouldNotBeAllRemoved} from "./interfaces/Errors.sol";
+import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
 contract WhiteList is IWhiteList, Initializable, Ownable {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
     mapping(address => bool) public whiteListedAssets;
     mapping(address => bool) public whiteListedStableCoins;
     mapping(address => bool) public whiteListedYieldProviders;
     mapping(address => bool) public deprecatedYieldProviders;
-    mapping(address => bool) public whiteListedSwapProviders;
+    EnumerableSet.AddressSet internal whiteListedSwapProviders;
 
     constructor() {
         transferOwnership(tx.origin);
@@ -85,7 +89,7 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
     function addSwapProviders(address[] memory swapProviderAddresses) external override onlyOwner {
         for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
             if (swapProviderAddresses[i] != address(0)) {
-                whiteListedSwapProviders[swapProviderAddresses[i]] = true;
+                whiteListedSwapProviders.add(swapProviderAddresses[i]);
             }
         }
     }
@@ -93,12 +97,15 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
     function removeSwapProviders(address[] memory swapProviderAddresses) external override onlyOwner {
         for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
             if (swapProviderAddresses[i] != address(0)) {
-                whiteListedSwapProviders[swapProviderAddresses[i]] = false;
+                whiteListedSwapProviders.remove(swapProviderAddresses[i]);
             }
+        }
+        if (whiteListedSwapProviders.length() == 0) {
+            revert SwapProviderShouldNotBeAllRemoved();
         }
     }
 
     function isSwapProviderWhiteListed(address swapProviderAddress) external view override returns (bool) {
-        return whiteListedSwapProviders[swapProviderAddress];
+        return whiteListedSwapProviders.contains(swapProviderAddress);
     }
 }

@@ -6,6 +6,7 @@ import {WhiteList} from "../src/WhiteList.sol";
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
 import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
+import {SwapProviderShouldNotBeAllRemoved} from "../src/interfaces/Errors.sol";
 
 contract WhiteListTest is Test {
     WhiteList public whiteList;
@@ -92,10 +93,28 @@ contract WhiteListTest is Test {
         assertEq(whiteList.isSwapProviderWhiteListed(address(mockSwapProvider)), true);
     }
 
-    function test_RemoveSwapProviders() public {
+    function test_RemoveSwapProvidersFailedWhenAllRemoved() public {
+        address[] memory swapProviderAddresses = new address[](1);
+        swapProviderAddresses[0] = address(mockSwapProvider);
         vm.prank(protocolOwner);
-        whiteList.removeSwapProviders(swapProviders);
-        assertEq(whiteList.isSwapProviderWhiteListed(address(mockSwapProvider)), false);
+        vm.expectRevert(SwapProviderShouldNotBeAllRemoved.selector);
+        whiteList.removeSwapProviders(swapProviderAddresses);
+    }
+
+    function test_RemoveSwapProvidersShouldBeFine() public {
+        address[] memory swapProviderAddresses = new address[](1);
+        swapProviderAddresses[0] = address(mockSwapProvider);
+        address[] memory invalidSwapProviders = new address[](1);
+        address invalidSwapProvider = makeAddr("InvalidSwapProvider");
+        invalidSwapProviders[0] = invalidSwapProvider;
+        vm.prank(protocolOwner);
+        whiteList.addSwapProviders(invalidSwapProviders);
+        vm.prank(protocolOwner);
+        whiteList.addSwapProviders(swapProviderAddresses);
+        vm.prank(protocolOwner);
+        whiteList.removeSwapProviders(invalidSwapProviders);
+        assertTrue(whiteList.isSwapProviderWhiteListed(address(mockSwapProvider)));
+        assertFalse(whiteList.isSwapProviderWhiteListed(invalidSwapProvider));
     }
 
     function test_AddWhiteListedNeedToRemoveDeprecated() public {
