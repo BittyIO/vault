@@ -57,6 +57,7 @@ error NotWhiteListed();
 error Deprecated();
 error Unauthorized();
 error VaultAlreadyDeployed();
+error SwapProviderShouldNotBeAllRemoved();
 
 // Subscribe errors
 error AlreadySubscribed();
