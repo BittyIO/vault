@@ -186,7 +186,8 @@ contract BittyVault is Trust, AssetManager, IVault {
 
     /**
      * @notice Override _getMoney to use internal EnumerableSets
-     * @dev Transfers stablecoin amount to beneficiary, trying each stablecoin until one has sufficient balance
+     * @dev Transfers stablecoin amount to beneficiary
+     * if the stablecoin balance is not enough, get from yield providers and swap assets until enough
      */
     function _getMoney(uint256 amount, address stableCoinAddress, address to) internal override {
         uint256 withdrawAmountDecimals = amount * 10 ** ERC20(stableCoinAddress).decimals();
@@ -198,31 +199,47 @@ contract BittyVault is Trust, AssetManager, IVault {
             }
             return;
         }
-        uint256 yieldWithdrawAmount = withdrawAmountDecimals - balance;
-        bool withdrawEnough = false;
+        uint256 amountNeeded = withdrawAmountDecimals - balance;
+        uint256 amountWithdrawnFromYieldProviders = _getMoneyFromYieldProvider(stableCoinAddress, amountNeeded);
+        if (amountWithdrawnFromYieldProviders >= amountNeeded) {
+            if (!stableCoin.transfer(to, withdrawAmountDecimals)) {
+                revert TransferFailed();
+            }
+            return;
+        }
+        uint256 amountNeededFromSwapProviders = amountNeeded - amountWithdrawnFromYieldProviders;
+        uint256 amountWithdrawnFromSwapProviders =
+            _getMoneyFromSwapProvider(stableCoinAddress, amountNeededFromSwapProviders);
+        if (amountWithdrawnFromSwapProviders >= amountNeededFromSwapProviders) {
+            if (!stableCoin.transfer(to, withdrawAmountDecimals)) {
+                revert TransferFailed();
+            }
+            return;
+        }
+        revert InsufficientStablecoinBalance();
+    }
+
+    function _getMoneyFromYieldProvider(address stableCoinAddress, uint256 amount) internal returns (uint256) {
         for (uint256 i = 0; i < _yieldProviders.length(); i++) {
             address yieldProvider = _yieldProviders.at(i);
             uint256 yieldProviderBalance = IYieldProvider(yieldProvider).getBalance(stableCoinAddress);
             if (yieldProviderBalance == 0) {
                 continue;
             }
-            withdrawEnough = yieldProviderBalance >= yieldWithdrawAmount;
-            uint256 withdrawAmount = withdrawEnough ? yieldWithdrawAmount : yieldProviderBalance;
+            bool withdrawEnough = yieldProviderBalance >= amount;
+            uint256 withdrawAmount = withdrawEnough ? amount : yieldProviderBalance;
             IYieldProvider(yieldProvider).withdraw(stableCoinAddress, withdrawAmount);
             if (!withdrawEnough) {
-                yieldWithdrawAmount -= withdrawAmount;
+                amount -= withdrawAmount;
+                continue;
+            } else {
+                return amount;
             }
-            if (withdrawEnough) {
-                break;
-            }
         }
-        if (!withdrawEnough) {
-            revert InsufficientStablecoinBalance();
-        }
-        if (!stableCoin.transfer(to, withdrawAmountDecimals)) {
-            revert TransferFailed();
-        }
+        return 0;
     }
+
+    function _getMoneyFromSwapProvider(address stableCoinAddress, uint256 amount) internal returns (uint256) {}
 
     /**
      * @notice Override _getPercentageMoney to use internal EnumerableSets
