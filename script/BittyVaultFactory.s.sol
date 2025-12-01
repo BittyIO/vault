@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Script} from "lib/forge-std/src/Script.sol";
 import {BittyVaultFactory} from "../src/BittyVaultFactory.sol";
+import {BittyVault} from "../src/BittyVault.sol";
 import {mainnet, sepolia} from "../script/addresses.sol";
 import {console2} from "lib/forge-std/src/console2.sol";
 
@@ -14,13 +15,18 @@ contract BittyVaultFactoryScript is Script {
     function run() public {
         vm.startBroadcast();
 
+        BittyVault vaultImplementation = new BittyVault();
+
         factory = new BittyVaultFactory();
         address whiteListAddress = getWhiteListAddress();
         address migratorAddress = getMigratorAddress();
-        factory.initialize(getWETHAddress(), whiteListAddress, migratorAddress);
+        address poolManagerAddress = getPoolManagerAddress();
+        factory.initialize(
+            address(vaultImplementation), getWETHAddress(), whiteListAddress, migratorAddress, poolManagerAddress
+        );
 
         vm.stopBroadcast();
-        console2.log(address(factory));
+        console2.log("Factory:", address(factory));
     }
 
     function getWETHAddress() internal view returns (address) {
@@ -50,6 +56,16 @@ contract BittyVaultFactoryScript is Script {
             return mainnet.MIGRATOR;
         } else if (chainId == 11155111) {
             return sepolia.MIGRATOR;
+        }
+        return address(0);
+    }
+
+    function getPoolManagerAddress() internal view returns (address) {
+        uint256 chainId = block.chainid;
+        if (chainId == 1) {
+            return mainnet.POOL_MANAGER;
+        } else if (chainId == 11155111) {
+            return sepolia.POOL_MANAGER;
         }
         return address(0);
     }

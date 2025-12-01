@@ -45,9 +45,11 @@ contract BittyVaultMigrateTest is Test {
         address[] memory stableCoinAddresses = new address[](2);
         stableCoinAddresses[0] = address(mockUSDT);
         stableCoinAddresses[1] = address(mockUSDC);
+        address poolManagerAddress = makeAddr("poolManagerAddress");
         bittyVault.initialize(
             grantor,
             address(mockWETH),
+            poolManagerAddress,
             whiteListAddress,
             address(migrator),
             assetAddresses,

@@ -8,8 +8,8 @@ gas_limit = 9223372036854775807
 gas_price = 0
 # optimizer
 optimizer = true
-# optimizer runs
-optimizer_runs = 200
+# optimizer runs - increased to reduce contract size (may slightly increase gas costs)
+optimizer_runs = 10000
 # Use IR compilation to support struct array copying from interfaces
 via_ir = true
 

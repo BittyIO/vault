@@ -13,30 +13,18 @@ contract BittyVaultGrantorTest is Test {
     WETH public mockWETH;
     address public whiteListAddress;
     address public migratorAddress;
+    address public poolManagerAddress;
 
     function setUp() public {
         mockWETH = new WETH();
         bittyVault = new BittyVault();
         whiteListAddress = address(new WhiteList());
         migratorAddress = address(new Migrator());
+        poolManagerAddress = makeAddr("poolManagerAddress");
         bittyVault.initialize(
             address(this),
             address(mockWETH),
-            whiteListAddress,
-            migratorAddress,
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-    }
-
-    function test_InitErrorWithGrantorAddressZero() public {
-        BittyVault newVault = new BittyVault();
-        vm.expectRevert(AddressZero.selector);
-        newVault.initialize(
-            address(0),
-            address(mockWETH),
+            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),
@@ -51,6 +39,7 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(1),
             address(mockWETH),
+            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),
@@ -62,6 +51,7 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(1),
             address(mockWETH),
+            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),
@@ -76,6 +66,7 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(this),
             address(mockWETH),
+            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),
@@ -92,6 +83,7 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(this),
             address(mockWETH),
+            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),

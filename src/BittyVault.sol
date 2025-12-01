@@ -5,7 +5,10 @@ import {Trust} from "./Trust.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
-import {IYieldProvider} from "./interfaces/IAssetManager.sol";
+import {IYieldProvider, ISwapProvider} from "./interfaces/IAssetManager.sol";
+import {IUniswapV4Router04} from "./libs/Uniswap.sol";
+import {OracleLibrary} from "./libs/OracleLibrary.sol";
+import {IPoolManager, PoolKey, PoolIdLibrary} from "./libs/Uniswap.sol";
 import {AssetManager} from "./AssetManager.sol";
 import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
@@ -19,6 +22,7 @@ import {
     InsufficientStablecoinBalance,
     NotWhiteListed
 } from "./interfaces/Errors.sol";
+import {VaultHelper} from "./helpers/VaultHelper.sol";
 
 /**
  * @title BittyVault
@@ -41,11 +45,13 @@ contract BittyVault is Trust, AssetManager, IVault {
 
     address public override migrator;
     uint256 public immutable override version = 1;
+    IPoolManager public poolManager;
 
     // Full initialize with all parameters (used by factory)
     function initialize(
         address grantorAddress,
         address wethAddress,
+        address poolManagerAddress,
         address whiteListAddress,
         address migratorAddress,
         address[] memory assetAddresses,
@@ -56,13 +62,8 @@ contract BittyVault is Trust, AssetManager, IVault {
         AssetManager._initialize(
             wethAddress, whiteListAddress, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders
         );
-        if (migratorAddress == address(0)) {
-            revert AddressZero();
-        }
         migrator = migratorAddress;
-        if (grantorAddress == address(0)) {
-            revert AddressZero();
-        }
+        poolManager = IPoolManager(poolManagerAddress);
         grantor = grantorAddress;
         if (isInitialized) {
             revert AlreadyInitialized();
@@ -71,7 +72,6 @@ contract BittyVault is Trust, AssetManager, IVault {
     }
 
     function initialize(address, bytes memory) external pure override {
-        // first version, no migration needed
         revert AlreadyInitialized();
     }
 
@@ -185,94 +185,29 @@ contract BittyVault is Trust, AssetManager, IVault {
     }
 
     /**
-     * @notice Override _getMoney to use internal EnumerableSets
+     * @notice Override _getMoney to use library implementation
      * @dev Transfers stablecoin amount to beneficiary
      * if the stablecoin balance is not enough, get from yield providers and swap assets until enough
      */
     function _getMoney(uint256 amount, address stableCoinAddress, address to) internal override {
-        uint256 withdrawAmountDecimals = amount * 10 ** ERC20(stableCoinAddress).decimals();
-        IERC20 stableCoin = IERC20(stableCoinAddress);
-        uint256 balance = stableCoin.balanceOf(address(this));
-        if (balance >= withdrawAmountDecimals) {
-            if (!stableCoin.transfer(to, withdrawAmountDecimals)) {
-                revert TransferFailed();
-            }
-            return;
-        }
-        uint256 amountNeeded = withdrawAmountDecimals - balance;
-        uint256 amountWithdrawnFromYieldProviders = _getMoneyFromYieldProvider(stableCoinAddress, amountNeeded);
-        if (amountWithdrawnFromYieldProviders >= amountNeeded) {
-            if (!stableCoin.transfer(to, withdrawAmountDecimals)) {
-                revert TransferFailed();
-            }
-            return;
-        }
-        uint256 amountNeededFromSwapProviders = amountNeeded - amountWithdrawnFromYieldProviders;
-        uint256 amountWithdrawnFromSwapProviders =
-            _getMoneyFromSwapProvider(stableCoinAddress, amountNeededFromSwapProviders);
-        if (amountWithdrawnFromSwapProviders >= amountNeededFromSwapProviders) {
-            if (!stableCoin.transfer(to, withdrawAmountDecimals)) {
-                revert TransferFailed();
-            }
-            return;
-        }
-        revert InsufficientStablecoinBalance();
+        VaultHelper.getMoney(
+            address(this),
+            poolManager,
+            _yieldProviders.values(),
+            _swapProviders.values(),
+            _assets.values(),
+            amount,
+            stableCoinAddress,
+            to
+        );
     }
-
-    function _getMoneyFromYieldProvider(address stableCoinAddress, uint256 amount) internal returns (uint256) {
-        for (uint256 i = 0; i < _yieldProviders.length(); i++) {
-            address yieldProvider = _yieldProviders.at(i);
-            uint256 yieldProviderBalance = IYieldProvider(yieldProvider).getBalance(stableCoinAddress);
-            if (yieldProviderBalance == 0) {
-                continue;
-            }
-            bool withdrawEnough = yieldProviderBalance >= amount;
-            uint256 withdrawAmount = withdrawEnough ? amount : yieldProviderBalance;
-            IYieldProvider(yieldProvider).withdraw(stableCoinAddress, withdrawAmount);
-            if (!withdrawEnough) {
-                amount -= withdrawAmount;
-                continue;
-            } else {
-                return amount;
-            }
-        }
-        return 0;
-    }
-
-    function _getMoneyFromSwapProvider(address stableCoinAddress, uint256 amount) internal returns (uint256) {}
 
     /**
-     * @notice Override _getPercentageMoney to use internal EnumerableSets
+     * @notice Override _getPercentageMoney to use library implementation
      * @dev Transfers percentage of all stablecoins and assets to beneficiary
      */
     function _getPercentageMoney(uint256 percentage, address to) internal override {
-        // Transfer percentage from all stablecoins
-        uint256 stableCoinsLength = _stableCoins.length();
-        for (uint256 i = 0; i < stableCoinsLength; i++) {
-            address stableCoinAddress = _stableCoins.at(i);
-            IERC20 stableCoin = IERC20(stableCoinAddress);
-            uint256 balance = stableCoin.balanceOf(address(this));
-            uint256 amount = balance * percentage / 10000;
-            if (amount > 0) {
-                if (!stableCoin.transfer(to, amount)) {
-                    revert TransferFailed();
-                }
-            }
-        }
-
-        // Transfer percentage from all assets
-        uint256 assetsLength = _assets.length();
-        for (uint256 i = 0; i < assetsLength; i++) {
-            address assetAddress = _assets.at(i);
-            IERC20 asset = IERC20(assetAddress);
-            uint256 balance = asset.balanceOf(address(this));
-            uint256 amount = balance * percentage / 10000;
-            if (amount > 0) {
-                if (!asset.transfer(to, amount)) {
-                    revert TransferFailed();
-                }
-            }
-        }
+        VaultHelper.getPercentageMoney(address(this), _stableCoins.values(), _assets.values(), percentage, to);
     }
 
     function setAssetConfig(address assetAddress, IAssetManager.AssetConfig memory assetConfig)
@@ -342,14 +277,4 @@ contract BittyVault is Trust, AssetManager, IVault {
             _swapProviders.remove(swapProviderAddresses[i]);
         }
     }
-
-    // All trust management functions are inherited from Trust:
-    // - initialize, initaialize (multiple overloads)
-    // - revoke, setToIrrevocable
-    // - ping, setAutoIrrevocableAfterNoPing
-    // - setGrantor, setTrustee, setBeneficiary
-    // - setBeneficiarySettings, getMoney
-    // - changeBeneficiaryAddress, changeTrusteeAddress
-    // - setStartDistributionTimestamp, distributionStarted
-    // - upgrade
 }
