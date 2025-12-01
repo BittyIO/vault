@@ -18,6 +18,7 @@ library mainnet {
 
     // TODO: should deploy white list contract first, then set the address here
     address public constant WHITE_LIST = 0x0000000000000000000000000000000000000000;
+    address public constant MIGRATOR = 0x0000000000000000000000000000000000000000;
 }
 
 library sepolia {
@@ -36,4 +37,5 @@ library sepolia {
     address public constant UNSTETH = 0x1583C7b3f4C3B008720E6BcE5726336b0aB25fdd;
 
     address public constant WHITE_LIST = 0xc2Aef560BEaE08cB4CC3A6D30A15ED1716dC131f;
+    address public constant MIGRATOR = 0x0000000000000000000000000000000000000000;
 }

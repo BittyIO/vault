@@ -17,7 +17,8 @@ contract BittyVaultFactoryScript is Script {
 
         factory = new BittyVaultFactory();
         address whiteListAddress = getWhiteListAddress();
-        factory.initialize(getWETHAddress(), whiteListAddress);
+        address migratorAddress = getMigratorAddress();
+        factory.initialize(getWETHAddress(), whiteListAddress, migratorAddress);
 
         vm.stopBroadcast();
         console2.log(address(factory));
@@ -40,6 +41,16 @@ contract BittyVaultFactoryScript is Script {
             return mainnet.WHITE_LIST;
         } else if (chainId == 11155111) {
             return sepolia.WHITE_LIST;
+        }
+        return address(0);
+    }
+
+    function getMigratorAddress() internal view returns (address) {
+        uint256 chainId = block.chainid;
+        if (chainId == 1) {
+            return mainnet.MIGRATOR;
+        } else if (chainId == 11155111) {
+            return sepolia.MIGRATOR;
         }
         return address(0);
     }

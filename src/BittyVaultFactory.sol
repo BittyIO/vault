@@ -14,6 +14,7 @@ import {
     VaultAlreadyDeployed
 } from "./interfaces/Errors.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
+import {IMigrator} from "./interfaces/IMigrator.sol";
 
 /**
  * @title BittyVaultFactory
@@ -22,6 +23,7 @@ import {IWhiteList} from "./interfaces/IWhiteList.sol";
  */
 contract BittyVaultFactory is Initializable {
     IWhiteList public whiteList;
+    IMigrator public migrator;
     /**
      * @notice Emitted when a new BittyVault is deployed
      * @param vault The address of the deployed vault
@@ -32,12 +34,13 @@ contract BittyVaultFactory is Initializable {
 
     address public wethAddress;
 
-    function initialize(address wethAddress_, address whiteListAddress_) public initializer {
+    function initialize(address wethAddress_, address whiteListAddress_, address migratorAddress_) public initializer {
         if (wethAddress_ == address(0)) {
             revert AddressZero();
         }
         wethAddress = wethAddress_;
         whiteList = IWhiteList(whiteListAddress_);
+        migrator = IMigrator(migratorAddress_);
     }
 
     function deployVault(
@@ -77,6 +80,7 @@ contract BittyVaultFactory is Initializable {
                 grantor,
                 wethAddress,
                 address(whiteList),
+                address(migrator),
                 assetAddresses,
                 stableCoinAddresses,
                 yieldProviders,

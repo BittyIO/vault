@@ -33,14 +33,19 @@ import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 abstract contract AssetManager is IAssetManager, Initializable {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
-    address public wethAddress;
-    IWhiteList public whiteList;
+
+    EnumerableSet.AddressSet private _assetConfigKeys;
+    EnumerableSet.AddressSet private _lastRebalanceTimestampKeys;
+
     EnumerableSet.AddressSet internal _assets;
     EnumerableSet.AddressSet internal _stableCoins;
     EnumerableSet.AddressSet internal _yieldProviders;
-    mapping(address => bool) internal _swapProviders;
-    mapping(address => IAssetManager.AssetConfig) internal _assetConfigs;
-    mapping(address => uint256) internal lastRebalanceTimestamps;
+    EnumerableSet.AddressSet internal _swapProviders;
+
+    address public wethAddress;
+    IWhiteList public whiteList;
+    mapping(address => IAssetManager.AssetConfig) public assetConfigs;
+    mapping(address => uint256) public lastRebalanceTimestamps;
     uint256 public lastRebalanceTimestamp;
     RebalanceLimit public rebalanceLimit;
 
@@ -86,12 +91,20 @@ abstract contract AssetManager is IAssetManager, Initializable {
             if (swapProviders[i] == address(0)) {
                 revert AddressZero();
             }
-            _swapProviders[swapProviders[i]] = true;
+            _swapProviders.add(swapProviders[i]);
         }
     }
 
     function _setRebalanceRules(RebalanceLimit memory rebalanceLimit_) internal _onlyInitialized {
         rebalanceLimit = rebalanceLimit_;
+    }
+
+    function _setAssetConfig(address assetAddress, AssetConfig memory assetConfig) internal _onlyInitialized {
+        if (assetAddress == address(0)) {
+            revert AddressZero();
+        }
+        assetConfigs[assetAddress] = assetConfig;
+        _assetConfigKeys.add(assetAddress);
     }
 
     function _supply(address yieldProvider, address assetAddress, uint256 amount) internal _onlyInitialized {
@@ -173,8 +186,8 @@ abstract contract AssetManager is IAssetManager, Initializable {
         ) {
             revert NotWhiteListed();
         }
-        AssetConfig memory assetConfigFrom = _assetConfigs[from];
-        AssetConfig memory assetConfigTo = _assetConfigs[to];
+        AssetConfig memory assetConfigFrom = assetConfigs[from];
+        AssetConfig memory assetConfigTo = assetConfigs[to];
         if (
             rebalanceLimit.minimalTimestampBetweenRebalances > 0 && lastRebalanceTimestamp > 0
                 && block.timestamp - lastRebalanceTimestamp < rebalanceLimit.minimalTimestampBetweenRebalances
@@ -209,9 +222,11 @@ abstract contract AssetManager is IAssetManager, Initializable {
 
         if (assetConfigFrom.minimalDurationBetweenRebalances > 0) {
             lastRebalanceTimestamps[from] = block.timestamp;
+            _lastRebalanceTimestampKeys.add(from);
         }
         if (assetConfigTo.minimalDurationBetweenRebalances > 0) {
             lastRebalanceTimestamps[to] = block.timestamp;
+            _lastRebalanceTimestampKeys.add(to);
         }
         if (rebalanceLimit.minimalTimestampBetweenRebalances > 0) {
             lastRebalanceTimestamp = block.timestamp;
@@ -226,7 +241,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
         uint256 buyAmountMin,
         bytes memory data
     ) internal _onlyInitialized {
-        if (!_swapProviders[swapProvider]) {
+        if (!_swapProviders.contains(swapProvider)) {
             revert InvalidSwapProvider();
         }
         if (sellAmount == 0 || buyAmountMin == 0) {
@@ -280,6 +295,22 @@ abstract contract AssetManager is IAssetManager, Initializable {
 
     function getStableCoins() external view override returns (address[] memory) {
         return _stableCoins.values();
+    }
+
+    function getYieldProviders() external view override returns (address[] memory) {
+        return _yieldProviders.values();
+    }
+
+    function getSwapProviders() external view override returns (address[] memory) {
+        return _swapProviders.values();
+    }
+
+    function getAllAssetConfigKeys() external view returns (address[] memory) {
+        return _assetConfigKeys.values();
+    }
+
+    function getAllLastRebalanceTimestampKeys() external view returns (address[] memory) {
+        return _lastRebalanceTimestampKeys.values();
     }
 
     receive() external payable {}

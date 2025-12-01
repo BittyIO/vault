@@ -174,8 +174,8 @@ contract TestAssetManager is Test, AssetManager {
         assertEq(_stableCoins.length(), 2);
         assertEq(_stableCoins.at(0), address(mockUSDT));
         assertEq(_stableCoins.at(1), address(mockUSDC));
-        assertEq(_yieldProviders.contains(address(mockYieldProvider)), true);
-        assertEq(_swapProviders[address(mockSwapProvider)], true);
+        assertTrue(_yieldProviders.contains(address(mockYieldProvider)));
+        assertTrue(_swapProviders.contains(address(mockSwapProvider)));
     }
 
     function test_SetRebalanceRules() public {

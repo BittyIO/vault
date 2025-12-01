@@ -14,6 +14,7 @@ import {AssetManager} from "./AssetManager.sol";
 import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IVault} from "./interfaces/IVault.sol";
+import {IMigrator} from "./interfaces/IMigrator.sol";
 import {
     AddressZero,
     AlreadyInitialized,
@@ -42,11 +43,15 @@ import {
 contract BittyVault is Trust, AssetManager, IVault {
     using EnumerableSet for EnumerableSet.AddressSet;
 
+    address public override migrator;
+    uint256 public immutable override version = 1;
+
     // Full initialize with all parameters (used by factory)
     function initialize(
         address grantorAddress,
         address wethAddress,
         address whiteListAddress,
+        address migratorAddress,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory yieldProviders,
@@ -55,15 +60,46 @@ contract BittyVault is Trust, AssetManager, IVault {
         AssetManager._initialize(
             wethAddress, whiteListAddress, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders
         );
-
+        if (migratorAddress == address(0)) {
+            revert AddressZero();
+        }
+        migrator = migratorAddress;
         if (grantorAddress == address(0)) {
             revert AddressZero();
         }
+        grantor = grantorAddress;
         if (isInitialized) {
             revert AlreadyInitialized();
         }
-        grantor = grantorAddress;
         isInitialized = true;
+    }
+
+    function initialize(address, bytes memory) external pure override {
+        // first version, no migration needed
+        revert AlreadyInitialized();
+    }
+
+    function createAndMigrate(uint256 _toVersion, string calldata _salt)
+        external
+        override
+        onlyInitialized
+        onlyTrustee
+        returns (address)
+    {
+        address nextVault = IMigrator(migrator).createVersionVault(address(this), _toVersion, _salt);
+        if (nextVault == address(0)) {
+            revert AddressZero();
+        }
+        _revoke(nextVault);
+        return nextVault;
+    }
+
+    function migrateAssets(uint256 _toVersion) external override onlyInitialized onlyTrustee {
+        address nextVault = IMigrator(migrator).versionVault(address(this), _toVersion);
+        if (nextVault == address(0)) {
+            revert AddressZero();
+        }
+        _revoke(nextVault);
     }
 
     /**
@@ -71,6 +107,10 @@ contract BittyVault is Trust, AssetManager, IVault {
      * @dev Transfers all assets (USDT, USDC, WBTC, WETH, ETH) and withdraws from Aave if needed
      */
     function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor onlyRevocable {
+        _revoke(moneyWithdrawTo);
+    }
+
+    function _revoke(address moneyWithdrawTo) internal {
         if (moneyWithdrawTo == address(0)) {
             revert AddressZero();
         }
@@ -227,7 +267,7 @@ contract BittyVault is Trust, AssetManager, IVault {
         onlyInitialized
         onlyTrustee
     {
-        _assetConfigs[assetAddress] = assetConfig;
+        _setAssetConfig(assetAddress, assetConfig);
     }
 
     function addAssets(address[] memory assetAddresses) external onlyInitialized onlyTrustee {
@@ -280,13 +320,13 @@ contract BittyVault is Trust, AssetManager, IVault {
             if (!whiteList.isSwapProviderWhiteListed(swapProviderAddresses[i])) {
                 revert NotWhiteListed();
             }
-            _swapProviders[swapProviderAddresses[i]] = true;
+            _swapProviders.add(swapProviderAddresses[i]);
         }
     }
 
     function removeSwapProviders(address[] memory swapProviderAddresses) external onlyInitialized onlyTrustee {
         for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
-            _swapProviders[swapProviderAddresses[i]] = false;
+            _swapProviders.remove(swapProviderAddresses[i]);
         }
     }
 

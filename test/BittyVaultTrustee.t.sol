@@ -25,6 +25,7 @@ import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 import {WhiteList} from "../src/WhiteList.sol";
+import {Migrator} from "../src/Migrator.sol";
 
 contract BittyVaultTrusteeTest is Test {
     BittyVault public bittyVault;
@@ -40,6 +41,7 @@ contract BittyVaultTrusteeTest is Test {
     IAssetManager.RebalanceLimit public rebalanceLimits;
     IAssetManager.ManageFee public manageFee;
     address public whiteListAddress;
+    address public migratorAddress;
 
     function setUp() public {
         mockWETH = new WETH();
@@ -50,6 +52,7 @@ contract BittyVaultTrusteeTest is Test {
         mockYieldProvider = new MockYieldProvider();
         bittyVault = new BittyVault();
         whiteListAddress = address(new WhiteList());
+        migratorAddress = address(new Migrator());
         grantor = makeAddr("grantor");
         trustee = makeAddr("alice");
         assetManager = makeAddr("bob");
@@ -73,6 +76,7 @@ contract BittyVaultTrusteeTest is Test {
             grantor,
             address(mockWETH),
             whiteListAddress,
+            migratorAddress,
             assetAddresses,
             stableCoinAddresses,
             new address[](0),

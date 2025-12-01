@@ -5,6 +5,7 @@ import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
 import {ITrust} from "./interfaces/ITrust.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {AssetManager} from "./AssetManager.sol";
+import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {
     AddressZero,
     AlreadyInitialized,
@@ -55,8 +56,13 @@ abstract contract Trust is ITrust {
     uint256 public revenue;
     uint256 public lastRevenueTime;
 
-    mapping(string => IBeneficiary.TriggerEvent) public beneficiaryTriggerEvents;
+    mapping(bytes32 => IBeneficiary.TriggerEvent) public beneficiaryTriggerEvents;
     mapping(uint256 => IBeneficiary.TimeEvent) public beneficiaryTimeEvents;
+
+    using EnumerableSet for EnumerableSet.Bytes32Set;
+    using EnumerableSet for EnumerableSet.UintSet;
+    EnumerableSet.Bytes32Set private _triggerEventKeys;
+    EnumerableSet.UintSet private _timeEventKeys;
 
     modifier onlyInitialized() {
         require(isInitialized, "Trust not initialized");
@@ -104,7 +110,7 @@ abstract contract Trust is ITrust {
         isInitialized = true;
     }
 
-    function initaialize(address grantorAddress, address beneficiaryAddress) external virtual override {
+    function initialize(address grantorAddress, address beneficiaryAddress) external virtual override {
         if (grantorAddress == address(0) || beneficiaryAddress == address(0)) {
             revert AddressZero();
         }
@@ -306,15 +312,17 @@ abstract contract Trust is ITrust {
             if (triggerEvent.amount == 0) {
                 revert AmountIsZero();
             }
-            if (beneficiaryTriggerEvents[eventNames[i]].amount > 0) {
+            bytes32 eventKey = keccak256(bytes(eventNames[i]));
+            if (beneficiaryTriggerEvents[eventKey].amount > 0) {
                 revert EventNameDuplicated();
             }
             if (triggerEvent.isPercentage && triggerEvent.amount > 10000) {
                 revert percentageMoreThan10K();
             }
-            beneficiaryTriggerEvents[eventNames[i]].triggerAddress = triggerEvent.triggerAddress;
-            beneficiaryTriggerEvents[eventNames[i]].amount = triggerEvent.amount;
-            beneficiaryTriggerEvents[eventNames[i]].isPercentage = triggerEvent.isPercentage;
+            beneficiaryTriggerEvents[eventKey].triggerAddress = triggerEvent.triggerAddress;
+            beneficiaryTriggerEvents[eventKey].amount = triggerEvent.amount;
+            beneficiaryTriggerEvents[eventKey].isPercentage = triggerEvent.isPercentage;
+            _triggerEventKeys.add(eventKey);
         }
     }
 
@@ -330,10 +338,12 @@ abstract contract Trust is ITrust {
             if (keccak256(bytes(eventNames[i])) == keccak256(bytes(""))) {
                 revert EventNameIsEmpty();
             }
-            if (beneficiaryTriggerEvents[eventNames[i]].amount == 0) {
+            bytes32 eventKey = keccak256(bytes(eventNames[i]));
+            if (beneficiaryTriggerEvents[eventKey].amount == 0) {
                 revert EventNameNotFound();
             }
-            delete beneficiaryTriggerEvents[eventNames[i]];
+            delete beneficiaryTriggerEvents[eventKey];
+            _triggerEventKeys.remove(eventKey);
         }
     }
 
@@ -346,7 +356,8 @@ abstract contract Trust is ITrust {
         if (keccak256(bytes(eventName)) == keccak256(bytes(""))) {
             revert EventNameIsEmpty();
         }
-        IBeneficiary.TriggerEvent memory triggerEvent = beneficiaryTriggerEvents[eventName];
+        bytes32 eventKey = keccak256(bytes(eventName));
+        IBeneficiary.TriggerEvent memory triggerEvent = beneficiaryTriggerEvents[eventKey];
         if (triggerEvent.amount == 0) {
             revert EventNameNotFound();
         }
@@ -354,11 +365,12 @@ abstract contract Trust is ITrust {
             revert EventTriggerError();
         }
         if (!triggerEvent.isPercentage) {
-            _getMoney(beneficiaryTriggerEvents[eventName].amount, stableCoinAddress, to);
+            _getMoney(beneficiaryTriggerEvents[eventKey].amount, stableCoinAddress, to);
         } else {
             _getPercentageMoney(triggerEvent.amount, to);
         }
-        delete beneficiaryTriggerEvents[eventName];
+        delete beneficiaryTriggerEvents[eventKey];
+        _triggerEventKeys.remove(eventKey);
     }
 
     function addTimeEvents(uint256[] memory timestamps, IBeneficiary.TimeEvent[] memory timeEvents)
@@ -384,6 +396,7 @@ abstract contract Trust is ITrust {
                 revert TimestampDuplicated();
             }
             beneficiaryTimeEvents[timestamps[i]] = timeEvent;
+            _timeEventKeys.add(timestamps[i]);
         }
     }
 
@@ -403,6 +416,7 @@ abstract contract Trust is ITrust {
                 revert TimestampNotFound();
             }
             delete beneficiaryTimeEvents[timestamps[i]];
+            _timeEventKeys.remove(timestamps[i]);
         }
     }
 
@@ -428,6 +442,7 @@ abstract contract Trust is ITrust {
             _getPercentageMoney(beneficiaryTimeEvents[timestamp].amount, to);
         }
         delete beneficiaryTimeEvents[timestamp];
+        _timeEventKeys.remove(timestamp);
     }
 
     function getMoney(address stableCoinAddress, address to) external virtual override onlyInitialized onlyBeneficiary {
@@ -507,5 +522,13 @@ abstract contract Trust is ITrust {
             return block.timestamp - lastPingTime <= autoIrrevocableAfterNoPing;
         }
         return true;
+    }
+
+    function getAllTriggerEventKeys() external view returns (bytes32[] memory) {
+        return _triggerEventKeys.values();
+    }
+
+    function getAllTimeEventKeys() external view returns (uint256[] memory) {
+        return _timeEventKeys.values();
     }
 }
