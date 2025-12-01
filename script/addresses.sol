@@ -35,6 +35,5 @@ library sepolia {
     address public constant STETH = 0x3e3FE7dBc6B4C189E7128855dD526361c49b40Af;
     address public constant UNSTETH = 0x1583C7b3f4C3B008720E6BcE5726336b0aB25fdd;
 
-    // TODO: should deploy white list contract first, then set the address here
-    address public constant WHITE_LIST = 0x0000000000000000000000000000000000000000;
+    address public constant WHITE_LIST = 0xc2Aef560BEaE08cB4CC3A6D30A15ED1716dC131f;
 }
