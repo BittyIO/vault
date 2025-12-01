@@ -7,6 +7,8 @@ import {IWhiteList} from "../../src/interfaces/IWhiteList.sol";
 import {IMigrator} from "../../src/interfaces/IMigrator.sol";
 import {IVersionizedVault} from "../../src/interfaces/IVersionizedVault.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
+import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 
 /**
  * @title MockVault
@@ -16,8 +18,10 @@ import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/
  */
 contract MockVault is IVersionizedVault {
     using EnumerableSet for EnumerableSet.AddressSet;
-
-    uint256 public immutable override version = 2;
+    using EnumerableSet for EnumerableSet.Bytes32Set;
+    using EnumerableSet for EnumerableSet.UintSet;
+    using Address for address;
+    uint256 public version;
     // Trust contract public storage variables
     address public grantor;
     address public trustee;
@@ -37,6 +41,8 @@ contract MockVault is IVersionizedVault {
     uint256 public lastRevenueTime;
     mapping(bytes32 => IBeneficiary.TriggerEvent) public beneficiaryTriggerEvents;
     mapping(uint256 => IBeneficiary.TimeEvent) public beneficiaryTimeEvents;
+    EnumerableSet.Bytes32Set internal _triggerEventKeys;
+    EnumerableSet.UintSet internal _timeEventKeys;
 
     // AssetManager contract public storage variables
     address public wethAddress;
@@ -49,17 +55,57 @@ contract MockVault is IVersionizedVault {
     EnumerableSet.AddressSet internal _stableCoins;
     EnumerableSet.AddressSet internal _yieldProviders;
     EnumerableSet.AddressSet internal _swapProviders;
+    EnumerableSet.AddressSet internal _assetConfigKeys;
+    EnumerableSet.AddressSet internal _lastRebalanceTimestampKeys;
     bytes public args;
 
     // BittyVault contract public storage variables
     address public migrator;
 
-    function migrate() external override {
-        // no migration needed
+    constructor(uint256 _version) {
+        version = _version;
+    }
+
+    function migrateAssets(uint256 _toVersion) public override {
+        address nextVault = IMigrator(migrator).versionVault(address(this), _toVersion);
+        // Transfer all assets
+        for (uint256 i = 0; i < _assets.length(); i++) {
+            address token = _assets.at(i);
+            uint256 balance = IERC20(token).balanceOf(address(this));
+            if (balance > 0) {
+                IERC20(token).transfer(nextVault, balance);
+            }
+        }
+
+        // Transfer all stableCoins
+        for (uint256 i = 0; i < _stableCoins.length(); i++) {
+            address token = _stableCoins.at(i);
+            uint256 balance = IERC20(token).balanceOf(address(this));
+            if (balance > 0) {
+                IERC20(token).transfer(nextVault, balance);
+            }
+        }
+
+        // Transfer any remaining ETH
+        uint256 ethBalance = address(this).balance;
+        if (ethBalance > 0) {
+            (bool success,) = payable(nextVault).call{value: ethBalance}("");
+            require(success, "ETH transfer failed");
+        }
+    }
+
+    function createAndMigrate(uint256 _toVersion, string calldata _salt) external override returns (address) {
+        bytes memory returnData = migrator.functionDelegateCall(
+            abi.encodeWithSelector(IMigrator.createVersionVault.selector, address(this), _toVersion, _salt)
+        );
+        address nextVault = abi.decode(returnData, (address));
+        migrateAssets(_toVersion);
+        return nextVault;
     }
 
     function initialize(address previousVersionVaultAddress, bytes memory _args) external override {
         args = _args;
+        version = abi.decode(_args, (uint256));
         // Cast to BittyVault interface to access public getters
         BittyVaultInterface vault = BittyVaultInterface(previousVersionVaultAddress);
 
@@ -89,6 +135,7 @@ contract MockVault is IVersionizedVault {
             (address triggerAddress, uint256 amount, bool isPercentage) = vault.beneficiaryTriggerEvents(eventKey);
             beneficiaryTriggerEvents[eventKey] =
                 IBeneficiary.TriggerEvent({triggerAddress: triggerAddress, amount: amount, isPercentage: isPercentage});
+            _triggerEventKeys.add(eventKey);
         }
 
         // Copy beneficiaryTimeEvents mapping
@@ -98,6 +145,7 @@ contract MockVault is IVersionizedVault {
             // Access struct fields individually (public mapping getter returns tuple)
             (uint256 amount, bool isPercentage) = vault.beneficiaryTimeEvents(timestamp);
             beneficiaryTimeEvents[timestamp] = IBeneficiary.TimeEvent({amount: amount, isPercentage: isPercentage});
+            _timeEventKeys.add(timestamp);
         }
 
         // Copy AssetManager contract storage
@@ -115,6 +163,7 @@ contract MockVault is IVersionizedVault {
             assetConfigs[assetAddress] = IAssetManager.AssetConfig({
                 minimalBalance: minimalBalance, minimalDurationBetweenRebalances: minimalDurationBetweenRebalances
             });
+            _assetConfigKeys.add(assetAddress);
         }
 
         // Copy lastRebalanceTimestamps mapping
@@ -122,6 +171,7 @@ contract MockVault is IVersionizedVault {
         for (uint256 i = 0; i < lastRebalanceTimestampKeys.length; i++) {
             address assetAddress = lastRebalanceTimestampKeys[i];
             lastRebalanceTimestamps[assetAddress] = vault.lastRebalanceTimestamps(assetAddress);
+            _lastRebalanceTimestampKeys.add(assetAddress);
         }
 
         // Copy _assets, _stableCoins, _yieldProviders, _swapProviders
@@ -164,6 +214,23 @@ contract MockVault is IVersionizedVault {
 
     function getSwapProviders() external view returns (address[] memory) {
         return _swapProviders.values();
+    }
+
+    // Implement getter methods for trigger and time event keys
+    function getAllTriggerEventKeys() external view returns (bytes32[] memory) {
+        return _triggerEventKeys.values();
+    }
+
+    function getAllTimeEventKeys() external view returns (uint256[] memory) {
+        return _timeEventKeys.values();
+    }
+
+    function getAllAssetConfigKeys() external view returns (address[] memory) {
+        return _assetConfigKeys.values();
+    }
+
+    function getAllLastRebalanceTimestampKeys() external view returns (address[] memory) {
+        return _lastRebalanceTimestampKeys.values();
     }
 
     // Allow receiving ETH

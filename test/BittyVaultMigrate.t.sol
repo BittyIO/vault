@@ -16,6 +16,7 @@ import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
 import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
+import {console} from "lib/forge-std/src/console.sol";
 
 contract BittyVaultMigrateTest is Test {
     BittyVault public bittyVault;
@@ -97,15 +98,7 @@ contract BittyVaultMigrateTest is Test {
         });
         vm.prank(grantor);
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
-
-        // Register version 1 implementation (BittyVault) in migrator
-        migrator.setVersionizedVault(address(bittyVault), bytes("v1 args"), true);
-
-        // Create mock vault implementation (version 2)
-        MockVault nextVaultImplementation = new MockVault();
-
-        // Register version 2 implementation (MockVault) in migrator
-        migrator.setVersionizedVault(address(nextVaultImplementation), bytes("v2 args"), false);
+        vm.stopPrank();
     }
 
     function test_MigrateSuccess() public {
@@ -122,43 +115,44 @@ contract BittyVaultMigrateTest is Test {
         deal(address(mockUSDC), address(bittyVault), usdcAmount);
         deal(address(bittyVault), ethAmount);
 
-        // Create next version vault instance
-        vm.prank(trustee);
-        address nextVaultAddress = migrator.createNextVersionVault("migration-salt", address(bittyVault));
-
         // Record balances before migration
-        uint256 nextVaultWbtcBefore = mockWBTC.balanceOf(nextVaultAddress);
-        uint256 nextVaultWethBefore = mockWETH.balanceOf(nextVaultAddress);
-        uint256 nextVaultUsdtBefore = mockUSDT.balanceOf(nextVaultAddress);
-        uint256 nextVaultUsdcBefore = mockUSDC.balanceOf(nextVaultAddress);
-        uint256 nextVaultEthBefore = nextVaultAddress.balance;
+        uint256 bittyVaultWbtcBefore = mockWBTC.balanceOf(address(bittyVault));
+        uint256 bittyVaultWethBefore = mockWETH.balanceOf(address(bittyVault));
+        uint256 bittyVaultUsdtBefore = mockUSDT.balanceOf(address(bittyVault));
+        uint256 bittyVaultUsdcBefore = mockUSDC.balanceOf(address(bittyVault));
+        uint256 bittyVaultEthBefore = address(bittyVault).balance;
 
-        // Execute migration
+        MockVault nextVaultImplementation = new MockVault(2);
+        migrator.setVersionizedVault(address(nextVaultImplementation), abi.encode(uint256(2)), false);
+
+        // Execute migration (creates vault and migrates assets)
         vm.prank(trustee);
-        bittyVault.migrate();
+        uint256 afterGas = gasleft();
+        address nextVaultAddress = bittyVault.createAndMigrate(2, "migration-salt");
+        console.log("Gas used:", afterGas - gasleft());
 
         // Verify all assets are transferred to next vault
         assertEq(mockWBTC.balanceOf(address(bittyVault)), 0, "WBTC should be transferred");
-        assertEq(mockWBTC.balanceOf(nextVaultAddress), nextVaultWbtcBefore + wbtcAmount, "WBTC should be in next vault");
+        assertEq(mockWBTC.balanceOf(nextVaultAddress), bittyVaultWbtcBefore, "WBTC should be in next vault");
 
         assertEq(mockWETH.balanceOf(address(bittyVault)), 0, "WETH should be transferred");
-        assertEq(mockWETH.balanceOf(nextVaultAddress), nextVaultWethBefore + wethAmount, "WETH should be in next vault");
+        assertEq(mockWETH.balanceOf(nextVaultAddress), bittyVaultWethBefore, "WETH should be in next vault");
 
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "USDT should be transferred");
-        assertEq(mockUSDT.balanceOf(nextVaultAddress), nextVaultUsdtBefore + usdtAmount, "USDT should be in next vault");
+        assertEq(mockUSDT.balanceOf(nextVaultAddress), bittyVaultUsdtBefore, "USDT should be in next vault");
 
         assertEq(mockUSDC.balanceOf(address(bittyVault)), 0, "USDC should be transferred");
-        assertEq(mockUSDC.balanceOf(nextVaultAddress), nextVaultUsdcBefore + usdcAmount, "USDC should be in next vault");
+        assertEq(mockUSDC.balanceOf(nextVaultAddress), bittyVaultUsdcBefore, "USDC should be in next vault");
 
         assertEq(address(bittyVault).balance, 0, "ETH should be transferred");
-        assertEq(nextVaultAddress.balance, nextVaultEthBefore + ethAmount, "ETH should be in next vault");
+        assertEq(nextVaultAddress.balance, bittyVaultEthBefore, "ETH should be in next vault");
     }
 
     function test_MigrateFailsIfNotTrustee() public {
         address nonTrustee = makeAddr("nonTrustee");
         vm.expectRevert("Only trustee");
         vm.prank(nonTrustee);
-        bittyVault.migrate();
+        bittyVault.createAndMigrate(2, "migration-salt");
     }
 
     function test_MigrateFailsIfNotInitialized() public {
@@ -166,48 +160,21 @@ contract BittyVaultMigrateTest is Test {
         address newTrustee = makeAddr("newTrustee");
         vm.expectRevert("Trust not initialized");
         vm.prank(newTrustee);
-        newVault.migrate();
+        newVault.createAndMigrate(2, "migration-salt");
     }
 
     function test_MigrateFailsIfNoNextVersion() public {
-        // Create a new migrator without version 2 registered
-        Migrator newMigrator = new Migrator();
-        BittyVault newVault = new BittyVault();
-        address[] memory assetAddresses = new address[](2);
-        assetAddresses[0] = address(mockWBTC);
-        assetAddresses[1] = address(mockWETH);
-        address[] memory stableCoinAddresses = new address[](2);
-        stableCoinAddresses[0] = address(mockUSDT);
-        stableCoinAddresses[1] = address(mockUSDC);
-        newVault.initialize(
-            grantor,
-            address(mockWETH),
-            whiteListAddress,
-            address(newMigrator),
-            assetAddresses,
-            stableCoinAddresses,
-            new address[](0),
-            new address[](0)
-        );
-        vm.prank(grantor);
-        newVault.setTrustee(trustee);
-
-        // Register only version 1, no version 2
-        newMigrator.setVersionizedVault(address(newVault), bytes("v1 args"), true);
-
         vm.expectRevert(Migrator.NoNextVersionVault.selector);
         vm.prank(trustee);
-        newVault.migrate();
+        bittyVault.createAndMigrate(2, "migration-salt");
     }
 
     function test_MigrateWithEmptyBalances() public {
-        // Create next version vault instance
-        vm.prank(trustee);
-        migrator.createNextVersionVault("migration-salt", address(bittyVault));
-
+        MockVault nextVaultImplementation = new MockVault(2);
+        migrator.setVersionizedVault(address(nextVaultImplementation), abi.encode(uint256(2)), false);
         // Migrate without adding any assets to vault
         vm.prank(trustee);
-        bittyVault.migrate();
+        bittyVault.createAndMigrate(2, "migration-salt");
 
         // Verify all balances are 0
         assertEq(mockWBTC.balanceOf(address(bittyVault)), 0);
@@ -218,10 +185,6 @@ contract BittyVaultMigrateTest is Test {
     }
 
     function test_MigrateOnlyTransfersAssetsInSet() public {
-        // Create next version vault instance
-        vm.prank(trustee);
-        address nextVaultAddress = migrator.createNextVersionVault("migration-salt", address(bittyVault));
-
         // Create a token not in asset list
         MockERC20 randomToken = new MockERC20("RANDOM", "RANDOM", 18);
         uint256 randomAmount = 100 ether;
@@ -231,9 +194,11 @@ contract BittyVaultMigrateTest is Test {
         uint256 wbtcAmount = 1 ether;
         deal(address(mockWBTC), address(bittyVault), wbtcAmount);
 
+        MockVault nextVaultImplementation = new MockVault(2);
+        migrator.setVersionizedVault(address(nextVaultImplementation), abi.encode(uint256(2)), false);
         // Execute migration
         vm.prank(trustee);
-        bittyVault.migrate();
+        address nextVaultAddress = bittyVault.createAndMigrate(2, "migration-salt");
 
         // Verify assets in list are transferred
         assertEq(mockWBTC.balanceOf(address(bittyVault)), 0, "WBTC should be transferred");
@@ -269,12 +234,15 @@ contract BittyVaultMigrateTest is Test {
         vm.prank(trustee);
         bittyVault.addSwapProviders(swapProviders);
 
-        // Create next version vault instance
+        MockVault nextVaultImplementation = new MockVault(2);
+        migrator.setVersionizedVault(address(nextVaultImplementation), abi.encode(uint256(2)), false);
+        // Create next version vault instance and migrate
         vm.prank(trustee);
-        address nextVaultAddress = migrator.createNextVersionVault("migration-salt", address(bittyVault));
+        address nextVaultAddress = bittyVault.createAndMigrate(2, "migration-salt");
         MockVault nextVaultInstance = MockVault(payable(nextVaultAddress));
 
-        assertEq(nextVaultInstance.args(), bytes("v2 args"), "args should match");
+        // Args should be the version encoded as uint256 (as set in setUp)
+        assertEq(nextVaultInstance.args(), abi.encode(uint256(2)), "args should match");
 
         // Verify Trust contract public storage variables
         assertEq(nextVaultInstance.grantor(), bittyVault.grantor(), "grantor should match");
@@ -452,6 +420,209 @@ contract BittyVaultMigrateTest is Test {
         for (uint256 i = 0; i < originalSwapProviders.length; i++) {
             assertEq(copiedSwapProviders[i], originalSwapProviders[i], "_swapProviders should match");
         }
+    }
+
+    function test_MigrateJumpVersion() public {
+        // Give current vault (v1) some assets
+        uint256 wbtcAmount = 1 ether;
+        uint256 wethAmount = 2 ether;
+        uint256 usdtAmount = 1000 * 1e18;
+        uint256 usdcAmount = 2000 * 1e18;
+        uint256 ethAmount = 0.5 ether;
+
+        deal(address(mockWBTC), address(bittyVault), wbtcAmount);
+        deal(address(mockWETH), address(bittyVault), wethAmount);
+        deal(address(mockUSDT), address(bittyVault), usdtAmount);
+        deal(address(mockUSDC), address(bittyVault), usdcAmount);
+        deal(address(bittyVault), ethAmount);
+
+        // Record balances before migration
+        uint256 bittyVaultWbtcBefore = mockWBTC.balanceOf(address(bittyVault));
+        uint256 bittyVaultWethBefore = mockWETH.balanceOf(address(bittyVault));
+        uint256 bittyVaultUsdtBefore = mockUSDT.balanceOf(address(bittyVault));
+        uint256 bittyVaultUsdcBefore = mockUSDC.balanceOf(address(bittyVault));
+        uint256 bittyVaultEthBefore = address(bittyVault).balance;
+
+        // Set up v2 and v3 vault implementations
+        MockVault vaultV2Implementation = new MockVault(2);
+        MockVault vaultV3Implementation = new MockVault(3);
+
+        migrator.setVersionizedVault(address(vaultV2Implementation), abi.encode(uint256(2)), false);
+        migrator.setVersionizedVault(address(vaultV3Implementation), abi.encode(uint256(3)), false);
+
+        // Execute migration from v1 to v3 (should create intermediate v2 vault)
+        vm.prank(trustee);
+        uint256 afterGas = gasleft();
+        address v3VaultAddress = bittyVault.createAndMigrate(3, "v1-to-v3-salt");
+        console.log("Gas used:", afterGas - gasleft());
+        MockVault v3VaultInstance = MockVault(payable(v3VaultAddress));
+
+        // Verify final vault is version 3
+        assertEq(v3VaultInstance.version(), 3, "Final vault should be version 3");
+
+        // Verify all assets are transferred to v3 vault
+        assertEq(mockWBTC.balanceOf(address(bittyVault)), 0, "WBTC should be transferred from v1");
+        assertEq(mockWBTC.balanceOf(v3VaultAddress), bittyVaultWbtcBefore, "WBTC should be in v3 vault");
+
+        assertEq(mockWETH.balanceOf(address(bittyVault)), 0, "WETH should be transferred from v1");
+        assertEq(mockWETH.balanceOf(v3VaultAddress), bittyVaultWethBefore, "WETH should be in v3 vault");
+
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "USDT should be transferred from v1");
+        assertEq(mockUSDT.balanceOf(v3VaultAddress), bittyVaultUsdtBefore, "USDT should be in v3 vault");
+
+        assertEq(mockUSDC.balanceOf(address(bittyVault)), 0, "USDC should be transferred from v1");
+        assertEq(mockUSDC.balanceOf(v3VaultAddress), bittyVaultUsdcBefore, "USDC should be in v3 vault");
+
+        assertEq(address(bittyVault).balance, 0, "ETH should be transferred from v1");
+        assertEq(v3VaultAddress.balance, bittyVaultEthBefore, "ETH should be in v3 vault");
+
+        // Verify v3 vault storage matches original v1 vault
+        assertEq(v3VaultInstance.grantor(), bittyVault.grantor(), "grantor should match");
+        assertEq(v3VaultInstance.trustee(), bittyVault.trustee(), "trustee should match");
+        assertEq(v3VaultInstance.migrator(), bittyVault.migrator(), "migrator should match");
+        assertEq(v3VaultInstance.wethAddress(), bittyVault.wethAddress(), "wethAddress should match");
+        assertEq(address(v3VaultInstance.whiteList()), address(bittyVault.whiteList()), "whiteList should match");
+
+        // Verify manageFee struct
+        (
+            uint256 originalBaseFeeAmount,
+            uint256 originalBaseFeeDuration,
+            bool originalIsBaseFeePercentage,
+            uint256 originalRevenuePercentage,
+            uint256 originalRevenueDuration
+        ) = bittyVault.manageFee();
+        (
+            uint256 copiedBaseFeeAmount,
+            uint256 copiedBaseFeeDuration,
+            bool copiedIsBaseFeePercentage,
+            uint256 copiedRevenuePercentage,
+            uint256 copiedRevenueDuration
+        ) = v3VaultInstance.manageFee();
+        assertEq(copiedBaseFeeAmount, originalBaseFeeAmount, "manageFee.baseFeeAmount should match");
+        assertEq(copiedBaseFeeDuration, originalBaseFeeDuration, "manageFee.baseFeeDuration should match");
+        assertEq(copiedIsBaseFeePercentage, originalIsBaseFeePercentage, "manageFee.isBaseFeePercentage should match");
+        assertEq(copiedRevenuePercentage, originalRevenuePercentage, "manageFee.revenuePercentage should match");
+        assertEq(copiedRevenueDuration, originalRevenueDuration, "manageFee.revenueDuration should match");
+
+        // Verify rebalanceLimit struct
+        (
+            uint256 originalMinimalStableCoinBalance,
+            uint256 originalMinimalTimestampBetweenRebalances,
+            uint256 originalMaxRebalancePercentage
+        ) = bittyVault.rebalanceLimit();
+        (
+            uint256 copiedMinimalStableCoinBalance,
+            uint256 copiedMinimalTimestampBetweenRebalances,
+            uint256 copiedMaxRebalancePercentage
+        ) = v3VaultInstance.rebalanceLimit();
+        assertEq(
+            copiedMinimalStableCoinBalance,
+            originalMinimalStableCoinBalance,
+            "rebalanceLimit.minimalStableCoinBalance should match"
+        );
+        assertEq(
+            copiedMinimalTimestampBetweenRebalances,
+            originalMinimalTimestampBetweenRebalances,
+            "rebalanceLimit.minimalTimestampBetweenRebalances should match"
+        );
+        assertEq(
+            copiedMaxRebalancePercentage,
+            originalMaxRebalancePercentage,
+            "rebalanceLimit.maxRebalancePercentage should match"
+        );
+
+        // Verify arrays
+        address[] memory originalAssets = bittyVault.getAssets();
+        address[] memory copiedAssets = v3VaultInstance.getAssets();
+        assertEq(copiedAssets.length, originalAssets.length, "_assets length should match");
+        for (uint256 i = 0; i < originalAssets.length; i++) {
+            assertEq(copiedAssets[i], originalAssets[i], "_assets should match");
+        }
+
+        address[] memory originalStableCoins = bittyVault.getStableCoins();
+        address[] memory copiedStableCoins = v3VaultInstance.getStableCoins();
+        assertEq(copiedStableCoins.length, originalStableCoins.length, "_stableCoins length should match");
+        for (uint256 i = 0; i < originalStableCoins.length; i++) {
+            assertEq(copiedStableCoins[i], originalStableCoins[i], "_stableCoins should match");
+        }
+
+        // Verify trigger events mapping
+        bytes32[] memory triggerEventKeys = bittyVault.getAllTriggerEventKeys();
+        for (uint256 i = 0; i < triggerEventKeys.length; i++) {
+            bytes32 eventKey = triggerEventKeys[i];
+            (address originalTriggerAddress, uint256 originalAmount, bool originalIsPercentage) =
+                bittyVault.beneficiaryTriggerEvents(eventKey);
+            (address copiedTriggerAddress, uint256 copiedAmount, bool copiedIsPercentage) =
+                v3VaultInstance.beneficiaryTriggerEvents(eventKey);
+            assertEq(
+                copiedTriggerAddress, originalTriggerAddress, "beneficiaryTriggerEvents triggerAddress should match"
+            );
+            assertEq(copiedAmount, originalAmount, "beneficiaryTriggerEvents amount should match");
+            assertEq(copiedIsPercentage, originalIsPercentage, "beneficiaryTriggerEvents isPercentage should match");
+        }
+    }
+
+    function test_MigrateAssetsJumpVersion() public {
+        // Give current vault (v1) some assets
+        uint256 wbtcAmount = 1 ether;
+        uint256 wethAmount = 2 ether;
+        uint256 usdtAmount = 1000 * 1e18;
+        uint256 usdcAmount = 2000 * 1e18;
+        uint256 ethAmount = 0.5 ether;
+
+        deal(address(mockWBTC), address(bittyVault), wbtcAmount);
+        deal(address(mockWETH), address(bittyVault), wethAmount);
+        deal(address(mockUSDT), address(bittyVault), usdtAmount);
+        deal(address(mockUSDC), address(bittyVault), usdcAmount);
+        deal(address(bittyVault), ethAmount);
+
+        // Record balances before migration
+        uint256 bittyVaultWbtcBefore = mockWBTC.balanceOf(address(bittyVault));
+        uint256 bittyVaultWethBefore = mockWETH.balanceOf(address(bittyVault));
+        uint256 bittyVaultUsdtBefore = mockUSDT.balanceOf(address(bittyVault));
+        uint256 bittyVaultUsdcBefore = mockUSDC.balanceOf(address(bittyVault));
+        uint256 bittyVaultEthBefore = address(bittyVault).balance;
+
+        // Set up v2 and v3 vault implementations
+        MockVault vaultV2Implementation = new MockVault(2);
+        MockVault vaultV3Implementation = new MockVault(3);
+
+        migrator.setVersionizedVault(address(vaultV2Implementation), abi.encode(uint256(2)), false);
+        migrator.setVersionizedVault(address(vaultV3Implementation), abi.encode(uint256(3)), false);
+
+        // Step 1: Create v3 vault first (this will create intermediate v2 vault)
+        address v3VaultAddress = migrator.createVersionVault(address(bittyVault), 3, "v1-to-v3-migrateAssets-salt");
+        MockVault v3VaultInstance = MockVault(payable(v3VaultAddress));
+
+        // Verify v3 vault is created and has correct version
+        assertEq(v3VaultInstance.version(), 3, "V3 vault should be version 3");
+
+        // Verify assets are still in v1 vault before migration
+        assertEq(mockWBTC.balanceOf(address(bittyVault)), bittyVaultWbtcBefore, "WBTC should still be in v1 vault");
+        assertEq(mockWETH.balanceOf(address(bittyVault)), bittyVaultWethBefore, "WETH should still be in v1 vault");
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), bittyVaultUsdtBefore, "USDT should still be in v1 vault");
+        assertEq(mockUSDC.balanceOf(address(bittyVault)), bittyVaultUsdcBefore, "USDC should still be in v1 vault");
+        assertEq(address(bittyVault).balance, bittyVaultEthBefore, "ETH should still be in v1 vault");
+
+        // Step 2: Migrate assets from v1 to v3 using migrateAssets
+        vm.prank(trustee);
+        bittyVault.migrateAssets(3);
+
+        // Verify all assets are transferred to v3 vault
+        assertEq(mockWBTC.balanceOf(address(bittyVault)), 0, "WBTC should be transferred from v1");
+        assertEq(mockWBTC.balanceOf(v3VaultAddress), bittyVaultWbtcBefore, "WBTC should be in v3 vault");
+
+        assertEq(mockWETH.balanceOf(address(bittyVault)), 0, "WETH should be transferred from v1");
+        assertEq(mockWETH.balanceOf(v3VaultAddress), bittyVaultWethBefore, "WETH should be in v3 vault");
+
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0, "USDT should be transferred from v1");
+        assertEq(mockUSDT.balanceOf(v3VaultAddress), bittyVaultUsdtBefore, "USDT should be in v3 vault");
+
+        assertEq(mockUSDC.balanceOf(address(bittyVault)), 0, "USDC should be transferred from v1");
+        assertEq(mockUSDC.balanceOf(v3VaultAddress), bittyVaultUsdcBefore, "USDC should be in v3 vault");
+
+        assertEq(address(bittyVault).balance, 0, "ETH should be transferred from v1");
+        assertEq(v3VaultAddress.balance, bittyVaultEthBefore, "ETH should be in v3 vault");
     }
 }
 

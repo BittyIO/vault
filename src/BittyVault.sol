@@ -79,8 +79,23 @@ contract BittyVault is Trust, AssetManager, IVault {
         revert AlreadyInitialized();
     }
 
-    function migrate() external override onlyInitialized onlyTrustee {
-        address nextVault = IMigrator(migrator).nextVersionVault(trustee, address(this));
+    function createAndMigrate(uint256 _toVersion, string calldata _salt)
+        external
+        override
+        onlyInitialized
+        onlyTrustee
+        returns (address)
+    {
+        address nextVault = IMigrator(migrator).createVersionVault(address(this), _toVersion, _salt);
+        if (nextVault == address(0)) {
+            revert AddressZero();
+        }
+        _revoke(nextVault);
+        return nextVault;
+    }
+
+    function migrateAssets(uint256 _toVersion) external override onlyInitialized onlyTrustee {
+        address nextVault = IMigrator(migrator).versionVault(address(this), _toVersion);
         if (nextVault == address(0)) {
             revert AddressZero();
         }

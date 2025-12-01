@@ -12,6 +12,7 @@ contract Migrator is IMigrator, Ownable {
     error VersionAlreadyUsed();
     error VersionMismatch();
     error VaultAlreadyDeployed();
+    error InvalidVersion();
 
     struct VaultWithArgs {
         address vault;
@@ -19,7 +20,9 @@ contract Migrator is IMigrator, Ownable {
     }
     mapping(uint256 => VaultWithArgs) public versionToVault;
     mapping(address => uint256) public vaultToVersion;
-    mapping(address => mapping(address => address)) public nextVersionVaults;
+
+    // fromVault => nextVersionVault
+    mapping(address => address) public nextVersionVaults;
 
     function setVersionizedVault(address _vault, bytes calldata _args, bool _forceUpdate) external override onlyOwner {
         uint256 version = IVersionizedVault(_vault).version();
@@ -33,21 +36,38 @@ contract Migrator is IMigrator, Ownable {
         versionToVault[version] = VaultWithArgs({vault: _vault, args: _args});
     }
 
-    function createNextVersionVault(string calldata salt, address _vault) external override returns (address) {
-        // Check if next vault already exists for this trustee and vault
-        address nextVault = nextVersionVaults[msg.sender][_vault];
+    function createVersionVault(address _fromVault, uint256 _toVersion, string calldata salt)
+        external
+        override
+        returns (address)
+    {
+        IVersionizedVault _vault = IVersionizedVault(_fromVault);
+        uint256 fromVersion = _vault.version();
+        if (fromVersion >= _toVersion) {
+            revert InvalidVersion();
+        }
+        uint256 _nextVersion = fromVersion;
+        do {
+            _nextVersion++;
+            _vault = IVersionizedVault(_createNextVersionVault(address(_vault), _nextVersion, salt));
+        } while (_vault.version() < _toVersion);
+        return address(_vault);
+    }
+
+    function _createNextVersionVault(address _fromVault, uint256 _nextVersion, string calldata salt)
+        private
+        returns (address)
+    {
+        // Check if next vault already exists for this vault
+        address nextVault = nextVersionVaults[_fromVault];
         if (nextVault != address(0)) {
             return nextVault;
         }
-        uint256 version = vaultToVersion[_vault];
-        if (version == 0) {
-            revert NoNextVersionVault();
-        }
-        VaultWithArgs memory nextVaultWithArgs = versionToVault[version + 1];
+        VaultWithArgs memory nextVaultWithArgs = versionToVault[_nextVersion];
         if (nextVaultWithArgs.vault == address(0)) {
             revert NoNextVersionVault();
         }
-        bytes32 saltHash = keccak256(abi.encodePacked(msg.sender, salt));
+        bytes32 saltHash = keccak256(abi.encodePacked(_fromVault, salt));
         // Calculate the deterministic address first
         nextVault = Clones.predictDeterministicAddress(nextVaultWithArgs.vault, saltHash);
         // MEV attack protection: if vault is already deployed, revert
@@ -56,16 +76,30 @@ contract Migrator is IMigrator, Ownable {
         }
         // Clone and initialize
         nextVault = Clones.cloneDeterministic(nextVaultWithArgs.vault, saltHash);
-        IVersionizedVault(nextVault).initialize(address(_vault), nextVaultWithArgs.args);
-        nextVersionVaults[msg.sender][_vault] = nextVault;
+        IVersionizedVault(nextVault).initialize(_fromVault, nextVaultWithArgs.args);
+        if (IVersionizedVault(nextVault).version() != _nextVersion) {
+            revert VersionMismatch();
+        }
+        nextVersionVaults[_fromVault] = nextVault;
         return nextVault;
     }
 
-    function nextVersionVault(address _trustee, address _vault) external view override returns (address) {
-        address nextVault = nextVersionVaults[_trustee][_vault];
+    function _nextVersionVault(address _fromVault) private view returns (address) {
+        address nextVault = nextVersionVaults[_fromVault];
         if (nextVault == address(0)) {
             revert NoNextVersionVault();
         }
         return nextVault;
+    }
+
+    function versionVault(address _fromVault, uint256 _toVersion) external view override returns (address) {
+        IVersionizedVault _vault = IVersionizedVault(_fromVault);
+        if (_vault.version() >= _toVersion) {
+            revert InvalidVersion();
+        }
+        do {
+            _vault = IVersionizedVault(_nextVersionVault(address(_vault)));
+        } while (_vault.version() < _toVersion);
+        return address(_vault);
     }
 }
