@@ -26,8 +26,9 @@ contract BittyVaultFactory is Initializable {
      * @notice Emitted when a new BittyVault is deployed
      * @param vault The address of the deployed vault
      * @param grantor The grantor address that will own this vault
+     * @param inputSalt The salt used for the deployment
      */
-    event VaultDeployed(address indexed vault, address indexed grantor);
+    event VaultDeployed(address indexed vault, address indexed grantor, string inputSalt);
 
     address public wethAddress;
 
@@ -82,7 +83,7 @@ contract BittyVaultFactory is Initializable {
                 swapProviders
             );
 
-        emit VaultDeployed(vault, grantor);
+        emit VaultDeployed(vault, grantor, inputSalt);
     }
 
     function _checkWhiteList(
