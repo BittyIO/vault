@@ -20,7 +20,6 @@ import {
     InsufficientWithdrawableFee,
     AlreadySubscribed
 } from "../src/interfaces/Errors.sol";
-import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 
 contract SubscribeTest is Test {
     address public user;

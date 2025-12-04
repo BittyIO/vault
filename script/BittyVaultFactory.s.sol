@@ -2,7 +2,6 @@
 pragma solidity ^0.8.13;
 
 import {Script} from "lib/forge-std/src/Script.sol";
-import {BittyVault} from "../src/BittyVault.sol";
 import {BittyVaultFactory} from "../src/BittyVaultFactory.sol";
 import {mainnet, sepolia} from "../script/addresses.sol";
 import {console2} from "lib/forge-std/src/console2.sol";

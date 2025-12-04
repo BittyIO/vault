@@ -4,8 +4,6 @@ pragma solidity ^0.8.27;
 import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVaultFactory} from "../src/BittyVaultFactory.sol";
 import {BittyVault} from "../src/BittyVault.sol";
-import {AssetManager} from "../src/AssetManager.sol";
-import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
 import {
     InvalidGrantor,
     AddressZero,
@@ -103,12 +101,12 @@ contract BittyVaultFactoryTest is Test {
 
     function test_ComputeVaultAddress() public {
         factory.initialize(wethAddress, whiteListAddress, migratorAddress);
-        address computedAddress = factory.computeVaultAddress(grantor1);
+        address computedAddress = factory.computeVaultAddress(grantor1, "salt1");
         assertTrue(computedAddress != address(0), "Computed address should not be zero");
 
         vm.prank(grantor1);
         address deployedAddress =
-            factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+            factory.deployVault(grantor1, "salt2", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
         assertTrue(deployedAddress != address(0), "Deployed address should not be zero");
         assertTrue(computedAddress != deployedAddress, "Addresses should differ due to inputSalt");
     }
@@ -264,8 +262,8 @@ contract BittyVaultFactoryTest is Test {
 
     function test_ComputeVaultAddressForDifferentGrantors() public {
         factory.initialize(wethAddress, whiteListAddress, migratorAddress);
-        address computed1 = factory.computeVaultAddress(grantor1);
-        address computed2 = factory.computeVaultAddress(grantor2);
+        address computed1 = factory.computeVaultAddress(grantor1, "salt1");
+        address computed2 = factory.computeVaultAddress(grantor2, "salt1");
 
         assertTrue(computed1 != computed2, "Different grantors should compute to different addresses");
         assertTrue(computed1 != address(0), "Computed address should not be zero");
@@ -461,14 +459,14 @@ contract BittyVaultFactoryTest is Test {
     function test_ComputeAddressInternalFunction() public {
         factory.initialize(wethAddress, whiteListAddress, migratorAddress);
 
-        address addr1 = factory.computeVaultAddress(grantor1);
-        address addr2 = factory.computeVaultAddress(grantor2);
+        address addr1 = factory.computeVaultAddress(grantor1, "salt1");
+        address addr2 = factory.computeVaultAddress(grantor2, "salt1");
 
         assertTrue(addr1 != address(0), "Computed address should not be zero");
         assertTrue(addr2 != address(0), "Computed address should not be zero");
         assertTrue(addr1 != addr2, "Different grantors should produce different addresses");
 
-        address addr1Again = factory.computeVaultAddress(grantor1);
+        address addr1Again = factory.computeVaultAddress(grantor1, "salt1");
         assertEq(addr1, addr1Again, "Same grantor should produce same computed address");
     }
 

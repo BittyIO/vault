@@ -1,20 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {BittyVault} from "./BittyVault.sol";
-import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {
-    InvalidGrantor,
-    DeploymentFailed,
-    AddressZero,
-    NotInitialized,
-    NotWhiteListed,
-    Unauthorized,
-    VaultAlreadyDeployed
-} from "./interfaces/Errors.sol";
+import {InvalidGrantor, AddressZero, NotWhiteListed, Unauthorized, VaultAlreadyDeployed} from "./interfaces/Errors.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
 import {IMigrator} from "./interfaces/IMigrator.sol";
+import {BittyVault} from "./BittyVault.sol";
 
 /**
  * @title BittyVaultFactory
@@ -118,23 +109,13 @@ contract BittyVaultFactory is Initializable {
         }
     }
 
-    /**
-     * @notice Computes the address where a BittyVault will be deployed for a given grantor
-     * @param grantor The address of the grantor
-     * @return The deterministic address where the vault will be deployed
-     */
-    function computeVaultAddress(address grantor) external view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(grantor));
-        bytes32 bytecodeHash = keccak256(type(BittyVault).creationCode);
+    function computeVaultAddress(address grantor, string memory inputSalt) external view returns (address) {
+        bytes32 salt = keccak256(abi.encodePacked(grantor, inputSalt));
+        bytes memory bytecode = type(BittyVault).creationCode;
+        bytes32 bytecodeHash = keccak256(bytecode);
         return computeAddress(salt, bytecodeHash);
     }
 
-    /**
-     * @notice Computes the CREATE2 address
-     * @param salt The salt used for CREATE2
-     * @param bytecodeHash The hash of the contract bytecode
-     * @return addr The computed address
-     */
     function computeAddress(bytes32 salt, bytes32 bytecodeHash) internal view returns (address addr) {
         assembly {
             let ptr := mload(0x40)

@@ -8,7 +8,6 @@ import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {console} from "lib/forge-std/src/console.sol";
 
 contract UniswapProvider is ISwapProvider, Ownable, Initializable {
     using SafeERC20 for IERC20;
