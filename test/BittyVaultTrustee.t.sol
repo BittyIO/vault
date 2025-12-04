@@ -3,9 +3,6 @@ pragma solidity ^0.8.27;
 
 import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
-import {ITrust} from "../src/interfaces/ITrust.sol";
-import {ITrustee} from "../src/interfaces/ITrustee.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
 import {
     AmountIsZero,

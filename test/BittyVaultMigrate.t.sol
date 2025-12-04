@@ -9,8 +9,6 @@ import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {MockVault} from "./mock/MockVault.sol";
 import {WhiteList} from "../src/WhiteList.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {AddressZero} from "../src/interfaces/Errors.sol";
 import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
 import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
 import {MockYieldProvider} from "./mock/MockYieldProvider.sol";

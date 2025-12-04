@@ -3,7 +3,6 @@ pragma solidity ^0.8.27;
 
 import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
-import {ITrust} from "../src/interfaces/ITrust.sol";
 import {AddressZero, AlreadyInitialized} from "../src/interfaces/Errors.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 

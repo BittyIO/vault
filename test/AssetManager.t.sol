@@ -3,29 +3,22 @@ pragma solidity ^0.8.27;
 
 import {Test} from "lib/forge-std/src/Test.sol";
 import {AssetManager} from "../src/AssetManager.sol";
-import {ITrust} from "../src/interfaces/ITrust.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {console} from "lib/forge-std/src/console.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {
     AmountIsZero,
     AddressZero,
     InsufficientBalance,
     NotInitialized,
-    WETHNotSet,
-    InvalidGrantor,
     InvalidYieldProvider,
     InvalidSwapProvider,
-    InvalidAssetType,
     NotWhiteListed,
     Deprecated
 } from "../src/interfaces/Errors.sol";
 
-import {IERC20Metadata} from "lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {IYieldProvider, ISwapProvider} from "../src/interfaces/IAssetManager.sol";
+import {ISwapProvider} from "../src/interfaces/IAssetManager.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";

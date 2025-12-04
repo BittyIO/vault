@@ -2,7 +2,6 @@
 pragma solidity ^0.8.27;
 
 import {IBeneficiary} from "./IBeneficiary.sol";
-import {AssetManager} from "../AssetManager.sol";
 
 /**
  * @title Create and set the rules of the Trust.
