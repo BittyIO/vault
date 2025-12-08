@@ -56,9 +56,6 @@ contract BittyVault is Trust, AssetManager, IVault {
         AssetManager._initialize(
             wethAddress, whiteListAddress, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders
         );
-        if (migratorAddress == address(0)) {
-            revert AddressZero();
-        }
         migrator = migratorAddress;
         if (grantorAddress == address(0)) {
             revert AddressZero();
