@@ -4,10 +4,11 @@ pragma solidity ^0.8.27;
 import {ITrustee} from "./interfaces/ITrustee.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {IAssetManager, IYieldProvider, ISwapProvider} from "./interfaces/IAssetManager.sol";
+import {IAssetManager, IProvider, IYieldProvider, ISwapProvider} from "./interfaces/IAssetManager.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
+import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {
     AddressZero,
     AmountIsZero,
@@ -33,6 +34,7 @@ import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 abstract contract AssetManager is IAssetManager, Initializable {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
+    using Clones for address;
 
     EnumerableSet.AddressSet private _assetConfigKeys;
     EnumerableSet.AddressSet private _lastRebalanceTimestampKeys;
@@ -48,6 +50,7 @@ abstract contract AssetManager is IAssetManager, Initializable {
     mapping(address => uint256) public lastRebalanceTimestamps;
     uint256 public lastRebalanceTimestamp;
     RebalanceLimit public rebalanceLimit;
+    mapping(address => address) public clonedProviders;
 
     modifier _onlyInitialized() {
         if (_getInitializedVersion() == 0) {
@@ -95,6 +98,17 @@ abstract contract AssetManager is IAssetManager, Initializable {
         }
     }
 
+    function _cloneProvider(address provider) internal returns (address clonedProvider) {
+        clonedProvider = clonedProviders[provider];
+        if (clonedProvider != address(0)) {
+            return clonedProvider;
+        }
+        clonedProvider = provider.clone();
+        IProvider(clonedProvider).initialize(address(this));
+        clonedProviders[provider] = clonedProvider;
+        return clonedProvider;
+    }
+
     function _setRebalanceRules(RebalanceLimit memory rebalanceLimit_) internal _onlyInitialized {
         rebalanceLimit = rebalanceLimit_;
     }
@@ -123,10 +137,12 @@ abstract contract AssetManager is IAssetManager, Initializable {
         if (!whiteList.isYieldProviderWhiteListed(yieldProvider)) {
             revert NotWhiteListed();
         }
-        IERC20(assetAddress).safeApprove(address(yieldProvider), amount);
+        // note: every asset manager should have its own yield provider instance
+        yieldProvider = _cloneProvider(yieldProvider);
+        IERC20(assetAddress).safeApprove(yieldProvider, amount);
         uint256 balanceBefore = IYieldProvider(yieldProvider).getBalance(assetAddress);
         IYieldProvider(yieldProvider).supply(assetAddress, amount);
-        IERC20(assetAddress).safeApprove(address(yieldProvider), 0);
+        IERC20(assetAddress).safeApprove(yieldProvider, 0);
         uint256 balanceAfter = IYieldProvider(yieldProvider).getBalance(assetAddress);
         if (balanceAfter - balanceBefore != amount) {
             revert SupplyAmountMismatch();
@@ -147,6 +163,8 @@ abstract contract AssetManager is IAssetManager, Initializable {
         {
             revert NotWhiteListed();
         }
+        // note: every asset manager should have its own yield provider instance
+        yieldProvider = _cloneProvider(yieldProvider);
         uint256 supplyAmount = IYieldProvider(yieldProvider).getBalance(assetAddress);
         if (supplyAmount < amount) {
             revert InsufficientBalance();
@@ -205,15 +223,21 @@ abstract contract AssetManager is IAssetManager, Initializable {
         ) {
             revert RebalanceInMinimalTime();
         }
-        if (assetConfigFrom.minimalBalance > 0 && _addressBalance(from) - sellAmount < assetConfigFrom.minimalBalance) {
-            revert MinimalBalanceNotMet();
+        if (assetConfigFrom.minimalBalance > 0) {
+            uint256 fromBalance = _addressBalance(from);
+            if (fromBalance < sellAmount || fromBalance - sellAmount < assetConfigFrom.minimalBalance) {
+                revert MinimalBalanceNotMet();
+            }
         }
         if (_stableCoins.contains(from) && rebalanceLimit.minimalStableCoinBalance > 0) {
             uint256 stableCoinBalanceTotalBalance = 0;
             for (uint256 i = 0; i < _stableCoins.length(); i++) {
                 stableCoinBalanceTotalBalance += _addressBalance(_stableCoins.at(i));
             }
-            if (stableCoinBalanceTotalBalance - sellAmount < rebalanceLimit.minimalStableCoinBalance) {
+            if (
+                stableCoinBalanceTotalBalance < sellAmount
+                    || stableCoinBalanceTotalBalance - sellAmount < rebalanceLimit.minimalStableCoinBalance
+            ) {
                 revert MinimalBalanceNotMet();
             }
         }
@@ -266,6 +290,9 @@ abstract contract AssetManager is IAssetManager, Initializable {
             revert InsufficientBalance();
         }
         uint256 buyAssetBalanceBefore = _addressBalance(toAssetType);
+
+        // note: every asset manager should have its own swap provider instance
+        swapProvider = _cloneProvider(swapProvider);
 
         ISwapProvider(swapProvider).swap(data);
 

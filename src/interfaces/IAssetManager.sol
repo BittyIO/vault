@@ -58,14 +58,16 @@ interface IAssetManager {
     function getSwapProviders() external view returns (address[] memory);
 }
 
-interface IYieldProvider {
+interface IProvider {
     function initialize(address newOwner) external;
+}
+
+interface IYieldProvider is IProvider {
     function supply(address asset, uint256 amount) external payable;
     function withdraw(address asset, uint256 amount) external;
     function getBalance(address asset) external view returns (uint256);
 }
 
-interface ISwapProvider {
-    function initialize(address newOwner) external;
+interface ISwapProvider is IProvider {
     function swap(bytes memory data) external payable;
 }

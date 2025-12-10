@@ -24,8 +24,14 @@ import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {Migrator} from "../src/Migrator.sol";
 
+contract TestBittyVault is BittyVault {
+    function cloneProviderForTesting(address provider) external returns (address) {
+        return _cloneProvider(provider);
+    }
+}
+
 contract BittyVaultTrusteeTest is Test {
-    BittyVault public bittyVault;
+    TestBittyVault public bittyVault;
     WETH public mockWETH;
     MockERC20 public mockWBTC;
     MockERC20 public mockUSDT;
@@ -47,7 +53,7 @@ contract BittyVaultTrusteeTest is Test {
         mockUSDC = new MockERC20("USDC", "USDC", 18);
         mockSwapProvider = new MockSwapProvider();
         mockYieldProvider = new MockYieldProvider();
-        bittyVault = new BittyVault();
+        bittyVault = new TestBittyVault();
         whiteListAddress = address(new WhiteList());
         migratorAddress = address(new Migrator());
         grantor = makeAddr("grantor");
@@ -182,12 +188,7 @@ contract BittyVaultTrusteeTest is Test {
 
     function test_RebalanceFailedIfNotFromAssetManager() public {
         uint256 sellAmount = 1 * 1e6;
-        deal(address(mockUSDT), address(bittyVault), rebalanceLimits.minimalStableCoinBalance);
-        deal(address(mockWETH), address(bittyVault), 1 ether + 2 * sellAmount);
         uint256 buyAmount = 10 * 1e6;
-        deal(address(mockUSDT), address(mockSwapProvider), buyAmount);
-        vm.prank(address(bittyVault));
-        mockWETH.approve(address(mockSwapProvider), sellAmount);
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
         address wethAddress = bittyVault.getAssets()[1];
         address usdtAddress = bittyVault.getStableCoins()[0];
@@ -197,7 +198,6 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_RebalanceFailedIfRebalanceIsZero() public {
-        deal(address(mockWETH), address(bittyVault), 1 ether);
         vm.warp(block.timestamp + rebalanceLimits.minimalTimestampBetweenRebalances + 1);
         vm.expectRevert(AmountIsZero.selector);
         vm.prank(assetManager);
@@ -206,22 +206,31 @@ contract BittyVaultTrusteeTest is Test {
 
     function test_RebalanceFailedIfRebalanceInMinimalTime() public {
         uint256 sellAmount = 1 * 1e6;
-        deal(address(mockUSDT), address(bittyVault), rebalanceLimits.minimalStableCoinBalance);
-        deal(address(mockWETH), address(bittyVault), 1 ether + 2 * sellAmount);
         uint256 buyAmount = 10 * 1e6;
-        deal(address(mockUSDT), address(mockSwapProvider), buyAmount);
-
-        vm.prank(address(bittyVault));
-        mockWETH.approve(address(mockSwapProvider), sellAmount);
 
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
         address wethAddress = bittyVault.getAssets()[1];
         address usdtAddress = bittyVault.getStableCoins()[0];
-        vm.warp(block.timestamp + 30 + 1);
+
+        // Clone the provider explicitly before the first rebalance
+        address clonedSwapProvider = bittyVault.cloneProviderForTesting(address(mockSwapProvider));
+        require(clonedSwapProvider != address(0), "Provider should be cloned");
+
+        // Fund the vault and cloned provider for the first rebalance
+        deal(address(mockWETH), address(bittyVault), sellAmount);
+        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        vm.prank(address(bittyVault));
+        mockWETH.approve(clonedSwapProvider, sellAmount);
+
+        vm.warp(block.timestamp + rebalanceLimits.minimalTimestampBetweenRebalances + 1);
         vm.prank(assetManager);
         bittyVault.rebalance(address(mockSwapProvider), wethAddress, usdtAddress, sellAmount, buyAmount, swapData);
 
-        deal(address(mockUSDT), address(mockSwapProvider), buyAmount);
+        // Fund the vault and cloned provider for the second rebalance
+        deal(address(mockWETH), address(bittyVault), sellAmount);
+        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        vm.prank(address(bittyVault));
+        mockWETH.approve(clonedSwapProvider, sellAmount);
 
         vm.expectRevert(RebalanceInMinimalTime.selector);
         vm.warp(block.timestamp + rebalanceLimits.minimalTimestampBetweenRebalances - 1);
@@ -231,14 +240,7 @@ contract BittyVaultTrusteeTest is Test {
 
     function test_RebalanceFailedIfMinimalWBTCBalanceIsNotMet() public {
         uint256 sellAmount = 1;
-        deal(address(mockWBTC), address(bittyVault), 1);
-
         uint256 buyAmount = 10 * 1e6;
-        deal(address(mockUSDT), address(mockSwapProvider), buyAmount);
-
-        vm.prank(address(bittyVault));
-        mockWBTC.approve(address(mockSwapProvider), sellAmount);
-
         vm.prank(trustee);
         bittyVault.setAssetConfig(
             address(mockWBTC),
@@ -256,14 +258,7 @@ contract BittyVaultTrusteeTest is Test {
 
     function test_RebalanceFailedIfMinimalWETHBalanceIsNotMet() public {
         uint256 sellAmount = 1;
-        deal(address(mockWETH), address(bittyVault), 1 ether);
-
         uint256 buyAmount = 10 * 1e6;
-        deal(address(mockUSDT), address(mockSwapProvider), buyAmount);
-
-        vm.prank(address(bittyVault));
-        mockWETH.approve(address(mockSwapProvider), sellAmount);
-
         vm.prank(trustee);
         bittyVault.setAssetConfig(
             address(mockWETH), IAssetManager.AssetConfig({minimalBalance: 1 ether, minimalDurationBetweenRebalances: 0})
@@ -280,14 +275,7 @@ contract BittyVaultTrusteeTest is Test {
 
     function test_RebalanceFailedIfMinimalStableCoinBalanceIsNotMet() public {
         uint256 sellAmount = 1;
-        deal(address(mockUSDT), address(bittyVault), rebalanceLimits.minimalStableCoinBalance);
-
         uint256 buyAmount = 1;
-        deal(address(mockWETH), address(mockSwapProvider), buyAmount);
-
-        vm.prank(address(bittyVault));
-        mockUSDT.approve(address(mockSwapProvider), sellAmount);
-
         bytes memory swapData = abi.encode(address(mockUSDT), sellAmount, address(mockWETH), buyAmount);
         address usdtAddress = address(mockUSDT);
         address wethAddress = address(mockWETH);
@@ -302,14 +290,21 @@ contract BittyVaultTrusteeTest is Test {
         deal(address(mockUSDT), address(bittyVault), rebalanceLimits.minimalStableCoinBalance + sellAmount);
 
         uint256 buyAmount = 1;
-        deal(address(mockUSDC), address(mockSwapProvider), buyAmount);
-
-        vm.prank(address(bittyVault));
-        mockUSDT.approve(address(mockSwapProvider), sellAmount);
 
         bytes memory swapData = abi.encode(address(mockUSDT), sellAmount, address(mockUSDC), buyAmount);
         address usdtAddress = bittyVault.getStableCoins()[0];
         address usdcAddress = bittyVault.getStableCoins()[1];
+
+        // Clone the provider explicitly before the rebalance
+        address clonedSwapProvider = bittyVault.cloneProviderForTesting(address(mockSwapProvider));
+        require(clonedSwapProvider != address(0), "Provider should be cloned");
+
+        // Fund and approve the cloned provider for the rebalance
+        deal(address(mockUSDC), clonedSwapProvider, buyAmount);
+        vm.prank(address(bittyVault));
+        mockUSDT.approve(clonedSwapProvider, sellAmount);
+
+        vm.warp(block.timestamp + rebalanceLimits.minimalTimestampBetweenRebalances + 1);
         vm.prank(assetManager);
         bittyVault.rebalance(address(mockSwapProvider), usdtAddress, usdcAddress, sellAmount, buyAmount, swapData);
         assertEq(mockUSDT.balanceOf(address(bittyVault)), rebalanceLimits.minimalStableCoinBalance);
