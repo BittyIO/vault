@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {Test} from "lib/forge-std/src/Test.sol";
-import {UniswapProvider} from "../src/providers/UniswapProvider.sol";
+import {UniswapV4Provider} from "../src/providers/UniswapV4Provider.sol";
 import {mainnet} from "../script/addresses.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -26,12 +26,12 @@ contract TestUniswapProviderFork is Test {
     using PoolStateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
 
-    UniswapProvider public uniswapProvider;
+    UniswapV4Provider public uniswapProvider;
     IPoolManager public poolManager;
 
     function setUp() public {
         vm.createSelectFork("mainnet");
-        uniswapProvider = new UniswapProvider(mainnet.UNISWAP_V4_ROUTER, mainnet.POOL_MANAGER);
+        uniswapProvider = new UniswapV4Provider(mainnet.UNISWAP_V4_ROUTER, mainnet.POOL_MANAGER);
         uniswapProvider.initialize(address(this));
         vm.deal(address(uniswapProvider), 0);
         poolManager = IPoolManager(mainnet.POOL_MANAGER);

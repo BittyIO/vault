@@ -104,6 +104,15 @@ contract TestAssetManager is Test, AssetManager {
         _rebalance(swapProvider, from, to, sellAmount, buyAmountMin, data);
     }
 
+    function getClonedProvider(address provider) external view returns (address) {
+        return clonedProviders[provider];
+    }
+
+    // Helper function to clone a provider for testing
+    function cloneProviderForTesting(address provider) external returns (address) {
+        return _cloneProvider(provider);
+    }
+
     function initialize(
         address wethAddress,
         address[] memory assetAddresses,
@@ -265,12 +274,15 @@ contract TestAssetManager is Test, AssetManager {
 
         deal(address(mockToken), address(this), supplyAmount);
 
-        uint256 balanceBefore = mockYieldProvider.getBalance(address(mockToken));
-
+        // Supply will clone the provider, so get the cloned address after supply
         this.supply(address(mockYieldProvider), address(mockToken), supplyAmount);
 
-        uint256 balanceAfter = mockYieldProvider.getBalance(address(mockToken));
-        assertEq(balanceAfter - balanceBefore, supplyAmount);
+        // Get cloned provider address after supply
+        address clonedProvider = this.getClonedProvider(address(mockYieldProvider));
+        require(clonedProvider != address(0), "Provider should be cloned");
+
+        uint256 balanceAfter = MockYieldProvider(clonedProvider).getBalance(address(mockToken));
+        assertEq(balanceAfter, supplyAmount);
 
         assertEq(mockToken.balanceOf(address(this)), 0);
     }
@@ -285,6 +297,9 @@ contract TestAssetManager is Test, AssetManager {
         deal(address(mockToken), address(this), supplyAmount);
         this.supply(address(mockYieldProvider), address(mockToken), supplyAmount);
 
+        // Get cloned provider address
+        address clonedProvider = this.getClonedProvider(address(mockYieldProvider));
+
         uint256 balanceBefore = mockToken.balanceOf(address(this));
 
         this.withdraw(address(mockYieldProvider), address(mockToken), withdrawAmount);
@@ -292,7 +307,7 @@ contract TestAssetManager is Test, AssetManager {
         uint256 balanceAfter = mockToken.balanceOf(address(this));
         assertEq(balanceAfter - balanceBefore, withdrawAmount);
 
-        assertEq(mockYieldProvider.getBalance(address(mockToken)), supplyAmount - withdrawAmount);
+        assertEq(MockYieldProvider(clonedProvider).getBalance(address(mockToken)), supplyAmount - withdrawAmount);
     }
 
     function test_SwapERC20ToERC20() public {
@@ -306,9 +321,14 @@ contract TestAssetManager is Test, AssetManager {
 
         deal(address(sellToken), address(this), sellAmount);
 
-        sellToken.approve(address(mockSwapProvider), sellAmount);
+        // Pre-clone the swap provider so we can fund it
+        address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
 
-        deal(address(mockUSDT), address(mockSwapProvider), buyAmount);
+        // Fund the cloned swap provider with buy tokens
+        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+
+        // Approve the cloned swap provider to transfer sell tokens from TestAssetManager
+        sellToken.approve(clonedSwapProvider, sellAmount);
 
         bytes memory swapData = abi.encode(address(sellToken), sellAmount, address(mockUSDT), buyAmount);
 
@@ -352,9 +372,14 @@ contract TestAssetManager is Test, AssetManager {
 
         deal(address(sellToken), address(this), sellAmount);
 
-        sellToken.approve(address(mockSwapProvider), sellAmount);
+        // Pre-clone the swap provider so we can fund it
+        address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
 
-        deal(address(mockWETH), address(mockSwapProvider), buyAmount);
+        // Fund the cloned swap provider with buy tokens (WETH)
+        deal(address(mockWETH), clonedSwapProvider, buyAmount);
+
+        // Approve the cloned swap provider to transfer sell tokens from TestAssetManager
+        sellToken.approve(clonedSwapProvider, sellAmount);
 
         uint256 sellBalanceBefore = sellToken.balanceOf(address(this));
         uint256 wethBalanceBefore = WETH(payable(mockWETH)).balanceOf(address(this));
