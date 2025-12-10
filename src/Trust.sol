@@ -79,6 +79,16 @@ abstract contract Trust is ITrust {
         _;
     }
 
+    modifier onlyTrusteeOrGrantor() {
+        if (trustee != address(0)) {
+            require(msg.sender == trustee, "Only trustee");
+            _;
+        } else {
+            require(msg.sender == grantor, "Only grantor");
+            _;
+        }
+    }
+
     modifier onlyAssetManager() {
         require(msg.sender == assetManager, "Only asset manager");
         _;
