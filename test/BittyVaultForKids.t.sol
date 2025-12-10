@@ -15,6 +15,7 @@ contract BittyVaultForKidsTest is Test {
     WETH mockWETH;
     address public whiteListAddress;
     address public migratorAddress;
+    address public poolManagerAddress;
 
     function setUp() public {
         mockWETH = new WETH();
@@ -23,9 +24,11 @@ contract BittyVaultForKidsTest is Test {
         grantor = makeAddr("grantor");
         kidAddress = makeAddr("alice");
         migratorAddress = address(new Migrator());
+        poolManagerAddress = makeAddr("poolManagerAddress");
         bittyVaultForKids.initialize(
             grantor,
             address(mockWETH),
+            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),

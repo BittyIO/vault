@@ -52,6 +52,7 @@ contract BittyVaultBeneficiaryTest is Test {
     MockYieldProvider public mockYieldProvider2;
     MockYieldProvider public mockYieldProvider3;
     address public migratorAddress;
+    address public poolManagerAddress;
 
     function setUp() public {
         mockWETH = new WETH();
@@ -84,9 +85,11 @@ contract BittyVaultBeneficiaryTest is Test {
         vm.stopPrank();
 
         migratorAddress = address(new Migrator());
+        poolManagerAddress = makeAddr("poolManagerAddress");
         bittyVault.initialize(
             address(this),
             address(mockWETH),
+            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             assetAddresses,
@@ -96,8 +99,8 @@ contract BittyVaultBeneficiaryTest is Test {
         );
         bittyVault.setBeneficiary(beneficiary);
         bittyVault.setTrustee(address(this));
-        withdrawMoney = 100; // Base units (will be multiplied by 10^decimals in the contract)
-        marriageMoney = 100000; // Base units
+        withdrawMoney = 100;
+        marriageMoney = 100000;
         beneficiarySettings =
             IBeneficiary.BeneficiarySettings({amountPerWithdrawal: withdrawMoney, minimalWithdrawDuration: 30 days});
         eventNames = new string[](1);

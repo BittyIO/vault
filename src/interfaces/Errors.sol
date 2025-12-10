@@ -51,7 +51,6 @@ error RevenuePercentageIsZero();
 error RevenueDurationIsZero();
 
 // Factory errors
-error InvalidGrantor();
 error DeploymentFailed();
 error NotWhiteListed();
 error Deprecated();

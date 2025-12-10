@@ -4,19 +4,15 @@ pragma solidity ^0.8.27;
 import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVaultFactory} from "../src/BittyVaultFactory.sol";
 import {BittyVault} from "../src/BittyVault.sol";
-import {
-    InvalidGrantor,
-    AddressZero,
-    NotWhiteListed,
-    Unauthorized,
-    VaultAlreadyDeployed
-} from "../src/interfaces/Errors.sol";
+import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
+import {AddressZero, NotWhiteListed, Unauthorized, VaultAlreadyDeployed} from "../src/interfaces/Errors.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 import {Migrator} from "../src/Migrator.sol";
 
 contract BittyVaultFactoryTest is Test {
     BittyVaultFactory public factory;
+    address public vaultImplementation;
     address public grantor1;
     address public grantor2;
     address public wethAddress;
@@ -31,10 +27,13 @@ contract BittyVaultFactoryTest is Test {
     address[] public swapProviders;
     address public whiteListAddress;
     address public migratorAddress;
+    address public poolManagerAddress;
 
     function setUp() public {
         whiteListAddress = address(new WhiteList());
         migratorAddress = address(new Migrator());
+        poolManagerAddress = makeAddr("poolManagerAddress");
+        vaultImplementation = address(new BittyVault());
         factory = new BittyVaultFactory();
         grantor1 = makeAddr("grantor1");
         grantor2 = makeAddr("grantor2");
@@ -63,36 +62,38 @@ contract BittyVaultFactoryTest is Test {
 
     function test_FactoryRevertsIfAddressZero() public {
         vm.expectRevert(AddressZero.selector);
-        factory.initialize(address(0), whiteListAddress, migratorAddress);
+        factory.initialize(address(0), wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
+
+        vm.expectRevert(AddressZero.selector);
+        factory.initialize(vaultImplementation, address(0), whiteListAddress, migratorAddress, poolManagerAddress);
+
+        vm.expectRevert(AddressZero.selector);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, address(0));
+    }
+
+    function test_InitializeCanHaveZeroWhiteListAndMigrator() public {
+        factory.initialize(vaultImplementation, wethAddress, address(0), address(0), poolManagerAddress);
+        assertEq(address(factory.whiteList()), address(0), "WhiteList can be zero");
+        assertEq(address(factory.migrator()), address(0), "Migrator can be zero");
     }
 
     function test_DeployVaultRevertsIfAddressNotWhiteListed() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
-        vm.expectRevert(InvalidGrantor.selector);
-        factory.deployVault(address(0), "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address[] memory invalidAddressArray = new address[](1);
         invalidAddressArray[0] = makeAddr("invalidAddress");
         vm.prank(grantor1);
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVault(grantor1, "salt1", invalidAddressArray, stableCoinAddresses, yieldProviders, swapProviders);
-    }
-
-    function test_DeployVaultRevertsIfUnauthorized() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
-        address attacker = makeAddr("attacker");
-        vm.prank(attacker);
-        vm.expectRevert(Unauthorized.selector);
-        factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+        factory.deployVault("salt1", invalidAddressArray, stableCoinAddresses, yieldProviders, swapProviders);
     }
 
     function test_DeployVaultForDifferentGrantors() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         vm.prank(grantor1);
         address vault1 =
-            factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+            factory.deployVault("salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
         vm.prank(grantor2);
         address vault2 =
-            factory.deployVault(grantor2, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+            factory.deployVault("salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
 
         assertTrue(vault1 != vault2, "Different grantors should get different vault addresses");
         assertTrue(vault1 != address(0), "Vault1 should not be zero address");
@@ -100,26 +101,26 @@ contract BittyVaultFactoryTest is Test {
     }
 
     function test_ComputeVaultAddress() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address computedAddress = factory.computeVaultAddress(grantor1, "salt1");
         assertTrue(computedAddress != address(0), "Computed address should not be zero");
 
         vm.prank(grantor1);
         address deployedAddress =
-            factory.deployVault(grantor1, "salt2", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+            factory.deployVault("salt2", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
         assertTrue(deployedAddress != address(0), "Deployed address should not be zero");
         assertTrue(computedAddress != deployedAddress, "Addresses should differ due to inputSalt");
     }
 
     function test_SameGrantorCanDeployMultipleVaults() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         vm.prank(grantor1);
         address vault1 =
-            factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+            factory.deployVault("salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
 
         vm.prank(grantor1);
         address vault2 =
-            factory.deployVault(grantor1, "salt2", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+            factory.deployVault("salt2", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
 
         assertTrue(vault1 != vault2, "Different salts should produce different vault addresses");
         assertTrue(vault1 != address(0), "Vault1 should not be zero");
@@ -127,23 +128,23 @@ contract BittyVaultFactoryTest is Test {
     }
 
     function test_SameGrantorSameSaltRevertsIfVaultExists() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         vm.prank(grantor1);
         address vault1 =
-            factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+            factory.deployVault("salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
 
         assertTrue(vault1 != address(0), "First vault should be deployed");
 
         vm.prank(grantor1);
         vm.expectRevert(VaultAlreadyDeployed.selector);
-        factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+        factory.deployVault("salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
     }
 
     function test_DeployedVaultCanBeInitialized() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         vm.prank(grantor1);
         address vaultAddress =
-            factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+            factory.deployVault("salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
         BittyVault vault = BittyVault(payable(vaultAddress));
 
         assertTrue(vault.isInitialized(), "Vault should be initialized");
@@ -158,25 +159,11 @@ contract BittyVaultFactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfVaultAlreadyExistsAtComputedAddress() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
 
         string memory testSalt = "salt1";
-        bytes memory bytecode = type(BittyVault).creationCode;
         bytes32 salt = keccak256(abi.encodePacked(grantor1, testSalt));
-
-        bytes32 bytecodeHash = keccak256(bytecode);
-
-        address factoryAddr = address(factory);
-        address computedAddr;
-        assembly {
-            let ptr := mload(0x40)
-            mstore(add(ptr, 0x40), bytecodeHash)
-            mstore(add(ptr, 0x20), salt)
-            mstore(ptr, factoryAddr)
-            let start := add(ptr, 0x0b)
-            mstore8(start, 0xff)
-            computedAddr := and(keccak256(start, 0x55), 0xffffffffffffffffffffffffffffffffffffffff)
-        }
+        address computedAddr = Clones.predictDeterministicAddress(vaultImplementation, salt, address(factory));
 
         bytes memory minimalBytecode =
             hex"6080604052348015600f57600080fd5b50603f80601d6000396000f3fe6080604052600080fdfea2646970667358221220";
@@ -188,58 +175,53 @@ contract BittyVaultFactoryTest is Test {
         if (deployedAddr == computedAddr && deployedAddr.code.length > 0) {
             vm.prank(grantor1);
             vm.expectRevert(VaultAlreadyDeployed.selector);
-            factory.deployVault(grantor1, testSalt, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+            factory.deployVault(testSalt, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
         }
     }
 
     function test_InitializeSuccess() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         assertEq(factory.wethAddress(), wethAddress, "WETH address should be set");
         assertEq(address(factory.whiteList()), whiteListAddress, "WhiteList address should be set");
     }
 
     function test_DeployVaultRevertsIfStableCoinNotWhiteListed() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address[] memory invalidStableCoinArray = new address[](1);
         invalidStableCoinArray[0] = makeAddr("invalidStableCoin");
         vm.prank(grantor1);
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVault(grantor1, "salt1", assetAddresses, invalidStableCoinArray, yieldProviders, swapProviders);
+        factory.deployVault("salt1", assetAddresses, invalidStableCoinArray, yieldProviders, swapProviders);
     }
 
     function test_DeployVaultRevertsIfYieldProviderNotWhiteListed() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address[] memory invalidYieldProviderArray = new address[](1);
         invalidYieldProviderArray[0] = makeAddr("invalidYieldProvider");
         vm.prank(grantor1);
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVault(
-            grantor1, "salt1", assetAddresses, stableCoinAddresses, invalidYieldProviderArray, swapProviders
-        );
+        factory.deployVault("salt1", assetAddresses, stableCoinAddresses, invalidYieldProviderArray, swapProviders);
     }
 
     function test_DeployVaultRevertsIfSwapProviderNotWhiteListed() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address[] memory invalidSwapProviderArray = new address[](1);
         invalidSwapProviderArray[0] = makeAddr("invalidSwapProvider");
         vm.prank(grantor1);
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVault(
-            grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, invalidSwapProviderArray
-        );
+        factory.deployVault("salt1", assetAddresses, stableCoinAddresses, yieldProviders, invalidSwapProviderArray);
     }
 
     function test_DeployVaultWithEmptyArrays() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address[] memory emptyAssets = new address[](0);
         address[] memory emptyStableCoins = new address[](0);
         address[] memory emptyYieldProviders = new address[](0);
         address[] memory emptySwapProviders = new address[](0);
 
         vm.prank(grantor1);
-        address vault = factory.deployVault(
-            grantor1, "salt1", emptyAssets, emptyStableCoins, emptyYieldProviders, emptySwapProviders
-        );
+        address vault =
+            factory.deployVault("salt1", emptyAssets, emptyStableCoins, emptyYieldProviders, emptySwapProviders);
 
         assertTrue(vault != address(0), "Vault should be deployed");
         BittyVault vaultInstance = BittyVault(payable(vault));
@@ -247,11 +229,10 @@ contract BittyVaultFactoryTest is Test {
     }
 
     function test_DeployVaultEmitsEvent() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
 
         vm.prank(grantor1);
-        address vault =
-            factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+        address vault = factory.deployVault("salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
 
         assertTrue(vault != address(0), "Vault should be deployed");
 
@@ -261,7 +242,7 @@ contract BittyVaultFactoryTest is Test {
     }
 
     function test_ComputeVaultAddressForDifferentGrantors() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address computed1 = factory.computeVaultAddress(grantor1, "salt1");
         address computed2 = factory.computeVaultAddress(grantor2, "salt1");
 
@@ -271,7 +252,7 @@ contract BittyVaultFactoryTest is Test {
     }
 
     function test_DeployVaultWithMultipleAssets() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address[] memory multipleAssets = new address[](3);
         multipleAssets[0] = wbtcAddress;
         multipleAssets[1] = wethAddress;
@@ -284,14 +265,13 @@ contract BittyVaultFactoryTest is Test {
         vm.stopPrank();
 
         vm.prank(grantor1);
-        address vault =
-            factory.deployVault(grantor1, "salt1", multipleAssets, stableCoinAddresses, yieldProviders, swapProviders);
+        address vault = factory.deployVault("salt1", multipleAssets, stableCoinAddresses, yieldProviders, swapProviders);
 
         assertTrue(vault != address(0), "Vault should be deployed");
     }
 
     function test_DeployVaultWithMultipleStableCoins() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address[] memory multipleStableCoins = new address[](3);
         multipleStableCoins[0] = usdtAddress;
         multipleStableCoins[1] = usdcAddress;
@@ -304,14 +284,13 @@ contract BittyVaultFactoryTest is Test {
         vm.stopPrank();
 
         vm.prank(grantor1);
-        address vault =
-            factory.deployVault(grantor1, "salt1", assetAddresses, multipleStableCoins, yieldProviders, swapProviders);
+        address vault = factory.deployVault("salt1", assetAddresses, multipleStableCoins, yieldProviders, swapProviders);
 
         assertTrue(vault != address(0), "Vault should be deployed");
     }
 
     function test_DeployVaultWithMultipleYieldProviders() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address yieldProvider1 = makeAddr("yieldProvider1");
         address yieldProvider2 = makeAddr("yieldProvider2");
         address[] memory multipleYieldProviders = new address[](2);
@@ -323,15 +302,14 @@ contract BittyVaultFactoryTest is Test {
         vm.stopPrank();
 
         vm.prank(grantor1);
-        address vault = factory.deployVault(
-            grantor1, "salt1", assetAddresses, stableCoinAddresses, multipleYieldProviders, swapProviders
-        );
+        address vault =
+            factory.deployVault("salt1", assetAddresses, stableCoinAddresses, multipleYieldProviders, swapProviders);
 
         assertTrue(vault != address(0), "Vault should be deployed");
     }
 
     function test_DeployVaultWithMultipleSwapProviders() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address swapProvider1 = makeAddr("swapProvider1");
         address swapProvider2 = makeAddr("swapProvider2");
         address[] memory multipleSwapProviders = new address[](2);
@@ -343,15 +321,14 @@ contract BittyVaultFactoryTest is Test {
         vm.stopPrank();
 
         vm.prank(grantor1);
-        address vault = factory.deployVault(
-            grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, multipleSwapProviders
-        );
+        address vault =
+            factory.deployVault("salt1", assetAddresses, stableCoinAddresses, yieldProviders, multipleSwapProviders);
 
         assertTrue(vault != address(0), "Vault should be deployed");
     }
 
     function test_DeployVaultRevertsIfMultipleAssetsOneNotWhiteListed() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address[] memory mixedAssets = new address[](3);
         mixedAssets[0] = wbtcAddress;
         mixedAssets[1] = wethAddress;
@@ -360,11 +337,11 @@ contract BittyVaultFactoryTest is Test {
         vm.prank(grantor1);
         vm.expectRevert(NotWhiteListed.selector);
 
-        factory.deployVault(grantor1, "salt1", mixedAssets, stableCoinAddresses, yieldProviders, swapProviders);
+        factory.deployVault("salt1", mixedAssets, stableCoinAddresses, yieldProviders, swapProviders);
     }
 
     function test_DeployVaultRevertsIfMultipleStableCoinsOneNotWhiteListed() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address[] memory mixedStableCoins = new address[](3);
         mixedStableCoins[0] = usdtAddress;
         mixedStableCoins[1] = usdcAddress;
@@ -372,11 +349,11 @@ contract BittyVaultFactoryTest is Test {
 
         vm.prank(grantor1);
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVault(grantor1, "salt1", assetAddresses, mixedStableCoins, yieldProviders, swapProviders);
+        factory.deployVault("salt1", assetAddresses, mixedStableCoins, yieldProviders, swapProviders);
     }
 
     function test_DeployVaultRevertsIfMultipleYieldProvidersOneNotWhiteListed() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address yieldProvider1 = makeAddr("yieldProvider1");
         address[] memory mixedYieldProviders = new address[](2);
         mixedYieldProviders[0] = yieldProvider1;
@@ -390,11 +367,11 @@ contract BittyVaultFactoryTest is Test {
 
         vm.prank(grantor1);
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, mixedYieldProviders, swapProviders);
+        factory.deployVault("salt1", assetAddresses, stableCoinAddresses, mixedYieldProviders, swapProviders);
     }
 
     function test_DeployVaultRevertsIfMultipleSwapProvidersOneNotWhiteListed() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         address swapProvider1 = makeAddr("swapProvider1");
         address[] memory mixedSwapProviders = new address[](2);
         mixedSwapProviders[0] = swapProvider1;
@@ -409,28 +386,15 @@ contract BittyVaultFactoryTest is Test {
         vm.prank(grantor1);
         vm.expectRevert(NotWhiteListed.selector);
 
-        factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, mixedSwapProviders);
+        factory.deployVault("salt1", assetAddresses, stableCoinAddresses, yieldProviders, mixedSwapProviders);
     }
 
     function test_DeployVaultRevertsIfVaultAlreadyExistsAtComputedAddressForced() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
 
         string memory testSalt = "salt1";
-        bytes memory bytecode = type(BittyVault).creationCode;
         bytes32 salt = keccak256(abi.encodePacked(grantor1, testSalt));
-        bytes32 bytecodeHash = keccak256(bytecode);
-
-        address factoryAddr = address(factory);
-        address computedAddr;
-        assembly {
-            let ptr := mload(0x40)
-            mstore(add(ptr, 0x40), bytecodeHash)
-            mstore(add(ptr, 0x20), salt)
-            mstore(ptr, factoryAddr)
-            let start := add(ptr, 0x0b)
-            mstore8(start, 0xff)
-            computedAddr := and(keccak256(start, 0x55), 0xffffffffffffffffffffffffffffffffffffffff)
-        }
+        address computedAddr = Clones.predictDeterministicAddress(vaultImplementation, salt, address(factory));
 
         bytes memory minimalBytecode =
             hex"6080604052348015600f57600080fd5b50603f80601d6000396000f3fe6080604052600080fdfea2646970667358221220";
@@ -443,21 +407,19 @@ contract BittyVaultFactoryTest is Test {
         if (deployedAddr == computedAddr && deployedAddr.code.length > 0) {
             vm.prank(grantor1);
             vm.expectRevert(VaultAlreadyDeployed.selector);
-            factory.deployVault(grantor1, testSalt, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+            factory.deployVault(testSalt, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
         } else {
             vm.etch(computedAddr, minimalBytecode);
             if (computedAddr.code.length > 0) {
                 vm.prank(grantor1);
                 vm.expectRevert(VaultAlreadyDeployed.selector);
-                factory.deployVault(
-                    grantor1, testSalt, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders
-                );
+                factory.deployVault(testSalt, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
             }
         }
     }
 
     function test_ComputeAddressInternalFunction() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
 
         address addr1 = factory.computeVaultAddress(grantor1, "salt1");
         address addr2 = factory.computeVaultAddress(grantor2, "salt1");
@@ -471,11 +433,10 @@ contract BittyVaultFactoryTest is Test {
     }
 
     function test_DeployVaultSuccessWithAllValidParameters() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
 
         vm.prank(grantor1);
-        address vault =
-            factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+        address vault = factory.deployVault("salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
 
         assertTrue(vault != address(0), "Vault should be deployed");
         BittyVault vaultInstance = BittyVault(payable(vault));
@@ -484,17 +445,16 @@ contract BittyVaultFactoryTest is Test {
     }
 
     function test_InitializeSetsStateVariables() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
         assertEq(factory.wethAddress(), wethAddress, "WETH address should be set");
         assertEq(address(factory.whiteList()), whiteListAddress, "WhiteList address should be set");
     }
 
     function test_DeployVaultEmitsVaultDeployedEvent() public {
-        factory.initialize(wethAddress, whiteListAddress, migratorAddress);
+        factory.initialize(vaultImplementation, wethAddress, whiteListAddress, migratorAddress, poolManagerAddress);
 
         vm.prank(grantor1);
-        address vault =
-            factory.deployVault(grantor1, "salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+        address vault = factory.deployVault("salt1", assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
 
         assertTrue(vault != address(0), "Vault should be deployed");
 
