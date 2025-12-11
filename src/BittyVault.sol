@@ -79,7 +79,7 @@ contract BittyVault is Trust, AssetManager, IVault {
         external
         override
         onlyInitialized
-        onlyTrustee
+        onlyTrusteeOrGrantor
         returns (address)
     {
         address nextVault = IMigrator(migrator).createVersionVault(address(this), _toVersion, _salt);
@@ -90,7 +90,7 @@ contract BittyVault is Trust, AssetManager, IVault {
         return nextVault;
     }
 
-    function migrateAssets(uint256 _toVersion) external override onlyInitialized onlyTrustee {
+    function migrateAssets(uint256 _toVersion) external override onlyInitialized onlyTrusteeOrGrantor {
         address nextVault = IMigrator(migrator).versionVault(address(this), _toVersion);
         if (nextVault == address(0)) {
             revert AddressZero();
@@ -180,7 +180,7 @@ contract BittyVault is Trust, AssetManager, IVault {
         }
     }
 
-    function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external onlyInitialized onlyTrustee {
+    function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external onlyInitialized onlyTrusteeOrGrantor {
         _setRebalanceRules(rebalanceLimit);
     }
 
@@ -213,12 +213,12 @@ contract BittyVault is Trust, AssetManager, IVault {
     function setAssetConfig(address assetAddress, IAssetManager.AssetConfig memory assetConfig)
         external
         onlyInitialized
-        onlyTrustee
+        onlyTrusteeOrGrantor
     {
         _setAssetConfig(assetAddress, assetConfig);
     }
 
-    function addAssets(address[] memory assetAddresses) external onlyInitialized onlyTrustee {
+    function addAssets(address[] memory assetAddresses) external onlyInitialized onlyTrusteeOrGrantor {
         for (uint256 i = 0; i < assetAddresses.length; i++) {
             if (!whiteList.isAssetWhiteListed(assetAddresses[i])) {
                 revert NotWhiteListed();
@@ -227,13 +227,13 @@ contract BittyVault is Trust, AssetManager, IVault {
         }
     }
 
-    function removeAssets(address[] memory assetAddresses) external onlyInitialized onlyTrustee {
+    function removeAssets(address[] memory assetAddresses) external onlyInitialized onlyTrusteeOrGrantor {
         for (uint256 i = 0; i < assetAddresses.length; i++) {
             _assets.remove(assetAddresses[i]);
         }
     }
 
-    function addStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrustee {
+    function addStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrusteeOrGrantor {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
             if (!whiteList.isStableCoinWhiteListed(stableCoinAddresses[i])) {
                 revert NotWhiteListed();
@@ -242,13 +242,13 @@ contract BittyVault is Trust, AssetManager, IVault {
         }
     }
 
-    function removeStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrustee {
+    function removeStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrusteeOrGrantor {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
             _stableCoins.remove(stableCoinAddresses[i]);
         }
     }
 
-    function addYieldProviders(address[] memory yieldProviderAddresses) external onlyInitialized onlyTrustee {
+    function addYieldProviders(address[] memory yieldProviderAddresses) external onlyInitialized onlyTrusteeOrGrantor {
         for (uint256 i = 0; i < yieldProviderAddresses.length; i++) {
             if (!whiteList.isYieldProviderWhiteListed(yieldProviderAddresses[i])) {
                 revert NotWhiteListed();
@@ -257,13 +257,17 @@ contract BittyVault is Trust, AssetManager, IVault {
         }
     }
 
-    function removeYieldProviders(address[] memory yieldProviderAddresses) external onlyInitialized onlyTrustee {
+    function removeYieldProviders(address[] memory yieldProviderAddresses)
+        external
+        onlyInitialized
+        onlyTrusteeOrGrantor
+    {
         for (uint256 i = 0; i < yieldProviderAddresses.length; i++) {
             _yieldProviders.remove(yieldProviderAddresses[i]);
         }
     }
 
-    function addSwapProviders(address[] memory swapProviderAddresses) external onlyInitialized onlyTrustee {
+    function addSwapProviders(address[] memory swapProviderAddresses) external onlyInitialized onlyTrusteeOrGrantor {
         for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
             if (!whiteList.isSwapProviderWhiteListed(swapProviderAddresses[i])) {
                 revert NotWhiteListed();
@@ -272,7 +276,7 @@ contract BittyVault is Trust, AssetManager, IVault {
         }
     }
 
-    function removeSwapProviders(address[] memory swapProviderAddresses) external onlyInitialized onlyTrustee {
+    function removeSwapProviders(address[] memory swapProviderAddresses) external onlyInitialized onlyTrusteeOrGrantor {
         for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
             _swapProviders.remove(swapProviderAddresses[i]);
         }
