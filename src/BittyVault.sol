@@ -6,9 +6,8 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.so
 import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {IYieldProvider, ISwapProvider} from "./interfaces/IAssetManager.sol";
-import {IUniswapV4Router04} from "./libs/Uniswap.sol";
 import {OracleLibrary} from "./libs/OracleLibrary.sol";
-import {IPoolManager, PoolKey, PoolIdLibrary} from "./libs/Uniswap.sol";
+import {IPoolManager} from "./libs/uniswap/v4/Uniswap.sol";
 import {AssetManager} from "./AssetManager.sol";
 import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";

@@ -7,7 +7,7 @@ import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {MockYieldProvider} from "../mock/MockYieldProvider.sol";
 import {MockSwapProvider} from "../mock/MockSwapProvider.sol";
 import {TransferFailed, InsufficientStablecoinBalance} from "../../src/interfaces/Errors.sol";
-import {IPoolManager} from "../../src/libs/Uniswap.sol";
+import {IPoolManager} from "../../src/libs/uniswap/v4/Uniswap.sol";
 import {ISwapProvider} from "../../src/interfaces/IAssetManager.sol";
 
 contract MockVaultForTesting {

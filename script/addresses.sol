@@ -13,6 +13,8 @@ library mainnet {
     address public constant POOL_DATA_PROVIDER = 0x0a16f2FCC0D44FaE41cc54e079281D84A363bECD;
     address public constant POOL_MANAGER = 0x000000000004444c5dc75cB358380D2e3dE08A90;
 
+    address public constant UNISWAP_V3_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
+
     address public constant STETH = 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84;
     address public constant UNSTETH = 0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1;
 
@@ -32,6 +34,8 @@ library sepolia {
     address public constant UNISWAP_V4_ROUTER = 0x00000000000044a361Ae3cAc094c9D1b14Eece97;
     address public constant POOL_DATA_PROVIDER = 0x3e9708d80f7B3e43118013075F7e95CE3AB31F31;
     address public constant POOL_MANAGER = 0xE03A1074c86CFeDd5C142C4F04F1a1536e203543;
+
+    address public constant UNISWAP_V3_ROUTER = 0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E;
 
     address public constant STETH = 0x3e3FE7dBc6B4C189E7128855dD526361c49b40Af;
     address public constant UNSTETH = 0x1583C7b3f4C3B008720E6BcE5726336b0aB25fdd;

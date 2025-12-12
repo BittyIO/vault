@@ -2,12 +2,15 @@
 pragma solidity ^0.8.27;
 
 import {ISwapProvider} from "../interfaces/IAssetManager.sol";
-import {IUniswapV4Router04, BaseData, PoolKey} from "../libs/Uniswap.sol";
+import {IUniswapV4Router04, BaseData, PoolKey, PathKey} from "../libs/uniswap/v4/Uniswap.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
+
+error InvalidPayer();
+error InvalidReceiver();
 
 contract UniswapV4Provider is ISwapProvider, Ownable, Initializable {
     using SafeERC20 for IERC20;
@@ -26,17 +29,15 @@ contract UniswapV4Provider is ISwapProvider, Ownable, Initializable {
     receive() external payable {}
 
     function swap(bytes memory data) external payable override onlyOwner {
-        (BaseData memory baseData, bool zeroForOne, PoolKey memory poolKey,) =
-            abi.decode(data, (BaseData, bool, PoolKey, bytes));
-        address payAsset;
-        address receiveAsset;
-        if (zeroForOne) {
-            payAsset = poolKey.currency0;
-            receiveAsset = poolKey.currency1;
-        } else {
-            payAsset = poolKey.currency1;
-            receiveAsset = poolKey.currency0;
-        }
+        (BaseData memory baseData, address startCurrency, PathKey[] memory path) =
+            abi.decode(data, (BaseData, address, PathKey[]));
+
+        baseData.payer = address(this);
+        baseData.receiver = address(this);
+
+        data = abi.encode(baseData, startCurrency, path);
+        address payAsset = startCurrency;
+        address receiveAsset = path[path.length - 1].intermediateCurrency;
 
         if (payAsset != address(0)) {
             IERC20(payAsset).safeTransferFrom(msg.sender, address(this), baseData.amount);
@@ -53,7 +54,7 @@ contract UniswapV4Provider is ISwapProvider, Ownable, Initializable {
             Address.sendValue(payable(msg.sender), address(this).balance);
         }
         if (receiveAsset != address(0)) {
-            IERC20(receiveAsset).safeTransfer(baseData.receiver, IERC20(receiveAsset).balanceOf(address(this)));
+            IERC20(receiveAsset).safeTransfer(msg.sender, IERC20(receiveAsset).balanceOf(address(this)));
         }
     }
 }
