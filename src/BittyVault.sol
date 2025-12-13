@@ -21,7 +21,8 @@ import {
     WETHNotSet,
     InsufficientStablecoinBalance,
     NotWhiteListed,
-    InsufficientBalance
+    InsufficientBalance,
+    OnlyRevocable
 } from "./interfaces/Errors.sol";
 import {VaultHelper} from "./helpers/VaultHelper.sol";
 
@@ -100,6 +101,9 @@ contract BittyVault is Trust, AssetManager, IVault {
     }
 
     function withdraw(address assetAddress, uint256 amount) external onlyInitialized onlyGrantor {
+        if (!this.revocable()) {
+            revert OnlyRevocable();
+        }
         if (assetAddress == address(0)) {
             revert AddressZero();
         }

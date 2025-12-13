@@ -49,6 +49,7 @@ error RevenueDurationNotMet();
 error RevenueIsZero();
 error RevenuePercentageIsZero();
 error RevenueDurationIsZero();
+error OnlyRevocable();
 
 // Factory errors
 error DeploymentFailed();

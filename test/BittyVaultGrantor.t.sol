@@ -10,7 +10,8 @@ import {
     StartDistributionTimestampAlreadySet,
     WETHNotSet,
     TimestampIsZero,
-    TimestampNotFound
+    TimestampNotFound,
+    OnlyRevocable
 } from "../src/interfaces/Errors.sol";
 import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
 import {WhiteList} from "../src/WhiteList.sol";
@@ -1080,5 +1081,12 @@ contract BittyVaultGrantorTest is Test {
         bittyVault.withdraw(address(mockToken), thirdWithdraw);
         assertEq(mockToken.balanceOf(address(bittyVault)), 0);
         assertEq(mockToken.balanceOf(address(this)), totalBalance);
+    }
+
+    function test_Withdraw_RevertsIfNotRevocable() public {
+        bittyVault.setToIrrevocable();
+        assertFalse(bittyVault.revocable());
+        vm.expectRevert(OnlyRevocable.selector);
+        bittyVault.withdraw(address(mockWETH), 100);
     }
 }
