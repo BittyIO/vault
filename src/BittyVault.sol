@@ -102,8 +102,8 @@ contract BittyVault is Trust, AssetManager, IVault {
      * @notice Override revoke to transfer all assets to the grantor
      * @dev Transfers all assets (USDT, USDC, WBTC, WETH, ETH) and withdraws from Aave if needed
      */
-    function revoke(address moneyWithdrawTo) external override onlyInitialized onlyGrantor onlyRevocable {
-        _revoke(moneyWithdrawTo);
+    function revoke() external override onlyInitialized onlyGrantor onlyRevocable {
+        _revoke(grantor);
     }
 
     function _revoke(address moneyWithdrawTo) internal {

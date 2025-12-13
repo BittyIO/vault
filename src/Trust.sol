@@ -149,11 +149,7 @@ abstract contract Trust is ITrust {
         isInitialized = true;
     }
 
-    function revoke(address moneyWithdrawTo) external virtual override onlyInitialized onlyGrantor onlyRevocable {
-        if (moneyWithdrawTo == address(0)) {
-            revert AddressZero();
-        }
-    }
+    function revoke() external virtual override onlyInitialized onlyGrantor onlyRevocable {}
 
     function setToIrrevocable() external virtual override onlyInitialized onlyGrantor {
         isIrrevocable = true;
@@ -357,7 +353,7 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function getMoneyFromEvent(string memory eventName, address stableCoinAddress, address to)
+    function getMoneyFromEvent(string memory eventName, address stableCoinAddress)
         external
         virtual
         override
@@ -375,9 +371,9 @@ abstract contract Trust is ITrust {
             revert EventTriggerError();
         }
         if (!triggerEvent.isPercentage) {
-            _getMoney(beneficiaryTriggerEvents[eventKey].amount, stableCoinAddress, to);
+            _getMoney(beneficiaryTriggerEvents[eventKey].amount, stableCoinAddress, beneficiary);
         } else {
-            _getPercentageMoney(triggerEvent.amount, to);
+            _getPercentageMoney(triggerEvent.amount, beneficiary);
         }
         delete beneficiaryTriggerEvents[eventKey];
         _triggerEventKeys.remove(eventKey);
@@ -430,7 +426,7 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function getMoneyByTimestamp(uint256 timestamp, address stableCoinAddress, address to)
+    function getMoneyByTimestamp(uint256 timestamp, address stableCoinAddress)
         external
         virtual
         override
@@ -447,15 +443,15 @@ abstract contract Trust is ITrust {
             revert TimestampIsInTheFuture();
         }
         if (!beneficiaryTimeEvents[timestamp].isPercentage) {
-            _getMoney(beneficiaryTimeEvents[timestamp].amount, stableCoinAddress, to);
+            _getMoney(beneficiaryTimeEvents[timestamp].amount, stableCoinAddress, beneficiary);
         } else {
-            _getPercentageMoney(beneficiaryTimeEvents[timestamp].amount, to);
+            _getPercentageMoney(beneficiaryTimeEvents[timestamp].amount, beneficiary);
         }
         delete beneficiaryTimeEvents[timestamp];
         _timeEventKeys.remove(timestamp);
     }
 
-    function getMoney(address stableCoinAddress, address to) external virtual override onlyInitialized onlyBeneficiary {
+    function getMoney(address stableCoinAddress) external virtual override onlyInitialized onlyBeneficiary {
         if (beneficiarySettings.amountPerWithdrawal == 0) {
             revert BeneficiarySettingsNotSet();
         }
@@ -464,7 +460,7 @@ abstract contract Trust is ITrust {
         ) {
             revert BeneficiaryWithdrawalInLimitDays();
         }
-        _getMoney(beneficiarySettings.amountPerWithdrawal, stableCoinAddress, to);
+        _getMoney(beneficiarySettings.amountPerWithdrawal, stableCoinAddress, beneficiary);
         lastWithdrawalTime = block.timestamp;
     }
 
@@ -484,39 +480,27 @@ abstract contract Trust is ITrust {
         }
     }
 
-    function getBaseFee(address stableCoinAddress, address to)
-        external
-        virtual
-        override
-        onlyInitialized
-        onlyAssetManager
-    {
+    function getBaseFee(address stableCoinAddress) external virtual override onlyInitialized onlyAssetManager {
         if (block.timestamp - lastBaseFeeTime < manageFee.baseFeeDuration) {
             revert BaseFeeDurationNotMet();
         }
         lastBaseFeeTime = block.timestamp;
         if (!manageFee.isBaseFeePercentage) {
-            _getMoney(manageFee.baseFeeAmount, stableCoinAddress, to);
+            _getMoney(manageFee.baseFeeAmount, stableCoinAddress, assetManager);
         } else {
-            _getPercentageMoney(manageFee.baseFeeAmount, to);
+            _getPercentageMoney(manageFee.baseFeeAmount, assetManager);
         }
     }
 
     // TODO, when listing higher with buy low, sell to add revenues and get revenue fee from that
-    function getRevenueFee(address stableCoinAddress, address to)
-        external
-        virtual
-        override
-        onlyInitialized
-        onlyAssetManager
-    {
+    function getRevenueFee(address stableCoinAddress) external virtual override onlyInitialized onlyAssetManager {
         if (block.timestamp - lastRevenueTime < manageFee.revenueDuration) {
             revert RevenueDurationNotMet();
         }
         if (revenue == 0) {
             revert RevenueIsZero();
         }
-        _getMoney(revenue * manageFee.revenuePercentage / 10000, stableCoinAddress, to);
+        _getMoney(revenue * manageFee.revenuePercentage / 10000, stableCoinAddress, assetManager);
         lastRevenueTime = block.timestamp;
         revenue = 0;
     }

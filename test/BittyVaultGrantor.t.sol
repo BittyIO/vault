@@ -7,8 +7,12 @@ import {
     AddressZero,
     NotWhiteListed,
     AlreadyInitialized,
-    StartDistributionTimestampAlreadySet
+    StartDistributionTimestampAlreadySet,
+    WETHNotSet,
+    TimestampIsZero,
+    TimestampNotFound
 } from "../src/interfaces/Errors.sol";
+import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {Migrator} from "../src/Migrator.sol";
@@ -23,6 +27,8 @@ contract BittyVaultGrantorTest is Test {
     address public whiteListAddress;
     address public migratorAddress;
     address public poolManagerAddress;
+
+    receive() external payable {}
 
     function setUp() public {
         mockWETH = new WETH();
@@ -673,5 +679,244 @@ contract BittyVaultGrantorTest is Test {
         vm.prank(unauthorized);
         vm.expectRevert("Only grantor");
         bittyVault.removeStableCoins(stableCoins);
+    }
+
+    function test_Revoke_TransfersETHToGrantor() public {
+        address grantor = address(this);
+        vm.deal(address(bittyVault), 1 ether);
+        uint256 grantorETHBefore = grantor.balance;
+        uint256 vaultETHBefore = address(bittyVault).balance;
+        assertEq(vaultETHBefore, 1 ether);
+        bittyVault.revoke();
+        assertGt(grantor.balance, grantorETHBefore);
+        assertEq(address(bittyVault).balance, 0);
+    }
+
+    function test_Revoke_TransfersERC20ToGrantor() public {
+        MockERC20 mockUSDT = new MockERC20("USDT", "USDT", 6);
+        address grantor = address(this);
+        address[] memory stableCoins = new address[](1);
+        stableCoins[0] = address(mockUSDT);
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addStableCoins(stableCoins);
+        vm.stopPrank();
+
+        bittyVault.addStableCoins(stableCoins);
+
+        uint256 usdtAmount = 1000 * 10 ** mockUSDT.decimals();
+        deal(address(mockUSDT), address(bittyVault), usdtAmount);
+
+        uint256 grantorUSDTBefore = mockUSDT.balanceOf(grantor);
+        bittyVault.revoke();
+        assertEq(mockUSDT.balanceOf(grantor), grantorUSDTBefore + usdtAmount);
+        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
+    }
+
+    function test_Revoke_RevertsIfNotRevocable() public {
+        bittyVault.setToIrrevocable();
+        vm.expectRevert("Only revocable");
+        bittyVault.revoke();
+    }
+
+    function test_Revoke_RevertsIfNotGrantor() public {
+        address unauthorized = makeAddr("unauthorized");
+        vm.prank(unauthorized);
+        vm.expectRevert("Only grantor");
+        bittyVault.revoke();
+    }
+
+    function test_ChangeGrantorAddress_SameAddressDoesNothing() public {
+        address currentGrantor = address(this);
+        uint256 balanceBefore = address(bittyVault).balance;
+        bittyVault.changeGrantorAddress(currentGrantor);
+        assertEq(bittyVault.grantor(), currentGrantor);
+        assertEq(address(bittyVault).balance, balanceBefore);
+    }
+
+    function test_ChangeGrantorAddress_Success() public {
+        address newGrantor = makeAddr("newGrantor");
+        bittyVault.changeGrantorAddress(newGrantor);
+        assertEq(bittyVault.grantor(), newGrantor);
+    }
+
+    function test_Upgrade_RevertsIfAddressZero() public {
+        vm.expectRevert(AddressZero.selector);
+        bittyVault.upgrade(address(0));
+    }
+
+    function test_Upgrade_Success() public {
+        address upgradeToContract = makeAddr("upgradeToContract");
+        bittyVault.upgrade(upgradeToContract);
+    }
+
+    function test_Upgrade_RevertsIfNotGrantor() public {
+        address unauthorized = makeAddr("unauthorized");
+        address upgradeToContract = makeAddr("upgradeToContract");
+        vm.prank(unauthorized);
+        vm.expectRevert("Only grantor");
+        bittyVault.upgrade(upgradeToContract);
+    }
+
+    function test_DistributionStarted_BeforeTimestamp() public {
+        uint256 futureTimestamp = block.timestamp + 100 days;
+        bittyVault.setStartDistributionTimestamp(futureTimestamp);
+        assertFalse(bittyVault.distributionStarted());
+    }
+
+    function test_DistributionStarted_AfterTimestamp() public {
+        uint256 pastTimestamp = block.timestamp;
+        bittyVault.setStartDistributionTimestamp(pastTimestamp);
+        assertTrue(bittyVault.distributionStarted());
+    }
+
+    function test_DistributionStarted_AtTimestamp() public {
+        uint256 currentTimestamp = block.timestamp;
+        bittyVault.setStartDistributionTimestamp(currentTimestamp);
+        assertTrue(bittyVault.distributionStarted());
+    }
+
+    function test_Revocable_WhenIrrevocableSet() public {
+        bittyVault.setToIrrevocable();
+        assertFalse(bittyVault.revocable());
+    }
+
+    function test_Revocable_WhenAutoIrrevocableNotSet() public view {
+        assertTrue(bittyVault.revocable());
+    }
+
+    function test_Revocable_WhenAutoIrrevocableSetAndNotExpired() public {
+        bittyVault.setAutoIrrevocableAfterNoPing(100 days);
+        assertTrue(bittyVault.revocable());
+    }
+
+    function test_Revocable_WhenAutoIrrevocableSetAndExpired() public {
+        bittyVault.setAutoIrrevocableAfterNoPing(1 days);
+        vm.warp(block.timestamp + 2 days);
+        assertFalse(bittyVault.revocable());
+    }
+
+    function test_Revocable_WhenAutoIrrevocableSetAndPinged() public {
+        bittyVault.setAutoIrrevocableAfterNoPing(1 days);
+        bittyVault.ping();
+        vm.warp(block.timestamp + 12 hours);
+        assertTrue(bittyVault.revocable());
+    }
+
+    function test_Revocable_WhenAutoIrrevocableSetAndPingedThenExpired() public {
+        bittyVault.setAutoIrrevocableAfterNoPing(1 days);
+        bittyVault.ping();
+        vm.warp(block.timestamp + 2 days);
+        assertFalse(bittyVault.revocable());
+    }
+
+    function test_GetAllTriggerEventKeys_Empty() public {
+        bytes32[] memory keys = bittyVault.getAllTriggerEventKeys();
+        assertEq(keys.length, 0);
+    }
+
+    function test_GetAllTriggerEventKeys_WithEvents() public {
+        string[] memory eventNames = new string[](2);
+        eventNames[0] = "Marriage";
+        eventNames[1] = "Graduation";
+        IBeneficiary.TriggerEvent[] memory triggerEvents = new IBeneficiary.TriggerEvent[](2);
+        triggerEvents[0] =
+            IBeneficiary.TriggerEvent({triggerAddress: makeAddr("trigger1"), amount: 1000, isPercentage: false});
+        triggerEvents[1] =
+            IBeneficiary.TriggerEvent({triggerAddress: makeAddr("trigger2"), amount: 2000, isPercentage: false});
+
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
+        bytes32[] memory keys = bittyVault.getAllTriggerEventKeys();
+        assertEq(keys.length, 2);
+    }
+
+    function test_GetAllTimeEventKeys_Empty() public view {
+        uint256[] memory keys = bittyVault.getAllTimeEventKeys();
+        assertEq(keys.length, 0);
+    }
+
+    function test_GetAllTimeEventKeys_WithEvents() public {
+        uint256[] memory timestamps = new uint256[](2);
+        timestamps[0] = block.timestamp + 1 days;
+        timestamps[1] = block.timestamp + 2 days;
+        IBeneficiary.TimeEvent[] memory timeEvents = new IBeneficiary.TimeEvent[](2);
+        timeEvents[0] = IBeneficiary.TimeEvent({amount: 1000, isPercentage: false});
+        timeEvents[1] = IBeneficiary.TimeEvent({amount: 2000, isPercentage: false});
+
+        bittyVault.addTimeEvents(timestamps, timeEvents);
+        uint256[] memory keys = bittyVault.getAllTimeEventKeys();
+        assertEq(keys.length, 2);
+    }
+
+    function test_RemoveTimeEvents_Success() public {
+        uint256[] memory timestamps = new uint256[](1);
+        timestamps[0] = block.timestamp + 1 days;
+        IBeneficiary.TimeEvent[] memory timeEvents = new IBeneficiary.TimeEvent[](1);
+        timeEvents[0] = IBeneficiary.TimeEvent({amount: 1000, isPercentage: false});
+
+        bittyVault.addTimeEvents(timestamps, timeEvents);
+        assertEq(bittyVault.getAllTimeEventKeys().length, 1);
+
+        bittyVault.removeTimeEvents(timestamps);
+        assertEq(bittyVault.getAllTimeEventKeys().length, 0);
+    }
+
+    function test_RemoveTimeEvents_RevertsIfTimestampZero() public {
+        uint256[] memory timestamps = new uint256[](1);
+        timestamps[0] = 0;
+
+        vm.expectRevert(TimestampIsZero.selector);
+        bittyVault.removeTimeEvents(timestamps);
+    }
+
+    function test_RemoveTimeEvents_RevertsIfTimestampNotFound() public {
+        uint256[] memory timestamps = new uint256[](1);
+        timestamps[0] = block.timestamp + 1 days;
+
+        vm.expectRevert(TimestampNotFound.selector);
+        bittyVault.removeTimeEvents(timestamps);
+    }
+
+    function test_RemoveTimeEvents_RevertsIfIrrevocable() public {
+        uint256[] memory timestamps = new uint256[](1);
+        timestamps[0] = block.timestamp + 1 days;
+        IBeneficiary.TimeEvent[] memory timeEvents = new IBeneficiary.TimeEvent[](1);
+        timeEvents[0] = IBeneficiary.TimeEvent({amount: 1000, isPercentage: false});
+
+        bittyVault.addTimeEvents(timestamps, timeEvents);
+        bittyVault.setToIrrevocable();
+
+        vm.expectRevert("Only revocable");
+        bittyVault.removeTimeEvents(timestamps);
+    }
+
+    function test_TurnETHToWETH_Success() public {
+        vm.deal(address(bittyVault), 1 ether);
+        uint256 wethBalanceBefore = mockWETH.balanceOf(address(bittyVault));
+        bittyVault.turnETHToWETH();
+        assertEq(mockWETH.balanceOf(address(bittyVault)), wethBalanceBefore + 1 ether);
+        assertEq(address(bittyVault).balance, 0);
+    }
+
+    function test_TurnETHToWETH_ZeroBalance() public {
+        uint256 wethBalanceBefore = mockWETH.balanceOf(address(bittyVault));
+        bittyVault.turnETHToWETH();
+        assertEq(mockWETH.balanceOf(address(bittyVault)), wethBalanceBefore);
+    }
+
+    function test_TurnETHToWETH_RevertsIfWETHNotSet() public {
+        BittyVault newVault = new BittyVault();
+        vm.expectRevert(AddressZero.selector);
+        newVault.initialize(
+            address(this),
+            address(0),
+            poolManagerAddress,
+            whiteListAddress,
+            migratorAddress,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
     }
 }

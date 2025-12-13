@@ -101,13 +101,12 @@ interface IGrantor {
     /**
      * @notice Revoke the trust.
      * @dev Revoke the trust if the trust is revocable.
-     * @param moneyWithdrawTo The address to withdraw the money.
      *
      * If the trust is not revocable, this function will revert.
      *
      * 1. If the subscription fee is not paid, make sure the subscription fee is paid in one transaction.
      */
-    function revoke(address moneyWithdrawTo) external;
+    function revoke() external;
 
     /**
      * @notice Set the trust to irrevocable.

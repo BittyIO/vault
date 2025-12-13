@@ -10,9 +10,11 @@ import {
     BaseFeeDurationNotMet,
     RevenuePercentageIsZero,
     RevenueDurationNotMet,
+    RevenueIsZero,
     RebalanceInMinimalTime,
     MinimalBalanceNotMet,
-    NotWhiteListed
+    NotWhiteListed,
+    AddressZero
 } from "../src/interfaces/Errors.sol";
 
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
@@ -27,6 +29,10 @@ import {Migrator} from "../src/Migrator.sol";
 contract TestBittyVault is BittyVault {
     function cloneProviderForTesting(address provider) external returns (address) {
         return _cloneProvider(provider);
+    }
+
+    function setRevenueForTesting(uint256 revenueAmount) external {
+        revenue = revenueAmount;
     }
 }
 
@@ -124,7 +130,7 @@ contract BittyVaultTrusteeTest is Test {
     function test_GetBaseFeeFailedIfNotFromAssetManager() public {
         vm.expectRevert("Only asset manager");
         vm.prank(trustee);
-        bittyVault.getBaseFee(address(mockUSDT), assetManager);
+        bittyVault.getBaseFee(address(mockUSDT));
     }
 
     function test_TrusteeGetBaseFeeFailedBeforeDuration() public {
@@ -132,7 +138,7 @@ contract BittyVaultTrusteeTest is Test {
         bittyVault.setManageFee(manageFee);
         vm.expectRevert(BaseFeeDurationNotMet.selector);
         vm.prank(assetManager);
-        bittyVault.getBaseFee(address(mockUSDT), assetManager);
+        bittyVault.getBaseFee(address(mockUSDT));
     }
 
     function test_TrusteeGetBaseFeeShouldBeFine() public {
@@ -141,7 +147,7 @@ contract BittyVaultTrusteeTest is Test {
         deal(address(mockUSDT), address(bittyVault), manageFee.baseFeeAmount * 10 ** mockUSDT.decimals());
         vm.warp(block.timestamp + 30 days + 1);
         vm.prank(assetManager);
-        bittyVault.getBaseFee(address(mockUSDT), assetManager);
+        bittyVault.getBaseFee(address(mockUSDT));
         assertEq(mockUSDT.balanceOf(assetManager), manageFee.baseFeeAmount * 10 ** mockUSDT.decimals());
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
     }
@@ -154,7 +160,7 @@ contract BittyVaultTrusteeTest is Test {
         deal(address(mockUSDT), address(bittyVault), 100 * 1e6);
         vm.warp(block.timestamp + 30 days + 1);
         vm.prank(assetManager);
-        bittyVault.getBaseFee(address(mockUSDT), assetManager);
+        bittyVault.getBaseFee(address(mockUSDT));
         assertEq(mockUSDT.balanceOf(assetManager), 10 * 1e6);
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 90 * 1e6);
     }
@@ -172,7 +178,7 @@ contract BittyVaultTrusteeTest is Test {
         manageFee.revenueDuration = 30 days;
         vm.expectRevert("Only asset manager");
         vm.prank(trustee);
-        bittyVault.getRevenueFee(address(mockUSDT), assetManager);
+        bittyVault.getRevenueFee(address(mockUSDT));
     }
 
     function test_TrusteeGetRevenueFailedIfDurationIsNotMet() public {
@@ -183,7 +189,61 @@ contract BittyVaultTrusteeTest is Test {
         vm.warp(block.timestamp + manageFee.revenueDuration - 1);
         vm.prank(assetManager);
         vm.expectRevert(RevenueDurationNotMet.selector);
-        bittyVault.getRevenueFee(address(mockUSDT), assetManager);
+        bittyVault.getRevenueFee(address(mockUSDT));
+    }
+
+    function test_TrusteeGetRevenueFeeFailedIfRevenueIsZero() public {
+        manageFee.revenuePercentage = 10;
+        manageFee.revenueDuration = 30 days;
+        vm.prank(trustee);
+        bittyVault.setManageFee(manageFee);
+        vm.warp(block.timestamp + manageFee.revenueDuration + 1);
+        vm.prank(assetManager);
+        vm.expectRevert(RevenueIsZero.selector);
+        bittyVault.getRevenueFee(address(mockUSDT));
+    }
+
+    function test_TrusteeGetRevenueFeeSuccess() public {
+        manageFee.revenuePercentage = 10;
+        manageFee.revenueDuration = 30 days;
+        vm.prank(trustee);
+        bittyVault.setManageFee(manageFee);
+
+        uint256 revenueAmount = 1000;
+        bittyVault.setRevenueForTesting(revenueAmount);
+
+        uint256 expectedFeeBase = revenueAmount * manageFee.revenuePercentage / 10000;
+        uint256 expectedFeeTokens = expectedFeeBase * 10 ** mockUSDT.decimals();
+
+        deal(address(mockUSDT), address(bittyVault), expectedFeeTokens);
+
+        vm.warp(block.timestamp + manageFee.revenueDuration + 1);
+        vm.prank(assetManager);
+        bittyVault.getRevenueFee(address(mockUSDT));
+
+        assertEq(mockUSDT.balanceOf(assetManager), expectedFeeTokens);
+        assertEq(bittyVault.revenue(), 0);
+    }
+
+    function test_ChangeTrusteeAddress_Success() public {
+        address newTrustee = makeAddr("newTrustee");
+        vm.prank(trustee);
+        bittyVault.changeTrusteeAddress(newTrustee);
+        assertEq(bittyVault.trustee(), newTrustee);
+    }
+
+    function test_ChangeTrusteeAddress_RevertsIfAddressZero() public {
+        vm.prank(trustee);
+        vm.expectRevert(AddressZero.selector);
+        bittyVault.changeTrusteeAddress(address(0));
+    }
+
+    function test_ChangeTrusteeAddress_RevertsIfNotTrustee() public {
+        address unauthorized = makeAddr("unauthorized");
+        address newTrustee = makeAddr("newTrustee");
+        vm.prank(unauthorized);
+        vm.expectRevert("Only trustee");
+        bittyVault.changeTrusteeAddress(newTrustee);
     }
 
     function test_RebalanceFailedIfNotFromAssetManager() public {
@@ -212,11 +272,9 @@ contract BittyVaultTrusteeTest is Test {
         address wethAddress = bittyVault.getAssets()[1];
         address usdtAddress = bittyVault.getStableCoins()[0];
 
-        // Clone the provider explicitly before the first rebalance
         address clonedSwapProvider = bittyVault.cloneProviderForTesting(address(mockSwapProvider));
         require(clonedSwapProvider != address(0), "Provider should be cloned");
 
-        // Fund the vault and cloned provider for the first rebalance
         deal(address(mockWETH), address(bittyVault), sellAmount);
         deal(address(mockUSDT), clonedSwapProvider, buyAmount);
         vm.prank(address(bittyVault));
@@ -226,7 +284,6 @@ contract BittyVaultTrusteeTest is Test {
         vm.prank(assetManager);
         bittyVault.rebalance(address(mockSwapProvider), wethAddress, usdtAddress, sellAmount, buyAmount, swapData);
 
-        // Fund the vault and cloned provider for the second rebalance
         deal(address(mockWETH), address(bittyVault), sellAmount);
         deal(address(mockUSDT), clonedSwapProvider, buyAmount);
         vm.prank(address(bittyVault));
@@ -295,11 +352,9 @@ contract BittyVaultTrusteeTest is Test {
         address usdtAddress = bittyVault.getStableCoins()[0];
         address usdcAddress = bittyVault.getStableCoins()[1];
 
-        // Clone the provider explicitly before the rebalance
         address clonedSwapProvider = bittyVault.cloneProviderForTesting(address(mockSwapProvider));
         require(clonedSwapProvider != address(0), "Provider should be cloned");
 
-        // Fund and approve the cloned provider for the rebalance
         deal(address(mockUSDC), clonedSwapProvider, buyAmount);
         vm.prank(address(bittyVault));
         mockUSDT.approve(clonedSwapProvider, sellAmount);
