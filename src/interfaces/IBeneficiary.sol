@@ -75,28 +75,25 @@ interface IBeneficiary {
      * @notice Get the money from the trust.
      * @dev Get the money from the trust.
      * @param stableCoinAddress The address of the stablecoin to get the money.
-     * @param to The address to get the money.
      *
      */
-    function getMoney(address stableCoinAddress, address to) external;
+    function getMoney(address stableCoinAddress) external;
 
     /**
      * @notice Get the money from the event.
      * @dev Get the money from the event.
      * @param eventName The name of the event.
-     * @param to The address to get the money.
      *
      * This is beneficiary only, if the beneficiary address is lost, no one can get money.
      */
-    function getMoneyFromEvent(string memory eventName, address stableCoinAddress, address to) external;
+    function getMoneyFromEvent(string memory eventName, address stableCoinAddress) external;
 
     /**
      * @notice Get the money from the time event.
      * @dev Get the money from the time event.
      * @param timestamp The timestamp of the event.
-     * @param to The address to get the money.
      *
      * This is beneficiary only, if the beneficiary address is lost, no one can get money.
      */
-    function getMoneyByTimestamp(uint256 timestamp, address stableCoinAddress, address to) external;
+    function getMoneyByTimestamp(uint256 timestamp, address stableCoinAddress) external;
 }

@@ -113,14 +113,14 @@ contract BittyVaultBeneficiaryTest is Test {
     function test_GetMoneyFailedIfNotBeneficiary() public {
         vm.deal(address(bittyVault), 10 ether);
         vm.expectRevert("Only beneficiary");
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
     }
 
     function test_GetMoneyFailedIfNoBeneficiarySettings() public {
         vm.deal(address(bittyVault), 10 ether);
         vm.expectRevert(BeneficiarySettingsNotSet.selector);
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
     }
 
     function test_SetBeneficiarySettingFailedIfAmountPerWithdrawalIsZero() public {
@@ -143,12 +143,12 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 usdtAmount = beneficiarySettings.amountPerWithdrawal * 10 ** mockUSDT.decimals();
         deal(address(mockUSDT), address(bittyVault), usdtAmount);
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
         deal(address(mockUSDT), address(bittyVault), usdtAmount);
         vm.warp(block.timestamp + 29 days);
         vm.expectRevert(BeneficiaryWithdrawalInLimitDays.selector);
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
     }
 
     function test_AddTriggerEventsFailedIfEventNameIsEmpty() public {
@@ -198,7 +198,7 @@ contract BittyVaultBeneficiaryTest is Test {
             IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: marriageMoney, isPercentage: false});
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
         vm.expectRevert(EventTriggerError.selector);
-        bittyVault.getMoneyFromEvent("Marriage", address(mockUSDT), beneficiary);
+        bittyVault.getMoneyFromEvent("Marriage", address(mockUSDT));
     }
 
     function test_RemoveTriggerEventsFailedIfIrrevocable() public {
@@ -231,7 +231,7 @@ contract BittyVaultBeneficiaryTest is Test {
     function test_GetMoneyFromEventFailedIfEventNameIsEmpty() public {
         eventNames[0] = "";
         vm.expectRevert(EventNameIsEmpty.selector);
-        bittyVault.getMoneyFromEvent("", address(mockUSDT), beneficiary);
+        bittyVault.getMoneyFromEvent("", address(mockUSDT));
     }
 
     function test_GetMoneyFromEventWithAmountSuccess() public {
@@ -243,7 +243,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 marriageMoneyTokens = marriageMoney * 10 ** mockUSDT.decimals();
         deal(address(mockUSDT), address(bittyVault), marriageMoneyTokens);
         vm.prank(eventInputAddress);
-        bittyVault.getMoneyFromEvent("Marriage", address(mockUSDT), beneficiary);
+        bittyVault.getMoneyFromEvent("Marriage", address(mockUSDT));
         assertEq(mockUSDT.balanceOf(beneficiary), marriageMoneyTokens);
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
     }
@@ -258,7 +258,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 marriageMoneyTokens = marriageMoney * 10 ** mockUSDT.decimals();
         deal(address(mockUSDT), address(bittyVault), marriageMoneyTokens);
         vm.prank(eventInputAddress);
-        bittyVault.getMoneyFromEvent("Marriage", address(mockUSDT), beneficiary);
+        bittyVault.getMoneyFromEvent("Marriage", address(mockUSDT));
         uint256 percentageMoney = marriageMoneyTokens * percentage / 10000;
         assertEq(mockUSDT.balanceOf(beneficiary), percentageMoney);
         assertEq(mockUSDT.balanceOf(address(bittyVault)), marriageMoneyTokens - percentageMoney);
@@ -291,7 +291,7 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.removeTriggerEvents(eventNames);
         vm.prank(beneficiary);
         vm.expectRevert(EventNameNotFound.selector);
-        bittyVault.getMoneyFromEvent(eventNames[0], address(mockUSDT), beneficiary);
+        bittyVault.getMoneyFromEvent(eventNames[0], address(mockUSDT));
     }
 
     function test_AddTimeEventsFailedIfTimestampIsZero() public {
@@ -329,14 +329,14 @@ contract BittyVaultBeneficiaryTest is Test {
         timestamps[0] = 0;
         vm.expectRevert(TimestampIsZero.selector);
         vm.prank(beneficiary);
-        bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT), beneficiary);
+        bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT));
     }
 
     function test_GetMoneyByTimestampFailedIfTimestampNotFound() public {
         timestamps[0] = block.timestamp;
         vm.expectRevert(TimestampNotFound.selector);
         vm.prank(beneficiary);
-        bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT), beneficiary);
+        bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT));
     }
 
     function test_GetMoneyByTimestampFailedIfTimestampIsInTheFuture() public {
@@ -345,7 +345,7 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.addTimeEvents(timestamps, timeEvents);
         vm.expectRevert(TimestampIsInTheFuture.selector);
         vm.prank(beneficiary);
-        bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT), beneficiary);
+        bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT));
     }
 
     function test_GetMoneyFromTimeEventSuccessByAmount() public {
@@ -356,7 +356,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 marriageMoneyTokens = marriageMoney * 10 ** mockUSDT.decimals();
         deal(address(mockUSDT), address(bittyVault), marriageMoneyTokens);
         vm.prank(beneficiary);
-        bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT), beneficiary);
+        bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT));
         assertEq(mockUSDT.balanceOf(beneficiary), marriageMoneyTokens);
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
     }
@@ -371,7 +371,7 @@ contract BittyVaultBeneficiaryTest is Test {
         deal(address(mockUSDT), address(bittyVault), marriageMoneyTokensUSDT);
         deal(address(mockUSDC), address(bittyVault), marriageMoneyTokensUSDC);
         vm.prank(beneficiary);
-        bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT), beneficiary);
+        bittyVault.getMoneyByTimestamp(timestamps[0], address(mockUSDT));
 
         uint256 percentageMoneyUSDT = marriageMoneyTokensUSDT * 1000 / 10000;
         uint256 percentageMoneyUSDC = marriageMoneyTokensUSDC * 1000 / 10000;
@@ -392,7 +392,7 @@ contract BittyVaultBeneficiaryTest is Test {
         assertEq(mockUSDT.balanceOf(beneficiary), 0);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), usdtAmountTokens);
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
@@ -416,7 +416,7 @@ contract BittyVaultBeneficiaryTest is Test {
 
         vm.prank(beneficiary);
         vm.expectRevert(InsufficientStablecoinBalance.selector);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
     }
 
     function test_GetMoneyFailedIfBothUSDTAndUSDCInsufficient() public {
@@ -430,7 +430,7 @@ contract BittyVaultBeneficiaryTest is Test {
 
         vm.expectRevert(InsufficientStablecoinBalance.selector);
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
     }
 
     function test_GetUSDCFirstWhenWithdrawUSDTFirstIsFalse() public {
@@ -446,7 +446,7 @@ contract BittyVaultBeneficiaryTest is Test {
         assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount * 10 ** mockUSDC.decimals());
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDC), beneficiary);
+        bittyVault.getMoney(address(mockUSDC));
 
         assertEq(mockUSDC.balanceOf(beneficiary), tokenAmount * 10 ** mockUSDC.decimals());
         assertEq(mockUSDC.balanceOf(address(bittyVault)), 0);
@@ -467,7 +467,7 @@ contract BittyVaultBeneficiaryTest is Test {
         assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount * 10 ** mockUSDC.decimals());
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), tokenAmount * 10 ** mockUSDT.decimals());
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
@@ -491,7 +491,7 @@ contract BittyVaultBeneficiaryTest is Test {
         assertEq(mockUSDT.balanceOf(beneficiary), 0);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), tokenAmount * 10 ** mockUSDT.decimals());
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
@@ -509,7 +509,7 @@ contract BittyVaultBeneficiaryTest is Test {
         deal(address(mockUSDC), address(bittyVault), tokenAmount * 10 ** mockUSDC.decimals());
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
     }
 
     function test_GetMoneyWithVaultBalanceSufficient_NoYieldProviderNeeded() public {
@@ -522,7 +522,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 vaultBalanceBefore = mockUSDT.balanceOf(address(bittyVault));
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmount * 10 ** mockUSDT.decimals());
         assertEq(mockUSDT.balanceOf(address(bittyVault)), vaultBalanceBefore - tokenAmount * 10 ** mockUSDT.decimals());
@@ -549,7 +549,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         uint256 yieldWithdrawAmount = tokenAmountTokens - vaultBalanceTokens;
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
@@ -581,7 +581,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         uint256 yieldWithdrawAmount = tokenAmountTokens - vaultBalanceTokens;
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
@@ -622,7 +622,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         uint256 yieldWithdrawAmount = tokenAmountTokens - vaultBalanceTokens;
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
@@ -661,7 +661,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 yieldWithdrawAmount = tokenAmountTokens - vaultBalanceTokens;
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
         assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
@@ -693,7 +693,7 @@ contract BittyVaultBeneficiaryTest is Test {
 
         vm.prank(beneficiary);
         vm.expectRevert(InsufficientStablecoinBalance.selector);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
     }
 
     function test_GetMoneyWithEmptyYieldProvidersArray_RevertsIfInsufficient() public {
@@ -707,7 +707,7 @@ contract BittyVaultBeneficiaryTest is Test {
 
         vm.prank(beneficiary);
         vm.expectRevert(InsufficientStablecoinBalance.selector);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
     }
 
     function test_GetMoneyWithZeroYieldProviderBalances_RevertsIfInsufficient() public {
@@ -726,7 +726,7 @@ contract BittyVaultBeneficiaryTest is Test {
 
         vm.prank(beneficiary);
         vm.expectRevert(InsufficientStablecoinBalance.selector);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
     }
 
     function test_GetMoneyWithYieldProviderHavingExactAmountNeeded() public {
@@ -747,7 +747,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
         assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
@@ -771,7 +771,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
         assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), yieldProviderBalanceTokens - tokenAmountTokens);
@@ -803,7 +803,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
         assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
@@ -844,7 +844,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
         assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
@@ -870,7 +870,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
         assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
@@ -897,7 +897,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDC.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDC), beneficiary);
+        bittyVault.getMoney(address(mockUSDC));
 
         uint256 yieldWithdrawAmount = tokenAmountTokens - vaultBalanceTokens;
         assertEq(mockUSDC.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
@@ -937,7 +937,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         uint256 yieldWithdrawAmount = tokenAmountTokens - vaultBalanceTokens;
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
@@ -973,7 +973,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
         assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
@@ -1001,7 +1001,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
         assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
@@ -1034,7 +1034,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
         assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
@@ -1075,7 +1075,7 @@ contract BittyVaultBeneficiaryTest is Test {
         uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT), beneficiary);
+        bittyVault.getMoney(address(mockUSDT));
 
         assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
         assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
