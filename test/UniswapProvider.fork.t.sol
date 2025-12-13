@@ -147,6 +147,46 @@ contract TestUniswapProviderFork is Test {
         assertGe(ethBalanceAfter - ethBalanceBefore, buyAmountMin);
     }
 
+    function test_V4_SwapUSDCToETHToUSDT() public {
+        uint256 sellAmount = 1000 * 1e6; // 1000 USDC
+
+        // USDC -> ETH
+        PathKey memory pathKey1 =
+            PathKey({intermediateCurrency: address(0), fee: 3000, tickSpacing: 60, hooks: address(0), hookData: ""});
+        (V4PoolKey memory poolKey1,) = pathKey1.getPoolAndSwapDirection(address(mainnet.USDC));
+        uint256 price1 = _getV4PoolPrice(poolKey1);
+        uint256 expectedEthOutput = Math.mulDiv(sellAmount, 1e18, price1);
+
+        // ETH -> USDT
+        PathKey memory pathKey2 = PathKey({
+            intermediateCurrency: address(mainnet.USDT), fee: 3000, tickSpacing: 60, hooks: address(0), hookData: ""
+        });
+        (V4PoolKey memory poolKey2,) = pathKey2.getPoolAndSwapDirection(address(0));
+        uint256 price2 = _getV4PoolPrice(poolKey2);
+        uint256 expectedUsdtOutput = Math.mulDiv(expectedEthOutput, price2, 1e18);
+
+        uint256 buyAmountMin = Math.mulDiv(expectedUsdtOutput, 95, 100);
+
+        BaseData memory baseData = BaseData({
+            amount: sellAmount, amountLimit: buyAmountMin, payer: address(0), receiver: address(0), flags: 0
+        });
+
+        PathKey[] memory paths = new PathKey[](2);
+        paths[0] = pathKey1;
+        paths[1] = pathKey2;
+        bytes memory swapData = abi.encode(baseData, address(mainnet.USDC), paths);
+
+        uint256 usdtBalanceBefore = IERC20(address(mainnet.USDT)).balanceOf(address(this));
+        deal(address(mainnet.USDC), address(this), sellAmount);
+        IERC20(address(mainnet.USDC)).safeApprove(address(v4Provider), sellAmount);
+
+        v4Provider.swap(swapData);
+
+        uint256 usdtBalanceAfter = IERC20(address(mainnet.USDT)).balanceOf(address(this));
+        assertGt(usdtBalanceAfter, usdtBalanceBefore);
+        assertGe(usdtBalanceAfter - usdtBalanceBefore, buyAmountMin);
+    }
+
     // ============ Uniswap V3 Provider Tests ============
 
     function test_V3_SwapWETHToUSDT() public {
@@ -176,7 +216,7 @@ contract TestUniswapProviderFork is Test {
         assertGe(usdtBalanceAfter - usdtBalanceBefore, buyAmountMin);
     }
 
-    function test_V3_SwapUSDCToETH() public {
+    function test_V3_SwapUSDCToWETH() public {
         address[] memory path = new address[](2);
         path[0] = address(mainnet.USDC);
         path[1] = address(mainnet.WETH); // WETH
@@ -230,6 +270,43 @@ contract TestUniswapProviderFork is Test {
         uint256 wethBalanceAfter = IERC20(address(mainnet.WETH)).balanceOf(address(this));
         assertGt(wethBalanceAfter, wethBalanceBefore);
         assertGe(wethBalanceAfter - wethBalanceBefore, buyAmountMin);
+    }
+
+    function test_V3_SwapUSDCToWETHToUSDT() public {
+        address[] memory path = new address[](3);
+        path[0] = address(mainnet.USDC);
+        path[1] = address(mainnet.WETH);
+        path[2] = address(mainnet.USDT);
+
+        uint24[] memory fees = new uint24[](2);
+        fees[0] = 500; // 0.05% fee for USDC -> WETH
+        fees[1] = 3000; // 0.3% fee for WETH -> USDT
+
+        bytes memory encodedPath = Path.encodePath(path, fees);
+
+        uint256 sellAmount = 1000 * 1e6; // 1000 USDC
+
+        // USDC -> WETH
+        uint256 price1 = _getV3PoolPrice(address(mainnet.USDC), address(mainnet.WETH), 500);
+        uint256 expectedWethOutput = Math.mulDiv(sellAmount, 1e18, price1);
+
+        // WETH -> USDT
+        uint256 price2 = _getV3PoolPrice(address(mainnet.WETH), address(mainnet.USDT), 3000);
+        uint256 expectedUsdtOutput = Math.mulDiv(expectedWethOutput, price2, 1e18);
+
+        uint256 buyAmountMin = Math.mulDiv(expectedUsdtOutput, 95, 100);
+
+        bytes memory swapData = abi.encode(encodedPath, address(0), sellAmount, buyAmountMin);
+
+        uint256 usdtBalanceBefore = IERC20(address(mainnet.USDT)).balanceOf(address(this));
+        deal(address(mainnet.USDC), address(this), sellAmount);
+        IERC20(address(mainnet.USDC)).safeApprove(address(v3Provider), sellAmount);
+
+        v3Provider.swap(swapData);
+
+        uint256 usdtBalanceAfter = IERC20(address(mainnet.USDT)).balanceOf(address(this));
+        assertGt(usdtBalanceAfter, usdtBalanceBefore);
+        assertGe(usdtBalanceAfter - usdtBalanceBefore, buyAmountMin);
     }
 
     receive() external payable {}
