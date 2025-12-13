@@ -20,7 +20,8 @@ import {
     TransferFailed,
     WETHNotSet,
     InsufficientStablecoinBalance,
-    NotWhiteListed
+    NotWhiteListed,
+    InsufficientBalance
 } from "./interfaces/Errors.sol";
 import {VaultHelper} from "./helpers/VaultHelper.sol";
 
@@ -96,6 +97,19 @@ contract BittyVault is Trust, AssetManager, IVault {
             revert AddressZero();
         }
         _revoke(nextVault);
+    }
+
+    function withdraw(address assetAddress, uint256 amount) external onlyInitialized onlyGrantor {
+        if (assetAddress == address(0)) {
+            revert AddressZero();
+        }
+        uint256 balance = IERC20(assetAddress).balanceOf(address(this));
+        if (balance < amount) {
+            revert InsufficientBalance();
+        }
+        if (!IERC20(assetAddress).transfer(grantor, amount)) {
+            revert TransferFailed();
+        }
     }
 
     /**
