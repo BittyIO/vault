@@ -99,6 +99,14 @@ interface IGrantor {
     function removeTimeEvents(uint256[] memory timestamps) external;
 
     /**
+     * @notice Withdraw the asset from the trust.
+     * @dev Withdraw the asset from the trust.
+     * @param assetAddress The address of the asset.
+     * @param amount The amount of the asset to withdraw.
+     */
+    function withdraw(address assetAddress, uint256 amount) external;
+
+    /**
      * @notice Revoke the trust.
      * @dev Revoke the trust if the trust is revocable.
      *

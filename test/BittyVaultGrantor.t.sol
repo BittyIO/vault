@@ -10,7 +10,8 @@ import {
     StartDistributionTimestampAlreadySet,
     WETHNotSet,
     TimestampIsZero,
-    TimestampNotFound
+    TimestampNotFound,
+    OnlyRevocable
 } from "../src/interfaces/Errors.sol";
 import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
 import {WhiteList} from "../src/WhiteList.sol";
@@ -20,6 +21,26 @@ import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {MockVault} from "./mock/MockVault.sol";
+import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {InsufficientBalance, TransferFailed} from "../src/interfaces/Errors.sol";
+
+// Mock ERC20 token that can fail transfers for testing
+contract MockERC20FailingTransfer is MockERC20 {
+    bool public shouldFailTransfer;
+
+    constructor(string memory name, string memory symbol, uint8 decimals) MockERC20(name, symbol, decimals) {}
+
+    function setShouldFailTransfer(bool _shouldFail) external {
+        shouldFailTransfer = _shouldFail;
+    }
+
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        if (shouldFailTransfer) {
+            return false;
+        }
+        return super.transfer(to, amount);
+    }
+}
 
 contract BittyVaultGrantorTest is Test {
     BittyVault public bittyVault;
@@ -810,7 +831,7 @@ contract BittyVaultGrantorTest is Test {
         assertFalse(bittyVault.revocable());
     }
 
-    function test_GetAllTriggerEventKeys_Empty() public {
+    function test_GetAllTriggerEventKeys_Empty() public view {
         bytes32[] memory keys = bittyVault.getAllTriggerEventKeys();
         assertEq(keys.length, 0);
     }
@@ -918,5 +939,154 @@ contract BittyVaultGrantorTest is Test {
             new address[](0),
             new address[](0)
         );
+    }
+
+    function test_Withdraw_Success() public {
+        MockERC20 mockToken = new MockERC20("TestToken", "TEST", 18);
+        uint256 withdrawAmount = 1000 * 10 ** mockToken.decimals();
+        deal(address(mockToken), address(bittyVault), withdrawAmount);
+
+        uint256 grantorBalanceBefore = mockToken.balanceOf(address(this));
+        uint256 vaultBalanceBefore = mockToken.balanceOf(address(bittyVault));
+
+        bittyVault.withdraw(address(mockToken), withdrawAmount);
+
+        assertEq(mockToken.balanceOf(address(this)), grantorBalanceBefore + withdrawAmount);
+        assertEq(mockToken.balanceOf(address(bittyVault)), vaultBalanceBefore - withdrawAmount);
+    }
+
+    function test_Withdraw_PartialAmount() public {
+        MockERC20 mockToken = new MockERC20("TestToken", "TEST", 18);
+        uint256 vaultBalance = 1000 * 10 ** mockToken.decimals();
+        uint256 withdrawAmount = 500 * 10 ** mockToken.decimals();
+        deal(address(mockToken), address(bittyVault), vaultBalance);
+
+        uint256 grantorBalanceBefore = mockToken.balanceOf(address(this));
+        bittyVault.withdraw(address(mockToken), withdrawAmount);
+
+        assertEq(mockToken.balanceOf(address(this)), grantorBalanceBefore + withdrawAmount);
+        assertEq(mockToken.balanceOf(address(bittyVault)), vaultBalance - withdrawAmount);
+    }
+
+    function test_Withdraw_ExactBalance() public {
+        MockERC20 mockToken = new MockERC20("TestToken", "TEST", 18);
+        uint256 withdrawAmount = 1000 * 10 ** mockToken.decimals();
+        deal(address(mockToken), address(bittyVault), withdrawAmount);
+
+        uint256 grantorBalanceBefore = mockToken.balanceOf(address(this));
+        bittyVault.withdraw(address(mockToken), withdrawAmount);
+
+        assertEq(mockToken.balanceOf(address(this)), grantorBalanceBefore + withdrawAmount);
+        assertEq(mockToken.balanceOf(address(bittyVault)), 0);
+    }
+
+    function test_Withdraw_RevertsIfAssetAddressZero() public {
+        MockERC20 mockToken = new MockERC20("TestToken", "TEST", 18);
+        uint256 withdrawAmount = 1000 * 10 ** mockToken.decimals();
+        deal(address(mockToken), address(bittyVault), withdrawAmount);
+
+        vm.expectRevert(AddressZero.selector);
+        bittyVault.withdraw(address(0), withdrawAmount);
+    }
+
+    function test_Withdraw_RevertsIfInsufficientBalance() public {
+        MockERC20 mockToken = new MockERC20("TestToken", "TEST", 18);
+        uint256 vaultBalance = 500 * 10 ** mockToken.decimals();
+        uint256 withdrawAmount = 1000 * 10 ** mockToken.decimals();
+        deal(address(mockToken), address(bittyVault), vaultBalance);
+
+        vm.expectRevert(InsufficientBalance.selector);
+        bittyVault.withdraw(address(mockToken), withdrawAmount);
+    }
+
+    function test_Withdraw_RevertsIfZeroBalance() public {
+        MockERC20 mockToken = new MockERC20("TestToken", "TEST", 18);
+        uint256 withdrawAmount = 1000 * 10 ** mockToken.decimals();
+
+        vm.expectRevert(InsufficientBalance.selector);
+        bittyVault.withdraw(address(mockToken), withdrawAmount);
+    }
+
+    function test_Withdraw_RevertsIfTransferFails() public {
+        MockERC20FailingTransfer mockToken = new MockERC20FailingTransfer("TestToken", "TEST", 18);
+        uint256 withdrawAmount = 1000 * 10 ** mockToken.decimals();
+        deal(address(mockToken), address(bittyVault), withdrawAmount);
+
+        mockToken.setShouldFailTransfer(true);
+
+        vm.expectRevert(TransferFailed.selector);
+        bittyVault.withdraw(address(mockToken), withdrawAmount);
+    }
+
+    function test_Withdraw_RevertsIfNotInitialized() public {
+        BittyVault newVault = new BittyVault();
+        MockERC20 mockToken = new MockERC20("TestToken", "TEST", 18);
+        uint256 withdrawAmount = 1000 * 10 ** mockToken.decimals();
+
+        vm.expectRevert("Trust not initialized");
+        newVault.withdraw(address(mockToken), withdrawAmount);
+    }
+
+    function test_Withdraw_RevertsIfNotGrantor() public {
+        MockERC20 mockToken = new MockERC20("TestToken", "TEST", 18);
+        uint256 withdrawAmount = 1000 * 10 ** mockToken.decimals();
+        deal(address(mockToken), address(bittyVault), withdrawAmount);
+
+        address unauthorized = makeAddr("unauthorized");
+        vm.prank(unauthorized);
+        vm.expectRevert("Only grantor");
+        bittyVault.withdraw(address(mockToken), withdrawAmount);
+    }
+
+    function test_Withdraw_WithDifferentTokenDecimals() public {
+        MockERC20 mockToken6 = new MockERC20("Token6", "T6", 6);
+        MockERC20 mockToken8 = new MockERC20("Token8", "T8", 8);
+        MockERC20 mockToken18 = new MockERC20("Token18", "T18", 18);
+
+        uint256 amount6 = 1000 * 10 ** mockToken6.decimals();
+        uint256 amount8 = 1000 * 10 ** mockToken8.decimals();
+        uint256 amount18 = 1000 * 10 ** mockToken18.decimals();
+
+        deal(address(mockToken6), address(bittyVault), amount6);
+        deal(address(mockToken8), address(bittyVault), amount8);
+        deal(address(mockToken18), address(bittyVault), amount18);
+
+        bittyVault.withdraw(address(mockToken6), amount6);
+        bittyVault.withdraw(address(mockToken8), amount8);
+        bittyVault.withdraw(address(mockToken18), amount18);
+
+        assertEq(mockToken6.balanceOf(address(this)), amount6);
+        assertEq(mockToken8.balanceOf(address(this)), amount8);
+        assertEq(mockToken18.balanceOf(address(this)), amount18);
+        assertEq(mockToken6.balanceOf(address(bittyVault)), 0);
+        assertEq(mockToken8.balanceOf(address(bittyVault)), 0);
+        assertEq(mockToken18.balanceOf(address(bittyVault)), 0);
+    }
+
+    function test_Withdraw_MultipleWithdrawals() public {
+        MockERC20 mockToken = new MockERC20("TestToken", "TEST", 18);
+        uint256 totalBalance = 3000 * 10 ** mockToken.decimals();
+        deal(address(mockToken), address(bittyVault), totalBalance);
+
+        uint256 firstWithdraw = 1000 * 10 ** mockToken.decimals();
+        uint256 secondWithdraw = 1000 * 10 ** mockToken.decimals();
+        uint256 thirdWithdraw = 1000 * 10 ** mockToken.decimals();
+
+        bittyVault.withdraw(address(mockToken), firstWithdraw);
+        assertEq(mockToken.balanceOf(address(bittyVault)), totalBalance - firstWithdraw);
+
+        bittyVault.withdraw(address(mockToken), secondWithdraw);
+        assertEq(mockToken.balanceOf(address(bittyVault)), totalBalance - firstWithdraw - secondWithdraw);
+
+        bittyVault.withdraw(address(mockToken), thirdWithdraw);
+        assertEq(mockToken.balanceOf(address(bittyVault)), 0);
+        assertEq(mockToken.balanceOf(address(this)), totalBalance);
+    }
+
+    function test_Withdraw_RevertsIfNotRevocable() public {
+        bittyVault.setToIrrevocable();
+        assertFalse(bittyVault.revocable());
+        vm.expectRevert(OnlyRevocable.selector);
+        bittyVault.withdraw(address(mockWETH), 100);
     }
 }
