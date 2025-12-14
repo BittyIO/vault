@@ -1089,4 +1089,386 @@ contract BittyVaultGrantorTest is Test {
         vm.expectRevert(OnlyRevocable.selector);
         bittyVault.withdraw(address(mockWETH), 100);
     }
+
+    function test_ResetAssets_Success() public {
+        address asset1 = makeAddr("asset1");
+        address asset2 = makeAddr("asset2");
+        address[] memory initialAssets = new address[](2);
+        initialAssets[0] = asset1;
+        initialAssets[1] = asset2;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addAssets(initialAssets);
+        vm.stopPrank();
+
+        bittyVault.addAssets(initialAssets);
+        assertEq(bittyVault.getAssets().length, 2);
+
+        address[] memory resetAssets = new address[](2);
+        resetAssets[0] = asset1;
+        resetAssets[1] = asset2;
+        bittyVault.resetAssets(resetAssets);
+
+        assertEq(bittyVault.getAssets().length, 2);
+        address[] memory assets = bittyVault.getAssets();
+        assertTrue(assets[0] == asset1 || assets[1] == asset1);
+        assertTrue(assets[0] == asset2 || assets[1] == asset2);
+    }
+
+    function test_ResetAssets_RemoveAllAndAddNew() public {
+        address asset1 = makeAddr("asset1");
+        address asset2 = makeAddr("asset2");
+        address asset3 = makeAddr("asset3");
+        address[] memory initialAssets = new address[](2);
+        initialAssets[0] = asset1;
+        initialAssets[1] = asset2;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addAssets(initialAssets);
+        address[] memory newAssets = new address[](1);
+        newAssets[0] = asset3;
+        IWhiteList(whiteListAddress).addAssets(newAssets);
+        vm.stopPrank();
+
+        bittyVault.addAssets(initialAssets);
+        assertEq(bittyVault.getAssets().length, 2);
+
+        address[] memory resetAssets = new address[](3);
+        resetAssets[0] = asset1;
+        resetAssets[1] = asset2;
+        resetAssets[2] = asset3;
+        bittyVault.resetAssets(resetAssets);
+
+        assertEq(bittyVault.getAssets().length, 3);
+        address[] memory assets = bittyVault.getAssets();
+        bool found1 = false;
+        bool found2 = false;
+        bool found3 = false;
+        for (uint256 i = 0; i < assets.length; i++) {
+            if (assets[i] == asset1) found1 = true;
+            if (assets[i] == asset2) found2 = true;
+            if (assets[i] == asset3) found3 = true;
+        }
+        assertTrue(found1 && found2 && found3);
+    }
+
+    function test_ResetAssets_EmptyArray() public {
+        address asset1 = makeAddr("asset1");
+        address[] memory initialAssets = new address[](1);
+        initialAssets[0] = asset1;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addAssets(initialAssets);
+        vm.stopPrank();
+
+        bittyVault.addAssets(initialAssets);
+        assertEq(bittyVault.getAssets().length, 1);
+
+        address[] memory emptyArray = new address[](0);
+        bittyVault.resetAssets(emptyArray);
+
+        assertEq(bittyVault.getAssets().length, 1);
+        assertEq(bittyVault.getAssets()[0], asset1);
+    }
+
+    function test_ResetAssets_RevertsIfNotWhitelisted() public {
+        address asset1 = makeAddr("asset1");
+        address asset2 = makeAddr("asset2");
+        address[] memory initialAssets = new address[](1);
+        initialAssets[0] = asset1;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addAssets(initialAssets);
+        vm.stopPrank();
+
+        bittyVault.addAssets(initialAssets);
+
+        address[] memory resetAssets = new address[](2);
+        resetAssets[0] = asset1;
+        resetAssets[1] = asset2;
+
+        vm.expectRevert(NotWhiteListed.selector);
+        bittyVault.resetAssets(resetAssets);
+    }
+
+    function test_ResetAssets_RevertsIfNotInitialized() public {
+        BittyVault newVault = new BittyVault();
+        address asset1 = makeAddr("asset1");
+        address[] memory resetAssets = new address[](1);
+        resetAssets[0] = asset1;
+
+        vm.expectRevert("Trust not initialized");
+        newVault.resetAssets(resetAssets);
+    }
+
+    function test_ResetAssets_GrantorCanCallWhenNoTrustee() public {
+        address asset1 = makeAddr("asset1");
+        address[] memory resetAssets = new address[](1);
+        resetAssets[0] = asset1;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addAssets(resetAssets);
+        vm.stopPrank();
+
+        bittyVault.resetAssets(resetAssets);
+        assertEq(bittyVault.getAssets().length, 1);
+        assertEq(bittyVault.getAssets()[0], asset1);
+    }
+
+    function test_ResetAssets_TrusteeCanCallWhenTrusteeIsSet() public {
+        address trustee = makeAddr("trustee");
+        address asset1 = makeAddr("asset1");
+        address[] memory resetAssets = new address[](1);
+        resetAssets[0] = asset1;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addAssets(resetAssets);
+        vm.stopPrank();
+
+        bittyVault.setTrustee(trustee);
+
+        vm.prank(trustee);
+        bittyVault.resetAssets(resetAssets);
+        assertEq(bittyVault.getAssets().length, 1);
+        assertEq(bittyVault.getAssets()[0], asset1);
+    }
+
+    function test_ResetAssets_GrantorCannotCallWhenTrusteeIsSet() public {
+        address trustee = makeAddr("trustee");
+        address asset1 = makeAddr("asset1");
+        address[] memory resetAssets = new address[](1);
+        resetAssets[0] = asset1;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addAssets(resetAssets);
+        vm.stopPrank();
+
+        bittyVault.setTrustee(trustee);
+
+        vm.expectRevert("Only trustee");
+        bittyVault.resetAssets(resetAssets);
+    }
+
+    function test_ResetAssets_UnauthorizedCannotCallWhenNoTrustee() public {
+        address unauthorized = makeAddr("unauthorized");
+        address asset1 = makeAddr("asset1");
+        address[] memory resetAssets = new address[](1);
+        resetAssets[0] = asset1;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addAssets(resetAssets);
+        vm.stopPrank();
+
+        vm.prank(unauthorized);
+        vm.expectRevert("Only grantor");
+        bittyVault.resetAssets(resetAssets);
+    }
+
+    function test_ResetAssets_MultipleAssets() public {
+        address asset1 = makeAddr("asset1");
+        address asset2 = makeAddr("asset2");
+        address asset3 = makeAddr("asset3");
+        address[] memory resetAssets = new address[](3);
+        resetAssets[0] = asset1;
+        resetAssets[1] = asset2;
+        resetAssets[2] = asset3;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addAssets(resetAssets);
+        vm.stopPrank();
+
+        bittyVault.resetAssets(resetAssets);
+        assertEq(bittyVault.getAssets().length, 3);
+    }
+
+    function test_ResetStableCoins_Success() public {
+        address stableCoin1 = makeAddr("stableCoin1");
+        address stableCoin2 = makeAddr("stableCoin2");
+        address[] memory initialStableCoins = new address[](2);
+        initialStableCoins[0] = stableCoin1;
+        initialStableCoins[1] = stableCoin2;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addStableCoins(initialStableCoins);
+        vm.stopPrank();
+
+        bittyVault.addStableCoins(initialStableCoins);
+        assertEq(bittyVault.getStableCoins().length, 2);
+
+        address[] memory resetStableCoins = new address[](2);
+        resetStableCoins[0] = stableCoin1;
+        resetStableCoins[1] = stableCoin2;
+        bittyVault.resetStableCoins(resetStableCoins);
+
+        assertEq(bittyVault.getStableCoins().length, 2);
+        address[] memory stableCoins = bittyVault.getStableCoins();
+        assertTrue(stableCoins[0] == stableCoin1 || stableCoins[1] == stableCoin1);
+        assertTrue(stableCoins[0] == stableCoin2 || stableCoins[1] == stableCoin2);
+    }
+
+    function test_ResetStableCoins_RemoveAllAndAddNew() public {
+        address stableCoin1 = makeAddr("stableCoin1");
+        address stableCoin2 = makeAddr("stableCoin2");
+        address stableCoin3 = makeAddr("stableCoin3");
+        address[] memory initialStableCoins = new address[](2);
+        initialStableCoins[0] = stableCoin1;
+        initialStableCoins[1] = stableCoin2;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addStableCoins(initialStableCoins);
+        address[] memory newStableCoins = new address[](1);
+        newStableCoins[0] = stableCoin3;
+        IWhiteList(whiteListAddress).addStableCoins(newStableCoins);
+        vm.stopPrank();
+
+        bittyVault.addStableCoins(initialStableCoins);
+        assertEq(bittyVault.getStableCoins().length, 2);
+
+        address[] memory resetStableCoins = new address[](3);
+        resetStableCoins[0] = stableCoin1;
+        resetStableCoins[1] = stableCoin2;
+        resetStableCoins[2] = stableCoin3;
+        bittyVault.resetStableCoins(resetStableCoins);
+
+        assertEq(bittyVault.getStableCoins().length, 3);
+        address[] memory stableCoins = bittyVault.getStableCoins();
+        bool found1 = false;
+        bool found2 = false;
+        bool found3 = false;
+        for (uint256 i = 0; i < stableCoins.length; i++) {
+            if (stableCoins[i] == stableCoin1) found1 = true;
+            if (stableCoins[i] == stableCoin2) found2 = true;
+            if (stableCoins[i] == stableCoin3) found3 = true;
+        }
+        assertTrue(found1 && found2 && found3);
+    }
+
+    function test_ResetStableCoins_EmptyArray() public {
+        address stableCoin1 = makeAddr("stableCoin1");
+        address[] memory initialStableCoins = new address[](1);
+        initialStableCoins[0] = stableCoin1;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addStableCoins(initialStableCoins);
+        vm.stopPrank();
+
+        bittyVault.addStableCoins(initialStableCoins);
+        assertEq(bittyVault.getStableCoins().length, 1);
+
+        address[] memory emptyArray = new address[](0);
+        bittyVault.resetStableCoins(emptyArray);
+
+        assertEq(bittyVault.getStableCoins().length, 1);
+        assertEq(bittyVault.getStableCoins()[0], stableCoin1);
+    }
+
+    function test_ResetStableCoins_RevertsIfNotWhitelisted() public {
+        address stableCoin1 = makeAddr("stableCoin1");
+        address stableCoin2 = makeAddr("stableCoin2");
+        address[] memory initialStableCoins = new address[](1);
+        initialStableCoins[0] = stableCoin1;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addStableCoins(initialStableCoins);
+        vm.stopPrank();
+
+        bittyVault.addStableCoins(initialStableCoins);
+
+        address[] memory resetStableCoins = new address[](2);
+        resetStableCoins[0] = stableCoin1;
+        resetStableCoins[1] = stableCoin2;
+
+        vm.expectRevert(NotWhiteListed.selector);
+        bittyVault.resetStableCoins(resetStableCoins);
+    }
+
+    function test_ResetStableCoins_RevertsIfNotInitialized() public {
+        BittyVault newVault = new BittyVault();
+        address stableCoin1 = makeAddr("stableCoin1");
+        address[] memory resetStableCoins = new address[](1);
+        resetStableCoins[0] = stableCoin1;
+
+        vm.expectRevert("Trust not initialized");
+        newVault.resetStableCoins(resetStableCoins);
+    }
+
+    function test_ResetStableCoins_GrantorCanCallWhenNoTrustee() public {
+        address stableCoin1 = makeAddr("stableCoin1");
+        address[] memory resetStableCoins = new address[](1);
+        resetStableCoins[0] = stableCoin1;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addStableCoins(resetStableCoins);
+        vm.stopPrank();
+
+        bittyVault.resetStableCoins(resetStableCoins);
+        assertEq(bittyVault.getStableCoins().length, 1);
+        assertEq(bittyVault.getStableCoins()[0], stableCoin1);
+    }
+
+    function test_ResetStableCoins_TrusteeCanCallWhenTrusteeIsSet() public {
+        address trustee = makeAddr("trustee");
+        address stableCoin1 = makeAddr("stableCoin1");
+        address[] memory resetStableCoins = new address[](1);
+        resetStableCoins[0] = stableCoin1;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addStableCoins(resetStableCoins);
+        vm.stopPrank();
+
+        bittyVault.setTrustee(trustee);
+
+        vm.prank(trustee);
+        bittyVault.resetStableCoins(resetStableCoins);
+        assertEq(bittyVault.getStableCoins().length, 1);
+        assertEq(bittyVault.getStableCoins()[0], stableCoin1);
+    }
+
+    function test_ResetStableCoins_GrantorCannotCallWhenTrusteeIsSet() public {
+        address trustee = makeAddr("trustee");
+        address stableCoin1 = makeAddr("stableCoin1");
+        address[] memory resetStableCoins = new address[](1);
+        resetStableCoins[0] = stableCoin1;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addStableCoins(resetStableCoins);
+        vm.stopPrank();
+
+        bittyVault.setTrustee(trustee);
+
+        vm.expectRevert("Only trustee");
+        bittyVault.resetStableCoins(resetStableCoins);
+    }
+
+    function test_ResetStableCoins_UnauthorizedCannotCallWhenNoTrustee() public {
+        address unauthorized = makeAddr("unauthorized");
+        address stableCoin1 = makeAddr("stableCoin1");
+        address[] memory resetStableCoins = new address[](1);
+        resetStableCoins[0] = stableCoin1;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addStableCoins(resetStableCoins);
+        vm.stopPrank();
+
+        vm.prank(unauthorized);
+        vm.expectRevert("Only grantor");
+        bittyVault.resetStableCoins(resetStableCoins);
+    }
+
+    function test_ResetStableCoins_MultipleStableCoins() public {
+        address stableCoin1 = makeAddr("stableCoin1");
+        address stableCoin2 = makeAddr("stableCoin2");
+        address stableCoin3 = makeAddr("stableCoin3");
+        address[] memory resetStableCoins = new address[](3);
+        resetStableCoins[0] = stableCoin1;
+        resetStableCoins[1] = stableCoin2;
+        resetStableCoins[2] = stableCoin3;
+
+        vm.startPrank(tx.origin);
+        IWhiteList(whiteListAddress).addStableCoins(resetStableCoins);
+        vm.stopPrank();
+
+        bittyVault.resetStableCoins(resetStableCoins);
+        assertEq(bittyVault.getStableCoins().length, 3);
+    }
 }
