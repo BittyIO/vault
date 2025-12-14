@@ -8,9 +8,13 @@ interface IVault is IVersionizedVault {
 
     function removeAssets(address[] memory assetAddresses) external;
 
+    function resetAssets(address[] memory assetAddresses) external;
+
     function addStableCoins(address[] memory stableCoinAddresses) external;
 
     function removeStableCoins(address[] memory stableCoinAddresses) external;
+
+    function resetStableCoins(address[] memory stableCoinAddresses) external;
 
     function addYieldProviders(address[] memory yieldProviderAddresses) external;
 

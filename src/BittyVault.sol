@@ -251,6 +251,18 @@ contract BittyVault is Trust, AssetManager, IVault {
         }
     }
 
+    function resetAssets(address[] memory assetAddresses) external onlyInitialized onlyTrusteeOrGrantor {
+        for (uint256 i = 0; i < assetAddresses.length; i++) {
+            _assets.remove(assetAddresses[i]);
+        }
+        for (uint256 i = 0; i < assetAddresses.length; i++) {
+            if (!whiteList.isAssetWhiteListed(assetAddresses[i])) {
+                revert NotWhiteListed();
+            }
+            _assets.add(assetAddresses[i]);
+        }
+    }
+
     function addStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrusteeOrGrantor {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
             if (!whiteList.isStableCoinWhiteListed(stableCoinAddresses[i])) {
@@ -263,6 +275,18 @@ contract BittyVault is Trust, AssetManager, IVault {
     function removeStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrusteeOrGrantor {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
             _stableCoins.remove(stableCoinAddresses[i]);
+        }
+    }
+
+    function resetStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrusteeOrGrantor {
+        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
+            _stableCoins.remove(stableCoinAddresses[i]);
+        }
+        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
+            if (!whiteList.isStableCoinWhiteListed(stableCoinAddresses[i])) {
+                revert NotWhiteListed();
+            }
+            _stableCoins.add(stableCoinAddresses[i]);
         }
     }
 
