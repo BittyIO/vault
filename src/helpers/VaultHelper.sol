@@ -5,7 +5,7 @@ import {IYieldProvider} from "../interfaces/IAssetManager.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
 import {ISwapProvider} from "../interfaces/IAssetManager.sol";
-import {IPoolManager} from "../libs/Uniswap.sol";
+import {IPoolManager} from "../libs/uniswap/v4/Uniswap.sol";
 import {UniswapQuoteHelper} from "./UniswapQuoteHelper.sol";
 import {TransferFailed, InsufficientStablecoinBalance} from "../interfaces/Errors.sol";
 

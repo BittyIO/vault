@@ -3,7 +3,7 @@ pragma solidity >=0.5.0 <0.9.0;
 
 import "./FullMath.sol";
 import "./TickMath.sol";
-import "./Uniswap.sol";
+import "./uniswap/v4/Uniswap.sol";
 
 /// @title Oracle library
 /// @notice Provides functions to integrate with V4 pool oracle

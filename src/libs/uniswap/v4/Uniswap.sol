@@ -14,6 +14,39 @@ struct PoolKey {
     address hooks;
 }
 
+struct PathKey {
+    address intermediateCurrency;
+    uint24 fee;
+    int24 tickSpacing;
+    address hooks;
+    bytes hookData;
+}
+
+using PathKeyLibrary for PathKey global;
+
+/// @title PathKey Library
+/// @notice Memory-oriented version of v4-periphery/src/libraries/PathKeyLibrary.sol
+/// @dev Handles PathKey operations in memory rather than calldata for router operations
+library PathKeyLibrary {
+    /// @notice Get the pool and swap direction for a given PathKey
+    /// @param params the given PathKey
+    /// @param currencyIn the input currency
+    /// @return poolKey the pool key of the swap
+    /// @return zeroForOne the direction of the swap, true if currency0 is being swapped for currency1
+    function getPoolAndSwapDirection(PathKey memory params, address currencyIn)
+        internal
+        pure
+        returns (PoolKey memory poolKey, bool zeroForOne)
+    {
+        address currencyOut = params.intermediateCurrency;
+        (address currency0, address currency1) =
+            currencyIn < currencyOut ? (currencyIn, currencyOut) : (currencyOut, currencyIn);
+
+        zeroForOne = currencyIn == currency0;
+        poolKey = PoolKey(currency0, currency1, params.fee, params.tickSpacing, params.hooks);
+    }
+}
+
 struct BaseData {
     uint256 amount;
     uint256 amountLimit;

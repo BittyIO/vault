@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {OracleLibrary} from "../libs/OracleLibrary.sol";
-import {IPoolManager, PoolKey, PoolIdLibrary} from "../libs/Uniswap.sol";
+import {IPoolManager, PoolKey} from "../libs/uniswap/v4/Uniswap.sol";
 
 library UniswapQuoteHelper {
     /**
