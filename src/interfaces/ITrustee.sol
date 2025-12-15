@@ -29,4 +29,12 @@ interface ITrustee {
      * @param manageFee The manage fee.
      */
     function setManageFee(IAssetManager.ManageFee memory manageFee) external;
+
+    /**
+     * @notice Ping the trustee to make sure the trustee is still alive.
+     * @dev Ping the trustee to make sure the trustee is still alive.
+     * This is used to check if the trustee is still alive.
+     * If the trustee is not alive, the grantor or the beneficiary can set another trustee.
+     */
+    function trusteePing() external;
 }

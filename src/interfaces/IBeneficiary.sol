@@ -72,6 +72,13 @@ interface IBeneficiary {
     function changeBeneficiaryAddress(address newBeneficiaryAddress) external;
 
     /**
+     * @notice only works if trust is irrevocable and trustee do not ping anymore.
+     * @dev only works for beneficiary to replace trustee.
+     * @param newTrusteeAddress new trustee address
+     */
+    function replaceTrustee(address newTrusteeAddress) external;
+
+    /**
      * @notice Get the money from the trust.
      * @dev Get the money from the trust.
      * @param stableCoinAddress The address of the stablecoin to get the money.

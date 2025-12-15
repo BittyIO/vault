@@ -33,11 +33,14 @@ import {
     RevenueIsZero,
     RevenueDurationIsZero,
     RevenuePercentageIsZero,
-    OnlyRevocable
+    OnlyRevocable,
+    TrusteeStillAlive
 } from "./interfaces/Errors.sol";
 import {AssetManager} from "./AssetManager.sol";
 
 abstract contract Trust is ITrust {
+    uint256 public constant DEFAULT_TRUSTEE_INVALID_AFTER_NO_PING = 180 days;
+
     address public grantor;
     address public trustee;
     address public assetManager;
@@ -49,6 +52,9 @@ abstract contract Trust is ITrust {
     uint256 public autoIrrevocableAfterNoPing;
     uint256 public lastPingTime;
     uint256 public autoIrrevocableStartTime;
+
+    uint256 public trusteeInvalidAfterNoPing;
+    uint256 public trusteeLastPingTime;
 
     IBeneficiary.BeneficiarySettings public beneficiarySettings;
     uint256 public lastWithdrawalTime;
@@ -147,6 +153,8 @@ abstract contract Trust is ITrust {
         grantor = grantorAddress;
         beneficiary = beneficiaryAddress;
         trustee = trusteeAddress;
+        trusteeInvalidAfterNoPing = DEFAULT_TRUSTEE_INVALID_AFTER_NO_PING;
+        trusteeLastPingTime = block.timestamp;
         isInitialized = true;
     }
 
@@ -181,11 +189,36 @@ abstract contract Trust is ITrust {
         autoIrrevocableStartTime = block.timestamp;
     }
 
-    function ping() external virtual override onlyInitialized onlyGrantor {
+    function grantorPing() external virtual override onlyInitialized onlyGrantor {
         if (autoIrrevocableAfterNoPing == 0) {
             revert AutoIrrevocableAfterNoPingNotSet();
         }
         lastPingTime = block.timestamp;
+    }
+
+    function setTrusteeInvalidAfterNoPing(uint256 pingSeconds) external virtual override onlyInitialized onlyGrantor {
+        trusteeInvalidAfterNoPing = pingSeconds;
+    }
+
+    function trusteePing() external virtual override onlyInitialized onlyTrustee {
+        trusteeLastPingTime = block.timestamp;
+    }
+
+    function replaceTrustee(address newTrusteeAddress)
+        external
+        virtual
+        override
+        onlyInitialized
+        onlyBeneficiary
+        onlyIrrevokable
+    {
+        if (newTrusteeAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (block.timestamp - trusteeLastPingTime <= trusteeInvalidAfterNoPing) {
+            revert TrusteeStillAlive();
+        }
+        trustee = newTrusteeAddress;
     }
 
     function upgrade(address upgradeToContract) external virtual override onlyInitialized onlyGrantor {
@@ -218,6 +251,8 @@ abstract contract Trust is ITrust {
         trustee = trusteeAddress;
         lastBaseFeeTime = block.timestamp;
         lastRevenueTime = block.timestamp;
+        trusteeLastPingTime = block.timestamp;
+        trusteeInvalidAfterNoPing = DEFAULT_TRUSTEE_INVALID_AFTER_NO_PING;
     }
 
     function setAssetManager(address assetManagerAddress) external virtual override onlyInitialized onlyTrustee {

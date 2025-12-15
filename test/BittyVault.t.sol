@@ -42,7 +42,7 @@ contract BittyVaultTest is Test {
     function test_RevocableAfterPing() public {
         bittyVault.initialize(address(this));
         bittyVault.setAutoIrrevocableAfterNoPing(2);
-        bittyVault.ping();
+        bittyVault.grantorPing();
         vm.warp(block.timestamp + 1);
         assertEq(bittyVault.revocable(), true);
     }

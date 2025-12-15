@@ -42,6 +42,7 @@ error TimestampIsZero();
 error TimestampNotFound();
 error TimestampDuplicated();
 error TimestampIsInTheFuture();
+error TrusteeStillAlive();
 
 // Grantor errors
 error BaseFeeDurationNotMet();

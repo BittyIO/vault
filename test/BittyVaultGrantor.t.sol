@@ -11,7 +11,8 @@ import {
     WETHNotSet,
     TimestampIsZero,
     TimestampNotFound,
-    OnlyRevocable
+    OnlyRevocable,
+    TrusteeStillAlive
 } from "../src/interfaces/Errors.sol";
 import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
 import {WhiteList} from "../src/WhiteList.sol";
@@ -128,7 +129,7 @@ contract BittyVaultGrantorTest is Test {
             new address[](0)
         );
         newVault.setAutoIrrevocableAfterNoPing(2);
-        newVault.ping();
+        newVault.grantorPing();
         vm.warp(block.timestamp + 1);
         assertEq(newVault.revocable(), true);
     }
@@ -837,14 +838,14 @@ contract BittyVaultGrantorTest is Test {
 
     function test_Revocable_WhenAutoIrrevocableSetAndPinged() public {
         bittyVault.setAutoIrrevocableAfterNoPing(1 days);
-        bittyVault.ping();
+        bittyVault.grantorPing();
         vm.warp(block.timestamp + 12 hours);
         assertTrue(bittyVault.revocable());
     }
 
     function test_Revocable_WhenAutoIrrevocableSetAndPingedThenExpired() public {
         bittyVault.setAutoIrrevocableAfterNoPing(1 days);
-        bittyVault.ping();
+        bittyVault.grantorPing();
         vm.warp(block.timestamp + 2 days);
         assertFalse(bittyVault.revocable());
     }
@@ -1488,5 +1489,19 @@ contract BittyVaultGrantorTest is Test {
 
         bittyVault.resetStableCoins(resetStableCoins);
         assertEq(bittyVault.getStableCoins().length, 3);
+    }
+
+    function test_ReplaceTrustee_GrantorCannotCall() public {
+        address trustee = makeAddr("trustee");
+        address newTrustee = makeAddr("newTrustee");
+        address beneficiary = makeAddr("beneficiary");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setBeneficiary(beneficiary);
+        bittyVault.setToIrrevocable();
+
+        vm.warp(block.timestamp + 181 days);
+
+        vm.expectRevert("Only beneficiary");
+        bittyVault.replaceTrustee(newTrustee);
     }
 }

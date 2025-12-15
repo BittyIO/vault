@@ -47,6 +47,13 @@ interface IGrantor {
     function setTrustee(address trusteeAddress) external;
 
     /**
+     * @notice Set the trustee to dead after no ping.
+     * @dev Set the trustee to dead after no ping.
+     * @param pingSeconds The number of seconds after no ping.
+     */
+    function setTrusteeInvalidAfterNoPing(uint256 pingSeconds) external;
+
+    /**
      * @notice Set the beneficiary.
      * @dev Set the beneficiary.
      * @param beneficiaryAddress The address of the beneficiary.
@@ -147,7 +154,7 @@ interface IGrantor {
      * @notice Ping the trust.
      * @dev Ping the trust to make sure the Grantor is still alive, works for setAutoIrrevocableAfterNoPing.
      */
-    function ping() external;
+    function grantorPing() external;
 
     /**
      * @notice Upgrade the trust.
