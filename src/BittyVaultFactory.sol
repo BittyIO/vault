@@ -3,7 +3,7 @@ pragma solidity ^0.8.27;
 
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
-import {AddressZero, Unauthorized, VaultAlreadyDeployed} from "./interfaces/Errors.sol";
+import {AddressZero, VaultAlreadyDeployed} from "./interfaces/Errors.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
 import {IMigrator} from "./interfaces/IMigrator.sol";
 import {BittyVault} from "./BittyVault.sol";
@@ -17,8 +17,8 @@ import {FactoryHelper} from "./helpers/FactoryHelper.sol";
 contract BittyVaultFactory is Initializable {
     IWhiteList public whiteList;
     IMigrator public migrator;
-    address public poolManager;
     address public vaultImplementation;
+    address public wethAddress;
     /**
      * @notice Emitted when a new BittyVault is deployed
      * @param vault The address of the deployed vault
@@ -27,23 +27,28 @@ contract BittyVaultFactory is Initializable {
      */
     event VaultDeployed(address indexed vault, address indexed grantor, string inputSalt);
 
-    address public wethAddress;
-
     function initialize(
         address vaultImplementation_,
-        address wethAddress_,
         address whiteListAddress_,
         address migratorAddress_,
-        address poolManagerAddress_
+        address wethAddress_
     ) public initializer {
-        if (vaultImplementation_ == address(0) || wethAddress_ == address(0) || poolManagerAddress_ == address(0)) {
+        if (vaultImplementation_ == address(0)) {
             revert AddressZero();
         }
         vaultImplementation = vaultImplementation_;
-        wethAddress = wethAddress_;
+        if (whiteListAddress_ == address(0)) {
+            revert AddressZero();
+        }
         whiteList = IWhiteList(whiteListAddress_);
+        if (migratorAddress_ == address(0)) {
+            revert AddressZero();
+        }
         migrator = IMigrator(migratorAddress_);
-        poolManager = poolManagerAddress_;
+        if (wethAddress_ == address(0)) {
+            revert AddressZero();
+        }
+        wethAddress = wethAddress_;
     }
 
     function deployVault(
@@ -65,10 +70,9 @@ contract BittyVaultFactory is Initializable {
         BittyVault(payable(vault))
             .initialize(
                 msg.sender,
-                wethAddress,
-                poolManager,
                 address(whiteList),
                 address(migrator),
+                wethAddress,
                 assetAddresses,
                 stableCoinAddresses,
                 yieldProviders,

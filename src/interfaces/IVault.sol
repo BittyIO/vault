@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {IVersionizedVault} from "./IVersionizedVault.sol";
+import {IVersionized} from "./IVersionized.sol";
 
-interface IVault is IVersionizedVault {
+interface IVault is IVersionized {
+    function turnETHToWETH() external;
     function addAssets(address[] memory assetAddresses) external;
 
     function removeAssets(address[] memory assetAddresses) external;
@@ -16,11 +17,7 @@ interface IVault is IVersionizedVault {
 
     function resetStableCoins(address[] memory stableCoinAddresses) external;
 
-    function addYieldProviders(address[] memory yieldProviderAddresses) external;
+    function getAssets() external view returns (address[] memory);
 
-    function removeYieldProviders(address[] memory yieldProviderAddresses) external;
-
-    function addSwapProviders(address[] memory swapProviderAddresses) external;
-
-    function removeSwapProviders(address[] memory swapProviderAddresses) external;
+    function getStableCoins() external view returns (address[] memory);
 }

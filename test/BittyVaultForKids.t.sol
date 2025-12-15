@@ -20,17 +20,16 @@ contract BittyVaultForKidsTest is Test {
     function setUp() public {
         mockWETH = new WETH();
         bittyVaultForKids = new BittyVault();
-        whiteListAddress = address(new WhiteList());
+        poolManagerAddress = makeAddr("poolManagerAddress");
+        whiteListAddress = address(new WhiteList(poolManagerAddress));
         grantor = makeAddr("grantor");
         kidAddress = makeAddr("alice");
         migratorAddress = address(new Migrator());
-        poolManagerAddress = makeAddr("poolManagerAddress");
         bittyVaultForKids.initialize(
             grantor,
-            address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
+            address(mockWETH),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -51,7 +50,7 @@ contract BittyVaultForKidsTest is Test {
     function test_TrustIsIrrevocable() public {
         vm.prank(grantor);
         bittyVaultForKids.setToIrrevocable();
-        assertTrue(bittyVaultForKids.isIrrevocable());
+        assertFalse(bittyVaultForKids.revocable());
     }
 
     function test_TrustNotStartedBeforeTheStartDay() public {

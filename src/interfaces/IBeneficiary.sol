@@ -88,6 +88,8 @@ interface IBeneficiary {
      */
     function getMoneyFromEvent(string memory eventName, address stableCoinAddress) external;
 
+    function lastWithdrawalTime() external view returns (uint256);
+
     /**
      * @notice Get the money from the time event.
      * @dev Get the money from the time event.

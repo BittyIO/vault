@@ -6,9 +6,8 @@ import {VaultHelper} from "../../src/helpers/VaultHelper.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {MockYieldProvider} from "../mock/MockYieldProvider.sol";
 import {MockSwapProvider} from "../mock/MockSwapProvider.sol";
-import {TransferFailed, InsufficientStablecoinBalance} from "../../src/interfaces/Errors.sol";
+import {InsufficientStablecoinBalance} from "../../src/interfaces/Errors.sol";
 import {IPoolManager} from "../../src/libs/uniswap/v4/Uniswap.sol";
-import {ISwapProvider} from "../../src/interfaces/IAssetManager.sol";
 
 contract MockVaultForTesting {
     function getMoneyFromYieldProvider(address[] memory _yieldProviders, address stableCoinAddress, uint256 amount)

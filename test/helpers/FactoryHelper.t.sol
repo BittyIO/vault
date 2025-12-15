@@ -26,12 +26,12 @@ contract FactoryHelperWrapper {
 contract FactoryHelperTest is Test {
     FactoryHelperWrapper public wrapper;
     WhiteList public whiteList;
-    address public owner;
+    address public poolManagerAddress;
 
     function setUp() public {
         wrapper = new FactoryHelperWrapper();
-        owner = tx.origin;
-        whiteList = new WhiteList();
+        poolManagerAddress = makeAddr("poolManagerAddress");
+        whiteList = new WhiteList(poolManagerAddress);
     }
 
     function test_CheckWhiteList_AllValid() public {
@@ -42,7 +42,6 @@ contract FactoryHelperTest is Test {
         address yieldProvider1 = makeAddr("yieldProvider1");
         address swapProvider1 = makeAddr("swapProvider1");
 
-        vm.startPrank(owner);
         address[] memory assets = new address[](2);
         assets[0] = asset1;
         assets[1] = asset2;
@@ -60,7 +59,6 @@ contract FactoryHelperTest is Test {
         address[] memory swapProviders = new address[](1);
         swapProviders[0] = swapProvider1;
         whiteList.addSwapProviders(swapProviders);
-        vm.stopPrank();
 
         address[] memory testAssets = new address[](2);
         testAssets[0] = asset1;
@@ -85,11 +83,9 @@ contract FactoryHelperTest is Test {
         address asset1 = makeAddr("asset1");
         address invalidAsset = makeAddr("invalidAsset");
 
-        vm.startPrank(owner);
         address[] memory assets = new address[](1);
         assets[0] = asset1;
         whiteList.addAssets(assets);
-        vm.stopPrank();
 
         address[] memory testAssets = new address[](1);
         testAssets[0] = invalidAsset;
@@ -103,11 +99,9 @@ contract FactoryHelperTest is Test {
         address stableCoin1 = makeAddr("stableCoin1");
         address invalidStableCoin = makeAddr("invalidStableCoin");
 
-        vm.startPrank(owner);
         address[] memory stableCoins = new address[](1);
         stableCoins[0] = stableCoin1;
         whiteList.addStableCoins(stableCoins);
-        vm.stopPrank();
 
         address[] memory testStableCoins = new address[](1);
         testStableCoins[0] = invalidStableCoin;
@@ -121,11 +115,9 @@ contract FactoryHelperTest is Test {
         address yieldProvider1 = makeAddr("yieldProvider1");
         address invalidYieldProvider = makeAddr("invalidYieldProvider");
 
-        vm.startPrank(owner);
         address[] memory yieldProviders = new address[](1);
         yieldProviders[0] = yieldProvider1;
         whiteList.addYieldProviders(yieldProviders);
-        vm.stopPrank();
 
         address[] memory testYieldProviders = new address[](1);
         testYieldProviders[0] = invalidYieldProvider;
@@ -139,11 +131,9 @@ contract FactoryHelperTest is Test {
         address swapProvider1 = makeAddr("swapProvider1");
         address invalidSwapProvider = makeAddr("invalidSwapProvider");
 
-        vm.startPrank(owner);
         address[] memory swapProviders = new address[](1);
         swapProviders[0] = swapProvider1;
         whiteList.addSwapProviders(swapProviders);
-        vm.stopPrank();
 
         address[] memory testSwapProviders = new address[](1);
         testSwapProviders[0] = invalidSwapProvider;
@@ -163,11 +153,9 @@ contract FactoryHelperTest is Test {
         address asset1 = makeAddr("asset1");
         address invalidAsset = makeAddr("invalidAsset");
 
-        vm.startPrank(owner);
         address[] memory assets = new address[](1);
         assets[0] = asset1;
         whiteList.addAssets(assets);
-        vm.stopPrank();
 
         address[] memory testAssets = new address[](2);
         testAssets[0] = asset1;

@@ -3,7 +3,7 @@ pragma solidity ^0.8.27;
 
 import {IMigratable} from "./IMigratable.sol";
 
-interface IVersionizedVault is IMigratable {
+interface IVersionized is IMigratable {
     function version() external view returns (uint256);
-    function initialize(address previousVersionVaultAddress, bytes memory args) external;
+    function initializeFromPreviousVersion(address previousVersionAddress, bytes memory args) external;
 }

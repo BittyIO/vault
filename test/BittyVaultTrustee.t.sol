@@ -14,7 +14,9 @@ import {
     RebalanceInMinimalTime,
     MinimalBalanceNotMet,
     NotWhiteListed,
-    AddressZero
+    AddressZero,
+    OnlyAssetManager,
+    OnlyTrustee
 } from "../src/interfaces/Errors.sol";
 
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
@@ -25,14 +27,18 @@ import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {Migrator} from "../src/Migrator.sol";
+import {AssetManagerLogic} from "../src/logic/AssetManagerLogic.sol";
+import {AssetManagerStorage} from "../src/logic/Storages.sol";
 
 contract TestBittyVault is BittyVault {
+    using AssetManagerLogic for AssetManagerStorage;
+
     function cloneProviderForTesting(address provider) external returns (address) {
-        return _cloneProvider(provider);
+        return _assetManager.cloneProvider(provider);
     }
 
     function setRevenueForTesting(uint256 revenueAmount) external {
-        revenue = revenueAmount;
+        _assetManager.revenue = revenueAmount;
     }
 }
 
@@ -51,6 +57,7 @@ contract BittyVaultTrusteeTest is Test {
     IAssetManager.ManageFee public manageFee;
     address public whiteListAddress;
     address public migratorAddress;
+    address public poolManagerAddress;
 
     function setUp() public {
         mockWETH = new WETH();
@@ -60,7 +67,8 @@ contract BittyVaultTrusteeTest is Test {
         mockSwapProvider = new MockSwapProvider();
         mockYieldProvider = new MockYieldProvider();
         bittyVault = new TestBittyVault();
-        whiteListAddress = address(new WhiteList());
+        poolManagerAddress = makeAddr("poolManagerAddress");
+        whiteListAddress = address(new WhiteList(poolManagerAddress));
         migratorAddress = address(new Migrator());
         grantor = makeAddr("grantor");
         trustee = makeAddr("alice");
@@ -75,19 +83,15 @@ contract BittyVaultTrusteeTest is Test {
         swapProviders[0] = address(mockSwapProvider);
         address[] memory yieldProviderAddresses = new address[](1);
         yieldProviderAddresses[0] = address(mockYieldProvider);
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addAssets(assetAddresses);
         IWhiteList(whiteListAddress).addStableCoins(stableCoinAddresses);
         IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
         IWhiteList(whiteListAddress).addYieldProviders(yieldProviderAddresses);
-        vm.stopPrank();
-        address poolManagerAddress = makeAddr("poolManagerAddress");
         bittyVault.initialize(
             grantor,
-            address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
+            address(mockWETH),
             assetAddresses,
             stableCoinAddresses,
             new address[](0),
@@ -128,7 +132,7 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_GetBaseFeeFailedIfNotFromAssetManager() public {
-        vm.expectRevert("Only asset manager");
+        vm.expectRevert(OnlyAssetManager.selector);
         vm.prank(trustee);
         bittyVault.getBaseFee(address(mockUSDT));
     }
@@ -176,7 +180,7 @@ contract BittyVaultTrusteeTest is Test {
     function test_TrusteeGetRevenueFeeFailedIfNotFromAssetManager() public {
         manageFee.revenuePercentage = 10;
         manageFee.revenueDuration = 30 days;
-        vm.expectRevert("Only asset manager");
+        vm.expectRevert(OnlyAssetManager.selector);
         vm.prank(trustee);
         bittyVault.getRevenueFee(address(mockUSDT));
     }
@@ -186,6 +190,20 @@ contract BittyVaultTrusteeTest is Test {
         manageFee.revenueDuration = 30 days;
         vm.prank(trustee);
         bittyVault.setManageFee(manageFee);
+        uint256 revenueAmount = 1000;
+        bittyVault.setRevenueForTesting(revenueAmount);
+
+        // First, call getRevenueFee successfully to set lastRevenueTime
+        uint256 expectedFeeBase = revenueAmount * manageFee.revenuePercentage / 10000;
+        uint256 expectedFeeTokens = expectedFeeBase * 10 ** mockUSDT.decimals();
+        deal(address(mockUSDT), address(bittyVault), expectedFeeTokens);
+        vm.warp(block.timestamp + manageFee.revenueDuration + 1);
+        vm.prank(assetManager);
+        bittyVault.getRevenueFee(address(mockUSDT));
+
+        // Now set revenue again and test duration check
+        bittyVault.setRevenueForTesting(revenueAmount);
+        deal(address(mockUSDT), address(bittyVault), expectedFeeTokens);
         vm.warp(block.timestamp + manageFee.revenueDuration - 1);
         vm.prank(assetManager);
         vm.expectRevert(RevenueDurationNotMet.selector);
@@ -242,7 +260,7 @@ contract BittyVaultTrusteeTest is Test {
         address unauthorized = makeAddr("unauthorized");
         address newTrustee = makeAddr("newTrustee");
         vm.prank(unauthorized);
-        vm.expectRevert("Only trustee");
+        vm.expectRevert(OnlyTrustee.selector);
         bittyVault.changeTrusteeAddress(newTrustee);
     }
 
@@ -252,7 +270,7 @@ contract BittyVaultTrusteeTest is Test {
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
         address wethAddress = bittyVault.getAssets()[1];
         address usdtAddress = bittyVault.getStableCoins()[0];
-        vm.expectRevert("Only asset manager");
+        vm.expectRevert(OnlyAssetManager.selector);
         vm.prank(trustee);
         bittyVault.rebalance(address(mockSwapProvider), wethAddress, usdtAddress, sellAmount, buyAmount, swapData);
     }
@@ -435,5 +453,151 @@ contract BittyVaultTrusteeTest is Test {
         swapProviderAddresses[0] = address(mockSwapProvider);
         vm.prank(trustee);
         bittyVault.addSwapProviders(swapProviderAddresses);
+    }
+
+    function test_RebalanceFailedIfInvalidSwapData() public {
+        uint256 sellAmount = 1 * 1e6;
+        uint256 buyAmount = 10 * 1e6;
+        // Invalid swap data - wrong sell token
+        bytes memory swapData = abi.encode(address(mockUSDT), sellAmount, address(mockWETH), buyAmount);
+        address wethAddress = bittyVault.getAssets()[1];
+        address usdtAddress = bittyVault.getStableCoins()[0];
+        vm.warp(block.timestamp + rebalanceLimits.minimalTimestampBetweenRebalances + 1);
+        vm.expectRevert();
+        vm.prank(assetManager);
+        bittyVault.rebalance(address(mockSwapProvider), wethAddress, usdtAddress, sellAmount, buyAmount, swapData);
+    }
+
+    function test_RebalanceFailedIfAssetConfigMinimalDurationNotMet() public {
+        uint256 sellAmount = 1 * 1e6;
+        uint256 buyAmount = 10 * 1e6;
+        uint256 minimalDuration = 60;
+
+        vm.prank(trustee);
+        bittyVault.setAssetConfig(
+            address(mockWETH),
+            IAssetManager.AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: minimalDuration})
+        );
+
+        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
+        address wethAddress = address(mockWETH);
+        address usdtAddress = address(mockUSDT);
+
+        address clonedSwapProvider = bittyVault.cloneProviderForTesting(address(mockSwapProvider));
+        deal(address(mockWETH), address(bittyVault), sellAmount);
+        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        vm.prank(address(bittyVault));
+        mockWETH.approve(clonedSwapProvider, sellAmount);
+
+        vm.warp(block.timestamp + rebalanceLimits.minimalTimestampBetweenRebalances + 1);
+        vm.prank(assetManager);
+        bittyVault.rebalance(address(mockSwapProvider), wethAddress, usdtAddress, sellAmount, buyAmount, swapData);
+
+        // Try to rebalance again before minimal duration
+        deal(address(mockWETH), address(bittyVault), sellAmount);
+        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        vm.prank(address(bittyVault));
+        mockWETH.approve(clonedSwapProvider, sellAmount);
+
+        vm.expectRevert(RebalanceInMinimalTime.selector);
+        vm.warp(block.timestamp + minimalDuration - 1);
+        vm.prank(assetManager);
+        bittyVault.rebalance(address(mockSwapProvider), wethAddress, usdtAddress, sellAmount, buyAmount, swapData);
+    }
+
+    function test_RebalanceSuccessAfterAssetConfigMinimalDuration() public {
+        uint256 sellAmount = 1 * 1e6;
+        uint256 buyAmount = 10 * 1e6;
+        uint256 minimalDuration = 60;
+
+        vm.prank(trustee);
+        bittyVault.setAssetConfig(
+            address(mockWETH),
+            IAssetManager.AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: minimalDuration})
+        );
+
+        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
+        address wethAddress = address(mockWETH);
+        address usdtAddress = address(mockUSDT);
+
+        address clonedSwapProvider = bittyVault.cloneProviderForTesting(address(mockSwapProvider));
+        deal(address(mockWETH), address(bittyVault), sellAmount);
+        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        vm.prank(address(bittyVault));
+        mockWETH.approve(clonedSwapProvider, sellAmount);
+
+        vm.warp(block.timestamp + rebalanceLimits.minimalTimestampBetweenRebalances + 1);
+        vm.prank(assetManager);
+        bittyVault.rebalance(address(mockSwapProvider), wethAddress, usdtAddress, sellAmount, buyAmount, swapData);
+
+        // Rebalance again after minimal duration
+        deal(address(mockWETH), address(bittyVault), sellAmount);
+        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        vm.prank(address(bittyVault));
+        mockWETH.approve(clonedSwapProvider, sellAmount);
+
+        vm.warp(block.timestamp + minimalDuration + 1);
+        vm.prank(assetManager);
+        bittyVault.rebalance(address(mockSwapProvider), wethAddress, usdtAddress, sellAmount, buyAmount, swapData);
+    }
+
+    function test_GetAllAssetConfigKeys() public {
+        IAssetManager.AssetConfig memory assetConfig1 =
+            IAssetManager.AssetConfig({minimalBalance: 100 * 1e6, minimalDurationBetweenRebalances: 30});
+        IAssetManager.AssetConfig memory assetConfig2 =
+            IAssetManager.AssetConfig({minimalBalance: 200 * 1e6, minimalDurationBetweenRebalances: 60});
+
+        vm.prank(trustee);
+        bittyVault.setAssetConfig(address(mockWBTC), assetConfig1);
+        vm.prank(trustee);
+        bittyVault.setAssetConfig(address(mockWETH), assetConfig2);
+
+        address[] memory keys = bittyVault.getAllAssetConfigKeys();
+        assertEq(keys.length, 2);
+        assertTrue(keys[0] == address(mockWBTC) || keys[1] == address(mockWBTC));
+        assertTrue(keys[0] == address(mockWETH) || keys[1] == address(mockWETH));
+    }
+
+    function test_GetAllLastRebalanceTimestampKeys() public {
+        IAssetManager.AssetConfig memory assetConfig =
+            IAssetManager.AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 30});
+        vm.prank(trustee);
+        bittyVault.setAssetConfig(address(mockWETH), assetConfig);
+
+        uint256 sellAmount = 1 * 1e6;
+        uint256 buyAmount = 10 * 1e6;
+        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
+
+        address clonedSwapProvider = bittyVault.cloneProviderForTesting(address(mockSwapProvider));
+        deal(address(mockWETH), address(bittyVault), sellAmount);
+        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        vm.prank(address(bittyVault));
+        mockWETH.approve(clonedSwapProvider, sellAmount);
+
+        vm.warp(block.timestamp + rebalanceLimits.minimalTimestampBetweenRebalances + 1);
+        vm.prank(assetManager);
+        bittyVault.rebalance(
+            address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData
+        );
+
+        address[] memory keys = bittyVault.getAllLastRebalanceTimestampKeys();
+        assertEq(keys.length, 1);
+        assertEq(keys[0], address(mockWETH));
+    }
+
+    function test_RemoveSwapProviders() public {
+        address[] memory swapProviderAddresses = new address[](1);
+        swapProviderAddresses[0] = address(mockSwapProvider);
+        vm.prank(trustee);
+        bittyVault.addSwapProviders(swapProviderAddresses);
+
+        address[] memory providers = bittyVault.getSwapProviders();
+        assertEq(providers.length, 1);
+
+        vm.prank(trustee);
+        bittyVault.removeSwapProviders(swapProviderAddresses);
+
+        providers = bittyVault.getSwapProviders();
+        assertEq(providers.length, 0);
     }
 }

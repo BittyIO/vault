@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.27;
 
-import {IVersionizedVault} from "../../src/interfaces/IVersionizedVault.sol";
+import {IVersionized} from "../../src/interfaces/IVersionized.sol";
 
 /**
  * @title SimpleMockVault
  * @notice Simplified mock vault for testing Migrator contract
  * @dev This is a minimal implementation that only implements IVersionizedVault
  */
-contract SimpleMockVault is IVersionizedVault {
+contract SimpleMockVault is IVersionized {
     uint256 public version;
     bytes public args;
     address public previousVault;
@@ -18,7 +18,7 @@ contract SimpleMockVault is IVersionizedVault {
         version = _version;
     }
 
-    function initialize(address previousVersionVaultAddress, bytes memory _args) external override {
+    function initializeFromPreviousVersion(address previousVersionVaultAddress, bytes memory _args) external override {
         previousVault = previousVersionVaultAddress;
         args = _args;
         version = abi.decode(_args, (uint256));

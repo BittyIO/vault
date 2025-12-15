@@ -5,44 +5,113 @@ import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {AddressZero, AlreadyInitialized} from "../src/interfaces/Errors.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
+import {Migrator} from "../src/Migrator.sol";
+import {WhiteList} from "../src/WhiteList.sol";
 
 contract BittyVaultTest is Test {
     BittyVault public bittyVault;
-    WETH public mockWETH;
+    WETH public weth;
+    address public migratorAddress;
+    address public whiteListAddress;
+    address public grantorAddress;
 
     function setUp() public {
-        mockWETH = new WETH();
+        weth = new WETH();
         bittyVault = new BittyVault();
+        migratorAddress = address(new Migrator());
+        address poolManagerAddress = makeAddr("poolManagerAddress");
+        whiteListAddress = address(new WhiteList(poolManagerAddress));
+        grantorAddress = makeAddr("grantorAddress");
     }
 
-    function test_InitErrorWithGrantorAddressZero() public {
+    function test_InitErrorWithWethAddressZero() public {
         vm.expectRevert(AddressZero.selector);
-        bittyVault.initialize(address(0));
+        bittyVault.initialize(
+            address(grantorAddress),
+            address(whiteListAddress),
+            address(migratorAddress),
+            address(0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
     }
 
     function test_InitErrorWithAlreadyInitialized() public {
-        bittyVault.initialize(address(1));
+        bittyVault.initialize(
+            address(grantorAddress),
+            address(whiteListAddress),
+            address(migratorAddress),
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
         vm.expectRevert(AlreadyInitialized.selector);
-        bittyVault.initialize(address(1));
+        bittyVault.initialize(
+            address(grantorAddress),
+            address(whiteListAddress),
+            address(migratorAddress),
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
     }
 
     function test_SetTrustToIrrevocable() public {
-        bittyVault.initialize(address(this));
+        vm.startPrank(grantorAddress);
+        bittyVault.initialize(
+            address(grantorAddress),
+            address(whiteListAddress),
+            address(migratorAddress),
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
         bittyVault.setToIrrevocable();
+        vm.stopPrank();
         assertEq(bittyVault.revocable(), false);
     }
 
     function test_AutoIrrevocableAfterNoPing() public {
-        bittyVault.initialize(address(this));
+        vm.startPrank(grantorAddress);
+        bittyVault.initialize(
+            address(grantorAddress),
+            address(whiteListAddress),
+            address(migratorAddress),
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
         bittyVault.setAutoIrrevocableAfterNoPing(1);
+        vm.stopPrank();
         vm.warp(block.timestamp + 2);
         assertEq(bittyVault.revocable(), false);
     }
 
     function test_RevocableAfterPing() public {
-        bittyVault.initialize(address(this));
+        vm.startPrank(grantorAddress);
+        bittyVault.initialize(
+            address(grantorAddress),
+            address(whiteListAddress),
+            address(migratorAddress),
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
         bittyVault.setAutoIrrevocableAfterNoPing(2);
         bittyVault.ping();
+        vm.stopPrank();
         vm.warp(block.timestamp + 1);
         assertEq(bittyVault.revocable(), true);
     }

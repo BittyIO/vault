@@ -26,16 +26,17 @@ contract SubscribeTest is Test {
     Subscribe public subscribe;
     address public feeReceiver;
     address public whiteList;
+    address public poolManagerAddress;
     MockERC20 public mockStableCoin;
     MockERC20 public mockStableCoin2;
 
     function setUp() public {
         user = makeAddr("alice");
         feeReceiver = makeAddr("feeReceiver");
-        whiteList = address(new WhiteList());
+        poolManagerAddress = makeAddr("poolManagerAddress");
+        whiteList = address(new WhiteList(poolManagerAddress));
         mockStableCoin = new MockERC20("StableCoin", "USDT", 6);
         subscribe = new Subscribe();
-        vm.prank(tx.origin);
         address[] memory stableCoins = new address[](2);
         stableCoins[0] = address(mockStableCoin);
         stableCoins[1] = address(mockStableCoin2);
@@ -43,13 +44,11 @@ contract SubscribeTest is Test {
     }
 
     function test_InitializeFailedWhenWhiteListIsZeroAddress() public {
-        vm.prank(tx.origin);
         vm.expectRevert(AddressZero.selector);
         subscribe.initialize(address(0));
     }
 
     function test_SubscribeFailedWhenStableCoinNotWhiteListed() public {
-        vm.prank(tx.origin);
         subscribe.initialize(whiteList);
         vm.prank(user);
         address invalidStableCoin = makeAddr("invalidStableCoin");
@@ -329,7 +328,6 @@ contract SubscribeTest is Test {
 
     function test_WithdrawFeeFailedWhenAddressZero() public {
         subscribe.initialize(whiteList);
-        vm.prank(tx.origin);
         vm.expectRevert(AddressZero.selector);
         subscribe.withdrawFee(address(mockStableCoin), 0, payable(address(0)));
     }
@@ -372,7 +370,6 @@ contract SubscribeTest is Test {
     function test_WithdrawFeeFailedWhenInsufficientWithdrawableFee() public {
         subscribe.initialize(whiteList);
         vm.expectRevert(InsufficientWithdrawableFee.selector);
-        vm.prank(tx.origin);
         subscribe.withdrawFee(address(mockStableCoin), 1, payable(user));
     }
 
@@ -385,7 +382,6 @@ contract SubscribeTest is Test {
         vm.prank(user);
         subscribe.subscribe(ISubscribe.Subscription.BASE, address(mockStableCoin));
         vm.warp(block.timestamp + 365 days);
-        vm.prank(tx.origin);
         address payable to = payable(makeAddr("to"));
         subscribe.withdrawFee(address(mockStableCoin), baseFee, to);
         assertEq(mockStableCoin.balanceOf(to), baseFee);

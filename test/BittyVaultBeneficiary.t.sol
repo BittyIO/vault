@@ -28,7 +28,10 @@ import {
     LengthMismatch,
     TimestampNotFound,
     TimestampIsInTheFuture,
-    InsufficientStablecoinBalance
+    InsufficientStablecoinBalance,
+    OnlyBeneficiary,
+    OnlyRevocable,
+    AutoIrrevocableAfterNoPingNotSet
 } from "../src/interfaces/Errors.sol";
 
 contract BittyVaultBeneficiaryTest is Test {
@@ -70,28 +73,29 @@ contract BittyVaultBeneficiaryTest is Test {
         stableCoinAddresses[1] = address(mockUSDC);
         address[] memory yieldProviders = new address[](0);
         address[] memory swapProviders = new address[](0);
-        whiteListAddress = address(new WhiteList());
+        poolManagerAddress = makeAddr("poolManagerAddress");
+        whiteListAddress = address(new WhiteList(poolManagerAddress));
 
         mockYieldProvider1 = new MockYieldProvider();
         mockYieldProvider2 = new MockYieldProvider();
         mockYieldProvider3 = new MockYieldProvider();
 
-        vm.startPrank(tx.origin);
         address[] memory yieldProviderAddresses = new address[](3);
         yieldProviderAddresses[0] = address(mockYieldProvider1);
         yieldProviderAddresses[1] = address(mockYieldProvider2);
         yieldProviderAddresses[2] = address(mockYieldProvider3);
         IWhiteList(whiteListAddress).addYieldProviders(yieldProviderAddresses);
+        IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
+        IWhiteList(whiteListAddress).addAssets(assetAddresses);
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinAddresses);
         vm.stopPrank();
 
         migratorAddress = address(new Migrator());
-        poolManagerAddress = makeAddr("poolManagerAddress");
         bittyVault.initialize(
             address(this),
-            address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
+            address(mockWETH),
             assetAddresses,
             stableCoinAddresses,
             yieldProviders,
@@ -112,7 +116,7 @@ contract BittyVaultBeneficiaryTest is Test {
 
     function test_GetMoneyFailedIfNotBeneficiary() public {
         vm.deal(address(bittyVault), 10 ether);
-        vm.expectRevert("Only beneficiary");
+        vm.expectRevert(OnlyBeneficiary.selector);
         bittyVault.getMoney(address(mockUSDT));
     }
 
@@ -207,7 +211,7 @@ contract BittyVaultBeneficiaryTest is Test {
             IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: marriageMoney, isPercentage: false});
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
         bittyVault.setToIrrevocable();
-        vm.expectRevert("Only revocable");
+        vm.expectRevert(OnlyRevocable.selector);
         bittyVault.removeTriggerEvents(eventNames);
     }
 
@@ -248,6 +252,13 @@ contract BittyVaultBeneficiaryTest is Test {
         assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
     }
 
+    function test_changeBeneficiaryAddressSuccess() public {
+        address newBeneficiary = makeAddr("bob");
+        vm.prank(beneficiary);
+        bittyVault.changeBeneficiaryAddress(newBeneficiary);
+        assertEq(bittyVault.beneficiary(), newBeneficiary);
+    }
+
     function test_GetMoneyFromEventWithpercentageSuccess() public {
         eventNames[0] = "Marriage";
         uint256 percentage = 1000;
@@ -269,7 +280,7 @@ contract BittyVaultBeneficiaryTest is Test {
         triggerEvents[0] =
             IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: marriageMoney, isPercentage: false});
         bittyVault.setToIrrevocable();
-        vm.expectRevert("Only revocable");
+        vm.expectRevert(OnlyRevocable.selector);
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
     }
 
@@ -279,7 +290,7 @@ contract BittyVaultBeneficiaryTest is Test {
             IBeneficiary.TriggerEvent({triggerAddress: eventInputAddress, amount: marriageMoney, isPercentage: false});
         bittyVault.setAutoIrrevocableAfterNoPing(1);
         vm.warp(block.timestamp + 2);
-        vm.expectRevert("Only revocable");
+        vm.expectRevert(OnlyRevocable.selector);
         bittyVault.addTriggerEvents(eventNames, triggerEvents);
     }
 

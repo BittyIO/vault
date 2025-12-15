@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {ISwapProvider} from "../interfaces/IAssetManager.sol";
-import {IUniswapV4Router04, BaseData, PoolKey, PathKey} from "../libs/uniswap/v4/Uniswap.sol";
+import {IUniswapV4Router04, BaseData, PathKey} from "../libs/uniswap/v4/Uniswap.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";

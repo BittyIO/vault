@@ -5,9 +5,10 @@ import {IAssetManager} from "../../src/interfaces/IAssetManager.sol";
 import {IBeneficiary} from "../../src/interfaces/IBeneficiary.sol";
 import {IWhiteList} from "../../src/interfaces/IWhiteList.sol";
 import {IMigrator} from "../../src/interfaces/IMigrator.sol";
-import {IVersionizedVault} from "../../src/interfaces/IVersionizedVault.sol";
+import {IVersionized} from "../../src/interfaces/IVersionized.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 
 /**
@@ -16,10 +17,11 @@ import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
  * @dev This contract only exists to copy public storage values from the original vault
  *      It can receive ERC20 tokens and ETH transfers (for migration testing)
  */
-contract MockVault is IVersionizedVault {
+contract MockVault is IVersionized {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.UintSet;
+    using SafeERC20 for IERC20;
     using Address for address;
     uint256 public version;
     // Trust contract public storage variables
@@ -28,7 +30,6 @@ contract MockVault is IVersionizedVault {
     address public assetManager;
     IAssetManager.ManageFee public manageFee;
     address public beneficiary;
-    bool public isInitialized;
     bool public isIrrevocable;
     uint256 public autoIrrevocableAfterNoPing;
     uint256 public lastPingTime;
@@ -82,7 +83,7 @@ contract MockVault is IVersionizedVault {
             address token = _stableCoins.at(i);
             uint256 balance = IERC20(token).balanceOf(address(this));
             if (balance > 0) {
-                IERC20(token).transfer(nextVault, balance);
+                IERC20(token).safeTransfer(nextVault, balance);
             }
         }
 
@@ -103,7 +104,7 @@ contract MockVault is IVersionizedVault {
         return nextVault;
     }
 
-    function initialize(address previousVersionVaultAddress, bytes memory _args) external override {
+    function initializeFromPreviousVersion(address previousVersionVaultAddress, bytes memory _args) external override {
         args = _args;
         version = abi.decode(_args, (uint256));
         // Cast to BittyVault interface to access public getters
@@ -115,7 +116,6 @@ contract MockVault is IVersionizedVault {
         assetManager = vault.assetManager();
         manageFee = vault.manageFee();
         beneficiary = vault.beneficiary();
-        isInitialized = vault.isInitialized();
         isIrrevocable = vault.isIrrevocable();
         autoIrrevocableAfterNoPing = vault.autoIrrevocableAfterNoPing();
         lastPingTime = vault.lastPingTime();
@@ -248,7 +248,6 @@ interface BittyVaultInterface {
     function assetManager() external view returns (address);
     function manageFee() external view returns (IAssetManager.ManageFee memory);
     function beneficiary() external view returns (address);
-    function isInitialized() external view returns (bool);
     function isIrrevocable() external view returns (bool);
     function autoIrrevocableAfterNoPing() external view returns (uint256);
     function lastPingTime() external view returns (uint256);

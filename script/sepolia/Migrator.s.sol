@@ -3,7 +3,6 @@ pragma solidity ^0.8.13;
 
 import {Script} from "lib/forge-std/src/Script.sol";
 import {Migrator} from "../../src/Migrator.sol";
-import {sepolia} from "../addresses.sol";
 import {console2} from "lib/forge-std/src/console2.sol";
 
 contract MigratorScript is Script {
