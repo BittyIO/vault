@@ -207,16 +207,7 @@ contract BittyVault is Trust, AssetManager, IVault {
      * if the stablecoin balance is not enough, get from yield providers and swap assets until enough
      */
     function _getMoney(uint256 amount, address stableCoinAddress, address to) internal override {
-        VaultHelper.getMoney(
-            address(this),
-            poolManager,
-            _yieldProviders.values(),
-            _swapProviders.values(),
-            _assets.values(),
-            amount,
-            stableCoinAddress,
-            to
-        );
+        VaultHelper.getMoney(address(this), amount, stableCoinAddress, to);
     }
 
     /**
@@ -225,6 +216,15 @@ contract BittyVault is Trust, AssetManager, IVault {
      */
     function _getPercentageMoney(uint256 percentage, address to) internal override {
         VaultHelper.getPercentageMoney(address(this), _stableCoins.values(), _assets.values(), percentage, to);
+    }
+
+    function _stableNotEnoughForTrustee() internal view override returns (bool) {
+        for (uint256 i = 0; i < _stableCoins.length(); i++) {
+            if (IERC20(_stableCoins.at(i)).balanceOf(address(this)) >= beneficiarySettings.amountPerWithdrawal) {
+                return false;
+            }
+        }
+        return true;
     }
 
     function setAssetConfig(address assetAddress, IAssetManager.AssetConfig memory assetConfig)

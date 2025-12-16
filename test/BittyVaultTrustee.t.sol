@@ -436,4 +436,97 @@ contract BittyVaultTrusteeTest is Test {
         vm.prank(trustee);
         bittyVault.addSwapProviders(swapProviderAddresses);
     }
+
+    function test_TrusteePing_Success() public {
+        uint256 pingTimeBefore = bittyVault.trusteeLastPingTime();
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(trustee);
+        bittyVault.trusteePing();
+
+        assertEq(bittyVault.trusteeLastPingTime(), block.timestamp);
+        assertGt(bittyVault.trusteeLastPingTime(), pingTimeBefore);
+    }
+
+    function test_TrusteePing_UpdatesTimestamp() public {
+        vm.warp(block.timestamp + 10 days);
+        uint256 expectedTimestamp = block.timestamp;
+
+        vm.prank(trustee);
+        bittyVault.trusteePing();
+
+        assertEq(bittyVault.trusteeLastPingTime(), expectedTimestamp);
+    }
+
+    function test_TrusteePing_MultiplePings() public {
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(trustee);
+        bittyVault.trusteePing();
+        uint256 firstPingTime = bittyVault.trusteeLastPingTime();
+
+        vm.warp(block.timestamp + 5 days);
+        vm.prank(trustee);
+        bittyVault.trusteePing();
+        uint256 secondPingTime = bittyVault.trusteeLastPingTime();
+
+        assertGt(secondPingTime, firstPingTime);
+        assertEq(secondPingTime, block.timestamp);
+    }
+
+    function test_TrusteePing_RevertsIfNotTrustee() public {
+        address unauthorized = makeAddr("unauthorized");
+
+        vm.prank(unauthorized);
+        vm.expectRevert("Only trustee");
+        bittyVault.trusteePing();
+    }
+
+    function test_TrusteePing_RevertsIfGrantorCalls() public {
+        vm.expectRevert("Only trustee");
+        bittyVault.trusteePing();
+    }
+
+    function test_TrusteePing_RevertsIfAssetManagerCalls() public {
+        vm.prank(assetManager);
+        vm.expectRevert("Only trustee");
+        bittyVault.trusteePing();
+    }
+
+    function test_TrusteePing_RevertsIfNotInitialized() public {
+        BittyVault newVault = new BittyVault();
+        address newTrustee = makeAddr("newTrustee");
+
+        vm.prank(newTrustee);
+        vm.expectRevert("Trust not initialized");
+        newVault.trusteePing();
+    }
+
+    function test_TrusteePing_AfterTrusteeReplacement() public {
+        address newTrustee = makeAddr("newTrustee");
+        address beneficiary = makeAddr("beneficiary");
+        vm.prank(grantor);
+        bittyVault.setBeneficiary(beneficiary);
+        vm.prank(grantor);
+        bittyVault.setToIrrevocable();
+
+        vm.warp(block.timestamp + 181 days);
+        vm.prank(beneficiary);
+        bittyVault.replaceTrustee(newTrustee);
+
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(newTrustee);
+        bittyVault.trusteePing();
+
+        assertEq(bittyVault.trusteeLastPingTime(), block.timestamp);
+    }
+
+    function test_TrusteePing_InitialTimestampSetOnSetTrustee() public {
+        address newTrustee = makeAddr("newTrustee");
+        uint256 setTime = block.timestamp;
+
+        vm.prank(grantor);
+        bittyVault.setTrustee(newTrustee);
+
+        assertEq(bittyVault.trusteeLastPingTime(), setTime);
+    }
 }

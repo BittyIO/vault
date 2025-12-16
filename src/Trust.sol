@@ -16,7 +16,6 @@ import {
     minimalWithdrawDurationLessThan1Day,
     BeneficiarySettingsNotSet,
     BeneficiaryWithdrawalInLimitDays,
-    InsufficientStablecoinBalance,
     TransferFailed,
     EventNameIsEmpty,
     EventNameDuplicated,
@@ -34,12 +33,13 @@ import {
     RevenueDurationIsZero,
     RevenuePercentageIsZero,
     OnlyRevocable,
-    TrusteeStillAlive
+    ReplaceTrusteeFailed
 } from "./interfaces/Errors.sol";
 import {AssetManager} from "./AssetManager.sol";
 
 abstract contract Trust is ITrust {
     uint256 public constant DEFAULT_TRUSTEE_INVALID_AFTER_NO_PING = 180 days;
+    uint256 public constant DEFAULT_REPLACE_TRUSTEE_DURATION = 60 days;
 
     address public grantor;
     address public trustee;
@@ -215,11 +215,24 @@ abstract contract Trust is ITrust {
         if (newTrusteeAddress == address(0)) {
             revert AddressZero();
         }
-        if (block.timestamp - trusteeLastPingTime <= trusteeInvalidAfterNoPing) {
-            revert TrusteeStillAlive();
+        if (block.timestamp - trusteeLastPingTime > trusteeInvalidAfterNoPing || _trusteeGetMoneyFailed()) {
+            trustee = newTrusteeAddress;
+            return;
         }
-        trustee = newTrusteeAddress;
+        revert ReplaceTrusteeFailed();
     }
+
+    function _trusteeGetMoneyFailed() internal view returns (bool) {
+        if (block.timestamp - lastWithdrawalTime <= beneficiarySettings.replaceTrusteeDuration) {
+            return false;
+        }
+        if (_stableNotEnoughForTrustee()) {
+            return true;
+        }
+        return true;
+    }
+
+    function _stableNotEnoughForTrustee() internal view virtual returns (bool);
 
     function upgrade(address upgradeToContract) external virtual override onlyInitialized onlyGrantor {
         if (upgradeToContract == address(0)) {
@@ -311,6 +324,9 @@ abstract contract Trust is ITrust {
         }
         if (beneficiarySettings_.minimalWithdrawDuration < 1 days) {
             revert minimalWithdrawDurationLessThan1Day();
+        }
+        if (beneficiarySettings_.replaceTrusteeDuration == 0) {
+            beneficiarySettings_.replaceTrusteeDuration = DEFAULT_REPLACE_TRUSTEE_DURATION;
         }
         beneficiarySettings = beneficiarySettings_;
     }

@@ -11,8 +11,7 @@ import {
     WETHNotSet,
     TimestampIsZero,
     TimestampNotFound,
-    OnlyRevocable,
-    TrusteeStillAlive
+    OnlyRevocable
 } from "../src/interfaces/Errors.sol";
 import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
 import {WhiteList} from "../src/WhiteList.sol";
