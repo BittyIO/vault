@@ -53,7 +53,6 @@ contract BittyVaultBeneficiaryTest is Test {
     MockYieldProvider public mockYieldProvider2;
     MockYieldProvider public mockYieldProvider3;
     address public migratorAddress;
-    address public poolManagerAddress;
 
     function setUp() public {
         mockWETH = new WETH();
@@ -86,11 +85,9 @@ contract BittyVaultBeneficiaryTest is Test {
         vm.stopPrank();
 
         migratorAddress = address(new Migrator());
-        poolManagerAddress = makeAddr("poolManagerAddress");
         bittyVault.initialize(
             address(this),
             address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             assetAddresses,
@@ -618,7 +615,7 @@ contract BittyVaultBeneficiaryTest is Test {
         assertEq(bittyVault.trustee(), newTrustee);
     }
 
-    function test_ReplaceTrustee_SuccessWhenStableEnoughAfterDuration() public {
+    function test_ReplaceTrustee_RevertsWhenStableEnoughAfterDuration() public {
         address trustee = makeAddr("trustee");
         address newTrustee = makeAddr("newTrustee");
         bittyVault.setTrustee(trustee);
@@ -642,9 +639,10 @@ contract BittyVaultBeneficiaryTest is Test {
         deal(address(mockUSDT), address(bittyVault), usdtAmount);
 
         vm.prank(beneficiary);
+        vm.expectRevert(ReplaceTrusteeFailed.selector);
         bittyVault.replaceTrustee(newTrustee);
 
-        assertEq(bittyVault.trustee(), newTrustee);
+        assertEq(bittyVault.trustee(), trustee);
     }
 
     function test_ReplaceTrustee_RevertsWhenDurationNotPassed() public {
@@ -745,35 +743,6 @@ contract BittyVaultBeneficiaryTest is Test {
 
         uint256 partialAmountUSDC = (withdrawMoney * 10 ** mockUSDC.decimals()) / 2;
         deal(address(mockUSDC), address(bittyVault), partialAmountUSDC);
-
-        vm.prank(beneficiary);
-        bittyVault.replaceTrustee(newTrustee);
-
-        assertEq(bittyVault.trustee(), newTrustee);
-    }
-
-    function test_ReplaceTrustee_SuccessWhenOneStableCoinHasEnough() public {
-        address trustee = makeAddr("trustee");
-        address newTrustee = makeAddr("newTrustee");
-        bittyVault.setTrustee(trustee);
-
-        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
-            amountPerWithdrawal: withdrawMoney, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
-        });
-        bittyVault.setBeneficiarySettings(settings);
-        bittyVault.setToIrrevocable();
-
-        vm.prank(trustee);
-        bittyVault.trusteePing();
-
-        vm.prank(beneficiary);
-        vm.expectRevert(InsufficientStablecoinBalance.selector);
-        bittyVault.getMoney(address(mockUSDT));
-
-        vm.warp(block.timestamp + 61 days);
-
-        uint256 usdtAmount = withdrawMoney * 10 ** mockUSDT.decimals();
-        deal(address(mockUSDT), address(bittyVault), usdtAmount);
 
         vm.prank(beneficiary);
         bittyVault.replaceTrustee(newTrustee);

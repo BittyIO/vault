@@ -17,7 +17,6 @@ import {FactoryHelper} from "./helpers/FactoryHelper.sol";
 contract BittyVaultFactory is Initializable {
     IWhiteList public whiteList;
     IMigrator public migrator;
-    address public poolManager;
     address public vaultImplementation;
     /**
      * @notice Emitted when a new BittyVault is deployed
@@ -33,17 +32,15 @@ contract BittyVaultFactory is Initializable {
         address vaultImplementation_,
         address wethAddress_,
         address whiteListAddress_,
-        address migratorAddress_,
-        address poolManagerAddress_
+        address migratorAddress_
     ) public initializer {
-        if (vaultImplementation_ == address(0) || wethAddress_ == address(0) || poolManagerAddress_ == address(0)) {
+        if (vaultImplementation_ == address(0) || wethAddress_ == address(0)) {
             revert AddressZero();
         }
         vaultImplementation = vaultImplementation_;
         wethAddress = wethAddress_;
         whiteList = IWhiteList(whiteListAddress_);
         migrator = IMigrator(migratorAddress_);
-        poolManager = poolManagerAddress_;
     }
 
     function deployVault(
@@ -66,7 +63,6 @@ contract BittyVaultFactory is Initializable {
             .initialize(
                 msg.sender,
                 wethAddress,
-                poolManager,
                 address(whiteList),
                 address(migrator),
                 assetAddresses,

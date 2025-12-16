@@ -47,7 +47,6 @@ contract BittyVaultGrantorTest is Test {
     WETH public mockWETH;
     address public whiteListAddress;
     address public migratorAddress;
-    address public poolManagerAddress;
 
     receive() external payable {}
 
@@ -56,11 +55,9 @@ contract BittyVaultGrantorTest is Test {
         bittyVault = new BittyVault();
         whiteListAddress = address(new WhiteList());
         migratorAddress = address(new Migrator());
-        poolManagerAddress = makeAddr("poolManagerAddress");
         bittyVault.initialize(
             address(this),
             address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),
@@ -75,7 +72,6 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(1),
             address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),
@@ -87,7 +83,6 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(1),
             address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),
@@ -102,7 +97,6 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(this),
             address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),
@@ -119,7 +113,6 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(this),
             address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),
@@ -428,7 +421,6 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(this),
             address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),
@@ -449,7 +441,6 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(this),
             address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),
@@ -472,7 +463,6 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(this),
             address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),
@@ -949,7 +939,6 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(this),
             address(0),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             new address[](0),

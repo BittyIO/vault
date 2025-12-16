@@ -81,11 +81,9 @@ contract BittyVaultTrusteeTest is Test {
         IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
         IWhiteList(whiteListAddress).addYieldProviders(yieldProviderAddresses);
         vm.stopPrank();
-        address poolManagerAddress = makeAddr("poolManagerAddress");
         bittyVault.initialize(
             grantor,
             address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
             assetAddresses,

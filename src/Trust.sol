@@ -229,7 +229,7 @@ abstract contract Trust is ITrust {
         if (_stableNotEnoughForTrustee()) {
             return true;
         }
-        return true;
+        return false;
     }
 
     function _stableNotEnoughForTrustee() internal view virtual returns (bool);

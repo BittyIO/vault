@@ -2,12 +2,8 @@
 pragma solidity ^0.8.27;
 
 import {Trust} from "./Trust.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
-import {IYieldProvider, ISwapProvider} from "./interfaces/IAssetManager.sol";
-import {OracleLibrary} from "./libs/OracleLibrary.sol";
-import {IPoolManager} from "./libs/uniswap/v4/Uniswap.sol";
 import {AssetManager} from "./AssetManager.sol";
 import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
@@ -29,30 +25,16 @@ import {VaultHelper} from "./helpers/VaultHelper.sol";
  * @title BittyVault
  * @notice Unified vault contract that combines Asset Management and Trust Management
  * @dev
- * This contract inherits from both AssetManager and Trust, providing a single interface
- * for both asset management operations (supply, withdraw, rebalance, etc.) and trust
- * management operations (initialize, revoke, set beneficiaries, etc.).
- *
- * Users can use this contract for asset management only, trust management only, or both.
- * The contract address remains the same regardless of which functions are used.
- * All asset management functions are defined in AssetManager.sol
- * All trust management functions are defined in Trust.sol (which implements ITrust)
- * This contract only handles:
- * 1. Resolving inheritance conflicts (modifiers, abstract functions)
- * 2. Bridging between the two modules (usdt/usdc functions for Trust.getMoney)
  */
 contract BittyVault is Trust, AssetManager, IVault {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     address public override migrator;
     uint256 public immutable override version = 1;
-    IPoolManager public poolManager;
 
-    // Full initialize with all parameters (used by factory)
     function initialize(
         address grantorAddress,
         address wethAddress,
-        address poolManagerAddress,
         address whiteListAddress,
         address migratorAddress,
         address[] memory assetAddresses,
@@ -64,7 +46,6 @@ contract BittyVault is Trust, AssetManager, IVault {
             wethAddress, whiteListAddress, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders
         );
         migrator = migratorAddress;
-        poolManager = IPoolManager(poolManagerAddress);
         grantor = grantorAddress;
         if (isInitialized) {
             revert AlreadyInitialized();
@@ -106,11 +87,11 @@ contract BittyVault is Trust, AssetManager, IVault {
         if (assetAddress == address(0)) {
             revert AddressZero();
         }
-        uint256 balance = IERC20(assetAddress).balanceOf(address(this));
+        uint256 balance = ERC20(assetAddress).balanceOf(address(this));
         if (balance < amount) {
             revert InsufficientBalance();
         }
-        if (!IERC20(assetAddress).transfer(grantor, amount)) {
+        if (!ERC20(assetAddress).transfer(grantor, amount)) {
             revert TransferFailed();
         }
     }
@@ -151,7 +132,7 @@ contract BittyVault is Trust, AssetManager, IVault {
         if (tokenAddress == address(0)) {
             return;
         }
-        IERC20 token = IERC20(tokenAddress);
+        ERC20 token = ERC20(tokenAddress);
         uint256 balance = token.balanceOf(address(this));
         if (balance > 0) {
             if (!token.transfer(to, balance)) {
@@ -220,7 +201,10 @@ contract BittyVault is Trust, AssetManager, IVault {
 
     function _stableNotEnoughForTrustee() internal view override returns (bool) {
         for (uint256 i = 0; i < _stableCoins.length(); i++) {
-            if (IERC20(_stableCoins.at(i)).balanceOf(address(this)) >= beneficiarySettings.amountPerWithdrawal) {
+            if (
+                ERC20(_stableCoins.at(i)).balanceOf(address(this))
+                    >= beneficiarySettings.amountPerWithdrawal * 10 ** ERC20(_stableCoins.at(i)).decimals()
+            ) {
                 return false;
             }
         }
