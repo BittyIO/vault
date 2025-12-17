@@ -32,7 +32,8 @@ import {
     RevenueDurationNotMet,
     RevenueIsZero,
     RevenueDurationIsZero,
-    RevenuePercentageIsZero
+    RevenuePercentageIsZero,
+    OnlyRevocable
 } from "./interfaces/Errors.sol";
 import {AssetManager} from "./AssetManager.sol";
 
@@ -173,6 +174,9 @@ abstract contract Trust is ITrust {
     }
 
     function setAutoIrrevocableAfterNoPing(uint256 pingSeconds) external virtual override onlyInitialized onlyGrantor {
+        if (!this.revocable()) {
+            revert OnlyRevocable();
+        }
         autoIrrevocableAfterNoPing = pingSeconds;
         autoIrrevocableStartTime = block.timestamp;
     }

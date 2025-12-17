@@ -141,6 +141,24 @@ contract BittyVaultGrantorTest is Test {
         assertEq(newVault.revocable(), false);
     }
 
+    function test_SetAutoIrrevocableAfterNoPing_RevertsIfNotRevocable() public {
+        BittyVault newVault = new BittyVault();
+        newVault.initialize(address(this), address(1), migratorAddress);
+        newVault.setToIrrevocable();
+        vm.expectRevert(OnlyRevocable.selector);
+        newVault.setAutoIrrevocableAfterNoPing(1);
+    }
+
+    function test_SetAutoIrrevocableAfterNoPing_RevertsIfAutoIrrevocableExpired() public {
+        BittyVault newVault = new BittyVault();
+        newVault.initialize(address(this), address(1), migratorAddress);
+        newVault.setAutoIrrevocableAfterNoPing(1);
+        vm.warp(block.timestamp + 2);
+        assertEq(newVault.revocable(), false);
+        vm.expectRevert(OnlyRevocable.selector);
+        newVault.setAutoIrrevocableAfterNoPing(1);
+    }
+
     function test_ChangeGrantorAddressErrorWithNotRevocable() public {
         BittyVault newVault = new BittyVault();
         newVault.initialize(address(this), address(1), migratorAddress);
