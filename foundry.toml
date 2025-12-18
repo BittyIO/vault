@@ -13,12 +13,14 @@ optimizer_runs = 10000
 # Use IR compilation to support struct array copying from interfaces
 via_ir = true
 
+fs_permissions = [{ access = "read-write", path = "./deployments" }]
+
 [rpc_endpoints]
 sepolia = "https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}"
 mainnet = "https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
- 
+
 [etherscan]
 sepolia = { key = "${ETHERSCAN_API_KEY}" }
-mainnet = { key = "${ETHERSCAN_API_KEY}" } 
+mainnet = { key = "${ETHERSCAN_API_KEY}" }
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

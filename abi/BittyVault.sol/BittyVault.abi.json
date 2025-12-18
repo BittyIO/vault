@@ -1,0 +1,1389 @@
+[
+  {
+    "type": "function",
+    "name": "addAssets",
+    "inputs": [
+      {
+        "name": "assetAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "addStableCoins",
+    "inputs": [
+      {
+        "name": "stableCoinAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "addSwapProviders",
+    "inputs": [
+      {
+        "name": "swapProviderAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "addTimeEvents",
+    "inputs": [
+      {
+        "name": "timestamps",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "timeEvents",
+        "type": "tuple[]",
+        "internalType": "struct IBeneficiary.TimeEvent[]",
+        "components": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "isPercentage",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "addTriggerEvents",
+    "inputs": [
+      {
+        "name": "eventNames",
+        "type": "string[]",
+        "internalType": "string[]"
+      },
+      {
+        "name": "triggerEvents",
+        "type": "tuple[]",
+        "internalType": "struct IBeneficiary.TriggerEvent[]",
+        "components": [
+          {
+            "name": "triggerAddress",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "isPercentage",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "addYieldProviders",
+    "inputs": [
+      {
+        "name": "yieldProviderAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "assetConfigs",
+    "inputs": [
+      {
+        "name": "assetAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IAssetManager.AssetConfig",
+        "components": [
+          {
+            "name": "minimalBalance",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minimalDurationBetweenRebalances",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "assetManager",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "autoIrrevocableAfterNoPing",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "autoIrrevocableStartTime",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "beneficiary",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "beneficiarySettings",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IBeneficiary.BeneficiarySettings",
+        "components": [
+          {
+            "name": "amountPerWithdrawal",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minimalWithdrawDuration",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "beneficiaryTimeEvents",
+    "inputs": [
+      {
+        "name": "timestamp",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IBeneficiary.TimeEvent",
+        "components": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "isPercentage",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "beneficiaryTriggerEvents",
+    "inputs": [
+      {
+        "name": "eventKey",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IBeneficiary.TriggerEvent",
+        "components": [
+          {
+            "name": "triggerAddress",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "isPercentage",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "changeBeneficiaryAddress",
+    "inputs": [
+      {
+        "name": "newBeneficiaryAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "changeGrantorAddress",
+    "inputs": [
+      {
+        "name": "grantorAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "changeTrusteeAddress",
+    "inputs": [
+      {
+        "name": "newTrusteeAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "createAndMigrate",
+    "inputs": [
+      {
+        "name": "_toVersion",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "_salt",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "distributionStarted",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getAllAssetConfigKeys",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getAllLastRebalanceTimestampKeys",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getAllTimeEventKeys",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getAllTriggerEventKeys",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getAssets",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getBaseFee",
+    "inputs": [
+      {
+        "name": "stableCoinAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getMoney",
+    "inputs": [
+      {
+        "name": "stableCoinAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getMoneyByTimestamp",
+    "inputs": [
+      {
+        "name": "timestamp",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "stableCoinAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getMoneyFromEvent",
+    "inputs": [
+      {
+        "name": "eventName",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "stableCoinAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getRevenueFee",
+    "inputs": [
+      {
+        "name": "stableCoinAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getStableCoins",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getSwapProviders",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getYieldProviders",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "grantor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "grantorAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "whiteListAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "migratorAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "wethAddress_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "assetAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "stableCoinAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "yieldProviders",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "swapProviders",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "initializeFromPreviousVersion",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "isIrrevocable",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastBaseFeeTime",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastPingTime",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastRebalanceTimestamp",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastRebalanceTimestamps",
+    "inputs": [
+      {
+        "name": "assetAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastRevenueTime",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "lastWithdrawalTime",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "manageFee",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IAssetManager.ManageFee",
+        "components": [
+          {
+            "name": "baseFeeAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "baseFeeDuration",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "isBaseFeePercentage",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "revenuePercentage",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "revenueDuration",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "migrateAssets",
+    "inputs": [
+      {
+        "name": "_toVersion",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "migrator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ping",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "rebalance",
+    "inputs": [
+      {
+        "name": "swapProvider",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "from",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sellAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "buyAmountMin",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "data",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "rebalanceLimit",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IAssetManager.RebalanceLimit",
+        "components": [
+          {
+            "name": "minimalStableCoinBalance",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minimalTimestampBetweenRebalances",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxRebalancePercentage",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "removeAssets",
+    "inputs": [
+      {
+        "name": "assetAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "removeStableCoins",
+    "inputs": [
+      {
+        "name": "stableCoinAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "removeSwapProviders",
+    "inputs": [
+      {
+        "name": "swapProviderAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "removeTimeEvents",
+    "inputs": [
+      {
+        "name": "timestamps",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "removeTriggerEvents",
+    "inputs": [
+      {
+        "name": "eventNames",
+        "type": "string[]",
+        "internalType": "string[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "removeYieldProviders",
+    "inputs": [
+      {
+        "name": "yieldProviderAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "resetAssets",
+    "inputs": [
+      {
+        "name": "assetAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "resetStableCoins",
+    "inputs": [
+      {
+        "name": "stableCoinAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "revenue",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "revocable",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "revoke",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setAssetConfig",
+    "inputs": [
+      {
+        "name": "assetAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_assetConfig",
+        "type": "tuple",
+        "internalType": "struct IAssetManager.AssetConfig",
+        "components": [
+          {
+            "name": "minimalBalance",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minimalDurationBetweenRebalances",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setAssetManager",
+    "inputs": [
+      {
+        "name": "assetManagerAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setAutoIrrevocableAfterNoPing",
+    "inputs": [
+      {
+        "name": "pingSeconds",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setBeneficiary",
+    "inputs": [
+      {
+        "name": "beneficiaryAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setBeneficiarySettings",
+    "inputs": [
+      {
+        "name": "_beneficiarySettings",
+        "type": "tuple",
+        "internalType": "struct IBeneficiary.BeneficiarySettings",
+        "components": [
+          {
+            "name": "amountPerWithdrawal",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minimalWithdrawDuration",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setManageFee",
+    "inputs": [
+      {
+        "name": "manageFee_",
+        "type": "tuple",
+        "internalType": "struct IAssetManager.ManageFee",
+        "components": [
+          {
+            "name": "baseFeeAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "baseFeeDuration",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "isBaseFeePercentage",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "revenuePercentage",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "revenueDuration",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRebalanceRules",
+    "inputs": [
+      {
+        "name": "_rebalanceLimit",
+        "type": "tuple",
+        "internalType": "struct IAssetManager.RebalanceLimit",
+        "components": [
+          {
+            "name": "minimalStableCoinBalance",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minimalTimestampBetweenRebalances",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxRebalancePercentage",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setStartDistributionTimestamp",
+    "inputs": [
+      {
+        "name": "_startDistributionTimestamp",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setToIrrevocable",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setTrustee",
+    "inputs": [
+      {
+        "name": "trusteeAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "startDistributionTimestamp",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "supply",
+    "inputs": [
+      {
+        "name": "yieldProvider",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "assetAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "trustee",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "turnETHToWETH",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "upgrade",
+    "inputs": [
+      {
+        "name": "upgradeToContract",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "version",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "wethAddress",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "whiteList",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IWhiteList"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "withdraw",
+    "inputs": [
+      {
+        "name": "yieldProvider",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "assetAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "withdraw",
+    "inputs": [
+      {
+        "name": "assetAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "error",
+    "name": "AddressZero",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "AlreadyInitialized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotAuthorized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OnlyAssetManager",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OnlyBeneficiary",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OnlyGrantor",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OnlyRevocable",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OnlyTrustee",
+    "inputs": []
+  }
+]
