@@ -9,26 +9,16 @@ import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 import {Math} from "lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
-import {SellAmountMismatch} from "../src/interfaces/Errors.sol";
-import {console} from "lib/forge-std/src/console.sol";
 import {
     PoolKey as V4PoolKey,
     PathKey,
     IPoolManager,
     PoolStateLibrary,
     BaseData,
-    SwapFlags,
     PoolId,
     PoolIdLibrary
 } from "../src/libs/uniswap/v4/Uniswap.sol";
-import {
-    Path,
-    IUniswapV3Factory,
-    IUniswapV3Pool,
-    PoolAddress,
-    PoolKey as V3PoolKey,
-    IUniswapV3Router
-} from "../src/libs/uniswap/v3/Uniswap.sol";
+import {Path, IUniswapV3Factory, IUniswapV3Pool, IUniswapV3Router} from "../src/libs/uniswap/v3/Uniswap.sol";
 
 contract TestUniswapProviderFork is Test {
     using SafeERC20 for IERC20;

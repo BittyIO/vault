@@ -20,10 +20,8 @@ contract BittyVaultFactoryScript is Script {
         factory = new BittyVaultFactory();
         address whiteListAddress = getWhiteListAddress();
         address migratorAddress = getMigratorAddress();
-        address poolManagerAddress = getPoolManagerAddress();
-        factory.initialize(
-            address(vaultImplementation), getWETHAddress(), whiteListAddress, migratorAddress, poolManagerAddress
-        );
+        address wethAddress = getWETHAddress();
+        factory.initialize(address(vaultImplementation), whiteListAddress, migratorAddress, wethAddress);
 
         vm.stopBroadcast();
         console2.log("Factory:", address(factory));

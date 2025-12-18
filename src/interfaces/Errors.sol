@@ -5,7 +5,8 @@ pragma solidity ^0.8.27;
 error AddressZero();
 error AmountIsZero();
 error LengthMismatch();
-
+error NotAuthorized();
+error OnlyVaultOwner();
 // AssetManager errors
 error WETHNotSet();
 error AssetAlreadySet();
@@ -50,6 +51,11 @@ error RevenueIsZero();
 error RevenuePercentageIsZero();
 error RevenueDurationIsZero();
 error OnlyRevocable();
+error OnlyIrrevocable();
+error OnlyGrantor();
+error OnlyTrustee();
+error OnlyBeneficiary();
+error OnlyAssetManager();
 
 // Factory errors
 error DeploymentFailed();

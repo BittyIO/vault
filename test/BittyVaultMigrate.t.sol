@@ -14,6 +14,7 @@ import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
 import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
+import {NotAuthorized, OnlyTrustee} from "../src/interfaces/Errors.sol";
 import {console} from "lib/forge-std/src/console.sol";
 
 contract BittyVaultMigrateTest is Test {
@@ -26,6 +27,7 @@ contract BittyVaultMigrateTest is Test {
     address public grantor;
     address public trustee;
     address public whiteListAddress;
+    address public poolManagerAddress;
 
     function setUp() public {
         mockWETH = new WETH();
@@ -33,7 +35,8 @@ contract BittyVaultMigrateTest is Test {
         mockUSDT = new MockERC20("USDT", "USDT", 18);
         mockUSDC = new MockERC20("USDC", "USDC", 18);
         migrator = new Migrator();
-        whiteListAddress = address(new WhiteList());
+        poolManagerAddress = makeAddr("poolManagerAddress");
+        whiteListAddress = address(new WhiteList(poolManagerAddress));
         grantor = makeAddr("grantor");
         trustee = makeAddr("trustee");
 
@@ -45,13 +48,14 @@ contract BittyVaultMigrateTest is Test {
         address[] memory stableCoinAddresses = new address[](2);
         stableCoinAddresses[0] = address(mockUSDT);
         stableCoinAddresses[1] = address(mockUSDC);
-        address poolManagerAddress = makeAddr("poolManagerAddress");
+
+        IWhiteList(whiteListAddress).addAssets(assetAddresses);
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinAddresses);
         bittyVault.initialize(
             grantor,
-            address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             address(migrator),
+            address(mockWETH),
             assetAddresses,
             stableCoinAddresses,
             new address[](0),
@@ -150,7 +154,7 @@ contract BittyVaultMigrateTest is Test {
 
     function test_MigrateFailsIfNotTrustee() public {
         address nonTrustee = makeAddr("nonTrustee");
-        vm.expectRevert("Only trustee");
+        vm.expectRevert(OnlyTrustee.selector);
         vm.prank(nonTrustee);
         bittyVault.createAndMigrate(2, "migration-salt");
     }
@@ -158,7 +162,7 @@ contract BittyVaultMigrateTest is Test {
     function test_MigrateFailsIfNotInitialized() public {
         BittyVault newVault = new BittyVault();
         address newTrustee = makeAddr("newTrustee");
-        vm.expectRevert("Trust not initialized");
+        vm.expectRevert(NotAuthorized.selector);
         vm.prank(newTrustee);
         newVault.createAndMigrate(2, "migration-salt");
     }
@@ -223,10 +227,8 @@ contract BittyVaultMigrateTest is Test {
         swapProviders[0] = address(mockSwapProvider1);
         swapProviders[1] = address(mockSwapProvider2);
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addYieldProviders(yieldProviders);
         IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
-        vm.stopPrank();
 
         // Add yield providers and swap providers to vault
         vm.prank(trustee);
@@ -249,7 +251,6 @@ contract BittyVaultMigrateTest is Test {
         assertEq(nextVaultInstance.trustee(), bittyVault.trustee(), "trustee should match");
         assertEq(nextVaultInstance.assetManager(), bittyVault.assetManager(), "assetManager should match");
         assertEq(nextVaultInstance.beneficiary(), bittyVault.beneficiary(), "beneficiary should match");
-        assertEq(nextVaultInstance.isInitialized(), bittyVault.isInitialized(), "isInitialized should match");
         assertEq(nextVaultInstance.isIrrevocable(), bittyVault.isIrrevocable(), "isIrrevocable should match");
         assertEq(
             nextVaultInstance.autoIrrevocableAfterNoPing(),
@@ -275,14 +276,7 @@ contract BittyVaultMigrateTest is Test {
         assertEq(nextVaultInstance.lastRevenueTime(), bittyVault.lastRevenueTime(), "lastRevenueTime should match");
 
         // Verify manageFee struct
-        // Both BittyVault and MockVault's public struct getters return tuples, so we destructure both
-        (
-            uint256 originalBaseFeeAmount,
-            uint256 originalBaseFeeDuration,
-            bool originalIsBaseFeePercentage,
-            uint256 originalRevenuePercentage,
-            uint256 originalRevenueDuration
-        ) = bittyVault.manageFee();
+        IAssetManager.ManageFee memory originalManageFee = bittyVault.manageFee();
         (
             uint256 copiedBaseFeeAmount,
             uint256 copiedBaseFeeDuration,
@@ -290,66 +284,82 @@ contract BittyVaultMigrateTest is Test {
             uint256 copiedRevenuePercentage,
             uint256 copiedRevenueDuration
         ) = nextVaultInstance.manageFee();
-        assertEq(copiedBaseFeeAmount, originalBaseFeeAmount, "manageFee.baseFeeAmount should match");
-        assertEq(copiedBaseFeeDuration, originalBaseFeeDuration, "manageFee.baseFeeDuration should match");
-        assertEq(copiedIsBaseFeePercentage, originalIsBaseFeePercentage, "manageFee.isBaseFeePercentage should match");
-        assertEq(copiedRevenuePercentage, originalRevenuePercentage, "manageFee.revenuePercentage should match");
-        assertEq(copiedRevenueDuration, originalRevenueDuration, "manageFee.revenueDuration should match");
-
-        // Verify AssetManager contract public storage variables
-        assertEq(nextVaultInstance.wethAddress(), bittyVault.wethAddress(), "wethAddress should match");
-        assertEq(address(nextVaultInstance.whiteList()), address(bittyVault.whiteList()), "whiteList should match");
+        IAssetManager.ManageFee memory copiedManageFee = IAssetManager.ManageFee({
+            baseFeeAmount: copiedBaseFeeAmount,
+            baseFeeDuration: copiedBaseFeeDuration,
+            isBaseFeePercentage: copiedIsBaseFeePercentage,
+            revenuePercentage: copiedRevenuePercentage,
+            revenueDuration: copiedRevenueDuration
+        });
+        assertEq(copiedManageFee.baseFeeAmount, originalManageFee.baseFeeAmount, "manageFee.baseFeeAmount should match");
         assertEq(
-            nextVaultInstance.lastRebalanceTimestamp(),
-            bittyVault.lastRebalanceTimestamp(),
-            "lastRebalanceTimestamp should match"
+            copiedManageFee.baseFeeDuration, originalManageFee.baseFeeDuration, "manageFee.baseFeeDuration should match"
+        );
+        assertEq(
+            copiedManageFee.isBaseFeePercentage,
+            originalManageFee.isBaseFeePercentage,
+            "manageFee.isBaseFeePercentage should match"
+        );
+        assertEq(
+            copiedManageFee.revenuePercentage,
+            originalManageFee.revenuePercentage,
+            "manageFee.revenuePercentage should match"
+        );
+        assertEq(
+            copiedManageFee.revenueDuration, originalManageFee.revenueDuration, "manageFee.revenueDuration should match"
         );
 
         // Verify rebalanceLimit struct
-        // Both BittyVault and MockVault's public struct getters return tuples, so we destructure both
-        (
-            uint256 originalMinimalStableCoinBalance,
-            uint256 originalMinimalTimestampBetweenRebalances,
-            uint256 originalMaxRebalancePercentage
-        ) = bittyVault.rebalanceLimit();
+        IAssetManager.RebalanceLimit memory originalRebalanceLimit = bittyVault.rebalanceLimit();
         (
             uint256 copiedMinimalStableCoinBalance,
             uint256 copiedMinimalTimestampBetweenRebalances,
             uint256 copiedMaxRebalancePercentage
         ) = nextVaultInstance.rebalanceLimit();
+        IAssetManager.RebalanceLimit memory copiedRebalanceLimit = IAssetManager.RebalanceLimit({
+            minimalStableCoinBalance: copiedMinimalStableCoinBalance,
+            minimalTimestampBetweenRebalances: copiedMinimalTimestampBetweenRebalances,
+            maxRebalancePercentage: copiedMaxRebalancePercentage
+        });
         assertEq(
-            copiedMinimalStableCoinBalance,
-            originalMinimalStableCoinBalance,
+            copiedRebalanceLimit.minimalStableCoinBalance,
+            originalRebalanceLimit.minimalStableCoinBalance,
             "rebalanceLimit.minimalStableCoinBalance should match"
         );
         assertEq(
-            copiedMinimalTimestampBetweenRebalances,
-            originalMinimalTimestampBetweenRebalances,
+            copiedRebalanceLimit.minimalTimestampBetweenRebalances,
+            originalRebalanceLimit.minimalTimestampBetweenRebalances,
             "rebalanceLimit.minimalTimestampBetweenRebalances should match"
         );
         assertEq(
-            copiedMaxRebalancePercentage,
-            originalMaxRebalancePercentage,
+            copiedRebalanceLimit.maxRebalancePercentage,
+            originalRebalanceLimit.maxRebalancePercentage,
             "rebalanceLimit.maxRebalancePercentage should match"
         );
-
-        // Verify BittyVault contract public storage variables
-        assertEq(address(nextVaultInstance.migrator()), address(bittyVault.migrator()), "migrator should match");
-
         // Verify beneficiaryTriggerEvents mapping
         // Get keys from original vault and verify values in mock vault
         bytes32[] memory triggerEventKeys = bittyVault.getAllTriggerEventKeys();
         for (uint256 i = 0; i < triggerEventKeys.length; i++) {
             bytes32 eventKey = triggerEventKeys[i];
-            (address originalTriggerAddress, uint256 originalAmount, bool originalIsPercentage) =
-                bittyVault.beneficiaryTriggerEvents(eventKey);
+            IBeneficiary.TriggerEvent memory originalTriggerEvent = bittyVault.beneficiaryTriggerEvents(eventKey);
             (address copiedTriggerAddress, uint256 copiedAmount, bool copiedIsPercentage) =
                 nextVaultInstance.beneficiaryTriggerEvents(eventKey);
+            IBeneficiary.TriggerEvent memory copiedTriggerEvent = IBeneficiary.TriggerEvent({
+                triggerAddress: copiedTriggerAddress, amount: copiedAmount, isPercentage: copiedIsPercentage
+            });
             assertEq(
-                copiedTriggerAddress, originalTriggerAddress, "beneficiaryTriggerEvents triggerAddress should match"
+                copiedTriggerEvent.triggerAddress,
+                originalTriggerEvent.triggerAddress,
+                "beneficiaryTriggerEvents triggerAddress should match"
             );
-            assertEq(copiedAmount, originalAmount, "beneficiaryTriggerEvents amount should match");
-            assertEq(copiedIsPercentage, originalIsPercentage, "beneficiaryTriggerEvents isPercentage should match");
+            assertEq(
+                copiedTriggerEvent.amount, originalTriggerEvent.amount, "beneficiaryTriggerEvents amount should match"
+            );
+            assertEq(
+                copiedTriggerEvent.isPercentage,
+                originalTriggerEvent.isPercentage,
+                "beneficiaryTriggerEvents isPercentage should match"
+            );
         }
 
         // Verify beneficiaryTimeEvents mapping
@@ -357,10 +367,16 @@ contract BittyVaultMigrateTest is Test {
         uint256[] memory timeEventKeys = bittyVault.getAllTimeEventKeys();
         for (uint256 i = 0; i < timeEventKeys.length; i++) {
             uint256 timestamp = timeEventKeys[i];
-            (uint256 originalAmount, bool originalIsPercentage) = bittyVault.beneficiaryTimeEvents(timestamp);
+            IBeneficiary.TimeEvent memory originalTimeEvent = bittyVault.beneficiaryTimeEvents(timestamp);
             (uint256 copiedAmount, bool copiedIsPercentage) = nextVaultInstance.beneficiaryTimeEvents(timestamp);
-            assertEq(copiedAmount, originalAmount, "beneficiaryTimeEvents amount should match");
-            assertEq(copiedIsPercentage, originalIsPercentage, "beneficiaryTimeEvents isPercentage should match");
+            IBeneficiary.TimeEvent memory copiedTimeEvent =
+                IBeneficiary.TimeEvent({amount: copiedAmount, isPercentage: copiedIsPercentage});
+            assertEq(copiedTimeEvent.amount, originalTimeEvent.amount, "beneficiaryTimeEvents amount should match");
+            assertEq(
+                copiedTimeEvent.isPercentage,
+                originalTimeEvent.isPercentage,
+                "beneficiaryTimeEvents isPercentage should match"
+            );
         }
 
         // Verify assetConfigs mapping
@@ -368,12 +384,21 @@ contract BittyVaultMigrateTest is Test {
         address[] memory assetConfigKeys = bittyVault.getAllAssetConfigKeys();
         for (uint256 i = 0; i < assetConfigKeys.length; i++) {
             address assetAddress = assetConfigKeys[i];
-            (uint256 originalMinimalBalance, uint256 originalMinimalDuration) = bittyVault.assetConfigs(assetAddress);
-            (uint256 copiedMinimalBalance, uint256 copiedMinimalDuration) = nextVaultInstance.assetConfigs(assetAddress);
-            assertEq(copiedMinimalBalance, originalMinimalBalance, "assetConfigs minimalBalance should match");
+            IAssetManager.AssetConfig memory originalAssetConfig = bittyVault.assetConfigs(assetAddress);
+            (uint256 copiedMinimalBalance, uint256 copiedMinimalDurationBetweenRebalances) =
+                nextVaultInstance.assetConfigs(assetAddress);
+            IAssetManager.AssetConfig memory copiedAssetConfig = IAssetManager.AssetConfig({
+                minimalBalance: copiedMinimalBalance,
+                minimalDurationBetweenRebalances: copiedMinimalDurationBetweenRebalances
+            });
             assertEq(
-                copiedMinimalDuration,
-                originalMinimalDuration,
+                copiedAssetConfig.minimalBalance,
+                originalAssetConfig.minimalBalance,
+                "assetConfigs minimalBalance should match"
+            );
+            assertEq(
+                copiedAssetConfig.minimalDurationBetweenRebalances,
+                originalAssetConfig.minimalDurationBetweenRebalances,
                 "assetConfigs minimalDurationBetweenRebalances should match"
             );
         }
@@ -484,13 +509,12 @@ contract BittyVaultMigrateTest is Test {
         assertEq(address(v3VaultInstance.whiteList()), address(bittyVault.whiteList()), "whiteList should match");
 
         // Verify manageFee struct
-        (
-            uint256 originalBaseFeeAmount,
-            uint256 originalBaseFeeDuration,
-            bool originalIsBaseFeePercentage,
-            uint256 originalRevenuePercentage,
-            uint256 originalRevenueDuration
-        ) = bittyVault.manageFee();
+        IAssetManager.ManageFee memory originalManageFee = bittyVault.manageFee();
+        uint256 originalBaseFeeAmount = originalManageFee.baseFeeAmount;
+        uint256 originalBaseFeeDuration = originalManageFee.baseFeeDuration;
+        bool originalIsBaseFeePercentage = originalManageFee.isBaseFeePercentage;
+        uint256 originalRevenuePercentage = originalManageFee.revenuePercentage;
+        uint256 originalRevenueDuration = originalManageFee.revenueDuration;
         (
             uint256 copiedBaseFeeAmount,
             uint256 copiedBaseFeeDuration,
@@ -505,11 +529,10 @@ contract BittyVaultMigrateTest is Test {
         assertEq(copiedRevenueDuration, originalRevenueDuration, "manageFee.revenueDuration should match");
 
         // Verify rebalanceLimit struct
-        (
-            uint256 originalMinimalStableCoinBalance,
-            uint256 originalMinimalTimestampBetweenRebalances,
-            uint256 originalMaxRebalancePercentage
-        ) = bittyVault.rebalanceLimit();
+        IAssetManager.RebalanceLimit memory originalRebalanceLimit = bittyVault.rebalanceLimit();
+        uint256 originalMinimalStableCoinBalance = originalRebalanceLimit.minimalStableCoinBalance;
+        uint256 originalMinimalTimestampBetweenRebalances = originalRebalanceLimit.minimalTimestampBetweenRebalances;
+        uint256 originalMaxRebalancePercentage = originalRebalanceLimit.maxRebalancePercentage;
         (
             uint256 copiedMinimalStableCoinBalance,
             uint256 copiedMinimalTimestampBetweenRebalances,
@@ -550,8 +573,10 @@ contract BittyVaultMigrateTest is Test {
         bytes32[] memory triggerEventKeys = bittyVault.getAllTriggerEventKeys();
         for (uint256 i = 0; i < triggerEventKeys.length; i++) {
             bytes32 eventKey = triggerEventKeys[i];
-            (address originalTriggerAddress, uint256 originalAmount, bool originalIsPercentage) =
-                bittyVault.beneficiaryTriggerEvents(eventKey);
+            IBeneficiary.TriggerEvent memory originalTriggerEvent = bittyVault.beneficiaryTriggerEvents(eventKey);
+            address originalTriggerAddress = originalTriggerEvent.triggerAddress;
+            uint256 originalAmount = originalTriggerEvent.amount;
+            bool originalIsPercentage = originalTriggerEvent.isPercentage;
             (address copiedTriggerAddress, uint256 copiedAmount, bool copiedIsPercentage) =
                 v3VaultInstance.beneficiaryTriggerEvents(eventKey);
             assertEq(

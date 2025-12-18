@@ -14,7 +14,7 @@ contract WhiteListScript is Script {
     function run() public {
         vm.startBroadcast();
 
-        whiteList = new WhiteList();
+        whiteList = new WhiteList(getPoolManagerAddress());
         address[] memory assetAddresses = new address[](2);
         assetAddresses[0] = getWBTCAddress();
         assetAddresses[1] = getWETHAddress();
@@ -32,6 +32,16 @@ contract WhiteListScript is Script {
 
         vm.stopBroadcast();
         console2.log(address(whiteList));
+    }
+
+    function getPoolManagerAddress() internal view returns (address) {
+        uint256 chainId = block.chainid;
+        if (chainId == 1) {
+            return mainnet.POOL_MANAGER;
+        } else if (chainId == 11155111) {
+            return sepolia.POOL_MANAGER;
+        }
+        return address(0);
     }
 
     function getWETHAddress() internal view returns (address) {

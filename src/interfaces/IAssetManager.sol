@@ -52,10 +52,44 @@ interface IAssetManager {
         uint256 revenueDuration;
     }
 
-    function getAssets() external view returns (address[] memory);
-    function getStableCoins() external view returns (address[] memory);
     function getYieldProviders() external view returns (address[] memory);
     function getSwapProviders() external view returns (address[] memory);
+
+    function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external;
+    function setAssetConfig(address assetAddress, AssetConfig memory assetConfig) external;
+    function setManageFee(ManageFee memory manageFee) external;
+
+    function supply(address yieldProvider, address assetAddress, uint256 amount) external;
+    function withdraw(address yieldProvider, address assetAddress, uint256 amount) external;
+    function rebalance(
+        address swapProvider,
+        address from,
+        address to,
+        uint256 sellAmount,
+        uint256 buyAmountMin,
+        bytes memory data
+    ) external;
+    /**
+     * @notice Get the trustee base fee.
+     * @dev Get the trustee base fee.
+     * @param stableCoinAddress The address of the stablecoin to get the money.
+     */
+    function getBaseFee(address stableCoinAddress) external;
+
+    /**
+     * @notice Get the revenue fee.
+     * @dev Get the revenue fee.
+     * @param stableCoinAddress The address of the stablecoin to get the money.
+     */
+    function getRevenueFee(address stableCoinAddress) external;
+
+    function addYieldProviders(address[] memory yieldProviderAddresses) external;
+
+    function removeYieldProviders(address[] memory yieldProviderAddresses) external;
+
+    function addSwapProviders(address[] memory swapProviderAddresses) external;
+
+    function removeSwapProviders(address[] memory swapProviderAddresses) external;
 }
 
 interface IProvider {

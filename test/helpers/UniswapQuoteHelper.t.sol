@@ -4,7 +4,6 @@ pragma solidity ^0.8.27;
 import {Test} from "lib/forge-std/src/Test.sol";
 import {UniswapQuoteHelper} from "../../src/helpers/UniswapQuoteHelper.sol";
 import {IPoolManager, PoolKey, PoolIdLibrary, PoolId} from "../../src/libs/uniswap/v4/Uniswap.sol";
-import {OracleLibrary} from "../../src/libs/OracleLibrary.sol";
 import {TickMath} from "../../src/libs/TickMath.sol";
 
 contract MockPoolManager is IPoolManager {

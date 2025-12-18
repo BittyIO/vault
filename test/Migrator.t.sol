@@ -4,7 +4,7 @@ pragma solidity ^0.8.27;
 import {Test} from "lib/forge-std/src/Test.sol";
 import {Migrator} from "../src/Migrator.sol";
 import {SimpleMockVault} from "./mock/SimpleMockVault.sol";
-import {IVersionizedVault} from "../src/interfaces/IVersionizedVault.sol";
+import {IVersionized} from "../src/interfaces/IVersionized.sol";
 import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
 
 contract MigratorTest is Test {
@@ -121,13 +121,13 @@ contract MigratorTest is Test {
 
         // Create an instance of vault V1
         SimpleMockVault fromVault = new SimpleMockVault(1);
-        fromVault.initialize(address(0), argsV1);
+        fromVault.initializeFromPreviousVersion(address(0), argsV1);
 
         // Create next version vault
         address nextVault = migrator.createVersionVault(address(fromVault), 2, "salt");
 
         assertTrue(nextVault != address(0), "Next vault should be created");
-        assertEq(IVersionizedVault(nextVault).version(), 2, "Next vault version should be 2");
+        assertEq(IVersionized(nextVault).version(), 2, "Next vault version should be 2");
         assertEq(migrator.nextVersionVaults(address(fromVault)), nextVault, "Next vault mapping should be set");
     }
 
@@ -136,7 +136,7 @@ contract MigratorTest is Test {
         migrator.setVersionizedVault(address(vaultV1), argsV1, false);
 
         SimpleMockVault fromVault = new SimpleMockVault(1);
-        fromVault.initialize(address(0), argsV1);
+        fromVault.initializeFromPreviousVersion(address(0), argsV1);
 
         // toVersion <= fromVersion should revert
         vm.expectRevert(Migrator.InvalidVersion.selector);
@@ -152,7 +152,7 @@ contract MigratorTest is Test {
         // Don't set version 2
 
         SimpleMockVault fromVault = new SimpleMockVault(1);
-        fromVault.initialize(address(0), argsV1);
+        fromVault.initializeFromPreviousVersion(address(0), argsV1);
 
         vm.expectRevert(Migrator.NoNextVersionVault.selector);
         migrator.createVersionVault(address(fromVault), 2, "salt");
@@ -168,17 +168,17 @@ contract MigratorTest is Test {
         migrator.setVersionizedVault(address(vaultV3), argsV3, false);
 
         SimpleMockVault fromVault = new SimpleMockVault(1);
-        fromVault.initialize(address(0), argsV1);
+        fromVault.initializeFromPreviousVersion(address(0), argsV1);
 
         // Create vault jumping from version 1 to 3
         address finalVault = migrator.createVersionVault(address(fromVault), 3, "salt");
 
-        assertEq(IVersionizedVault(finalVault).version(), 3, "Final vault version should be 3");
+        assertEq(IVersionized(finalVault).version(), 3, "Final vault version should be 3");
 
         // Verify intermediate vault was created
         address intermediateVault = migrator.nextVersionVaults(address(fromVault));
         assertTrue(intermediateVault != address(0), "Intermediate vault should exist");
-        assertEq(IVersionizedVault(intermediateVault).version(), 2, "Intermediate vault version should be 2");
+        assertEq(IVersionized(intermediateVault).version(), 2, "Intermediate vault version should be 2");
     }
 
     function test_CreateVersionVault_ReturnsExistingVault() public {
@@ -188,7 +188,7 @@ contract MigratorTest is Test {
         migrator.setVersionizedVault(address(vaultV2), argsV2, false);
 
         SimpleMockVault fromVault = new SimpleMockVault(1);
-        fromVault.initialize(address(0), argsV1);
+        fromVault.initializeFromPreviousVersion(address(0), argsV1);
 
         // Create first time
         address nextVault1 = migrator.createVersionVault(address(fromVault), 2, "salt");
@@ -206,7 +206,7 @@ contract MigratorTest is Test {
         migrator.setVersionizedVault(address(vaultV2), argsV2, false);
 
         SimpleMockVault fromVault = new SimpleMockVault(1);
-        fromVault.initialize(address(0), argsV1);
+        fromVault.initializeFromPreviousVersion(address(0), argsV1);
 
         // Create with salt1
         address nextVault1 = migrator.createVersionVault(address(fromVault), 2, "salt1");
@@ -224,7 +224,7 @@ contract MigratorTest is Test {
         migrator.setVersionizedVault(address(vaultV2), argsV2, false);
 
         SimpleMockVault fromVault = new SimpleMockVault(1);
-        fromVault.initialize(address(0), argsV1);
+        fromVault.initializeFromPreviousVersion(address(0), argsV1);
 
         // Calculate the address that will be deployed
         // Note: Migrator uses predictDeterministicAddress(implementation, salt) which uses address(this) as deployer
@@ -256,7 +256,7 @@ contract MigratorTest is Test {
         migrator.setVersionizedVault(address(vaultV2), argsV2, false);
 
         SimpleMockVault fromVault = new SimpleMockVault(1);
-        fromVault.initialize(address(0), argsV1);
+        fromVault.initializeFromPreviousVersion(address(0), argsV1);
 
         // Create the vault first
         address createdVault = migrator.createVersionVault(address(fromVault), 2, "salt");
@@ -265,7 +265,7 @@ contract MigratorTest is Test {
         address queriedVault = migrator.versionVault(address(fromVault), 2);
 
         assertEq(queriedVault, createdVault, "Queried vault should match created vault");
-        assertEq(IVersionizedVault(queriedVault).version(), 2, "Version should be 2");
+        assertEq(IVersionized(queriedVault).version(), 2, "Version should be 2");
     }
 
     function test_VersionVault_InvalidVersion() public {
@@ -273,7 +273,7 @@ contract MigratorTest is Test {
         migrator.setVersionizedVault(address(vaultV1), argsV1, false);
 
         SimpleMockVault fromVault = new SimpleMockVault(1);
-        fromVault.initialize(address(0), argsV1);
+        fromVault.initializeFromPreviousVersion(address(0), argsV1);
 
         // toVersion <= fromVersion should revert
         vm.expectRevert(Migrator.InvalidVersion.selector);
@@ -288,7 +288,7 @@ contract MigratorTest is Test {
         migrator.setVersionizedVault(address(vaultV1), argsV1, false);
 
         SimpleMockVault fromVault = new SimpleMockVault(1);
-        fromVault.initialize(address(0), argsV1);
+        fromVault.initializeFromPreviousVersion(address(0), argsV1);
 
         vm.expectRevert(Migrator.NoNextVersionVault.selector);
         migrator.versionVault(address(fromVault), 2);
@@ -303,7 +303,7 @@ contract MigratorTest is Test {
         migrator.setVersionizedVault(address(vaultV3), argsV3, false);
 
         SimpleMockVault fromVault = new SimpleMockVault(1);
-        fromVault.initialize(address(0), argsV1);
+        fromVault.initializeFromPreviousVersion(address(0), argsV1);
 
         // Create vaults first
         migrator.createVersionVault(address(fromVault), 3, "salt");
@@ -311,7 +311,7 @@ contract MigratorTest is Test {
         // Query version 3
         address queriedVault = migrator.versionVault(address(fromVault), 3);
 
-        assertEq(IVersionizedVault(queriedVault).version(), 3, "Version should be 3");
+        assertEq(IVersionized(queriedVault).version(), 3, "Version should be 3");
     }
 
     function test_VersionVault_IntermediateVersions() public {
@@ -323,18 +323,18 @@ contract MigratorTest is Test {
         migrator.setVersionizedVault(address(vaultV3), argsV3, false);
 
         SimpleMockVault fromVault = new SimpleMockVault(1);
-        fromVault.initialize(address(0), argsV1);
+        fromVault.initializeFromPreviousVersion(address(0), argsV1);
 
         // Create vaults up to version 3
         migrator.createVersionVault(address(fromVault), 3, "salt");
 
         // Query version 2
         address v2Vault = migrator.versionVault(address(fromVault), 2);
-        assertEq(IVersionizedVault(v2Vault).version(), 2, "Version 2 should be correct");
+        assertEq(IVersionized(v2Vault).version(), 2, "Version 2 should be correct");
 
         // Query version 3
         address v3Vault = migrator.versionVault(address(fromVault), 3);
-        assertEq(IVersionizedVault(v3Vault).version(), 3, "Version 3 should be correct");
+        assertEq(IVersionized(v3Vault).version(), 3, "Version 3 should be correct");
     }
 
     // ============ Integration Tests ============
@@ -350,15 +350,15 @@ contract MigratorTest is Test {
 
         // Create initial vault
         SimpleMockVault initialVault = new SimpleMockVault(1);
-        initialVault.initialize(address(0), argsV1);
+        initialVault.initializeFromPreviousVersion(address(0), argsV1);
 
         // Migrate to version 2
         address v2Vault = migrator.createVersionVault(address(initialVault), 2, "migration1");
-        assertEq(IVersionizedVault(v2Vault).version(), 2, "V2 vault version should be 2");
+        assertEq(IVersionized(v2Vault).version(), 2, "V2 vault version should be 2");
 
         // Migrate from v2 to v3
         address v3Vault = migrator.createVersionVault(v2Vault, 3, "migration2");
-        assertEq(IVersionizedVault(v3Vault).version(), 3, "V3 vault version should be 3");
+        assertEq(IVersionized(v3Vault).version(), 3, "V3 vault version should be 3");
 
         // Verify chain
         assertEq(migrator.nextVersionVaults(address(initialVault)), v2Vault, "Initial -> V2 mapping");
@@ -373,10 +373,10 @@ contract MigratorTest is Test {
 
         // Create two different vaults of version 1
         SimpleMockVault vault1A = new SimpleMockVault(1);
-        vault1A.initialize(address(0), argsV1);
+        vault1A.initializeFromPreviousVersion(address(0), argsV1);
 
         SimpleMockVault vault1B = new SimpleMockVault(1);
-        vault1B.initialize(address(0), argsV1);
+        vault1B.initializeFromPreviousVersion(address(0), argsV1);
 
         // Create next version vaults for both
         address nextVaultA = migrator.createVersionVault(address(vault1A), 2, "saltA");
@@ -384,8 +384,8 @@ contract MigratorTest is Test {
 
         // They should be different addresses
         assertTrue(nextVaultA != nextVaultB, "Different vaults should create different next vaults");
-        assertEq(IVersionizedVault(nextVaultA).version(), 2, "Next vault A version should be 2");
-        assertEq(IVersionizedVault(nextVaultB).version(), 2, "Next vault B version should be 2");
+        assertEq(IVersionized(nextVaultA).version(), 2, "Next vault A version should be 2");
+        assertEq(IVersionized(nextVaultB).version(), 2, "Next vault B version should be 2");
     }
 }
 

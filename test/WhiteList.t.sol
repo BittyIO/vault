@@ -11,6 +11,7 @@ import {SwapProviderShouldNotBeAllRemoved} from "../src/interfaces/Errors.sol";
 contract WhiteListTest is Test {
     WhiteList public whiteList;
     address public protocolOwner;
+    address public poolManagerAddress;
     MockSwapProvider public mockSwapProvider;
     MockYieldProvider public mockYieldProvider;
     MockERC20 public mockWETH;
@@ -24,15 +25,14 @@ contract WhiteListTest is Test {
 
     function setUp() public {
         protocolOwner = makeAddr("protocolOwner");
+        poolManagerAddress = makeAddr("poolManagerAddress");
         mockSwapProvider = new MockSwapProvider();
         mockYieldProvider = new MockYieldProvider();
         mockWETH = new MockERC20("WETH", "WETH", 18);
         mockWBTC = new MockERC20("WBTC", "WBTC", 8);
         mockUSDT = new MockERC20("USDT", "USDT", 6);
         mockUSDC = new MockERC20("USDC", "USDC", 6);
-        whiteList = new WhiteList();
-        address txOrigin = tx.origin;
-        vm.prank(txOrigin);
+        whiteList = new WhiteList(poolManagerAddress);
         whiteList.transferOwnership(protocolOwner);
         assets = new address[](2);
         assets[0] = address(mockWETH);

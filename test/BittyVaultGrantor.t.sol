@@ -8,10 +8,13 @@ import {
     NotWhiteListed,
     AlreadyInitialized,
     StartDistributionTimestampAlreadySet,
-    WETHNotSet,
     TimestampIsZero,
     TimestampNotFound,
-    OnlyRevocable
+    NotAuthorized,
+    OnlyGrantor,
+    OnlyTrustee,
+    OnlyRevocable,
+    AutoIrrevocableAfterNoPingNotSet
 } from "../src/interfaces/Errors.sol";
 import {IBeneficiary} from "../src/interfaces/IBeneficiary.sol";
 import {WhiteList} from "../src/WhiteList.sol";
@@ -21,8 +24,7 @@ import {IAssetManager} from "../src/interfaces/IAssetManager.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {MockVault} from "./mock/MockVault.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {InsufficientBalance, TransferFailed} from "../src/interfaces/Errors.sol";
+import {InsufficientBalance} from "../src/interfaces/Errors.sol";
 
 // Mock ERC20 token that can fail transfers for testing
 contract MockERC20FailingTransfer is MockERC20 {
@@ -54,15 +56,15 @@ contract BittyVaultGrantorTest is Test {
     function setUp() public {
         mockWETH = new WETH();
         bittyVault = new BittyVault();
-        whiteListAddress = address(new WhiteList());
-        migratorAddress = address(new Migrator());
         poolManagerAddress = makeAddr("poolManagerAddress");
+        WhiteList whiteList = new WhiteList(poolManagerAddress);
+        whiteListAddress = address(whiteList);
+        migratorAddress = address(new Migrator());
         bittyVault.initialize(
             address(this),
+            address(whiteList),
+            address(migratorAddress),
             address(mockWETH),
-            poolManagerAddress,
-            whiteListAddress,
-            migratorAddress,
             new address[](0),
             new address[](0),
             new address[](0),
@@ -73,11 +75,10 @@ contract BittyVaultGrantorTest is Test {
     function test_InitErrorWithAlreadyInitialized() public {
         BittyVault newVault = new BittyVault();
         newVault.initialize(
-            address(1),
-            address(mockWETH),
-            poolManagerAddress,
+            address(this),
             whiteListAddress,
             migratorAddress,
+            address(mockWETH),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -85,11 +86,10 @@ contract BittyVaultGrantorTest is Test {
         );
         vm.expectRevert();
         newVault.initialize(
-            address(1),
-            address(mockWETH),
-            poolManagerAddress,
+            address(this),
             whiteListAddress,
             migratorAddress,
+            address(mockWETH),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -101,10 +101,9 @@ contract BittyVaultGrantorTest is Test {
         BittyVault newVault = new BittyVault();
         newVault.initialize(
             address(this),
-            address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
+            address(mockWETH),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -118,10 +117,9 @@ contract BittyVaultGrantorTest is Test {
         BittyVault newVault = new BittyVault();
         newVault.initialize(
             address(this),
-            address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
+            address(mockWETH),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -135,7 +133,16 @@ contract BittyVaultGrantorTest is Test {
 
     function test_AutoIrrevocableAfterNoPing() public {
         BittyVault newVault = new BittyVault();
-        newVault.initialize(address(this), address(1), migratorAddress);
+        newVault.initialize(
+            address(this),
+            whiteListAddress,
+            migratorAddress,
+            address(mockWETH),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
         newVault.setAutoIrrevocableAfterNoPing(1);
         vm.warp(block.timestamp + 2);
         assertEq(newVault.revocable(), false);
@@ -143,7 +150,16 @@ contract BittyVaultGrantorTest is Test {
 
     function test_SetAutoIrrevocableAfterNoPing_RevertsIfNotRevocable() public {
         BittyVault newVault = new BittyVault();
-        newVault.initialize(address(this), address(1), migratorAddress);
+        newVault.initialize(
+            address(this),
+            whiteListAddress,
+            migratorAddress,
+            address(mockWETH),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
         newVault.setToIrrevocable();
         vm.expectRevert(OnlyRevocable.selector);
         newVault.setAutoIrrevocableAfterNoPing(1);
@@ -151,7 +167,16 @@ contract BittyVaultGrantorTest is Test {
 
     function test_SetAutoIrrevocableAfterNoPing_RevertsIfAutoIrrevocableExpired() public {
         BittyVault newVault = new BittyVault();
-        newVault.initialize(address(this), address(1), migratorAddress);
+        newVault.initialize(
+            address(this),
+            whiteListAddress,
+            migratorAddress,
+            address(mockWETH),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
         newVault.setAutoIrrevocableAfterNoPing(1);
         vm.warp(block.timestamp + 2);
         assertEq(newVault.revocable(), false);
@@ -161,15 +186,33 @@ contract BittyVaultGrantorTest is Test {
 
     function test_ChangeGrantorAddressErrorWithNotRevocable() public {
         BittyVault newVault = new BittyVault();
-        newVault.initialize(address(this), address(1), migratorAddress);
+        newVault.initialize(
+            address(this),
+            whiteListAddress,
+            migratorAddress,
+            address(mockWETH),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
         newVault.setToIrrevocable();
-        vm.expectRevert("Only revocable");
+        vm.expectRevert(OnlyRevocable.selector);
         newVault.changeGrantorAddress(address(1));
     }
 
     function test_ChangeGrantorAddressErrorWithAddressZero() public {
         BittyVault newVault = new BittyVault();
-        newVault.initialize(address(this), address(1), migratorAddress);
+        newVault.initialize(
+            address(this),
+            whiteListAddress,
+            migratorAddress,
+            address(mockWETH),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
         vm.expectRevert(AddressZero.selector);
         newVault.changeGrantorAddress(address(0));
     }
@@ -179,11 +222,9 @@ contract BittyVaultGrantorTest is Test {
         address[] memory assets = new address[](1);
         assets[0] = newAsset;
 
-        vm.startPrank(tx.origin);
         address[] memory assetArray = new address[](1);
         assetArray[0] = newAsset;
         IWhiteList(whiteListAddress).addAssets(assetArray);
-        vm.stopPrank();
 
         bittyVault.addAssets(assets);
         assertTrue(bittyVault.getAssets().length > 0, "Asset should be added");
@@ -195,14 +236,12 @@ contract BittyVaultGrantorTest is Test {
         address[] memory assets = new address[](1);
         assets[0] = newAsset;
 
-        vm.startPrank(tx.origin);
         address[] memory assetArray = new address[](1);
         assetArray[0] = newAsset;
         IWhiteList(whiteListAddress).addAssets(assetArray);
-        vm.stopPrank();
 
         vm.prank(unauthorized);
-        vm.expectRevert("Only grantor");
+        vm.expectRevert(OnlyGrantor.selector);
         bittyVault.addAssets(assets);
     }
 
@@ -221,7 +260,7 @@ contract BittyVaultGrantorTest is Test {
         });
 
         vm.prank(unauthorized);
-        vm.expectRevert("Only grantor");
+        vm.expectRevert(OnlyGrantor.selector);
         bittyVault.setRebalanceRules(rebalanceLimit);
     }
 
@@ -230,11 +269,9 @@ contract BittyVaultGrantorTest is Test {
         address[] memory assets = new address[](1);
         assets[0] = newAsset;
 
-        vm.startPrank(tx.origin);
         address[] memory assetArray = new address[](1);
         assetArray[0] = newAsset;
         IWhiteList(whiteListAddress).addAssets(assetArray);
-        vm.stopPrank();
 
         bittyVault.addAssets(assets);
 
@@ -247,11 +284,9 @@ contract BittyVaultGrantorTest is Test {
         address[] memory stableCoins = new address[](1);
         stableCoins[0] = newStableCoin;
 
-        vm.startPrank(tx.origin);
         address[] memory stableCoinArray = new address[](1);
         stableCoinArray[0] = newStableCoin;
         IWhiteList(whiteListAddress).addStableCoins(stableCoinArray);
-        vm.stopPrank();
 
         bittyVault.addStableCoins(stableCoins);
         assertTrue(bittyVault.getStableCoins().length > 0, "StableCoin should be added");
@@ -262,11 +297,9 @@ contract BittyVaultGrantorTest is Test {
         address[] memory yieldProviders = new address[](1);
         yieldProviders[0] = newYieldProvider;
 
-        vm.startPrank(tx.origin);
         address[] memory yieldProviderArray = new address[](1);
         yieldProviderArray[0] = newYieldProvider;
         IWhiteList(whiteListAddress).addYieldProviders(yieldProviderArray);
-        vm.stopPrank();
 
         bittyVault.addYieldProviders(yieldProviders);
         assertTrue(bittyVault.getYieldProviders().length > 0, "YieldProvider should be added");
@@ -277,11 +310,9 @@ contract BittyVaultGrantorTest is Test {
         address[] memory swapProviders = new address[](1);
         swapProviders[0] = newSwapProvider;
 
-        vm.startPrank(tx.origin);
         address[] memory swapProviderArray = new address[](1);
         swapProviderArray[0] = newSwapProvider;
         IWhiteList(whiteListAddress).addSwapProviders(swapProviderArray);
-        vm.stopPrank();
 
         bittyVault.addSwapProviders(swapProviders);
         assertTrue(bittyVault.getSwapProviders().length > 0, "SwapProvider should be added");
@@ -293,11 +324,9 @@ contract BittyVaultGrantorTest is Test {
         address[] memory assets = new address[](1);
         assets[0] = newAsset;
 
-        vm.startPrank(tx.origin);
         address[] memory assetArray = new address[](1);
         assetArray[0] = newAsset;
         IWhiteList(whiteListAddress).addAssets(assetArray);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
@@ -312,15 +341,13 @@ contract BittyVaultGrantorTest is Test {
         address[] memory assets = new address[](1);
         assets[0] = newAsset;
 
-        vm.startPrank(tx.origin);
         address[] memory assetArray = new address[](1);
         assetArray[0] = newAsset;
         IWhiteList(whiteListAddress).addAssets(assetArray);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
-        vm.expectRevert("Only trustee");
+        vm.expectRevert(OnlyTrustee.selector);
         bittyVault.addAssets(assets);
     }
 
@@ -331,16 +358,14 @@ contract BittyVaultGrantorTest is Test {
         address[] memory assets = new address[](1);
         assets[0] = newAsset;
 
-        vm.startPrank(tx.origin);
         address[] memory assetArray = new address[](1);
         assetArray[0] = newAsset;
         IWhiteList(whiteListAddress).addAssets(assetArray);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
         vm.prank(unauthorized);
-        vm.expectRevert("Only trustee");
+        vm.expectRevert(OnlyTrustee.selector);
         bittyVault.addAssets(assets);
     }
 
@@ -364,7 +389,7 @@ contract BittyVaultGrantorTest is Test {
 
         bittyVault.setTrustee(trustee);
 
-        vm.expectRevert("Only trustee");
+        vm.expectRevert(OnlyTrustee.selector);
         bittyVault.setRebalanceRules(rebalanceLimit);
     }
 
@@ -375,11 +400,9 @@ contract BittyVaultGrantorTest is Test {
         IAssetManager.AssetConfig memory assetConfig =
             IAssetManager.AssetConfig({minimalBalance: 100 * 1e18, minimalDurationBetweenRebalances: 30});
 
-        vm.startPrank(tx.origin);
         address[] memory assetArray = new address[](1);
         assetArray[0] = assetAddress;
         IWhiteList(whiteListAddress).addAssets(assetArray);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
@@ -399,11 +422,9 @@ contract BittyVaultGrantorTest is Test {
         IAssetManager.AssetConfig memory assetConfig =
             IAssetManager.AssetConfig({minimalBalance: 100 * 1e18, minimalDurationBetweenRebalances: 30});
 
-        vm.startPrank(tx.origin);
         address[] memory assetArray = new address[](1);
         assetArray[0] = assetAddress;
         IWhiteList(whiteListAddress).addAssets(assetArray);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
@@ -412,7 +433,7 @@ contract BittyVaultGrantorTest is Test {
         assets[0] = assetAddress;
         bittyVault.addAssets(assets);
 
-        vm.expectRevert("Only trustee");
+        vm.expectRevert(OnlyTrustee.selector);
         bittyVault.setAssetConfig(assetAddress, assetConfig);
     }
 
@@ -420,17 +441,16 @@ contract BittyVaultGrantorTest is Test {
         BittyVault newVault = new BittyVault();
         bytes memory args = abi.encode("test");
         vm.expectRevert(AlreadyInitialized.selector);
-        newVault.initialize(address(1), args);
+        newVault.initializeFromPreviousVersion(address(1), args);
     }
 
     function test_SetStartDistributionTimestampRevertsIfAlreadySet() public {
         BittyVault newVault = new BittyVault();
         newVault.initialize(
             address(this),
-            address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
+            address(mockWETH),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -448,10 +468,9 @@ contract BittyVaultGrantorTest is Test {
         BittyVault newVault = new BittyVault();
         newVault.initialize(
             address(this),
-            address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
+            address(mockWETH),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -471,10 +490,9 @@ contract BittyVaultGrantorTest is Test {
         BittyVault newVault = new BittyVault();
         newVault.initialize(
             address(this),
-            address(mockWETH),
-            poolManagerAddress,
             whiteListAddress,
             migratorAddress,
+            address(mockWETH),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -499,9 +517,7 @@ contract BittyVaultGrantorTest is Test {
         stableCoins[0] = stableCoin1;
         stableCoins[1] = stableCoin2;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(stableCoins);
-        vm.stopPrank();
 
         bittyVault.addStableCoins(stableCoins);
         assertEq(bittyVault.getStableCoins().length, 2, "Should have 2 stablecoins");
@@ -517,9 +533,7 @@ contract BittyVaultGrantorTest is Test {
         stableCoins[0] = stableCoin1;
         stableCoins[1] = stableCoin2;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(stableCoins);
-        vm.stopPrank();
 
         bittyVault.addStableCoins(stableCoins);
         assertEq(bittyVault.getStableCoins().length, 2, "Should have 2 stablecoins");
@@ -535,9 +549,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory stableCoins = new address[](1);
         stableCoins[0] = stableCoin1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(stableCoins);
-        vm.stopPrank();
 
         bittyVault.removeStableCoins(stableCoins);
         assertEq(bittyVault.getStableCoins().length, 0, "Should still have 0 stablecoins");
@@ -555,9 +567,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory stableCoins = new address[](1);
         stableCoins[0] = stableCoin1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(stableCoins);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
@@ -576,16 +586,14 @@ contract BittyVaultGrantorTest is Test {
         address[] memory stableCoins = new address[](1);
         stableCoins[0] = stableCoin1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(stableCoins);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
         vm.prank(trustee);
         bittyVault.addStableCoins(stableCoins);
 
-        vm.expectRevert("Only trustee");
+        vm.expectRevert(OnlyTrustee.selector);
         bittyVault.removeStableCoins(stableCoins);
     }
 
@@ -596,9 +604,7 @@ contract BittyVaultGrantorTest is Test {
         swapProviders[0] = swapProvider1;
         swapProviders[1] = swapProvider2;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
-        vm.stopPrank();
 
         bittyVault.addSwapProviders(swapProviders);
         assertEq(bittyVault.getSwapProviders().length, 2, "Should have 2 swap providers");
@@ -614,9 +620,7 @@ contract BittyVaultGrantorTest is Test {
         swapProviders[0] = swapProvider1;
         swapProviders[1] = swapProvider2;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
-        vm.stopPrank();
 
         bittyVault.addSwapProviders(swapProviders);
         assertEq(bittyVault.getSwapProviders().length, 2, "Should have 2 swap providers");
@@ -632,9 +636,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory swapProviders = new address[](1);
         swapProviders[0] = swapProvider1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
-        vm.stopPrank();
 
         bittyVault.removeSwapProviders(swapProviders);
         assertEq(bittyVault.getSwapProviders().length, 0, "Should still have 0 swap providers");
@@ -652,9 +654,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory swapProviders = new address[](1);
         swapProviders[0] = swapProvider1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
@@ -673,16 +673,14 @@ contract BittyVaultGrantorTest is Test {
         address[] memory swapProviders = new address[](1);
         swapProviders[0] = swapProvider1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
         vm.prank(trustee);
         bittyVault.addSwapProviders(swapProviders);
 
-        vm.expectRevert("Only trustee");
+        vm.expectRevert(OnlyTrustee.selector);
         bittyVault.removeSwapProviders(swapProviders);
     }
 
@@ -692,14 +690,12 @@ contract BittyVaultGrantorTest is Test {
         address[] memory swapProviders = new address[](1);
         swapProviders[0] = swapProvider1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
-        vm.stopPrank();
 
         bittyVault.addSwapProviders(swapProviders);
 
         vm.prank(unauthorized);
-        vm.expectRevert("Only grantor");
+        vm.expectRevert(OnlyGrantor.selector);
         bittyVault.removeSwapProviders(swapProviders);
     }
 
@@ -709,14 +705,12 @@ contract BittyVaultGrantorTest is Test {
         address[] memory stableCoins = new address[](1);
         stableCoins[0] = stableCoin1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(stableCoins);
-        vm.stopPrank();
 
         bittyVault.addStableCoins(stableCoins);
 
         vm.prank(unauthorized);
-        vm.expectRevert("Only grantor");
+        vm.expectRevert(OnlyGrantor.selector);
         bittyVault.removeStableCoins(stableCoins);
     }
 
@@ -737,9 +731,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory stableCoins = new address[](1);
         stableCoins[0] = address(mockUSDT);
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(stableCoins);
-        vm.stopPrank();
 
         bittyVault.addStableCoins(stableCoins);
 
@@ -754,14 +746,14 @@ contract BittyVaultGrantorTest is Test {
 
     function test_Revoke_RevertsIfNotRevocable() public {
         bittyVault.setToIrrevocable();
-        vm.expectRevert("Only revocable");
+        vm.expectRevert(OnlyRevocable.selector);
         bittyVault.revoke();
     }
 
     function test_Revoke_RevertsIfNotGrantor() public {
         address unauthorized = makeAddr("unauthorized");
         vm.prank(unauthorized);
-        vm.expectRevert("Only grantor");
+        vm.expectRevert(OnlyGrantor.selector);
         bittyVault.revoke();
     }
 
@@ -793,7 +785,7 @@ contract BittyVaultGrantorTest is Test {
         address unauthorized = makeAddr("unauthorized");
         address upgradeToContract = makeAddr("upgradeToContract");
         vm.prank(unauthorized);
-        vm.expectRevert("Only grantor");
+        vm.expectRevert(OnlyGrantor.selector);
         bittyVault.upgrade(upgradeToContract);
     }
 
@@ -925,7 +917,7 @@ contract BittyVaultGrantorTest is Test {
         bittyVault.addTimeEvents(timestamps, timeEvents);
         bittyVault.setToIrrevocable();
 
-        vm.expectRevert("Only revocable");
+        vm.expectRevert(OnlyRevocable.selector);
         bittyVault.removeTimeEvents(timestamps);
     }
 
@@ -949,9 +941,8 @@ contract BittyVaultGrantorTest is Test {
         newVault.initialize(
             address(this),
             address(0),
-            poolManagerAddress,
-            whiteListAddress,
             migratorAddress,
+            address(0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -1032,7 +1023,7 @@ contract BittyVaultGrantorTest is Test {
 
         mockToken.setShouldFailTransfer(true);
 
-        vm.expectRevert(TransferFailed.selector);
+        vm.expectRevert("SafeERC20: ERC20 operation did not succeed");
         bittyVault.withdraw(address(mockToken), withdrawAmount);
     }
 
@@ -1041,7 +1032,7 @@ contract BittyVaultGrantorTest is Test {
         MockERC20 mockToken = new MockERC20("TestToken", "TEST", 18);
         uint256 withdrawAmount = 1000 * 10 ** mockToken.decimals();
 
-        vm.expectRevert("Trust not initialized");
+        vm.expectRevert(OnlyGrantor.selector);
         newVault.withdraw(address(mockToken), withdrawAmount);
     }
 
@@ -1052,7 +1043,7 @@ contract BittyVaultGrantorTest is Test {
 
         address unauthorized = makeAddr("unauthorized");
         vm.prank(unauthorized);
-        vm.expectRevert("Only grantor");
+        vm.expectRevert(OnlyGrantor.selector);
         bittyVault.withdraw(address(mockToken), withdrawAmount);
     }
 
@@ -1115,9 +1106,7 @@ contract BittyVaultGrantorTest is Test {
         initialAssets[0] = asset1;
         initialAssets[1] = asset2;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addAssets(initialAssets);
-        vm.stopPrank();
 
         bittyVault.addAssets(initialAssets);
         assertEq(bittyVault.getAssets().length, 2);
@@ -1141,12 +1130,10 @@ contract BittyVaultGrantorTest is Test {
         initialAssets[0] = asset1;
         initialAssets[1] = asset2;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addAssets(initialAssets);
         address[] memory newAssets = new address[](1);
         newAssets[0] = asset3;
         IWhiteList(whiteListAddress).addAssets(newAssets);
-        vm.stopPrank();
 
         bittyVault.addAssets(initialAssets);
         assertEq(bittyVault.getAssets().length, 2);
@@ -1175,9 +1162,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory initialAssets = new address[](1);
         initialAssets[0] = asset1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addAssets(initialAssets);
-        vm.stopPrank();
 
         bittyVault.addAssets(initialAssets);
         assertEq(bittyVault.getAssets().length, 1);
@@ -1195,9 +1180,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory initialAssets = new address[](1);
         initialAssets[0] = asset1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addAssets(initialAssets);
-        vm.stopPrank();
 
         bittyVault.addAssets(initialAssets);
 
@@ -1215,7 +1198,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory resetAssets = new address[](1);
         resetAssets[0] = asset1;
 
-        vm.expectRevert("Trust not initialized");
+        vm.expectRevert(NotAuthorized.selector);
         newVault.resetAssets(resetAssets);
     }
 
@@ -1224,9 +1207,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory resetAssets = new address[](1);
         resetAssets[0] = asset1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addAssets(resetAssets);
-        vm.stopPrank();
 
         bittyVault.resetAssets(resetAssets);
         assertEq(bittyVault.getAssets().length, 1);
@@ -1239,9 +1220,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory resetAssets = new address[](1);
         resetAssets[0] = asset1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addAssets(resetAssets);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
@@ -1257,13 +1236,11 @@ contract BittyVaultGrantorTest is Test {
         address[] memory resetAssets = new address[](1);
         resetAssets[0] = asset1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addAssets(resetAssets);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
-        vm.expectRevert("Only trustee");
+        vm.expectRevert(OnlyTrustee.selector);
         bittyVault.resetAssets(resetAssets);
     }
 
@@ -1273,12 +1250,10 @@ contract BittyVaultGrantorTest is Test {
         address[] memory resetAssets = new address[](1);
         resetAssets[0] = asset1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addAssets(resetAssets);
-        vm.stopPrank();
 
         vm.prank(unauthorized);
-        vm.expectRevert("Only grantor");
+        vm.expectRevert(OnlyGrantor.selector);
         bittyVault.resetAssets(resetAssets);
     }
 
@@ -1291,9 +1266,7 @@ contract BittyVaultGrantorTest is Test {
         resetAssets[1] = asset2;
         resetAssets[2] = asset3;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addAssets(resetAssets);
-        vm.stopPrank();
 
         bittyVault.resetAssets(resetAssets);
         assertEq(bittyVault.getAssets().length, 3);
@@ -1306,9 +1279,7 @@ contract BittyVaultGrantorTest is Test {
         initialStableCoins[0] = stableCoin1;
         initialStableCoins[1] = stableCoin2;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(initialStableCoins);
-        vm.stopPrank();
 
         bittyVault.addStableCoins(initialStableCoins);
         assertEq(bittyVault.getStableCoins().length, 2);
@@ -1332,12 +1303,10 @@ contract BittyVaultGrantorTest is Test {
         initialStableCoins[0] = stableCoin1;
         initialStableCoins[1] = stableCoin2;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(initialStableCoins);
         address[] memory newStableCoins = new address[](1);
         newStableCoins[0] = stableCoin3;
         IWhiteList(whiteListAddress).addStableCoins(newStableCoins);
-        vm.stopPrank();
 
         bittyVault.addStableCoins(initialStableCoins);
         assertEq(bittyVault.getStableCoins().length, 2);
@@ -1366,9 +1335,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory initialStableCoins = new address[](1);
         initialStableCoins[0] = stableCoin1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(initialStableCoins);
-        vm.stopPrank();
 
         bittyVault.addStableCoins(initialStableCoins);
         assertEq(bittyVault.getStableCoins().length, 1);
@@ -1386,9 +1353,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory initialStableCoins = new address[](1);
         initialStableCoins[0] = stableCoin1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(initialStableCoins);
-        vm.stopPrank();
 
         bittyVault.addStableCoins(initialStableCoins);
 
@@ -1406,7 +1371,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory resetStableCoins = new address[](1);
         resetStableCoins[0] = stableCoin1;
 
-        vm.expectRevert("Trust not initialized");
+        vm.expectRevert(NotAuthorized.selector);
         newVault.resetStableCoins(resetStableCoins);
     }
 
@@ -1415,9 +1380,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory resetStableCoins = new address[](1);
         resetStableCoins[0] = stableCoin1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(resetStableCoins);
-        vm.stopPrank();
 
         bittyVault.resetStableCoins(resetStableCoins);
         assertEq(bittyVault.getStableCoins().length, 1);
@@ -1430,9 +1393,7 @@ contract BittyVaultGrantorTest is Test {
         address[] memory resetStableCoins = new address[](1);
         resetStableCoins[0] = stableCoin1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(resetStableCoins);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
@@ -1448,13 +1409,11 @@ contract BittyVaultGrantorTest is Test {
         address[] memory resetStableCoins = new address[](1);
         resetStableCoins[0] = stableCoin1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(resetStableCoins);
-        vm.stopPrank();
 
         bittyVault.setTrustee(trustee);
 
-        vm.expectRevert("Only trustee");
+        vm.expectRevert(OnlyTrustee.selector);
         bittyVault.resetStableCoins(resetStableCoins);
     }
 
@@ -1464,12 +1423,10 @@ contract BittyVaultGrantorTest is Test {
         address[] memory resetStableCoins = new address[](1);
         resetStableCoins[0] = stableCoin1;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(resetStableCoins);
-        vm.stopPrank();
 
         vm.prank(unauthorized);
-        vm.expectRevert("Only grantor");
+        vm.expectRevert(OnlyGrantor.selector);
         bittyVault.resetStableCoins(resetStableCoins);
     }
 
@@ -1482,11 +1439,99 @@ contract BittyVaultGrantorTest is Test {
         resetStableCoins[1] = stableCoin2;
         resetStableCoins[2] = stableCoin3;
 
-        vm.startPrank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(resetStableCoins);
-        vm.stopPrank();
 
         bittyVault.resetStableCoins(resetStableCoins);
         assertEq(bittyVault.getStableCoins().length, 3);
+    }
+
+    function test_CheckAsset_SuccessForWhiteListedAsset() public {
+        MockERC20 newAsset = new MockERC20("NewAsset", "NA", 18);
+        address[] memory assetArray = new address[](1);
+        assetArray[0] = address(newAsset);
+        IWhiteList(whiteListAddress).addAssets(assetArray);
+
+        address[] memory assets = new address[](1);
+        assets[0] = address(newAsset);
+        bittyVault.addAssets(assets);
+
+        // checkAsset is called internally by rebalance, so we test it indirectly
+        // The function should not revert when asset is whitelisted and in assets list
+        assertTrue(bittyVault.getAssets().length > 0);
+    }
+
+    function test_CheckAsset_SuccessForWhiteListedStableCoin() public {
+        MockERC20 newStableCoin = new MockERC20("NewStableCoin", "NSC", 18);
+        address[] memory stableCoinArray = new address[](1);
+        stableCoinArray[0] = address(newStableCoin);
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinArray);
+
+        address[] memory stableCoins = new address[](1);
+        stableCoins[0] = address(newStableCoin);
+        bittyVault.addStableCoins(stableCoins);
+
+        // checkAsset is called internally by rebalance, so we test it indirectly
+        // The function should not revert when stableCoin is whitelisted and in stableCoins list
+        assertTrue(bittyVault.getStableCoins().length > 0);
+    }
+
+    function test_PingSuccess() public {
+        bittyVault.setAutoIrrevocableAfterNoPing(1 days);
+        assertTrue(bittyVault.revocable());
+
+        bittyVault.ping();
+        assertTrue(bittyVault.revocable());
+
+        // After ping, should still be revocable within the duration
+        vm.warp(block.timestamp + 12 hours);
+        assertTrue(bittyVault.revocable());
+    }
+
+    function test_PingFailedIfAutoIrrevocableNotSet() public {
+        vm.expectRevert(AutoIrrevocableAfterNoPingNotSet.selector);
+        bittyVault.ping();
+    }
+
+    function test_RevocableWhenAutoIrrevocableSetButNoPing() public {
+        bittyVault.setAutoIrrevocableAfterNoPing(1 days);
+        // Should be revocable initially
+        assertTrue(bittyVault.revocable());
+
+        // After duration expires, should not be revocable
+        vm.warp(block.timestamp + 1 days + 1);
+        assertFalse(bittyVault.revocable());
+    }
+
+    function test_RevocableWhenAutoIrrevocableSetAndPinged() public {
+        bittyVault.setAutoIrrevocableAfterNoPing(1 days);
+        bittyVault.ping();
+
+        // Should be revocable after ping
+        assertTrue(bittyVault.revocable());
+
+        // After duration from ping expires, should not be revocable
+        vm.warp(block.timestamp + 1 days + 1);
+        assertFalse(bittyVault.revocable());
+    }
+
+    function test_RevocableWhenIrrevocableSet() public {
+        bittyVault.setToIrrevocable();
+        assertFalse(bittyVault.revocable());
+    }
+
+    function test_RevocableWhenAutoIrrevocableNotSet() public {
+        // Should be revocable by default
+        assertTrue(bittyVault.revocable());
+    }
+
+    function test_UpgradeSuccess() public {
+        address upgradeToContract = makeAddr("upgradeToContract");
+        bittyVault.upgrade(upgradeToContract);
+        // upgrade function only checks for address zero, so it should succeed
+    }
+
+    function test_UpgradeFailedIfAddressZero() public {
+        vm.expectRevert(AddressZero.selector);
+        bittyVault.upgrade(address(0));
     }
 }

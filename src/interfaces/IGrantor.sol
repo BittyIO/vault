@@ -9,30 +9,6 @@ import {IBeneficiary} from "./IBeneficiary.sol";
  */
 interface IGrantor {
     /**
-     * @notice Initialize the trust.
-     * @dev Initialize the trust.
-     * @param grantorAddress The address of the grantor.
-     */
-    function initialize(address grantorAddress) external;
-
-    /**
-     * @notice Initialize the trust.
-     * @dev Initialize the trust.
-     * @param grantorAddress The address of the grantor.
-     * @param beneficiaryAddress The address of the beneficiary.
-     */
-    function initialize(address grantorAddress, address beneficiaryAddress) external;
-
-    /**
-     * @notice Initialize the trust.
-     * @dev Initialize the trust.
-     * @param grantorAddress The address of the grantor.
-     * @param beneficiaryAddress The address of the beneficiary.
-     * @param trusteeAddress The address of the trustee.
-     */
-    function initialize(address grantorAddress, address beneficiaryAddress, address trusteeAddress) external;
-
-    /**
      * @notice Set the grantor.
      * @dev Set the grantor.
      * @param grantorAddress The address of the grantor.

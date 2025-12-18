@@ -1,89 +1,158 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {Trust} from "./Trust.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
-import {WETH} from "lib/solmate/src/tokens/WETH.sol";
-import {IYieldProvider, ISwapProvider} from "./interfaces/IAssetManager.sol";
-import {OracleLibrary} from "./libs/OracleLibrary.sol";
-import {IPoolManager} from "./libs/uniswap/v4/Uniswap.sol";
-import {AssetManager} from "./AssetManager.sol";
+import {ITrust} from "./interfaces/ITrust.sol";
+import {ITrustee} from "./interfaces/ITrustee.sol";
 import {IAssetManager} from "./interfaces/IAssetManager.sol";
-import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
+import {IBeneficiary} from "./interfaces/IBeneficiary.sol";
+import {IWhiteList} from "./interfaces/IWhiteList.sol";
 import {IVault} from "./interfaces/IVault.sol";
-import {IMigrator} from "./interfaces/IMigrator.sol";
 import {
     AddressZero,
     AlreadyInitialized,
-    TransferFailed,
-    WETHNotSet,
-    InsufficientStablecoinBalance,
-    NotWhiteListed,
-    InsufficientBalance,
-    OnlyRevocable
+    NotAuthorized,
+    OnlyGrantor,
+    OnlyTrustee,
+    OnlyBeneficiary,
+    OnlyAssetManager,
+    OnlyRevocable,
+    OnlyIrrevocable,
+    OnlyVaultOwner
 } from "./interfaces/Errors.sol";
-import {VaultHelper} from "./helpers/VaultHelper.sol";
+import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
+import {TrustLogic} from "./logic/TrustLogic.sol";
+import {MigratorLogic} from "./logic/MigratorLogic.sol";
+import {VaultLogic} from "./logic/VaultLogic.sol";
+import {AssetManagerStorage, TrustStorage, MigratorStorage, VaultStorage} from "./logic/Storages.sol";
 
 /**
  * @title BittyVault
- * @notice Unified vault contract that combines Asset Management and Trust Management
+ * @notice Unified vault contract that combines Asset Management and _trust Management
  * @dev
- * This contract inherits from both AssetManager and Trust, providing a single interface
- * for both asset management operations (supply, withdraw, rebalance, etc.) and trust
+ * This contract inherits from both _assetManager and _trust, providing a single interface
+ * for both asset management operations (supply, withdraw, rebalance, etc.) and _trust
  * management operations (initialize, revoke, set beneficiaries, etc.).
- *
- * Users can use this contract for asset management only, trust management only, or both.
- * The contract address remains the same regardless of which functions are used.
- * All asset management functions are defined in AssetManager.sol
- * All trust management functions are defined in Trust.sol (which implements ITrust)
- * This contract only handles:
- * 1. Resolving inheritance conflicts (modifiers, abstract functions)
- * 2. Bridging between the two modules (usdt/usdc functions for Trust.getMoney)
  */
-contract BittyVault is Trust, AssetManager, IVault {
-    using EnumerableSet for EnumerableSet.AddressSet;
-
-    address public override migrator;
+contract BittyVault is ITrust, IAssetManager, IVault {
+    using AssetManagerLogic for AssetManagerStorage;
+    using TrustLogic for TrustStorage;
+    using MigratorLogic for MigratorStorage;
+    using VaultLogic for VaultStorage;
     uint256 public immutable override version = 1;
-    IPoolManager public poolManager;
+    address public override migrator;
+    AssetManagerStorage internal _assetManager;
+    TrustStorage internal _trust;
+    MigratorStorage internal _migrator;
+    VaultStorage internal _vault;
+    modifier onlyGrantor() {
+        _onlyGrantor();
+        _;
+    }
 
-    // Full initialize with all parameters (used by factory)
+    function _onlyGrantor() internal view {
+        if (msg.sender != _vault.grantor) revert OnlyGrantor();
+    }
+
+    modifier onlyTrustee() {
+        _onlyTrustee();
+        _;
+    }
+
+    function _onlyTrustee() internal view {
+        if (msg.sender != _trust.trustee) revert OnlyTrustee();
+    }
+
+    modifier onlyTrusteeOrGrantor() {
+        _onlyTrusteeOrGrantor();
+        _;
+    }
+
+    function _onlyTrusteeOrGrantor() internal view {
+        if (_trust.trustee != address(0)) {
+            if (msg.sender != _trust.trustee) revert OnlyTrustee();
+            return;
+        }
+        if (_vault.grantor != address(0)) {
+            if (msg.sender != _vault.grantor) revert OnlyGrantor();
+            return;
+        }
+        revert NotAuthorized();
+    }
+
+    modifier onlyAssetManager() {
+        _onlyAssetManager();
+        _;
+    }
+
+    function _onlyAssetManager() internal view {
+        if (msg.sender != _assetManager.assetManager) revert OnlyAssetManager();
+    }
+
+    modifier onlyRevocable() {
+        _onlyRevocable();
+        _;
+    }
+
+    function _onlyRevocable() internal view {
+        if (!this.revocable()) revert OnlyRevocable();
+    }
+
+    modifier onlyBeneficiary() {
+        _onlyBeneficiary();
+        _;
+    }
+
+    function _onlyBeneficiary() internal view {
+        if (msg.sender != _trust.beneficiary) revert OnlyBeneficiary();
+    }
+
+    function _onlyValidAsset(VaultStorage storage vaultStorage, address assetAddress) private view {
+        vaultStorage.checkAsset(assetAddress);
+    }
+
+    modifier onlyValidAsset(address assetAddress) {
+        _onlyValidAsset(_vault, assetAddress);
+        _;
+    }
+
     function initialize(
         address grantorAddress,
-        address wethAddress,
-        address poolManagerAddress,
         address whiteListAddress,
         address migratorAddress,
+        address wethAddress_,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory yieldProviders,
         address[] memory swapProviders
-    ) external initializer {
-        AssetManager._initialize(
-            wethAddress, whiteListAddress, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders
-        );
-        migrator = migratorAddress;
-        poolManager = IPoolManager(poolManagerAddress);
-        grantor = grantorAddress;
-        if (isInitialized) {
-            revert AlreadyInitialized();
-        }
-        isInitialized = true;
+    ) external {
+        _migrator.initialize(migratorAddress);
+        _vault.initialize(grantorAddress, wethAddress_, whiteListAddress);
+        _vault.addAssets(assetAddresses);
+        _vault.addStableCoins(stableCoinAddresses);
+        _assetManager.initialize(whiteListAddress);
+        _assetManager.addYieldProviders(yieldProviders);
+        _assetManager.addSwapProviders(swapProviders);
+        _trust.initialize();
     }
 
-    function initialize(address, bytes memory) external pure override {
+    function initializeFromPreviousVersion(
+        address, /*previousVersionAddress*/
+        bytes memory /*args*/
+    )
+        external
+        pure
+        override
+    {
         revert AlreadyInitialized();
     }
 
     function createAndMigrate(uint256 _toVersion, string calldata _salt)
         external
         override
-        onlyInitialized
         onlyTrusteeOrGrantor
         returns (address)
     {
-        address nextVault = IMigrator(migrator).createVersionVault(address(this), _toVersion, _salt);
+        address nextVault = _migrator.create(_toVersion, _salt);
         if (nextVault == address(0)) {
             revert AddressZero();
         }
@@ -91,89 +160,163 @@ contract BittyVault is Trust, AssetManager, IVault {
         return nextVault;
     }
 
-    function migrateAssets(uint256 _toVersion) external override onlyInitialized onlyTrusteeOrGrantor {
-        address nextVault = IMigrator(migrator).versionVault(address(this), _toVersion);
+    function migrateAssets(uint256 _toVersion) external override onlyTrusteeOrGrantor {
+        address nextVault = _migrator.versionVault(address(this), _toVersion);
         if (nextVault == address(0)) {
             revert AddressZero();
         }
         _revoke(nextVault);
     }
 
-    function withdraw(address assetAddress, uint256 amount) external onlyInitialized onlyGrantor {
-        if (!this.revocable()) {
-            revert OnlyRevocable();
-        }
-        if (assetAddress == address(0)) {
-            revert AddressZero();
-        }
-        uint256 balance = IERC20(assetAddress).balanceOf(address(this));
-        if (balance < amount) {
-            revert InsufficientBalance();
-        }
-        if (!IERC20(assetAddress).transfer(grantor, amount)) {
-            revert TransferFailed();
-        }
+    function _revoke(address to) private {
+        _vault.revoke(to);
     }
 
-    /**
-     * @notice Override revoke to transfer all assets to the grantor
-     * @dev Transfers all assets (USDT, USDC, WBTC, WETH, ETH) and withdraws from Aave if needed
-     */
-    function revoke() external override onlyInitialized onlyGrantor onlyRevocable {
-        _revoke(grantor);
+    // ============ IGrantor Interface ============
+
+    function changeGrantorAddress(address grantorAddress) external override onlyGrantor onlyRevocable {
+        _vault.changeGrantorAddress(grantorAddress);
     }
 
-    function _revoke(address moneyWithdrawTo) internal {
-        if (moneyWithdrawTo == address(0)) {
-            revert AddressZero();
-        }
-        for (uint256 i = 0; i < _assets.length(); i++) {
-            _transferAllERC20(_assets.at(i), moneyWithdrawTo);
-        }
-
-        for (uint256 i = 0; i < _stableCoins.length(); i++) {
-            _transferAllERC20(_stableCoins.at(i), moneyWithdrawTo);
-        }
-
-        // Transfer any remaining ETH
-        if (address(this).balance > 0) {
-            (bool success,) = payable(moneyWithdrawTo).call{value: address(this).balance}("");
-            if (!success) {
-                revert TransferFailed();
-            }
-        }
+    function setTrustee(address trusteeAddress) external override onlyGrantor onlyRevocable {
+        _trust.setTrustee(trusteeAddress);
     }
 
-    /**
-     * @notice Internal function to transfer all balance of an ERC20 token
-     */
-    function _transferAllERC20(address tokenAddress, address to) internal {
-        if (tokenAddress == address(0)) {
-            return;
-        }
-        IERC20 token = IERC20(tokenAddress);
-        uint256 balance = token.balanceOf(address(this));
-        if (balance > 0) {
-            if (!token.transfer(to, balance)) {
-                revert TransferFailed();
-            }
-        }
+    function setBeneficiary(address beneficiaryAddress) external override onlyGrantor onlyRevocable {
+        _trust.setBeneficiary(beneficiaryAddress);
     }
 
-    function supply(address yieldProvider, address assetAddress, uint256 amount)
+    function setBeneficiarySettings(IBeneficiary.BeneficiarySettings memory _beneficiarySettings)
         external
-        onlyInitialized
-        onlyAssetManager
+        override
+        onlyGrantor
+        onlyRevocable
     {
-        _supply(yieldProvider, assetAddress, amount);
+        _trust.setBeneficiarySettings(_beneficiarySettings);
     }
 
-    function withdraw(address yieldProvider, address assetAddress, uint256 amount)
+    function addTriggerEvents(string[] memory eventNames, IBeneficiary.TriggerEvent[] memory triggerEvents)
         external
-        onlyInitialized
-        onlyAssetManager
+        override
+        onlyGrantor
+        onlyRevocable
     {
-        _withdraw(yieldProvider, assetAddress, amount);
+        _trust.addTriggerEvents(eventNames, triggerEvents);
+    }
+
+    function removeTriggerEvents(string[] memory eventNames) external override onlyGrantor onlyRevocable {
+        _trust.removeTriggerEvents(eventNames);
+    }
+
+    function addTimeEvents(uint256[] memory timestamps, IBeneficiary.TimeEvent[] memory timeEvents)
+        external
+        override
+        onlyGrantor
+        onlyRevocable
+    {
+        _trust.addTimeEvents(timestamps, timeEvents);
+    }
+
+    function removeTimeEvents(uint256[] memory timestamps) external override onlyGrantor onlyRevocable {
+        _trust.removeTimeEvents(timestamps);
+    }
+
+    function setToIrrevocable() external override onlyGrantor {
+        _trust.setToIrrevocable();
+    }
+
+    function setStartDistributionTimestamp(uint256 _startDistributionTimestamp) external override onlyGrantor {
+        _trust.setStartDistributionTimestamp(_startDistributionTimestamp);
+    }
+
+    function distributionStarted() external view override returns (bool) {
+        return _trust.distributionStarted();
+    }
+
+    function setAutoIrrevocableAfterNoPing(uint256 pingSeconds) external override onlyGrantor onlyRevocable {
+        _trust.setAutoIrrevocableAfterNoPing(pingSeconds);
+    }
+
+    function ping() external override onlyGrantor {
+        _trust.ping();
+    }
+
+    function upgrade(address upgradeToContract) external override onlyGrantor {
+        _trust.upgrade(upgradeToContract);
+    }
+
+    // ============ IBeneficiary Interface ============
+
+    function changeBeneficiaryAddress(address newBeneficiaryAddress) external override onlyBeneficiary {
+        _trust.changeBeneficiaryAddress(newBeneficiaryAddress);
+    }
+
+    function getMoney(address stableCoinAddress) external override onlyBeneficiary {
+        _trust.getMoney(_vault, _assetManager, stableCoinAddress);
+    }
+
+    function getMoneyFromEvent(string memory eventName, address stableCoinAddress) external override {
+        _trust.getMoneyFromEvent(_vault, _assetManager, eventName, stableCoinAddress, _trust.beneficiary);
+    }
+
+    function getMoneyByTimestamp(uint256 timestamp, address stableCoinAddress) external override onlyBeneficiary {
+        _trust.getMoneyByTimestamp(_vault, _assetManager, timestamp, stableCoinAddress);
+    }
+
+    function lastWithdrawalTime() external view override returns (uint256) {
+        return _trust.lastWithdrawalTime;
+    }
+
+    // ============ ITrustee Interface ============
+
+    function changeTrusteeAddress(address newTrusteeAddress) external override onlyTrustee {
+        _trust.changeTrusteeAddress(newTrusteeAddress);
+    }
+
+    function setAssetManager(address assetManagerAddress) external override onlyTrusteeOrGrantor {
+        _assetManager.setAssetManager(assetManagerAddress);
+    }
+
+    function setManageFee(IAssetManager.ManageFee memory manageFee_)
+        external
+        override(IAssetManager, ITrustee)
+        onlyTrusteeOrGrantor
+    {
+        _assetManager.setManageFee(manageFee_);
+    }
+
+    // ============ IAssetManager Interface ============
+
+    function getYieldProviders() external view override returns (address[] memory) {
+        return _assetManager.getYieldProviders();
+    }
+
+    function getSwapProviders() external view override returns (address[] memory) {
+        return _assetManager.getSwapProviders();
+    }
+
+    function setRebalanceRules(IAssetManager.RebalanceLimit memory _rebalanceLimit)
+        external
+        override
+        onlyTrusteeOrGrantor
+    {
+        _assetManager.setRebalanceRules(_rebalanceLimit);
+    }
+
+    function setAssetConfig(address assetAddress, IAssetManager.AssetConfig memory _assetConfig)
+        external
+        override
+        onlyTrusteeOrGrantor
+    {
+        _assetManager.setAssetConfig(assetAddress, _assetConfig);
+    }
+
+    function supply(address yieldProvider, address assetAddress, uint256 amount) external override onlyAssetManager {
+        _assetManager.supply(yieldProvider, assetAddress, amount);
+    }
+
+    function withdraw(address yieldProvider, address assetAddress, uint256 amount) external override onlyAssetManager {
+        _assetManager.withdraw(yieldProvider, assetAddress, amount);
     }
 
     function rebalance(
@@ -182,144 +325,187 @@ contract BittyVault is Trust, AssetManager, IVault {
         address to,
         uint256 sellAmount,
         uint256 buyAmountMin,
-        bytes calldata data
-    ) external onlyInitialized onlyAssetManager {
-        _rebalance(swapProvider, from, to, sellAmount, buyAmountMin, data);
+        bytes memory data
+    ) external override onlyAssetManager onlyValidAsset(to) {
+        _assetManager.rebalance(_vault, swapProvider, from, to, sellAmount, buyAmountMin, data);
     }
 
-    function turnETHToWETH() external onlyInitialized {
-        if (wethAddress == address(0)) {
-            revert WETHNotSet();
-        }
-        uint256 ethBalance = address(this).balance;
-        if (ethBalance > 0) {
-            WETH(payable(wethAddress)).deposit{value: ethBalance}();
-        }
+    function turnETHToWETH() external override {
+        _vault.turnETHToWETH();
     }
 
-    function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external onlyInitialized onlyTrusteeOrGrantor {
-        _setRebalanceRules(rebalanceLimit);
+    function getBaseFee(address stableCoinAddress) external override(IAssetManager, ITrust) onlyAssetManager {
+        _assetManager.getBaseFee(_vault, stableCoinAddress);
     }
 
-    /**
-     * @notice Override _getMoney to use library implementation
-     * @dev Transfers stablecoin amount to beneficiary
-     * if the stablecoin balance is not enough, get from yield providers and swap assets until enough
-     */
-    function _getMoney(uint256 amount, address stableCoinAddress, address to) internal override {
-        VaultHelper.getMoney(
-            address(this),
-            poolManager,
-            _yieldProviders.values(),
-            _swapProviders.values(),
-            _assets.values(),
-            amount,
-            stableCoinAddress,
-            to
-        );
+    function getRevenueFee(address stableCoinAddress) external override(IAssetManager, ITrust) onlyAssetManager {
+        _assetManager.getRevenueFee(_vault, stableCoinAddress);
     }
 
-    /**
-     * @notice Override _getPercentageMoney to use library implementation
-     * @dev Transfers percentage of all stablecoins and assets to beneficiary
-     */
-    function _getPercentageMoney(uint256 percentage, address to) internal override {
-        VaultHelper.getPercentageMoney(address(this), _stableCoins.values(), _assets.values(), percentage, to);
+    function addYieldProviders(address[] memory yieldProviderAddresses) external override onlyTrusteeOrGrantor {
+        _assetManager.addYieldProviders(yieldProviderAddresses);
     }
 
-    function setAssetConfig(address assetAddress, IAssetManager.AssetConfig memory assetConfig)
-        external
-        onlyInitialized
-        onlyTrusteeOrGrantor
-    {
-        _setAssetConfig(assetAddress, assetConfig);
+    function removeYieldProviders(address[] memory yieldProviderAddresses) external override onlyTrusteeOrGrantor {
+        _assetManager.removeYieldProviders(yieldProviderAddresses);
     }
 
-    function addAssets(address[] memory assetAddresses) external onlyInitialized onlyTrusteeOrGrantor {
-        for (uint256 i = 0; i < assetAddresses.length; i++) {
-            if (!whiteList.isAssetWhiteListed(assetAddresses[i])) {
-                revert NotWhiteListed();
-            }
-            _assets.add(assetAddresses[i]);
-        }
+    function addSwapProviders(address[] memory swapProviderAddresses) external override onlyTrusteeOrGrantor {
+        _assetManager.addSwapProviders(swapProviderAddresses);
     }
 
-    function removeAssets(address[] memory assetAddresses) external onlyInitialized onlyTrusteeOrGrantor {
-        for (uint256 i = 0; i < assetAddresses.length; i++) {
-            _assets.remove(assetAddresses[i]);
-        }
+    function removeSwapProviders(address[] memory swapProviderAddresses) external override onlyTrusteeOrGrantor {
+        _assetManager.removeSwapProviders(swapProviderAddresses);
+    }
+    // ============ IVault Interface ============
+
+    function withdraw(address assetAddress, uint256 amount) external override onlyGrantor onlyRevocable {
+        _vault.withdraw(assetAddress, amount, _vault.grantor);
     }
 
-    function resetAssets(address[] memory assetAddresses) external onlyInitialized onlyTrusteeOrGrantor {
-        for (uint256 i = 0; i < assetAddresses.length; i++) {
-            _assets.remove(assetAddresses[i]);
-        }
-        for (uint256 i = 0; i < assetAddresses.length; i++) {
-            if (!whiteList.isAssetWhiteListed(assetAddresses[i])) {
-                revert NotWhiteListed();
-            }
-            _assets.add(assetAddresses[i]);
-        }
+    function revoke() external override onlyGrantor onlyRevocable {
+        _revoke(_vault.grantor);
     }
 
-    function addStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrusteeOrGrantor {
-        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            if (!whiteList.isStableCoinWhiteListed(stableCoinAddresses[i])) {
-                revert NotWhiteListed();
-            }
-            _stableCoins.add(stableCoinAddresses[i]);
-        }
+    function addAssets(address[] memory assetAddresses) external override onlyTrusteeOrGrantor {
+        _vault.addAssets(assetAddresses);
     }
 
-    function removeStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrusteeOrGrantor {
-        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            _stableCoins.remove(stableCoinAddresses[i]);
-        }
+    function removeAssets(address[] memory assetAddresses) external override onlyTrusteeOrGrantor {
+        _vault.removeAssets(assetAddresses);
     }
 
-    function resetStableCoins(address[] memory stableCoinAddresses) external onlyInitialized onlyTrusteeOrGrantor {
-        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            _stableCoins.remove(stableCoinAddresses[i]);
-        }
-        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            if (!whiteList.isStableCoinWhiteListed(stableCoinAddresses[i])) {
-                revert NotWhiteListed();
-            }
-            _stableCoins.add(stableCoinAddresses[i]);
-        }
+    function resetAssets(address[] memory assetAddresses) external override onlyTrusteeOrGrantor {
+        _vault.resetAssets(assetAddresses);
     }
 
-    function addYieldProviders(address[] memory yieldProviderAddresses) external onlyInitialized onlyTrusteeOrGrantor {
-        for (uint256 i = 0; i < yieldProviderAddresses.length; i++) {
-            if (!whiteList.isYieldProviderWhiteListed(yieldProviderAddresses[i])) {
-                revert NotWhiteListed();
-            }
-            _yieldProviders.add(yieldProviderAddresses[i]);
-        }
+    function addStableCoins(address[] memory stableCoinAddresses) external override onlyTrusteeOrGrantor {
+        _vault.addStableCoins(stableCoinAddresses);
     }
 
-    function removeYieldProviders(address[] memory yieldProviderAddresses)
-        external
-        onlyInitialized
-        onlyTrusteeOrGrantor
-    {
-        for (uint256 i = 0; i < yieldProviderAddresses.length; i++) {
-            _yieldProviders.remove(yieldProviderAddresses[i]);
-        }
+    function removeStableCoins(address[] memory stableCoinAddresses) external override onlyTrusteeOrGrantor {
+        _vault.removeStableCoins(stableCoinAddresses);
     }
 
-    function addSwapProviders(address[] memory swapProviderAddresses) external onlyInitialized onlyTrusteeOrGrantor {
-        for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
-            if (!whiteList.isSwapProviderWhiteListed(swapProviderAddresses[i])) {
-                revert NotWhiteListed();
-            }
-            _swapProviders.add(swapProviderAddresses[i]);
-        }
+    function resetStableCoins(address[] memory stableCoinAddresses) external override onlyTrusteeOrGrantor {
+        _vault.resetStableCoins(stableCoinAddresses);
     }
 
-    function removeSwapProviders(address[] memory swapProviderAddresses) external onlyInitialized onlyTrusteeOrGrantor {
-        for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
-            _swapProviders.remove(swapProviderAddresses[i]);
-        }
+    function getAssets() external view override returns (address[] memory) {
+        return _vault.getAssets();
+    }
+
+    function getStableCoins() external view override returns (address[] memory) {
+        return _vault.getStableCoins();
+    }
+
+    // ============ View Interface ============
+
+    function revocable() external view override returns (bool) {
+        return _trust.revocable();
+    }
+
+    function isIrrevocable() external view returns (bool) {
+        return !_trust.revocable();
+    }
+
+    function autoIrrevocableAfterNoPing() external view returns (uint256) {
+        return _trust.autoIrrevocableAfterNoPing;
+    }
+
+    function grantor() external view returns (address) {
+        return _vault.grantor;
+    }
+
+    function trustee() external view returns (address) {
+        return _trust.trustee;
+    }
+
+    function beneficiary() external view returns (address) {
+        return _trust.beneficiary;
+    }
+
+    function assetManager() external view returns (address) {
+        return _assetManager.assetManager;
+    }
+
+    function lastPingTime() external view returns (uint256) {
+        return _trust.lastPingTime;
+    }
+
+    function autoIrrevocableStartTime() external view returns (uint256) {
+        return _trust.autoIrrevocableStartTime;
+    }
+
+    function beneficiarySettings() external view returns (IBeneficiary.BeneficiarySettings memory) {
+        return _trust.beneficiarySettings;
+    }
+
+    function startDistributionTimestamp() external view returns (uint256) {
+        return _trust.startDistributionTimestamp;
+    }
+
+    function lastBaseFeeTime() external view returns (uint256) {
+        return _assetManager.lastBaseFeeTime;
+    }
+
+    function revenue() external view returns (uint256) {
+        return _assetManager.revenue;
+    }
+
+    function lastRevenueTime() external view returns (uint256) {
+        return _assetManager.lastRevenueTime;
+    }
+
+    function manageFee() external view returns (IAssetManager.ManageFee memory) {
+        return _assetManager.manageFee;
+    }
+
+    function wethAddress() external view returns (address) {
+        return _vault.weth;
+    }
+
+    function whiteList() external view returns (IWhiteList) {
+        return _assetManager.whiteList;
+    }
+
+    function lastRebalanceTimestamp() external view returns (uint256) {
+        return _assetManager.lastRebalanceTimestamp;
+    }
+
+    function rebalanceLimit() external view returns (IAssetManager.RebalanceLimit memory) {
+        return _assetManager.rebalanceLimit;
+    }
+
+    function getAllTriggerEventKeys() external view returns (bytes32[] memory) {
+        return _trust.getAllTriggerEventKeys();
+    }
+
+    function getAllTimeEventKeys() external view returns (uint256[] memory) {
+        return _trust.getAllTimeEventKeys();
+    }
+
+    function getAllAssetConfigKeys() external view returns (address[] memory) {
+        return _assetManager.getAllAssetConfigKeys();
+    }
+
+    function getAllLastRebalanceTimestampKeys() external view returns (address[] memory) {
+        return _assetManager.getAllLastRebalanceTimestampKeys();
+    }
+
+    function lastRebalanceTimestamps(address assetAddress) external view returns (uint256) {
+        return _assetManager.lastRebalanceTimestamps[assetAddress];
+    }
+
+    function assetConfigs(address assetAddress) external view returns (IAssetManager.AssetConfig memory) {
+        return _assetManager.assetConfigs[assetAddress];
+    }
+
+    function beneficiaryTriggerEvents(bytes32 eventKey) external view returns (IBeneficiary.TriggerEvent memory) {
+        return _trust.beneficiaryTriggerEvents[eventKey];
+    }
+
+    function beneficiaryTimeEvents(uint256 timestamp) external view returns (IBeneficiary.TimeEvent memory) {
+        return _trust.beneficiaryTimeEvents[timestamp];
     }
 }

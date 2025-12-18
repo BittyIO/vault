@@ -8,7 +8,6 @@ import {
     AddressZero,
     NotWhiteListed,
     InsufficientBalance,
-    TransferFailed,
     AlreadyPremium,
     AlreadyBase,
     SubscriptionNone,
@@ -19,45 +18,45 @@ import {
 } from "./interfaces/Errors.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
+import {IERC20Metadata} from "lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract Subscribe is ISubscribe, Ownable, Initializable {
     using EnumerableSet for EnumerableSet.AddressSet;
+    using SafeERC20 for IERC20Metadata;
     uint256 public constant BASE_FEE = 99;
     uint256 public constant STANDARD_FEE = 199;
     uint256 public constant PREMIUM_FEE = 999;
 
-    address whiteList;
+    address private _whiteList;
     EnumerableSet.AddressSet private _subscribers;
     mapping(address => ISubscribe.SubscriptionInfo) public subscriptions;
 
-    constructor() {
-        transferOwnership(tx.origin);
-    }
+    constructor() {}
 
     function initialize(address whiteListAddress_) external initializer {
         if (whiteListAddress_ == address(0)) {
             revert AddressZero();
         }
-        whiteList = whiteListAddress_;
+        _whiteList = whiteListAddress_;
     }
 
     function subscribe(ISubscribe.Subscription subscription, address stableCoinAddress) external override {
         if (subscriptions[msg.sender].subscription != ISubscribe.Subscription.None) {
             revert AlreadySubscribed();
         }
-        if (!IWhiteList(whiteList).isStableCoinWhiteListed(stableCoinAddress)) {
+        if (!IWhiteList(_whiteList).isStableCoinWhiteListed(stableCoinAddress)) {
             revert NotWhiteListed();
         }
         subscriptions[msg.sender] = ISubscribe.SubscriptionInfo({
             subscription: subscription, expirationTime: block.timestamp + 365 days, stableCoinAddress: stableCoinAddress
         });
-        ERC20 stableCoin = ERC20(stableCoinAddress);
+        IERC20Metadata stableCoin = IERC20Metadata(stableCoinAddress);
         uint256 fee = _getFee(subscription) * 10 ** stableCoin.decimals();
         if (stableCoin.balanceOf(msg.sender) < fee) {
             revert InsufficientBalance();
         }
-        stableCoin.transferFrom(msg.sender, address(this), fee);
+        stableCoin.safeTransferFrom(msg.sender, address(this), fee);
         _subscribers.add(msg.sender);
     }
 
@@ -69,12 +68,12 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
         if (subscriptions[msg.sender].subscription == ISubscribe.Subscription.None) {
             revert SubscriptionNone();
         }
-        ERC20 stableCoin = ERC20(subscriptions[msg.sender].stableCoinAddress);
+        IERC20Metadata stableCoin = IERC20Metadata(subscriptions[msg.sender].stableCoinAddress);
         uint256 fee = _getFee(subscriptions[msg.sender].subscription) * 10 ** stableCoin.decimals();
         if (stableCoin.balanceOf(msg.sender) < fee) {
             revert InsufficientBalance();
         }
-        stableCoin.transferFrom(msg.sender, address(this), fee);
+        stableCoin.safeTransferFrom(msg.sender, address(this), fee);
         subscriptions[msg.sender].expirationTime += 365 days * yearCount;
     }
 
@@ -83,8 +82,8 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
             revert SubscriptionNone();
         }
         uint256 refundFee = _refundableFee(msg.sender, subscriptions[msg.sender].stableCoinAddress);
-        ERC20 stableCoin = ERC20(subscriptions[msg.sender].stableCoinAddress);
-        stableCoin.transfer(msg.sender, refundFee);
+        IERC20Metadata stableCoin = IERC20Metadata(subscriptions[msg.sender].stableCoinAddress);
+        stableCoin.safeTransfer(msg.sender, refundFee);
         delete subscriptions[msg.sender];
         _subscribers.remove(msg.sender);
     }
@@ -100,7 +99,7 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
         if (subscriptionInfo.subscription >= subscription) {
             revert SubscriptionDowngrade();
         }
-        ERC20 stableCoin = ERC20(stableCoinAddress);
+        IERC20Metadata stableCoin = IERC20Metadata(stableCoinAddress);
         uint256 fee = _getFee(subscription) * 10 ** stableCoin.decimals();
         uint256 refundFee = _refundableFee(msg.sender, stableCoinAddress);
         uint256 totalFee = fee - refundFee;
@@ -110,7 +109,7 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
         subscriptions[msg.sender] = ISubscribe.SubscriptionInfo({
             subscription: subscription, expirationTime: block.timestamp + 365 days, stableCoinAddress: stableCoinAddress
         });
-        stableCoin.transferFrom(msg.sender, address(this), totalFee);
+        stableCoin.safeTransferFrom(msg.sender, address(this), totalFee);
     }
 
     function downgrade(ISubscribe.Subscription subscription) external override {
@@ -125,15 +124,15 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
             revert SubscriptionUpgrade();
         }
         uint256 refundFee = _refundableFee(msg.sender, subscriptionInfo.stableCoinAddress);
-        ERC20 stableCoin = ERC20(subscriptionInfo.stableCoinAddress);
+        IERC20Metadata stableCoin = IERC20Metadata(subscriptionInfo.stableCoinAddress);
         uint256 downgradedFee = _getFee(subscription) * 10 ** stableCoin.decimals();
         if (downgradedFee > refundFee && stableCoin.balanceOf(msg.sender) < (downgradedFee - refundFee)) {
             revert InsufficientBalance();
         }
         if (downgradedFee < refundFee) {
-            stableCoin.transfer(msg.sender, refundFee - downgradedFee);
+            stableCoin.safeTransfer(msg.sender, refundFee - downgradedFee);
         } else if (downgradedFee > refundFee) {
-            stableCoin.transferFrom(msg.sender, address(this), downgradedFee - refundFee);
+            stableCoin.safeTransferFrom(msg.sender, address(this), downgradedFee - refundFee);
         }
         subscriptions[msg.sender] = ISubscribe.SubscriptionInfo({
             subscription: subscription,
@@ -175,7 +174,7 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
         if (subscriptionInfo.expirationTime <= block.timestamp) {
             return 0;
         }
-        ERC20 stableCoin = ERC20(stableCoinAddress);
+        IERC20Metadata stableCoin = IERC20Metadata(stableCoinAddress);
         uint256 oneYearFee = _getFee(subscriptionInfo.subscription) * 10 ** stableCoin.decimals();
         return oneYearFee * (subscriptionInfo.expirationTime - block.timestamp) / 365 days;
     }
@@ -193,7 +192,7 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
                 totalWithdrawableFee += refundFee;
             }
         }
-        return ERC20(stableCoinAddress).balanceOf(address(this)) - totalWithdrawableFee;
+        return IERC20Metadata(stableCoinAddress).balanceOf(address(this)) - totalWithdrawableFee;
     }
 
     function withdrawFee(address stableCoinAddress, uint256 amount, address payable to) external override onlyOwner {
@@ -204,7 +203,7 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
         if (withdrawableFeeForStableCoin < amount) {
             revert InsufficientWithdrawableFee();
         }
-        ERC20 stableCoin = ERC20(stableCoinAddress);
-        stableCoin.transfer(to, amount);
+        IERC20Metadata stableCoin = IERC20Metadata(stableCoinAddress);
+        stableCoin.safeTransfer(to, amount);
     }
 }
