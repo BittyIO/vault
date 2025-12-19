@@ -1,0 +1,193 @@
+[
+  {
+    "type": "function",
+    "name": "computeVaultAddress",
+    "inputs": [
+      {
+        "name": "grantor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "inputSalt",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "deployVault",
+    "inputs": [
+      {
+        "name": "inputSalt",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "assetAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "stableCoinAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "yieldProviders",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "swapProviders",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "vaultImplementation_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "whiteListAddress_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "migratorAddress_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "wethAddress_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "migrator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IMigrator"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "vaultImplementation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "wethAddress",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "whiteList",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IWhiteList"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "Initialized",
+    "inputs": [
+      {
+        "name": "version",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "VaultDeployed",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "grantor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "inputSalt",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AddressZero",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "VaultAlreadyDeployed",
+    "inputs": []
+  }
+]

@@ -4,67 +4,23 @@ pragma solidity ^0.8.13;
 import {Script} from "lib/forge-std/src/Script.sol";
 import {BittyVaultFactory} from "../src/BittyVaultFactory.sol";
 import {BittyVault} from "../src/BittyVault.sol";
-import {mainnet, sepolia} from "../script/addresses.sol";
 import {console2} from "lib/forge-std/src/console2.sol";
+import {DeployScript} from "./BaseDeploy.sol";
 
-contract BittyVaultFactoryScript is Script {
+contract BittyVaultFactoryScript is DeployScript {
     BittyVaultFactory public factory;
 
-    function setUp() public {}
-
-    function run() public {
-        vm.startBroadcast();
-
+    function deploy() public override {
         BittyVault vaultImplementation = new BittyVault();
-
+        console2.log("Vault implementation deployed at", address(vaultImplementation));
         factory = new BittyVaultFactory();
-        address whiteListAddress = getWhiteListAddress();
-        address migratorAddress = getMigratorAddress();
-        address wethAddress = getWETHAddress();
-        factory.initialize(address(vaultImplementation), whiteListAddress, migratorAddress, wethAddress);
+        console2.log("Factory deployed at", address(factory));
 
-        vm.stopBroadcast();
-        console2.log("Factory:", address(factory));
-    }
+        address whiteList = getAddress("WHITE_LIST");
+        address migrator = getAddress("MIGRATOR");
+        address weth = getAddress("WETH");
+        factory.initialize(address(vaultImplementation), whiteList, migrator, weth);
 
-    function getWETHAddress() internal view returns (address) {
-        uint256 chainId = block.chainid;
-
-        if (chainId == 1) {
-            return mainnet.WETH;
-        } else if (chainId == 11155111) {
-            return sepolia.WETH;
-        }
-        return address(0);
-    }
-
-    function getWhiteListAddress() internal view returns (address) {
-        uint256 chainId = block.chainid;
-        if (chainId == 1) {
-            return mainnet.WHITE_LIST;
-        } else if (chainId == 11155111) {
-            return sepolia.WHITE_LIST;
-        }
-        return address(0);
-    }
-
-    function getMigratorAddress() internal view returns (address) {
-        uint256 chainId = block.chainid;
-        if (chainId == 1) {
-            return mainnet.MIGRATOR;
-        } else if (chainId == 11155111) {
-            return sepolia.MIGRATOR;
-        }
-        return address(0);
-    }
-
-    function getPoolManagerAddress() internal view returns (address) {
-        uint256 chainId = block.chainid;
-        if (chainId == 1) {
-            return mainnet.POOL_MANAGER;
-        } else if (chainId == 11155111) {
-            return sepolia.POOL_MANAGER;
-        }
-        return address(0);
+        saveAddress("BITY_VAULT_FACTORY", address(factory));
     }
 }

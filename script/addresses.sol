@@ -17,10 +17,6 @@ library mainnet {
 
     address public constant STETH = 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84;
     address public constant UNSTETH = 0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1;
-
-    // TODO: should deploy white list contract first, then set the address here
-    address public constant WHITE_LIST = 0x0000000000000000000000000000000000000000;
-    address public constant MIGRATOR = 0x0000000000000000000000000000000000000000;
 }
 
 library sepolia {
@@ -39,7 +35,4 @@ library sepolia {
 
     address public constant STETH = 0x3e3FE7dBc6B4C189E7128855dD526361c49b40Af;
     address public constant UNSTETH = 0x1583C7b3f4C3B008720E6BcE5726336b0aB25fdd;
-
-    address public constant WHITE_LIST = 0xc2Aef560BEaE08cB4CC3A6D30A15ED1716dC131f;
-    address public constant MIGRATOR = 0xF0535F93Dd52cb6D73Fc1E929Fb4ee40E4261373;
 }

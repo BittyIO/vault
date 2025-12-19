@@ -19,3 +19,11 @@ coverage/
 lcov.info
 
 .DS_Store
+
+# ABI files - ignore everything except .abi.json files
+abi/**/*
+!abi/**/
+!abi/BittyVault.sol/BittyVault.abi.json
+!abi/BittyVaultFactory.sol/BittyVaultFactory.abi.json
+!abi/Migrator.sol/Migrator.abi.json
+!abi/WhiteList.sol/WhiteList.abi.json

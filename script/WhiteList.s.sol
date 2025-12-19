@@ -3,105 +3,39 @@ pragma solidity ^0.8.13;
 
 import {Script} from "lib/forge-std/src/Script.sol";
 import {WhiteList} from "../src/WhiteList.sol";
-import {mainnet, sepolia} from "../script/addresses.sol";
+import {AaveProvider} from "../src/providers/AaveProvider.sol";
+import {LidoProvider} from "../src/providers/LidoProvider.sol";
+import {UniswapV4Provider} from "../src/providers/UniswapV4Provider.sol";
+import {UniswapV3Provider} from "../src/providers/UniswapV3Provider.sol";
 import {console2} from "lib/forge-std/src/console2.sol";
+import {DeployScript} from "./BaseDeploy.sol";
 
-contract WhiteListScript is Script {
+contract WhiteListScript is DeployScript {
     WhiteList public whiteList;
 
-    function setUp() public {}
+    function deploy() public override {
+        address poolManager = getAddress("POOL_MANAGER");
 
-    function run() public {
-        vm.startBroadcast();
-
-        whiteList = new WhiteList(getPoolManagerAddress());
         address[] memory assetAddresses = new address[](2);
-        assetAddresses[0] = getWBTCAddress();
-        assetAddresses[1] = getWETHAddress();
+        assetAddresses[0] = getAddress("WBTC");
+        assetAddresses[1] = getAddress("WETH");
         address[] memory stableCoinAddresses = new address[](2);
-        stableCoinAddresses[0] = getUSDTAddress();
-        stableCoinAddresses[1] = getUSDCAddress();
-        address[] memory yieldProviders = new address[](1);
-        yieldProviders[0] = getAAVEV3Address();
-        address[] memory swapProviders = new address[](1);
-        swapProviders[0] = getUniswapV4RouterAddress();
+        stableCoinAddresses[0] = getAddress("USDT");
+        stableCoinAddresses[1] = getAddress("USDC");
+        address[] memory yieldProviders = new address[](2);
+        yieldProviders[0] = getAddress("AAVE_PROVIDER");
+        yieldProviders[1] = getAddress("LIDO_PROVIDER");
+        address[] memory swapProviders = new address[](2);
+        swapProviders[0] = getAddress("UNISWAP_V4_PROVIDER");
+        swapProviders[1] = getAddress("UNISWAP_V3_PROVIDER");
+
+        whiteList = new WhiteList(poolManager);
+        console2.log("WhiteList deployed at", address(whiteList));
         whiteList.addAssets(assetAddresses);
         whiteList.addStableCoins(stableCoinAddresses);
         whiteList.addYieldProviders(yieldProviders);
         whiteList.addSwapProviders(swapProviders);
 
-        vm.stopBroadcast();
-        console2.log(address(whiteList));
-    }
-
-    function getPoolManagerAddress() internal view returns (address) {
-        uint256 chainId = block.chainid;
-        if (chainId == 1) {
-            return mainnet.POOL_MANAGER;
-        } else if (chainId == 11155111) {
-            return sepolia.POOL_MANAGER;
-        }
-        return address(0);
-    }
-
-    function getWETHAddress() internal view returns (address) {
-        uint256 chainId = block.chainid;
-
-        if (chainId == 1) {
-            return mainnet.WETH;
-        } else if (chainId == 11155111) {
-            return sepolia.WETH;
-        }
-        return address(0);
-    }
-
-    function getWBTCAddress() internal view returns (address) {
-        uint256 chainId = block.chainid;
-        if (chainId == 1) {
-            return mainnet.WBTC;
-        } else if (chainId == 11155111) {
-            return sepolia.WBTC;
-        }
-        return address(0);
-    }
-
-    function getUSDTAddress() internal view returns (address) {
-        uint256 chainId = block.chainid;
-        if (chainId == 1) {
-            return mainnet.USDT;
-        } else if (chainId == 11155111) {
-            return sepolia.USDT;
-        }
-        return address(0);
-    }
-
-    function getUSDCAddress() internal view returns (address) {
-        uint256 chainId = block.chainid;
-        if (chainId == 1) {
-            return mainnet.USDC;
-        } else if (chainId == 11155111) {
-            return sepolia.USDC;
-        }
-        return address(0);
-    }
-
-    function getAAVEV3Address() internal view returns (address) {
-        uint256 chainId = block.chainid;
-        if (chainId == 1) {
-            return mainnet.AAVE_V3;
-        } else if (chainId == 11155111) {
-            return sepolia.AAVE_V3;
-        }
-        return address(0);
-    }
-
-    function getUniswapV4RouterAddress() internal view returns (address) {
-        uint256 chainId = block.chainid;
-        if (chainId == 1) {
-            return mainnet.UNISWAP_V4_ROUTER;
-        } else if (chainId == 11155111) {
-            return sepolia.UNISWAP_V4_ROUTER;
-        }
-        return address(0);
+        saveAddress("WHITE_LIST", address(whiteList));
     }
 }
