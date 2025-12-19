@@ -61,6 +61,7 @@ interface IAssetManager {
 
     function supply(address yieldProvider, address assetAddress, uint256 amount) external;
     function withdraw(address yieldProvider, address assetAddress, uint256 amount) external;
+    function getBalance(address yieldProvider, address assetAddress) external view returns (uint256);
     function rebalance(
         address swapProvider,
         address from,

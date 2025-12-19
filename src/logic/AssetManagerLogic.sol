@@ -149,7 +149,12 @@ library AssetManagerLogic {
         address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
-        _checkYieldProvider(logicStorage, yieldProvider);
+        if (!logicStorage.yieldProviders.contains(yieldProvider)) {
+            revert InvalidYieldProvider();
+        }
+        if (logicStorage.whiteList.isYieldProviderDeprecated(yieldProvider)) {
+            revert Deprecated();
+        }
         if (assetAddress == address(0)) {
             revert AddressZero();
         }
@@ -174,7 +179,9 @@ library AssetManagerLogic {
         address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
-        _checkYieldProvider(logicStorage, yieldProvider);
+        if (!logicStorage.yieldProviders.contains(yieldProvider)) {
+            revert InvalidYieldProvider();
+        }
         if (assetAddress == address(0)) {
             revert AddressZero();
         }
@@ -195,6 +202,22 @@ library AssetManagerLogic {
         }
     }
 
+    function getBalance(AssetManagerStorage storage logicStorage, address yieldProvider, address assetAddress)
+        external
+        view
+        onlyInitialized(logicStorage)
+        returns (uint256)
+    {
+        if (!logicStorage.yieldProviders.contains(yieldProvider)) {
+            revert InvalidYieldProvider();
+        }
+        address _clonedProvider = logicStorage.clonedProviders[yieldProvider];
+        if (_clonedProvider == address(0)) {
+            return 0;
+        }
+        return IYieldProvider(_clonedProvider).getBalance(assetAddress);
+    }
+
     function _addressBalance(address assetAddress) private view returns (uint256) {
         if (assetAddress == address(0)) {
             revert AddressZero();
@@ -207,18 +230,6 @@ library AssetManagerLogic {
             revert InvalidSwapProvider();
         }
         if (!logicStorage.whiteList.isSwapProviderWhiteListed(swapProvider)) {
-            revert NotWhiteListed();
-        }
-    }
-
-    function _checkYieldProvider(AssetManagerStorage storage logicStorage, address yieldProvider) private view {
-        if (!logicStorage.yieldProviders.contains(yieldProvider)) {
-            revert InvalidYieldProvider();
-        }
-        if (logicStorage.whiteList.isYieldProviderDeprecated(yieldProvider)) {
-            revert Deprecated();
-        }
-        if (!logicStorage.whiteList.isYieldProviderWhiteListed(yieldProvider)) {
             revert NotWhiteListed();
         }
     }
