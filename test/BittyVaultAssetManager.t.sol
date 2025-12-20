@@ -270,7 +270,7 @@ contract TestAssetManager is Test, BittyVault {
         this.supply(invalidYieldProvider, address(mockWETH), 1 ether);
     }
 
-    function test_YieldProviderDeprecateIfYieldProviderGotDeprecated() public {
+    function test_SupplyFromDeprecatedYieldProvider() public {
         this.doInitialize();
         WhiteList(whiteListAddress).deprecateYieldProviders(yieldProviders);
         vm.expectRevert(Deprecated.selector);
@@ -284,9 +284,6 @@ contract TestAssetManager is Test, BittyVault {
         vm.prank(assetManagerAddress);
         this.supply(address(mockYieldProvider), address(mockWETH), 1 ether);
         WhiteList(whiteListAddress).deprecateYieldProviders(yieldProviders);
-        // Withdraw will revert Deprecated because _checkYieldProvider checks if provider is deprecated
-        // This is expected behavior - deprecated providers cannot be used for new operations
-        vm.expectRevert(Deprecated.selector);
         vm.prank(assetManagerAddress);
         this.withdraw(address(mockYieldProvider), address(mockWETH), 1 ether);
     }
@@ -338,6 +335,39 @@ contract TestAssetManager is Test, BittyVault {
         address[] memory keys = this.getAllLastRebalanceTimestampKeys();
         assertEq(keys.length, 1);
         assertEq(keys[0], address(mockWETH));
+    }
+
+    function test_GetBalance() public {
+        this.doInitialize();
+        uint256 depositAmount = 5 ether;
+
+        uint256 balance = this.getBalance(address(mockYieldProvider), address(mockWETH));
+        assertEq(balance, 0);
+
+        deal(address(mockWETH), address(this), depositAmount);
+        MockERC20(mockWETH).approve(address(this), depositAmount);
+
+        vm.prank(assetManagerAddress);
+        this.supply(address(mockYieldProvider), address(mockWETH), depositAmount);
+
+        balance = this.getBalance(address(mockYieldProvider), address(mockWETH));
+        assertEq(balance, depositAmount);
+    }
+
+    function test_GetBalance_InvalidYieldProvider() public {
+        this.doInitialize();
+        address invalidYieldProvider = makeAddr("InvalidYieldProvider");
+
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(InvalidYieldProvider.selector);
+        this.getBalance(invalidYieldProvider, address(mockWETH));
+    }
+
+    function test_GetBalanceFromDeprecatedYieldProvider() public {
+        this.doInitialize();
+        WhiteList(whiteListAddress).deprecateYieldProviders(yieldProviders);
+        uint256 balance = this.getBalance(address(mockYieldProvider), address(mockWETH));
+        assertEq(balance, 0);
     }
 }
 

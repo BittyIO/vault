@@ -319,6 +319,10 @@ contract BittyVault is ITrust, IAssetManager, IVault {
         _assetManager.withdraw(yieldProvider, assetAddress, amount);
     }
 
+    function getBalance(address yieldProvider, address assetAddress) external view override returns (uint256) {
+        return _assetManager.getBalance(yieldProvider, assetAddress);
+    }
+
     function rebalance(
         address swapProvider,
         address from,
