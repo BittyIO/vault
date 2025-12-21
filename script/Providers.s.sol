@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.13;
 
-import {Script} from "lib/forge-std/src/Script.sol";
 import {DeployScript} from "./BaseDeploy.sol";
 import {console2} from "lib/forge-std/src/console2.sol";
 import {AaveProvider} from "../src/providers/AaveProvider.sol";

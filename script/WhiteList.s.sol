@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Script} from "lib/forge-std/src/Script.sol";
 import {WhiteList} from "../src/WhiteList.sol";
-import {AaveProvider} from "../src/providers/AaveProvider.sol";
-import {LidoProvider} from "../src/providers/LidoProvider.sol";
-import {UniswapV4Provider} from "../src/providers/UniswapV4Provider.sol";
-import {UniswapV3Provider} from "../src/providers/UniswapV3Provider.sol";
 import {console2} from "lib/forge-std/src/console2.sol";
 import {DeployScript} from "./BaseDeploy.sol";
 
@@ -14,8 +9,6 @@ contract WhiteListScript is DeployScript {
     WhiteList public whiteList;
 
     function deploy() public override {
-        address poolManager = getAddress("POOL_MANAGER");
-
         address[] memory assetAddresses = new address[](2);
         assetAddresses[0] = getAddress("WBTC");
         assetAddresses[1] = getAddress("WETH");
@@ -29,7 +22,7 @@ contract WhiteListScript is DeployScript {
         swapProviders[0] = getAddress("UNISWAP_V4_PROVIDER");
         swapProviders[1] = getAddress("UNISWAP_V3_PROVIDER");
 
-        whiteList = new WhiteList(poolManager);
+        whiteList = new WhiteList();
         console2.log("WhiteList deployed at", address(whiteList));
         whiteList.addAssets(assetAddresses);
         whiteList.addStableCoins(stableCoinAddresses);

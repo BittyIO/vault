@@ -6,22 +6,15 @@ import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
 import {SwapProviderShouldNotBeAllRemoved} from "./interfaces/Errors.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {AddressZero} from "./interfaces/Errors.sol";
 
 contract WhiteList is IWhiteList, Initializable, Ownable {
     using EnumerableSet for EnumerableSet.AddressSet;
-
-    address public poolManager;
 
     mapping(address => bool) public whiteListedAssets;
     mapping(address => bool) public whiteListedStableCoins;
     mapping(address => bool) public whiteListedYieldProviders;
     mapping(address => bool) public deprecatedYieldProviders;
     EnumerableSet.AddressSet internal _whiteListedSwapProviders;
-
-    constructor(address poolManagerAddress) {
-        poolManager = poolManagerAddress;
-    }
 
     function addAssets(address[] memory assetAddresses) external override onlyOwner {
         for (uint256 i = 0; i < assetAddresses.length; i++) {

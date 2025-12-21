@@ -9,7 +9,6 @@ import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
-import {WhiteList} from "../src/WhiteList.sol";
 import {Migrator} from "../src/Migrator.sol";
 import {
     AddressZero,
@@ -31,7 +30,7 @@ import {
     InsufficientStablecoinBalance,
     OnlyBeneficiary,
     OnlyRevocable,
-    AutoIrrevocableAfterNoPingNotSet
+    ReplaceTrusteeFailed
 } from "../src/interfaces/Errors.sol";
 
 contract BittyVaultBeneficiaryTest is Test {
@@ -55,7 +54,6 @@ contract BittyVaultBeneficiaryTest is Test {
     MockYieldProvider public mockYieldProvider2;
     MockYieldProvider public mockYieldProvider3;
     address public migratorAddress;
-    address public poolManagerAddress;
 
     function setUp() public {
         mockWETH = new WETH();
@@ -73,8 +71,7 @@ contract BittyVaultBeneficiaryTest is Test {
         stableCoinAddresses[1] = address(mockUSDC);
         address[] memory yieldProviders = new address[](0);
         address[] memory swapProviders = new address[](0);
-        poolManagerAddress = makeAddr("poolManagerAddress");
-        whiteListAddress = address(new WhiteList(poolManagerAddress));
+        whiteListAddress = address(new WhiteList());
 
         mockYieldProvider1 = new MockYieldProvider();
         mockYieldProvider2 = new MockYieldProvider();
@@ -105,8 +102,9 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.setTrustee(address(this));
         withdrawMoney = 100;
         marriageMoney = 100000;
-        beneficiarySettings =
-            IBeneficiary.BeneficiarySettings({amountPerWithdrawal: withdrawMoney, minimalWithdrawDuration: 30 days});
+        beneficiarySettings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: withdrawMoney, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 0
+        });
         eventNames = new string[](1);
         triggerEvents = new IBeneficiary.TriggerEvent[](1);
         timeEvents = new IBeneficiary.TimeEvent[](1);
@@ -130,14 +128,18 @@ contract BittyVaultBeneficiaryTest is Test {
     function test_SetBeneficiarySettingFailedIfAmountPerWithdrawalIsZero() public {
         vm.expectRevert(AmountPerWithdrawalIsZero.selector);
         bittyVault.setBeneficiarySettings(
-            IBeneficiary.BeneficiarySettings({amountPerWithdrawal: 0, minimalWithdrawDuration: 30 days})
+            IBeneficiary.BeneficiarySettings({
+                amountPerWithdrawal: 0, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 0
+            })
         );
     }
 
     function test_SetBeneficiarySettingFailedIfMinimalWithdrawDurationLessThan1Day() public {
         vm.expectRevert(minimalWithdrawDurationLessThan1Day.selector);
         bittyVault.setBeneficiarySettings(
-            IBeneficiary.BeneficiarySettings({amountPerWithdrawal: withdrawMoney, minimalWithdrawDuration: 23 hours})
+            IBeneficiary.BeneficiarySettings({
+                amountPerWithdrawal: withdrawMoney, minimalWithdrawDuration: 23 hours, replaceTrusteeDuration: 0
+            })
         );
     }
 
@@ -430,100 +432,7 @@ contract BittyVaultBeneficiaryTest is Test {
         bittyVault.getMoney(address(mockUSDT));
     }
 
-    function test_GetMoneyFailedIfBothUSDTAndUSDCInsufficient() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
-
-        uint256 partialAmountBase = beneficiarySettings.amountPerWithdrawal / 2;
-        uint256 partialAmountUSDT = partialAmountBase * 10 ** mockUSDT.decimals();
-        uint256 partialAmountUSDC = partialAmountBase * 10 ** mockUSDC.decimals();
-        deal(address(mockUSDT), address(bittyVault), partialAmountUSDT);
-        deal(address(mockUSDC), address(bittyVault), partialAmountUSDC);
-
-        vm.expectRevert(InsufficientStablecoinBalance.selector);
-        vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-    }
-
-    function test_GetUSDCFirstWhenWithdrawUSDTFirstIsFalse() public {
-        bittyVault.setBeneficiarySettings(
-            IBeneficiary.BeneficiarySettings({amountPerWithdrawal: withdrawMoney, minimalWithdrawDuration: 1 days})
-        );
-
-        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
-        deal(address(mockUSDT), address(bittyVault), tokenAmount * 10 ** mockUSDT.decimals());
-        deal(address(mockUSDC), address(bittyVault), tokenAmount * 10 ** mockUSDC.decimals());
-
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount * 10 ** mockUSDT.decimals());
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount * 10 ** mockUSDC.decimals());
-
-        vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDC));
-
-        assertEq(mockUSDC.balanceOf(beneficiary), tokenAmount * 10 ** mockUSDC.decimals());
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), 0);
-        assertEq(mockUSDT.balanceOf(beneficiary), 0);
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount * 10 ** mockUSDT.decimals());
-
-        assertEq(bittyVault.lastWithdrawalTime(), block.timestamp);
-    }
-
-    function test_GetUSDTFirstWhenWithdrawUSDTFirstIsTrue() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
-
-        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
-        deal(address(mockUSDT), address(bittyVault), tokenAmount * 10 ** mockUSDT.decimals());
-        deal(address(mockUSDC), address(bittyVault), tokenAmount * 10 ** mockUSDC.decimals());
-
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount * 10 ** mockUSDT.decimals());
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount * 10 ** mockUSDC.decimals());
-
-        vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-
-        assertEq(mockUSDT.balanceOf(beneficiary), tokenAmount * 10 ** mockUSDT.decimals());
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
-        assertEq(mockUSDC.balanceOf(beneficiary), 0);
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), tokenAmount * 10 ** mockUSDC.decimals());
-
-        assertEq(bittyVault.lastWithdrawalTime(), block.timestamp);
-    }
-
-    function test_GetUSDTFallbackWhenUSDCInsufficientAndWithdrawUSDTFirstIsFalse() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
-
-        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
-        uint256 partialUSDC = tokenAmount / 2;
-        deal(address(mockUSDC), address(bittyVault), partialUSDC * 10 ** mockUSDC.decimals());
-        deal(address(mockUSDT), address(bittyVault), tokenAmount * 10 ** mockUSDT.decimals());
-
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), partialUSDC * 10 ** mockUSDC.decimals());
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), tokenAmount * 10 ** mockUSDT.decimals());
-        assertEq(mockUSDC.balanceOf(beneficiary), 0);
-        assertEq(mockUSDT.balanceOf(beneficiary), 0);
-
-        vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-
-        assertEq(mockUSDT.balanceOf(beneficiary), tokenAmount * 10 ** mockUSDT.decimals());
-        assertEq(mockUSDT.balanceOf(address(bittyVault)), 0);
-        assertEq(mockUSDC.balanceOf(beneficiary), 0);
-        assertEq(mockUSDC.balanceOf(address(bittyVault)), partialUSDC * 10 ** mockUSDC.decimals());
-
-        assertEq(bittyVault.lastWithdrawalTime(), block.timestamp);
-    }
-
-    function test_GetMoneyFromYieldProviderIfNotEnoughMoney() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
-
-        uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
-        deal(address(mockUSDT), address(bittyVault), tokenAmount * 10 ** mockUSDT.decimals());
-        deal(address(mockUSDC), address(bittyVault), tokenAmount * 10 ** mockUSDC.decimals());
-
-        vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-    }
-
-    function test_GetMoneyWithVaultBalanceSufficient_NoYieldProviderNeeded() public {
+    function test_GetMoneyWithVaultBalanceSufficient() public {
         bittyVault.setBeneficiarySettings(beneficiarySettings);
 
         uint256 tokenAmount = beneficiarySettings.amountPerWithdrawal;
@@ -539,558 +448,461 @@ contract BittyVaultBeneficiaryTest is Test {
         assertEq(mockUSDT.balanceOf(address(bittyVault)), vaultBalanceBefore - tokenAmount * 10 ** mockUSDT.decimals());
     }
 
-    function test_GetMoneyWithSingleYieldProviderHavingEnoughBalance() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_AfterSetTrusteeInvalidAfterNoPing_Success() public {
+        MockERC20 newMockUSDT = new MockERC20("USDT", "USDT", 6);
+        address[] memory stableCoins = new address[](1);
+        stableCoins[0] = address(newMockUSDT);
+        address[] memory stableCoinArray = new address[](1);
+        stableCoinArray[0] = address(newMockUSDT);
+        vm.prank(address(this));
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinArray);
+        bittyVault.addStableCoins(stableCoins);
+        deal(address(newMockUSDT), address(bittyVault), 2000 * 10 ** newMockUSDT.decimals());
 
-        address[] memory yieldProviderAddresses = new address[](1);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 2;
-        uint256 yieldProviderBalanceTokens = tokenAmountTokens;
+        uint256 customDuration = 90 days;
+        vm.prank(address(this));
+        bittyVault.setTrusteeInvalidAfterNoPing(customDuration);
 
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
+        bittyVault.setBeneficiary(beneficiary);
 
-        deal(address(mockUSDT), address(this), yieldProviderBalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider1), yieldProviderBalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProviderBalanceTokens);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: 1000, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
 
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+        bittyVault.setToIrrevocable();
 
+        vm.warp(block.timestamp + 89 days);
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
+        vm.expectRevert(ReplaceTrusteeFailed.selector);
+        bittyVault.replaceTrustee(newTrustee);
 
-        uint256 yieldWithdrawAmount = tokenAmountTokens - vaultBalanceTokens;
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), yieldProviderBalanceTokens - yieldWithdrawAmount);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(beneficiary);
+        bittyVault.replaceTrustee(newTrustee);
+        assertEq(bittyVault.trustee(), newTrustee);
     }
 
-    function test_GetMoneyWithMultipleYieldProviders_FirstHasEnough() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_AfterSetTrusteeInvalidAfterNoPing_CanSetZero() public {
+        MockERC20 newMockUSDT = new MockERC20("USDT", "USDT", 6);
+        address[] memory stableCoins = new address[](1);
+        stableCoins[0] = address(newMockUSDT);
+        address[] memory stableCoinArray = new address[](1);
+        stableCoinArray[0] = address(newMockUSDT);
+        vm.prank(address(this));
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinArray);
+        bittyVault.addStableCoins(stableCoins);
+        deal(address(newMockUSDT), address(bittyVault), 2000 * 10 ** newMockUSDT.decimals());
 
-        address[] memory yieldProviderAddresses = new address[](2);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        yieldProviderAddresses[1] = address(mockYieldProvider2);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 2;
-        uint256 yieldProvider1BalanceTokens = tokenAmountTokens;
-        uint256 yieldProvider2BalanceTokens = tokenAmountTokens / 2;
+        vm.prank(address(this));
+        bittyVault.setTrusteeInvalidAfterNoPing(0);
 
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
+        vm.warp(block.timestamp + 1);
 
-        deal(address(mockUSDT), address(this), yieldProvider1BalanceTokens + yieldProvider2BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1BalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2BalanceTokens);
-        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2BalanceTokens);
+        bittyVault.setBeneficiary(beneficiary);
 
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: 1000, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
 
+        bittyVault.setToIrrevocable();
+
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-
-        uint256 yieldWithdrawAmount = tokenAmountTokens - vaultBalanceTokens;
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), yieldProvider1BalanceTokens - yieldWithdrawAmount);
-        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), yieldProvider2BalanceTokens);
+        bittyVault.replaceTrustee(newTrustee);
+        assertEq(bittyVault.trustee(), newTrustee);
     }
 
-    function test_GetMoneyWithMultipleYieldProviders_NeedMultipleWithdrawals() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_AfterSetTrusteeInvalidAfterNoPing_UpdatesAfterTrusteePing() public {
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
 
-        address[] memory yieldProviderAddresses = new address[](3);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        yieldProviderAddresses[1] = address(mockYieldProvider2);
-        yieldProviderAddresses[2] = address(mockYieldProvider3);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
+        uint256 customDuration = 30 days;
+        vm.prank(address(this));
+        bittyVault.setTrusteeInvalidAfterNoPing(customDuration);
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 4;
-        uint256 yieldProvider1BalanceTokens = tokenAmountTokens / 3;
-        uint256 yieldProvider2BalanceTokens = tokenAmountTokens / 3;
-        uint256 yieldProvider3BalanceTokens = tokenAmountTokens / 3;
+        vm.prank(trustee);
+        bittyVault.trusteePing();
 
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
+        bittyVault.setBeneficiary(beneficiary);
 
-        deal(
-            address(mockUSDT),
-            address(this),
-            yieldProvider1BalanceTokens + yieldProvider2BalanceTokens + yieldProvider3BalanceTokens
-        );
-        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1BalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2BalanceTokens);
-        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider3), yieldProvider3BalanceTokens);
-        mockYieldProvider3.supply(address(mockUSDT), yieldProvider3BalanceTokens);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: 1000, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
 
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+        bittyVault.setToIrrevocable();
 
+        vm.warp(block.timestamp + 29 days);
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
+        vm.expectRevert(ReplaceTrusteeFailed.selector);
+        bittyVault.replaceTrustee(newTrustee);
 
-        uint256 yieldWithdrawAmount = tokenAmountTokens - vaultBalanceTokens;
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
-        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), 0);
-        assertEq(
-            mockYieldProvider3.getBalance(address(mockUSDT)),
-            yieldProvider3BalanceTokens
-                - (yieldWithdrawAmount - yieldProvider1BalanceTokens - yieldProvider2BalanceTokens)
-        );
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(beneficiary);
+        bittyVault.replaceTrustee(newTrustee);
+        assertEq(bittyVault.trustee(), newTrustee);
     }
 
-    function test_GetMoneyWithMultipleYieldProviders_PartialWithdrawalFromLast() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_DefaultTrusteeInvalidAfterNoPing_180Days() public {
+        MockERC20 newMockUSDT = new MockERC20("USDT", "USDT", 6);
+        address[] memory stableCoins = new address[](1);
+        stableCoins[0] = address(newMockUSDT);
+        address[] memory stableCoinArray = new address[](1);
+        stableCoinArray[0] = address(newMockUSDT);
+        vm.prank(address(this));
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinArray);
+        bittyVault.addStableCoins(stableCoins);
+        deal(address(newMockUSDT), address(bittyVault), 2000 * 10 ** newMockUSDT.decimals());
 
-        address[] memory yieldProviderAddresses = new address[](2);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        yieldProviderAddresses[1] = address(mockYieldProvider2);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 4;
-        uint256 yieldProvider1BalanceTokens = tokenAmountTokens / 2;
-        uint256 yieldProvider2BalanceTokens = tokenAmountTokens;
+        bittyVault.setBeneficiary(beneficiary);
 
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: 1000, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
 
-        deal(address(mockUSDT), address(this), yieldProvider1BalanceTokens + yieldProvider2BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1BalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2BalanceTokens);
-        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2BalanceTokens);
+        bittyVault.setToIrrevocable();
 
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
-        uint256 yieldWithdrawAmount = tokenAmountTokens - vaultBalanceTokens;
-
+        vm.warp(block.timestamp + 179 days);
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
+        vm.expectRevert(ReplaceTrusteeFailed.selector);
+        bittyVault.replaceTrustee(newTrustee);
 
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
-        uint256 remainingNeeded = yieldWithdrawAmount - yieldProvider1BalanceTokens;
-        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), yieldProvider2BalanceTokens - remainingNeeded);
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(beneficiary);
+        bittyVault.replaceTrustee(newTrustee);
+        assertEq(bittyVault.trustee(), newTrustee);
     }
 
-    function test_GetMoneyRevertsWhenTotalYieldBalanceInsufficient() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_AfterSetTrusteeInvalidAfterNoPing_CanChangeMultipleTimes() public {
+        MockERC20 newMockUSDT = new MockERC20("USDT", "USDT", 6);
+        address[] memory stableCoins = new address[](1);
+        stableCoins[0] = address(newMockUSDT);
+        address[] memory stableCoinArray = new address[](1);
+        stableCoinArray[0] = address(newMockUSDT);
+        vm.prank(address(this));
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinArray);
+        bittyVault.addStableCoins(stableCoins);
+        deal(address(newMockUSDT), address(bittyVault), 2000 * 10 ** newMockUSDT.decimals());
 
-        address[] memory yieldProviderAddresses = new address[](2);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        yieldProviderAddresses[1] = address(mockYieldProvider2);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 4;
-        uint256 yieldProvider1BalanceTokens = tokenAmountTokens / 4;
-        uint256 yieldProvider2BalanceTokens = tokenAmountTokens / 4;
+        vm.prank(address(this));
+        bittyVault.setTrusteeInvalidAfterNoPing(60 days);
+        vm.prank(address(this));
+        bittyVault.setTrusteeInvalidAfterNoPing(90 days);
+        vm.prank(address(this));
+        bittyVault.setTrusteeInvalidAfterNoPing(120 days);
 
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
+        bittyVault.setBeneficiary(beneficiary);
 
-        deal(address(mockUSDT), address(this), yieldProvider1BalanceTokens + yieldProvider2BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1BalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2BalanceTokens);
-        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2BalanceTokens);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: 1000, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
 
+        bittyVault.setToIrrevocable();
+
+        vm.warp(block.timestamp + 119 days);
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        vm.expectRevert(InsufficientStablecoinBalance.selector);
-        bittyVault.getMoney(address(mockUSDT));
+        vm.expectRevert(ReplaceTrusteeFailed.selector);
+        bittyVault.replaceTrustee(newTrustee);
+
+        vm.warp(block.timestamp + 2 days);
+        vm.prank(beneficiary);
+        bittyVault.replaceTrustee(newTrustee);
+        assertEq(bittyVault.trustee(), newTrustee);
     }
 
-    function test_GetMoneyWithEmptyYieldProvidersArray_RevertsIfInsufficient() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_SameAddressDoesNothing() public {
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setBeneficiary(beneficiary);
+        bittyVault.setToIrrevocable();
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 2;
-
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
+        vm.warp(block.timestamp + 181 days);
 
         vm.prank(beneficiary);
-        vm.expectRevert(InsufficientStablecoinBalance.selector);
-        bittyVault.getMoney(address(mockUSDT));
+        bittyVault.replaceTrustee(trustee);
+        assertEq(bittyVault.trustee(), trustee);
     }
 
-    function test_GetMoneyWithZeroYieldProviderBalances_RevertsIfInsufficient() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_RevertsIfAddressZero() public {
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setBeneficiary(beneficiary);
+        bittyVault.setToIrrevocable();
 
-        address[] memory yieldProviderAddresses = new address[](2);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        yieldProviderAddresses[1] = address(mockYieldProvider2);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
-
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 2;
-
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
+        vm.warp(block.timestamp + 181 days);
 
         vm.prank(beneficiary);
-        vm.expectRevert(InsufficientStablecoinBalance.selector);
-        bittyVault.getMoney(address(mockUSDT));
+        vm.expectRevert(AddressZero.selector);
+        bittyVault.replaceTrustee(address(0));
     }
 
-    function test_GetMoneyWithYieldProviderHavingExactAmountNeeded() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
-
-        address[] memory yieldProviderAddresses = new address[](1);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
-
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 yieldProviderBalanceTokens = tokenAmountTokens;
-
-        deal(address(mockUSDT), address(this), yieldProviderBalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider1), yieldProviderBalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProviderBalanceTokens);
-
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
-
+    function test_ReplaceTrustee_WorksWhenRevocable() public {
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setBeneficiary(beneficiary);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: 1000, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
+        vm.warp(block.timestamp + 181 days);
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+        bittyVault.replaceTrustee(newTrustee);
+        assertEq(bittyVault.trustee(), newTrustee);
     }
 
-    function test_GetMoneyWithYieldProviderHavingMoreThanNeeded() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_WhenNoStableCoins_AllowsReplacement() public {
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setBeneficiary(beneficiary);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: 1000, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
+        bittyVault.setToIrrevocable();
 
-        address[] memory yieldProviderAddresses = new address[](1);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
+        vm.warp(block.timestamp + 61 days);
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 yieldProviderBalanceTokens = tokenAmountTokens * 2;
-
-        deal(address(mockUSDT), address(this), yieldProviderBalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider1), yieldProviderBalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProviderBalanceTokens);
-
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
-
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), yieldProviderBalanceTokens - tokenAmountTokens);
+        bittyVault.replaceTrustee(newTrustee);
+        assertEq(bittyVault.trustee(), newTrustee);
     }
 
-    function test_GetMoneyWithMultipleYieldProviders_OneHasZeroBalance() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_WhenAllStableCoinsInsufficient_AllowsReplacement() public {
+        MockERC20 newMockUSDT = new MockERC20("USDT", "USDT", 6);
+        MockERC20 newMockUSDC = new MockERC20("USDC", "USDC", 6);
+        address[] memory stableCoins = new address[](2);
+        stableCoins[0] = address(newMockUSDT);
+        stableCoins[1] = address(newMockUSDC);
+        address[] memory stableCoinArray = new address[](2);
+        stableCoinArray[0] = address(newMockUSDT);
+        stableCoinArray[1] = address(newMockUSDC);
+        vm.prank(address(this));
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinArray);
+        bittyVault.addStableCoins(stableCoins);
 
-        address[] memory yieldProviderAddresses = new address[](3);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        yieldProviderAddresses[1] = address(mockYieldProvider2);
-        yieldProviderAddresses[2] = address(mockYieldProvider3);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
+        uint256 amountPerWithdrawal = 1000;
+        uint256 requiredUSDT = amountPerWithdrawal * 10 ** newMockUSDT.decimals();
+        uint256 requiredUSDC = amountPerWithdrawal * 10 ** newMockUSDC.decimals();
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 2;
-        uint256 yieldProvider1BalanceTokens = tokenAmountTokens / 2;
-        uint256 yieldProvider3BalanceTokens = tokenAmountTokens / 2;
+        deal(address(newMockUSDT), address(bittyVault), requiredUSDT - 1);
+        deal(address(newMockUSDC), address(bittyVault), requiredUSDC - 1);
 
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setBeneficiary(beneficiary);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: amountPerWithdrawal, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
+        bittyVault.setToIrrevocable();
 
-        deal(address(mockUSDT), address(this), yieldProvider1BalanceTokens + yieldProvider3BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1BalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider3), yieldProvider3BalanceTokens);
-        mockYieldProvider3.supply(address(mockUSDT), yieldProvider3BalanceTokens);
+        vm.warp(block.timestamp + 61 days);
 
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
-
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
-        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), 0);
-        assertEq(mockYieldProvider3.getBalance(address(mockUSDT)), yieldProvider3BalanceTokens);
+        bittyVault.replaceTrustee(newTrustee);
+        assertEq(bittyVault.trustee(), newTrustee);
     }
 
-    function test_GetMoneyWithExactSumFromMultipleProviders() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_WhenOneStableCoinSufficient_PreventsReplacement() public {
+        MockERC20 newMockUSDT = new MockERC20("USDT", "USDT", 6);
+        MockERC20 newMockUSDC = new MockERC20("USDC", "USDC", 6);
+        address[] memory stableCoins = new address[](2);
+        stableCoins[0] = address(newMockUSDT);
+        stableCoins[1] = address(newMockUSDC);
+        address[] memory stableCoinArray = new address[](2);
+        stableCoinArray[0] = address(newMockUSDT);
+        stableCoinArray[1] = address(newMockUSDC);
+        vm.prank(address(this));
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinArray);
+        bittyVault.addStableCoins(stableCoins);
 
-        address[] memory yieldProviderAddresses = new address[](3);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        yieldProviderAddresses[1] = address(mockYieldProvider2);
-        yieldProviderAddresses[2] = address(mockYieldProvider3);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
+        uint256 amountPerWithdrawal = 1000;
+        uint256 requiredUSDT = amountPerWithdrawal * 10 ** newMockUSDT.decimals();
+        uint256 requiredUSDC = amountPerWithdrawal * 10 ** newMockUSDC.decimals();
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 4;
-        uint256 yieldProvider1BalanceTokens = tokenAmountTokens / 4;
-        uint256 yieldProvider2BalanceTokens = tokenAmountTokens / 4;
-        uint256 yieldProvider3BalanceTokens = tokenAmountTokens / 4;
+        deal(address(newMockUSDT), address(bittyVault), requiredUSDT);
+        deal(address(newMockUSDC), address(bittyVault), requiredUSDC - 1);
 
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setBeneficiary(beneficiary);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: amountPerWithdrawal, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
+        bittyVault.setToIrrevocable();
 
-        deal(
-            address(mockUSDT),
-            address(this),
-            yieldProvider1BalanceTokens + yieldProvider2BalanceTokens + yieldProvider3BalanceTokens
-        );
-        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1BalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2BalanceTokens);
-        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider3), yieldProvider3BalanceTokens);
-        mockYieldProvider3.supply(address(mockUSDT), yieldProvider3BalanceTokens);
+        vm.warp(block.timestamp + 61 days);
 
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
-
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
-        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), 0);
-        assertEq(mockYieldProvider3.getBalance(address(mockUSDT)), 0);
+        vm.expectRevert(ReplaceTrusteeFailed.selector);
+        bittyVault.replaceTrustee(newTrustee);
     }
 
-    function test_GetMoneyWithVaultBalanceZero() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_WhenAllStableCoinsSufficient_PreventsReplacement() public {
+        MockERC20 newMockUSDT = new MockERC20("USDT", "USDT", 6);
+        MockERC20 newMockUSDC = new MockERC20("USDC", "USDC", 6);
+        address[] memory stableCoins = new address[](2);
+        stableCoins[0] = address(newMockUSDT);
+        stableCoins[1] = address(newMockUSDC);
+        address[] memory stableCoinArray = new address[](2);
+        stableCoinArray[0] = address(newMockUSDT);
+        stableCoinArray[1] = address(newMockUSDC);
+        vm.prank(address(this));
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinArray);
+        bittyVault.addStableCoins(stableCoins);
 
-        address[] memory yieldProviderAddresses = new address[](1);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
+        uint256 amountPerWithdrawal = 1000;
+        uint256 requiredUSDT = amountPerWithdrawal * 10 ** newMockUSDT.decimals();
+        uint256 requiredUSDC = amountPerWithdrawal * 10 ** newMockUSDC.decimals();
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 yieldProviderBalanceTokens = tokenAmountTokens;
+        deal(address(newMockUSDT), address(bittyVault), requiredUSDT);
+        deal(address(newMockUSDC), address(bittyVault), requiredUSDC);
 
-        deal(address(mockUSDT), address(this), yieldProviderBalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider1), yieldProviderBalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProviderBalanceTokens);
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setBeneficiary(beneficiary);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: amountPerWithdrawal, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
+        bittyVault.setToIrrevocable();
 
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+        vm.warp(block.timestamp + 61 days);
 
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
+        vm.expectRevert(ReplaceTrusteeFailed.selector);
+        bittyVault.replaceTrustee(newTrustee);
     }
 
-    function test_GetMoneyWithUSDCInsteadOfUSDT() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_WhenStableCoinExactlyRequiredAmount_PreventsReplacement() public {
+        MockERC20 newMockUSDT = new MockERC20("USDT", "USDT", 6);
+        address[] memory stableCoins = new address[](1);
+        stableCoins[0] = address(newMockUSDT);
+        address[] memory stableCoinArray = new address[](1);
+        stableCoinArray[0] = address(newMockUSDT);
+        vm.prank(address(this));
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinArray);
+        bittyVault.addStableCoins(stableCoins);
 
-        address[] memory yieldProviderAddresses = new address[](1);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
+        uint256 amountPerWithdrawal = 1000;
+        uint256 requiredUSDT = amountPerWithdrawal * 10 ** newMockUSDT.decimals();
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDC.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 2;
-        uint256 yieldProviderBalanceTokens = tokenAmountTokens;
+        deal(address(newMockUSDT), address(bittyVault), requiredUSDT);
 
-        deal(address(mockUSDC), address(bittyVault), vaultBalanceTokens);
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setBeneficiary(beneficiary);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: amountPerWithdrawal, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
+        bittyVault.setToIrrevocable();
 
-        deal(address(mockUSDC), address(this), yieldProviderBalanceTokens);
-        mockUSDC.approve(address(mockYieldProvider1), yieldProviderBalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDC), yieldProviderBalanceTokens);
+        vm.warp(block.timestamp + 61 days);
 
-        uint256 beneficiaryBalanceBefore = mockUSDC.balanceOf(beneficiary);
-
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDC));
-
-        uint256 yieldWithdrawAmount = tokenAmountTokens - vaultBalanceTokens;
-        assertEq(mockUSDC.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDC)), yieldProviderBalanceTokens - yieldWithdrawAmount);
+        vm.expectRevert(ReplaceTrusteeFailed.selector);
+        bittyVault.replaceTrustee(newTrustee);
     }
 
-    function test_GetMoneyWithLastProviderHavingExactRemainingAmount() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_WhenStableCoinJustBelowRequiredAmount_AllowsReplacement() public {
+        MockERC20 newMockUSDT = new MockERC20("USDT", "USDT", 6);
+        address[] memory stableCoins = new address[](1);
+        stableCoins[0] = address(newMockUSDT);
+        address[] memory stableCoinArray = new address[](1);
+        stableCoinArray[0] = address(newMockUSDT);
+        vm.prank(address(this));
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinArray);
+        bittyVault.addStableCoins(stableCoins);
 
-        address[] memory yieldProviderAddresses = new address[](3);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        yieldProviderAddresses[1] = address(mockYieldProvider2);
-        yieldProviderAddresses[2] = address(mockYieldProvider3);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
+        uint256 amountPerWithdrawal = 1000;
+        uint256 requiredUSDT = amountPerWithdrawal * 10 ** newMockUSDT.decimals();
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 2;
-        uint256 yieldProvider1BalanceTokens = tokenAmountTokens / 3;
-        uint256 yieldProvider2BalanceTokens = tokenAmountTokens / 3;
-        uint256 yieldProvider3BalanceTokens = tokenAmountTokens / 6;
+        deal(address(newMockUSDT), address(bittyVault), requiredUSDT - 1);
 
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setBeneficiary(beneficiary);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: amountPerWithdrawal, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
+        bittyVault.setToIrrevocable();
 
-        deal(
-            address(mockUSDT),
-            address(this),
-            yieldProvider1BalanceTokens + yieldProvider2BalanceTokens + yieldProvider3BalanceTokens
-        );
-        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1BalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2BalanceTokens);
-        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider3), yieldProvider3BalanceTokens);
-        mockYieldProvider3.supply(address(mockUSDT), yieldProvider3BalanceTokens);
+        vm.warp(block.timestamp + 61 days);
 
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
-
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-
-        uint256 yieldWithdrawAmount = tokenAmountTokens - vaultBalanceTokens;
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
-        uint256 expectedProvider2Balance =
-            yieldProvider2BalanceTokens - (yieldWithdrawAmount - yieldProvider1BalanceTokens);
-        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), expectedProvider2Balance);
-        assertEq(mockYieldProvider3.getBalance(address(mockUSDT)), yieldProvider3BalanceTokens);
+        bittyVault.replaceTrustee(newTrustee);
+        assertEq(bittyVault.trustee(), newTrustee);
     }
 
-    function test_GetMoneyWithMultipleProvidersWhereSecondHasExactAmount() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
+    function test_ReplaceTrustee_WhenWithinReplaceTrusteeDuration_PreventsReplacement() public {
+        MockERC20 newMockUSDT = new MockERC20("USDT", "USDT", 6);
+        address[] memory stableCoins = new address[](1);
+        stableCoins[0] = address(newMockUSDT);
+        address[] memory stableCoinArray = new address[](1);
+        stableCoinArray[0] = address(newMockUSDT);
+        vm.prank(address(this));
+        IWhiteList(whiteListAddress).addStableCoins(stableCoinArray);
+        bittyVault.addStableCoins(stableCoins);
 
-        address[] memory yieldProviderAddresses = new address[](2);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        yieldProviderAddresses[1] = address(mockYieldProvider2);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
+        uint256 amountPerWithdrawal = 1000;
+        uint256 requiredUSDT = amountPerWithdrawal * 10 ** newMockUSDT.decimals();
 
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 2;
-        uint256 yieldProvider1BalanceTokens = tokenAmountTokens / 4;
-        uint256 yieldProvider2BalanceTokens = tokenAmountTokens / 4;
+        deal(address(newMockUSDT), address(bittyVault), requiredUSDT);
 
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
-
-        deal(address(mockUSDT), address(this), yieldProvider1BalanceTokens + yieldProvider2BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1BalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2BalanceTokens);
-        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2BalanceTokens);
-
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
-
-        vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
-        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), 0);
-    }
-
-    function test_GetMoneyWithProviderBalanceEqualToYieldWithdrawAmount() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
-
-        address[] memory yieldProviderAddresses = new address[](1);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
-
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 2;
-        uint256 yieldProviderBalanceTokens = tokenAmountTokens / 2;
-
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
-
-        deal(address(mockUSDT), address(this), yieldProviderBalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider1), yieldProviderBalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProviderBalanceTokens);
-
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setBeneficiary(beneficiary);
+        IBeneficiary.BeneficiarySettings memory settings = IBeneficiary.BeneficiarySettings({
+            amountPerWithdrawal: amountPerWithdrawal, minimalWithdrawDuration: 30 days, replaceTrusteeDuration: 60 days
+        });
+        bittyVault.setBeneficiarySettings(settings);
+        bittyVault.setToIrrevocable();
 
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
+        bittyVault.getMoney(address(newMockUSDT));
 
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
-    }
+        vm.warp(block.timestamp + 59 days);
 
-    function test_GetMoneyWithThreeProvidersWhereMiddleOneHasZero() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
-
-        address[] memory yieldProviderAddresses = new address[](3);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        yieldProviderAddresses[1] = address(mockYieldProvider2);
-        yieldProviderAddresses[2] = address(mockYieldProvider3);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
-
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 2;
-        uint256 yieldProvider1BalanceTokens = tokenAmountTokens / 4;
-        uint256 yieldProvider3BalanceTokens = tokenAmountTokens / 4;
-
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
-
-        deal(address(mockUSDT), address(this), yieldProvider1BalanceTokens + yieldProvider3BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1BalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1BalanceTokens);
-
-        mockUSDT.approve(address(mockYieldProvider3), yieldProvider3BalanceTokens);
-        mockYieldProvider3.supply(address(mockUSDT), yieldProvider3BalanceTokens);
-
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
-
+        address newTrustee = makeAddr("newTrustee");
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
+        vm.expectRevert(ReplaceTrusteeFailed.selector);
+        bittyVault.replaceTrustee(newTrustee);
 
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
-        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), 0);
-        assertEq(mockYieldProvider3.getBalance(address(mockUSDT)), 0);
-    }
+        deal(address(newMockUSDT), address(bittyVault), requiredUSDT - 1);
 
-    function test_GetMoneyWithLargeNumberOfProviders() public {
-        bittyVault.setBeneficiarySettings(beneficiarySettings);
-
-        address[] memory yieldProviderAddresses = new address[](3);
-        yieldProviderAddresses[0] = address(mockYieldProvider1);
-        yieldProviderAddresses[1] = address(mockYieldProvider2);
-        yieldProviderAddresses[2] = address(mockYieldProvider3);
-        bittyVault.addYieldProviders(yieldProviderAddresses);
-
-        uint256 tokenAmountBase = beneficiarySettings.amountPerWithdrawal;
-        uint256 tokenAmountTokens = tokenAmountBase * 10 ** mockUSDT.decimals();
-        uint256 vaultBalanceTokens = tokenAmountTokens / 10;
-        uint256 yieldProvider1BalanceTokens = tokenAmountTokens / 10;
-        uint256 yieldProvider2BalanceTokens = tokenAmountTokens / 10;
-        uint256 yieldProvider3BalanceTokens = tokenAmountTokens * 7 / 10;
-
-        deal(address(mockUSDT), address(bittyVault), vaultBalanceTokens);
-
-        deal(
-            address(mockUSDT),
-            address(this),
-            yieldProvider1BalanceTokens + yieldProvider2BalanceTokens + yieldProvider3BalanceTokens
-        );
-        mockUSDT.approve(address(mockYieldProvider1), yieldProvider1BalanceTokens);
-        mockYieldProvider1.supply(address(mockUSDT), yieldProvider1BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider2), yieldProvider2BalanceTokens);
-        mockYieldProvider2.supply(address(mockUSDT), yieldProvider2BalanceTokens);
-        mockUSDT.approve(address(mockYieldProvider3), yieldProvider3BalanceTokens);
-        mockYieldProvider3.supply(address(mockUSDT), yieldProvider3BalanceTokens);
-
-        uint256 beneficiaryBalanceBefore = mockUSDT.balanceOf(beneficiary);
-
+        vm.warp(block.timestamp + 2 days);
         vm.prank(beneficiary);
-        bittyVault.getMoney(address(mockUSDT));
-
-        assertEq(mockUSDT.balanceOf(beneficiary), beneficiaryBalanceBefore + tokenAmountTokens);
-        assertEq(mockYieldProvider1.getBalance(address(mockUSDT)), 0);
-        assertEq(mockYieldProvider2.getBalance(address(mockUSDT)), 0);
-        assertEq(mockYieldProvider3.getBalance(address(mockUSDT)), 0);
+        bittyVault.replaceTrustee(newTrustee);
+        assertEq(bittyVault.trustee(), newTrustee);
     }
 }

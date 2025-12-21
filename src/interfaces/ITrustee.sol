@@ -29,4 +29,10 @@ interface ITrustee {
      * @param manageFee The manage fee.
      */
     function setManageFee(IAssetManager.ManageFee memory manageFee) external;
+
+    /**
+     * @notice Ping the trustee.
+     * @dev Ping the trustee to make sure the trustee is still alive, works for setTrusteeInvalidAfterNoPing.
+     */
+    function trusteePing() external;
 }

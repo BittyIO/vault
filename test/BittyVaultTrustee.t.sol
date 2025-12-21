@@ -29,6 +29,7 @@ import {WhiteList} from "../src/WhiteList.sol";
 import {Migrator} from "../src/Migrator.sol";
 import {AssetManagerLogic} from "../src/logic/AssetManagerLogic.sol";
 import {AssetManagerStorage} from "../src/logic/Storages.sol";
+import {OnlyTrustee} from "../src/BittyVault.sol";
 
 contract TestBittyVault is BittyVault {
     using AssetManagerLogic for AssetManagerStorage;
@@ -57,7 +58,6 @@ contract BittyVaultTrusteeTest is Test {
     IAssetManager.ManageFee public manageFee;
     address public whiteListAddress;
     address public migratorAddress;
-    address public poolManagerAddress;
 
     function setUp() public {
         mockWETH = new WETH();
@@ -67,8 +67,7 @@ contract BittyVaultTrusteeTest is Test {
         mockSwapProvider = new MockSwapProvider();
         mockYieldProvider = new MockYieldProvider();
         bittyVault = new TestBittyVault();
-        poolManagerAddress = makeAddr("poolManagerAddress");
-        whiteListAddress = address(new WhiteList(poolManagerAddress));
+        whiteListAddress = address(new WhiteList());
         migratorAddress = address(new Migrator());
         grantor = makeAddr("grantor");
         trustee = makeAddr("alice");
@@ -599,5 +598,89 @@ contract BittyVaultTrusteeTest is Test {
 
         providers = bittyVault.getSwapProviders();
         assertEq(providers.length, 0);
+    }
+
+    function test_TrusteePing_Success() public {
+        uint256 pingTimeBefore = bittyVault.trusteeLastPingTime();
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(trustee);
+        bittyVault.trusteePing();
+
+        assertEq(bittyVault.trusteeLastPingTime(), block.timestamp);
+        assertGt(bittyVault.trusteeLastPingTime(), pingTimeBefore);
+    }
+
+    function test_TrusteePing_UpdatesTimestamp() public {
+        vm.warp(block.timestamp + 10 days);
+        uint256 expectedTimestamp = block.timestamp;
+
+        vm.prank(trustee);
+        bittyVault.trusteePing();
+
+        assertEq(bittyVault.trusteeLastPingTime(), expectedTimestamp);
+    }
+
+    function test_TrusteePing_MultiplePings() public {
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(trustee);
+        bittyVault.trusteePing();
+        uint256 firstPingTime = bittyVault.trusteeLastPingTime();
+
+        vm.warp(block.timestamp + 5 days);
+        vm.prank(trustee);
+        bittyVault.trusteePing();
+        uint256 secondPingTime = bittyVault.trusteeLastPingTime();
+
+        assertGt(secondPingTime, firstPingTime);
+        assertEq(secondPingTime, block.timestamp);
+    }
+
+    function test_TrusteePing_RevertsIfNotTrustee() public {
+        address unauthorized = makeAddr("unauthorized");
+
+        vm.prank(unauthorized);
+        vm.expectRevert(OnlyTrustee.selector);
+        bittyVault.trusteePing();
+    }
+
+    function test_TrusteePing_RevertsIfGrantorCalls() public {
+        vm.expectRevert(OnlyTrustee.selector);
+        bittyVault.trusteePing();
+    }
+
+    function test_TrusteePing_RevertsIfAssetManagerCalls() public {
+        vm.prank(assetManager);
+        vm.expectRevert(OnlyTrustee.selector);
+        bittyVault.trusteePing();
+    }
+
+    function test_TrusteePing_AfterTrusteeReplacement() public {
+        address newTrustee = makeAddr("newTrustee");
+        address beneficiary = makeAddr("beneficiary");
+        vm.prank(grantor);
+        bittyVault.setBeneficiary(beneficiary);
+        vm.prank(grantor);
+        bittyVault.setToIrrevocable();
+
+        vm.warp(block.timestamp + 181 days);
+        vm.prank(beneficiary);
+        bittyVault.replaceTrustee(newTrustee);
+
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(newTrustee);
+        bittyVault.trusteePing();
+
+        assertEq(bittyVault.trusteeLastPingTime(), block.timestamp);
+    }
+
+    function test_TrusteePing_InitialTimestampSetOnSetTrustee() public {
+        address newTrustee = makeAddr("newTrustee");
+        uint256 setTime = block.timestamp;
+
+        vm.prank(grantor);
+        bittyVault.setTrustee(newTrustee);
+
+        assertEq(bittyVault.trusteeLastPingTime(), setTime);
     }
 }

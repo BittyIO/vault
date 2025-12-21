@@ -19,8 +19,7 @@ contract BittyVaultTest is Test {
         weth = new WETH();
         bittyVault = new BittyVault();
         migratorAddress = address(new Migrator());
-        address poolManagerAddress = makeAddr("poolManagerAddress");
-        whiteListAddress = address(new WhiteList(poolManagerAddress));
+        whiteListAddress = address(new WhiteList());
         grantorAddress = makeAddr("grantorAddress");
     }
 
@@ -110,7 +109,7 @@ contract BittyVaultTest is Test {
             new address[](0)
         );
         bittyVault.setAutoIrrevocableAfterNoPing(2);
-        bittyVault.ping();
+        bittyVault.grantorPing();
         vm.stopPrank();
         vm.warp(block.timestamp + 1);
         assertEq(bittyVault.revocable(), true);

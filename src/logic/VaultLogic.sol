@@ -13,9 +13,8 @@ import {IWhiteList} from "../interfaces/IWhiteList.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
-import {VaultStorage, AssetManagerStorage} from "./Storages.sol";
+import {VaultStorage} from "./Storages.sol";
 import {VaultHelper} from "../helpers/VaultHelper.sol";
-import {IPoolManager} from "../libs/uniswap/v4/Uniswap.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 
 library VaultLogic {
@@ -81,23 +80,11 @@ library VaultLogic {
         }
     }
 
-    function getMoney(
-        VaultStorage storage vaultStorage,
-        AssetManagerStorage storage assetManagerStorage,
-        uint256 amount,
-        address stableCoinAddress,
-        address to
-    ) external onlyInitialized(vaultStorage) {
-        VaultHelper.getMoney(
-            address(this),
-            IPoolManager(vaultStorage.whiteList.poolManager()),
-            assetManagerStorage.yieldProviders.values(),
-            assetManagerStorage.swapProviders.values(),
-            vaultStorage.assets.values(),
-            amount,
-            stableCoinAddress,
-            to
-        );
+    function getMoney(VaultStorage storage vaultStorage, uint256 amount, address stableCoinAddress, address to)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        VaultHelper.getMoney(address(this), amount, stableCoinAddress, to);
     }
 
     function getPercentageMoney(VaultStorage storage vaultStorage, uint256 percentage, address to)

@@ -43,6 +43,7 @@ error TimestampIsZero();
 error TimestampNotFound();
 error TimestampDuplicated();
 error TimestampIsInTheFuture();
+error ReplaceTrusteeFailed();
 
 // Grantor errors
 error BaseFeeDurationNotMet();

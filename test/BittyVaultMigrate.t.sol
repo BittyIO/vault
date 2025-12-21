@@ -27,7 +27,6 @@ contract BittyVaultMigrateTest is Test {
     address public grantor;
     address public trustee;
     address public whiteListAddress;
-    address public poolManagerAddress;
 
     function setUp() public {
         mockWETH = new WETH();
@@ -35,8 +34,7 @@ contract BittyVaultMigrateTest is Test {
         mockUSDT = new MockERC20("USDT", "USDT", 18);
         mockUSDC = new MockERC20("USDC", "USDC", 18);
         migrator = new Migrator();
-        poolManagerAddress = makeAddr("poolManagerAddress");
-        whiteListAddress = address(new WhiteList(poolManagerAddress));
+        whiteListAddress = address(new WhiteList());
         grantor = makeAddr("grantor");
         trustee = makeAddr("trustee");
 

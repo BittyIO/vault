@@ -26,12 +26,10 @@ contract FactoryHelperWrapper {
 contract FactoryHelperTest is Test {
     FactoryHelperWrapper public wrapper;
     WhiteList public whiteList;
-    address public poolManagerAddress;
 
     function setUp() public {
         wrapper = new FactoryHelperWrapper();
-        poolManagerAddress = makeAddr("poolManagerAddress");
-        whiteList = new WhiteList(poolManagerAddress);
+        whiteList = new WhiteList();
     }
 
     function test_CheckWhiteList_AllValid() public {

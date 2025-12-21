@@ -16,6 +16,9 @@ struct TrustStorage {
     uint256 lastPingTime;
     uint256 autoIrrevocableStartTime;
 
+    uint256 trusteeInvalidAfterNoPing;
+    uint256 trusteeLastPingTime;
+
     IBeneficiary.BeneficiarySettings beneficiarySettings;
     uint256 lastWithdrawalTime;
     uint256 startDistributionTimestamp;
