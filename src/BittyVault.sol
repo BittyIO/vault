@@ -15,9 +15,7 @@ import {
     OnlyTrustee,
     OnlyBeneficiary,
     OnlyAssetManager,
-    OnlyRevocable,
-    OnlyIrrevocable,
-    OnlyVaultOwner
+    OnlyRevocable
 } from "./interfaces/Errors.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {TrustLogic} from "./logic/TrustLogic.sol";
@@ -182,6 +180,19 @@ contract BittyVault is ITrust, IAssetManager, IVault {
         _trust.setTrustee(trusteeAddress);
     }
 
+    function setTrusteeInvalidAfterNoPing(uint256 trusteeInvalidAfterNoPing)
+        external
+        override
+        onlyGrantor
+        onlyRevocable
+    {
+        _trust.setTrusteeInvalidAfterNoPing(trusteeInvalidAfterNoPing);
+    }
+
+    function trusteePing() external override onlyTrustee {
+        _trust.trusteePing();
+    }
+
     function setBeneficiary(address beneficiaryAddress) external override onlyGrantor onlyRevocable {
         _trust.setBeneficiary(beneficiaryAddress);
     }
@@ -237,11 +248,11 @@ contract BittyVault is ITrust, IAssetManager, IVault {
         _trust.setAutoIrrevocableAfterNoPing(pingSeconds);
     }
 
-    function ping() external override onlyGrantor {
-        _trust.ping();
+    function grantorPing() external override onlyGrantor {
+        _trust.grantorPing();
     }
 
-    function upgrade(address upgradeToContract) external override onlyGrantor {
+    function upgrade(address upgradeToContract) external view override onlyGrantor {
         _trust.upgrade(upgradeToContract);
     }
 
@@ -252,19 +263,23 @@ contract BittyVault is ITrust, IAssetManager, IVault {
     }
 
     function getMoney(address stableCoinAddress) external override onlyBeneficiary {
-        _trust.getMoney(_vault, _assetManager, stableCoinAddress);
+        _trust.getMoney(_vault, stableCoinAddress);
     }
 
     function getMoneyFromEvent(string memory eventName, address stableCoinAddress) external override {
-        _trust.getMoneyFromEvent(_vault, _assetManager, eventName, stableCoinAddress, _trust.beneficiary);
+        _trust.getMoneyFromEvent(_vault, eventName, stableCoinAddress, _trust.beneficiary);
     }
 
     function getMoneyByTimestamp(uint256 timestamp, address stableCoinAddress) external override onlyBeneficiary {
-        _trust.getMoneyByTimestamp(_vault, _assetManager, timestamp, stableCoinAddress);
+        _trust.getMoneyByTimestamp(_vault, timestamp, stableCoinAddress);
     }
 
     function lastWithdrawalTime() external view override returns (uint256) {
         return _trust.lastWithdrawalTime;
+    }
+
+    function replaceTrustee(address newTrusteeAddress) external override onlyBeneficiary {
+        _trust.replaceTrustee(_vault, newTrusteeAddress);
     }
 
     // ============ ITrustee Interface ============
@@ -423,6 +438,10 @@ contract BittyVault is ITrust, IAssetManager, IVault {
 
     function trustee() external view returns (address) {
         return _trust.trustee;
+    }
+
+    function trusteeLastPingTime() external view returns (uint256) {
+        return _trust.trusteeLastPingTime;
     }
 
     function beneficiary() external view returns (address) {

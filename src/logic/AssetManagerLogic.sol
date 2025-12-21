@@ -11,7 +11,6 @@ import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {
     AddressZero,
     AmountIsZero,
-    WETHNotSet,
     RebalanceInMinimalTime,
     InsufficientBalance,
     SellAmountMismatch,
@@ -32,7 +31,6 @@ import {
     RevenuePercentageIsZero,
     RevenueDurationIsZero
 } from "../interfaces/Errors.sol";
-import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {AssetManagerStorage, VaultStorage} from "./Storages.sol";
 import {VaultLogic} from "./VaultLogic.sol";
 
@@ -359,11 +357,7 @@ library AssetManagerLogic {
         logicStorage.lastBaseFeeTime = block.timestamp;
         if (!logicStorage.manageFee.isBaseFeePercentage) {
             VaultLogic.getMoney(
-                vaultStorage,
-                logicStorage,
-                logicStorage.manageFee.baseFeeAmount,
-                stableCoinAddress,
-                logicStorage.assetManager
+                vaultStorage, logicStorage.manageFee.baseFeeAmount, stableCoinAddress, logicStorage.assetManager
             );
         } else {
             VaultLogic.getPercentageMoney(vaultStorage, logicStorage.manageFee.baseFeeAmount, logicStorage.assetManager);
@@ -387,7 +381,6 @@ library AssetManagerLogic {
         }
         VaultLogic.getMoney(
             vaultStorage,
-            logicStorage,
             logicStorage.revenue * logicStorage.manageFee.revenuePercentage / 10000,
             stableCoinAddress,
             logicStorage.assetManager

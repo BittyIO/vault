@@ -27,12 +27,10 @@ contract BittyVaultFactoryTest is Test {
     address[] public swapProviders;
     address public whiteListAddress;
     address public migratorAddress;
-    address public poolManagerAddress;
 
     function setUp() public {
         wethAddress = makeAddr("wethAddress");
-        poolManagerAddress = makeAddr("poolManagerAddress");
-        whiteListAddress = address(new WhiteList(poolManagerAddress));
+        whiteListAddress = address(new WhiteList());
         migratorAddress = address(new Migrator());
         vaultImplementation = address(new BittyVault());
         factory = new BittyVaultFactory();

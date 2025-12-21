@@ -24,6 +24,12 @@ interface IBeneficiary {
          * It can not be 0 for security, should > 1 day.
          */
         uint256 minimalWithdrawDuration;
+
+        /**
+         * @dev The duration after which the beneficiary can replace the trustee if beneficiary failed to get money.
+         * @param replaceTrusteeDuration
+         */
+        uint256 replaceTrusteeDuration;
     }
 
     struct TriggerEvent {
@@ -70,6 +76,13 @@ interface IBeneficiary {
      * @param newBeneficiaryAddress new beneficiary address
      */
     function changeBeneficiaryAddress(address newBeneficiaryAddress) external;
+
+    /**
+     * @notice Replace the trustee.
+     * @dev Replace the trustee.
+     * @param newTrusteeAddress The new trustee address.
+     */
+    function replaceTrustee(address newTrusteeAddress) external;
 
     /**
      * @notice Get the money from the trust.

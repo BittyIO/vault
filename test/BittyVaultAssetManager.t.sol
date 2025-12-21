@@ -2,37 +2,22 @@
 pragma solidity ^0.8.27;
 
 import {Test} from "lib/forge-std/src/Test.sol";
-import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
-import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {
     AmountIsZero,
     AddressZero,
-    InsufficientBalance,
     NotInitialized,
     InvalidYieldProvider,
-    InvalidSwapProvider,
-    NotWhiteListed,
     Deprecated,
-    NotAuthorized,
     OnlyAssetManager
 } from "../src/interfaces/Errors.sol";
-
-import {ISwapProvider} from "../src/interfaces/IAssetManager.sol";
-import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
 import {WhiteList} from "../src/WhiteList.sol";
-import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {Migrator} from "../src/Migrator.sol";
 import {AssetManagerLogic} from "../src/logic/AssetManagerLogic.sol";
-import {VaultLogic} from "../src/logic/VaultLogic.sol";
-import {MigratorLogic} from "../src/logic/MigratorLogic.sol";
 
 contract TestAssetManager is Test, BittyVault {
     address public mockWETH;
@@ -68,10 +53,9 @@ contract TestAssetManager is Test, BittyVault {
         mockSwapProvider = new MockSwapProvider();
         swapProviders[0] = address(mockSwapProvider);
         migratorAddress = address(new Migrator());
-        address poolManagerAddress = makeAddr("poolManagerAddress");
         grantorAddress = makeAddr("grantor");
         assetManagerAddress = makeAddr("assetManager");
-        WhiteList whiteList = new WhiteList(poolManagerAddress);
+        WhiteList whiteList = new WhiteList();
         whiteListAddress = address(whiteList);
         whiteList.addAssets(assets);
         whiteList.addStableCoins(stableCoins);

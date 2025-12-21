@@ -26,15 +26,13 @@ contract SubscribeTest is Test {
     Subscribe public subscribe;
     address public feeReceiver;
     address public whiteList;
-    address public poolManagerAddress;
     MockERC20 public mockStableCoin;
     MockERC20 public mockStableCoin2;
 
     function setUp() public {
         user = makeAddr("alice");
         feeReceiver = makeAddr("feeReceiver");
-        poolManagerAddress = makeAddr("poolManagerAddress");
-        whiteList = address(new WhiteList(poolManagerAddress));
+        whiteList = address(new WhiteList());
         mockStableCoin = new MockERC20("StableCoin", "USDT", 6);
         subscribe = new Subscribe();
         address[] memory stableCoins = new address[](2);

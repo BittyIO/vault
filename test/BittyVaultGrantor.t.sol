@@ -25,6 +25,7 @@ import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {MockVault} from "./mock/MockVault.sol";
 import {InsufficientBalance} from "../src/interfaces/Errors.sol";
+import {OnlyBeneficiary} from "../src/BittyVault.sol";
 
 // Mock ERC20 token that can fail transfers for testing
 contract MockERC20FailingTransfer is MockERC20 {
@@ -49,15 +50,13 @@ contract BittyVaultGrantorTest is Test {
     WETH public mockWETH;
     address public whiteListAddress;
     address public migratorAddress;
-    address public poolManagerAddress;
 
     receive() external payable {}
 
     function setUp() public {
         mockWETH = new WETH();
         bittyVault = new BittyVault();
-        poolManagerAddress = makeAddr("poolManagerAddress");
-        WhiteList whiteList = new WhiteList(poolManagerAddress);
+        WhiteList whiteList = new WhiteList();
         whiteListAddress = address(whiteList);
         migratorAddress = address(new Migrator());
         bittyVault.initialize(
@@ -126,7 +125,7 @@ contract BittyVaultGrantorTest is Test {
             new address[](0)
         );
         newVault.setAutoIrrevocableAfterNoPing(2);
-        newVault.ping();
+        newVault.grantorPing();
         vm.warp(block.timestamp + 1);
         assertEq(newVault.revocable(), true);
     }
@@ -829,14 +828,14 @@ contract BittyVaultGrantorTest is Test {
 
     function test_Revocable_WhenAutoIrrevocableSetAndPinged() public {
         bittyVault.setAutoIrrevocableAfterNoPing(1 days);
-        bittyVault.ping();
+        bittyVault.grantorPing();
         vm.warp(block.timestamp + 12 hours);
         assertTrue(bittyVault.revocable());
     }
 
     function test_Revocable_WhenAutoIrrevocableSetAndPingedThenExpired() public {
         bittyVault.setAutoIrrevocableAfterNoPing(1 days);
-        bittyVault.ping();
+        bittyVault.grantorPing();
         vm.warp(block.timestamp + 2 days);
         assertFalse(bittyVault.revocable());
     }
@@ -1455,8 +1454,6 @@ contract BittyVaultGrantorTest is Test {
         assets[0] = address(newAsset);
         bittyVault.addAssets(assets);
 
-        // checkAsset is called internally by rebalance, so we test it indirectly
-        // The function should not revert when asset is whitelisted and in assets list
         assertTrue(bittyVault.getAssets().length > 0);
     }
 
@@ -1470,8 +1467,6 @@ contract BittyVaultGrantorTest is Test {
         stableCoins[0] = address(newStableCoin);
         bittyVault.addStableCoins(stableCoins);
 
-        // checkAsset is called internally by rebalance, so we test it indirectly
-        // The function should not revert when stableCoin is whitelisted and in stableCoins list
         assertTrue(bittyVault.getStableCoins().length > 0);
     }
 
@@ -1479,37 +1474,31 @@ contract BittyVaultGrantorTest is Test {
         bittyVault.setAutoIrrevocableAfterNoPing(1 days);
         assertTrue(bittyVault.revocable());
 
-        bittyVault.ping();
+        bittyVault.grantorPing();
         assertTrue(bittyVault.revocable());
 
-        // After ping, should still be revocable within the duration
         vm.warp(block.timestamp + 12 hours);
         assertTrue(bittyVault.revocable());
     }
 
     function test_PingFailedIfAutoIrrevocableNotSet() public {
         vm.expectRevert(AutoIrrevocableAfterNoPingNotSet.selector);
-        bittyVault.ping();
+        bittyVault.grantorPing();
     }
 
     function test_RevocableWhenAutoIrrevocableSetButNoPing() public {
         bittyVault.setAutoIrrevocableAfterNoPing(1 days);
-        // Should be revocable initially
         assertTrue(bittyVault.revocable());
-
-        // After duration expires, should not be revocable
         vm.warp(block.timestamp + 1 days + 1);
         assertFalse(bittyVault.revocable());
     }
 
     function test_RevocableWhenAutoIrrevocableSetAndPinged() public {
         bittyVault.setAutoIrrevocableAfterNoPing(1 days);
-        bittyVault.ping();
+        bittyVault.grantorPing();
 
-        // Should be revocable after ping
         assertTrue(bittyVault.revocable());
 
-        // After duration from ping expires, should not be revocable
         vm.warp(block.timestamp + 1 days + 1);
         assertFalse(bittyVault.revocable());
     }
@@ -1519,19 +1508,201 @@ contract BittyVaultGrantorTest is Test {
         assertFalse(bittyVault.revocable());
     }
 
-    function test_RevocableWhenAutoIrrevocableNotSet() public {
-        // Should be revocable by default
+    function test_RevocableWhenAutoIrrevocableNotSet() public view {
         assertTrue(bittyVault.revocable());
     }
 
     function test_UpgradeSuccess() public {
         address upgradeToContract = makeAddr("upgradeToContract");
         bittyVault.upgrade(upgradeToContract);
-        // upgrade function only checks for address zero, so it should succeed
     }
 
     function test_UpgradeFailedIfAddressZero() public {
         vm.expectRevert(AddressZero.selector);
         bittyVault.upgrade(address(0));
+    }
+
+    function test_ReplaceTrustee_GrantorCannotCall() public {
+        address trustee = makeAddr("trustee");
+        address newTrustee = makeAddr("newTrustee");
+        address beneficiary = makeAddr("beneficiary");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setBeneficiary(beneficiary);
+        bittyVault.setToIrrevocable();
+
+        vm.warp(block.timestamp + 181 days);
+
+        vm.expectRevert(OnlyBeneficiary.selector);
+        bittyVault.replaceTrustee(newTrustee);
+    }
+
+    function test_SetTrusteeInvalidAfterNoPing_RevertsIfNotGrantor() public {
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
+
+        address unauthorized = makeAddr("unauthorized");
+        vm.prank(unauthorized);
+        vm.expectRevert(OnlyGrantor.selector);
+        bittyVault.setTrusteeInvalidAfterNoPing(90 days);
+    }
+
+    function test_SetTrusteeInvalidAfterNoPing_RevertsIfNotRevocable() public {
+        address trustee = makeAddr("trustee");
+        bittyVault.setTrustee(trustee);
+        bittyVault.setToIrrevocable();
+
+        vm.prank(address(this));
+        vm.expectRevert(OnlyRevocable.selector);
+        bittyVault.setTrusteeInvalidAfterNoPing(90 days);
+    }
+
+    function test_Revocable_EdgeCase_NoPingTimeSet() public {
+        bittyVault.setAutoIrrevocableAfterNoPing(1 days);
+
+        assertTrue(bittyVault.revocable());
+
+        vm.warp(block.timestamp + 1 days);
+        assertTrue(bittyVault.revocable());
+
+        vm.warp(block.timestamp + 1);
+        assertFalse(bittyVault.revocable());
+    }
+
+    function test_Revocable_EdgeCase_PingAfterExpiry() public {
+        bittyVault.setAutoIrrevocableAfterNoPing(1 days);
+        vm.warp(block.timestamp + 2 days);
+
+        assertFalse(bittyVault.revocable());
+
+        bittyVault.grantorPing();
+        assertTrue(bittyVault.revocable());
+    }
+
+    function test_SetBeneficiary_SameAddressDoesNothing() public {
+        address beneficiary = makeAddr("beneficiary");
+        bittyVault.setBeneficiary(beneficiary);
+        bittyVault.setBeneficiary(beneficiary);
+        assertEq(bittyVault.beneficiary(), beneficiary);
+    }
+
+    function test_SetBeneficiary_RevertsIfNotRevocable() public {
+        address beneficiary = makeAddr("beneficiary");
+        bittyVault.setToIrrevocable();
+
+        vm.expectRevert(OnlyRevocable.selector);
+        bittyVault.setBeneficiary(beneficiary);
+    }
+
+    function test_ChangeBeneficiaryAddress_RevertsIfAddressZero() public {
+        address beneficiary = makeAddr("beneficiary");
+        bittyVault.setBeneficiary(beneficiary);
+
+        vm.prank(beneficiary);
+        vm.expectRevert(AddressZero.selector);
+        bittyVault.changeBeneficiaryAddress(address(0));
+    }
+
+    function test_ChangeBeneficiaryAddress_RevertsIfNotBeneficiary() public {
+        address beneficiary = makeAddr("beneficiary");
+        bittyVault.setBeneficiary(beneficiary);
+
+        address unauthorized = makeAddr("unauthorized");
+        vm.prank(unauthorized);
+        vm.expectRevert(OnlyBeneficiary.selector);
+        bittyVault.changeBeneficiaryAddress(makeAddr("newBeneficiary"));
+    }
+
+    function test_GetAllTriggerEventKeys_AfterRemoval() public {
+        string[] memory eventNames = new string[](2);
+        eventNames[0] = "Event1";
+        eventNames[1] = "Event2";
+        IBeneficiary.TriggerEvent[] memory triggerEvents = new IBeneficiary.TriggerEvent[](2);
+        triggerEvents[0] =
+            IBeneficiary.TriggerEvent({triggerAddress: makeAddr("trigger1"), amount: 1000, isPercentage: false});
+        triggerEvents[1] =
+            IBeneficiary.TriggerEvent({triggerAddress: makeAddr("trigger2"), amount: 2000, isPercentage: false});
+
+        bittyVault.addTriggerEvents(eventNames, triggerEvents);
+        assertEq(bittyVault.getAllTriggerEventKeys().length, 2);
+
+        string[] memory toRemove = new string[](1);
+        toRemove[0] = "Event1";
+        bittyVault.removeTriggerEvents(toRemove);
+
+        bytes32[] memory keys = bittyVault.getAllTriggerEventKeys();
+        assertEq(keys.length, 1);
+    }
+
+    function test_GetAllTimeEventKeys_AfterRemoval() public {
+        uint256[] memory timestamps = new uint256[](2);
+        timestamps[0] = block.timestamp + 1 days;
+        timestamps[1] = block.timestamp + 2 days;
+        IBeneficiary.TimeEvent[] memory timeEvents = new IBeneficiary.TimeEvent[](2);
+        timeEvents[0] = IBeneficiary.TimeEvent({amount: 1000, isPercentage: false});
+        timeEvents[1] = IBeneficiary.TimeEvent({amount: 2000, isPercentage: false});
+
+        bittyVault.addTimeEvents(timestamps, timeEvents);
+        assertEq(bittyVault.getAllTimeEventKeys().length, 2);
+
+        uint256[] memory toRemove = new uint256[](1);
+        toRemove[0] = timestamps[0];
+        bittyVault.removeTimeEvents(toRemove);
+
+        uint256[] memory keys = bittyVault.getAllTimeEventKeys();
+        assertEq(keys.length, 1);
+    }
+
+    function test_Upgrade_RevertsIfNotInitialized() public {
+        BittyVault newVault = new BittyVault();
+        vm.expectRevert();
+        newVault.upgrade(makeAddr("upgradeContract"));
+    }
+
+    function test_SetStartDistributionTimestamp_RevertsIfAlreadySet() public {
+        uint256 timestamp1 = block.timestamp + 100 days;
+        uint256 timestamp2 = block.timestamp + 200 days;
+
+        bittyVault.setStartDistributionTimestamp(timestamp1);
+
+        vm.expectRevert(StartDistributionTimestampAlreadySet.selector);
+        bittyVault.setStartDistributionTimestamp(timestamp2);
+    }
+
+    function test_SetStartDistributionTimestamp_RevertsIfNotGrantor() public {
+        address unauthorized = makeAddr("unauthorized");
+        vm.prank(unauthorized);
+        vm.expectRevert(OnlyGrantor.selector);
+        bittyVault.setStartDistributionTimestamp(block.timestamp + 100 days);
+    }
+
+    function test_DistributionNotStarted_BeforeSet() public view {
+        assertFalse(bittyVault.distributionStarted());
+    }
+
+    function test_GrantorPing_RevertsIfNotSet() public {
+        vm.expectRevert(AutoIrrevocableAfterNoPingNotSet.selector);
+        bittyVault.grantorPing();
+    }
+
+    function test_GrantorPing_RevertsIfNotGrantor() public {
+        bittyVault.setAutoIrrevocableAfterNoPing(1 days);
+
+        address unauthorized = makeAddr("unauthorized");
+        vm.prank(unauthorized);
+        vm.expectRevert(OnlyGrantor.selector);
+        bittyVault.grantorPing();
+    }
+
+    function test_GrantorPing_UpdatesTimestamp() public {
+        bittyVault.setAutoIrrevocableAfterNoPing(1 days);
+
+        vm.warp(block.timestamp + 1 days);
+
+        bittyVault.grantorPing();
+
+        assertTrue(bittyVault.revocable());
+
+        vm.warp(block.timestamp + 1 days);
+        assertTrue(bittyVault.revocable());
     }
 }

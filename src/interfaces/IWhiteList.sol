@@ -11,7 +11,6 @@ pragma solidity ^0.8.27;
  */
 
 interface IWhiteList {
-    function poolManager() external view returns (address);
     /**
      * @notice Add a white listed asset to the BittyVault.
      * @dev Add a white listed asset to the BittyVault.

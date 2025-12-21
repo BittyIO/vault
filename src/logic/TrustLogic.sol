@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {IBeneficiary} from "../interfaces/IBeneficiary.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {
@@ -25,12 +26,16 @@ import {
     StartDistributionTimestampAlreadySet,
     AutoIrrevocableAfterNoPingNotSet,
     NotInitialized,
-    AlreadyInitialized
+    AlreadyInitialized,
+    ReplaceTrusteeFailed
 } from "../interfaces/Errors.sol";
 import {VaultLogic} from "./VaultLogic.sol";
-import {TrustStorage, AssetManagerStorage, VaultStorage} from "./Storages.sol";
+import {TrustStorage, VaultStorage} from "./Storages.sol";
 
 library TrustLogic {
+    uint256 public constant DEFAULT_TRUSTEE_INVALID_AFTER_NO_PING = 180 days;
+    uint256 public constant DEFAULT_REPLACE_TRUSTEE_DURATION = 60 days;
+
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.UintSet;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -93,7 +98,7 @@ library TrustLogic {
     }
 
     function distributionStarted(TrustStorage storage trustStorage) external view returns (bool) {
-        return block.timestamp >= trustStorage.startDistributionTimestamp;
+        return trustStorage.startDistributionTimestamp > 0 && block.timestamp >= trustStorage.startDistributionTimestamp;
     }
 
     function setAutoIrrevocableAfterNoPing(TrustStorage storage trustStorage, uint256 pingSeconds)
@@ -104,7 +109,7 @@ library TrustLogic {
         trustStorage.autoIrrevocableStartTime = block.timestamp;
     }
 
-    function ping(TrustStorage storage trustStorage) external onlyInitialized(trustStorage) {
+    function grantorPing(TrustStorage storage trustStorage) external onlyInitialized(trustStorage) {
         if (trustStorage.autoIrrevocableAfterNoPing == 0) {
             revert AutoIrrevocableAfterNoPingNotSet();
         }
@@ -129,6 +134,73 @@ library TrustLogic {
             revert AddressZero();
         }
         trustStorage.trustee = trusteeAddress;
+        trustStorage.trusteeLastPingTime = block.timestamp;
+        trustStorage.trusteeInvalidAfterNoPing = DEFAULT_TRUSTEE_INVALID_AFTER_NO_PING;
+    }
+
+    function setTrusteeInvalidAfterNoPing(TrustStorage storage trustStorage, uint256 trusteeInvalidAfterNoPing)
+        external
+        onlyInitialized(trustStorage)
+    {
+        trustStorage.trusteeInvalidAfterNoPing = trusteeInvalidAfterNoPing;
+    }
+
+    function trusteePing(TrustStorage storage trustStorage) external onlyInitialized(trustStorage) {
+        trustStorage.trusteeLastPingTime = block.timestamp;
+    }
+
+    function replaceTrustee(
+        TrustStorage storage trustStorage,
+        VaultStorage storage vaultStorage,
+        address newTrusteeAddress
+    ) external onlyInitialized(trustStorage) {
+        if (newTrusteeAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (newTrusteeAddress == trustStorage.trustee) {
+            return;
+        }
+        if (
+            block.timestamp - trustStorage.trusteeLastPingTime > trustStorage.trusteeInvalidAfterNoPing
+                || _trusteeGetMoneyFailed(trustStorage, vaultStorage)
+        ) {
+            trustStorage.trustee = newTrusteeAddress;
+            return;
+        }
+        revert ReplaceTrusteeFailed();
+    }
+
+    function _trusteeGetMoneyFailed(TrustStorage storage trustStorage, VaultStorage storage vaultStorage)
+        internal
+        view
+        returns (bool)
+    {
+        if (
+            block.timestamp - trustStorage.lastWithdrawalTime <= trustStorage.beneficiarySettings.replaceTrusteeDuration
+        ) {
+            return false;
+        }
+        if (_stableNotEnoughForTrustee(trustStorage, vaultStorage)) {
+            return true;
+        }
+        return false;
+    }
+
+    function _stableNotEnoughForTrustee(TrustStorage storage trustStorage, VaultStorage storage vaultStorage)
+        internal
+        view
+        returns (bool)
+    {
+        for (uint256 i = 0; i < vaultStorage.stableCoins.length(); i++) {
+            ERC20 stableCoin = ERC20(vaultStorage.stableCoins.at(i));
+            if (
+                stableCoin.balanceOf(address(this))
+                    >= trustStorage.beneficiarySettings.amountPerWithdrawal * 10 ** stableCoin.decimals()
+            ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     function setBeneficiary(TrustStorage storage trustStorage, address beneficiaryAddress)
@@ -153,6 +225,9 @@ library TrustLogic {
         }
         if (beneficiarySettings_.minimalWithdrawDuration < 1 days) {
             revert minimalWithdrawDurationLessThan1Day();
+        }
+        if (beneficiarySettings_.replaceTrusteeDuration == 0) {
+            beneficiarySettings_.replaceTrusteeDuration = DEFAULT_REPLACE_TRUSTEE_DURATION;
         }
         trustStorage.beneficiarySettings = beneficiarySettings_;
     }
@@ -230,7 +305,6 @@ library TrustLogic {
     function getMoneyFromEvent(
         TrustStorage storage trustStorage,
         VaultStorage storage vaultStorage,
-        AssetManagerStorage storage assetManagerStorage,
         string memory eventName,
         address stableCoinAddress,
         address to
@@ -247,7 +321,7 @@ library TrustLogic {
             revert EventTriggerError();
         }
         if (!triggerEvent.isPercentage) {
-            VaultLogic.getMoney(vaultStorage, assetManagerStorage, triggerEvent.amount, stableCoinAddress, to);
+            VaultLogic.getMoney(vaultStorage, triggerEvent.amount, stableCoinAddress, to);
         } else {
             VaultLogic.getPercentageMoney(vaultStorage, triggerEvent.amount, to);
         }
@@ -298,7 +372,6 @@ library TrustLogic {
     function getMoneyByTimestamp(
         TrustStorage storage trustStorage,
         VaultStorage storage vaultStorage,
-        AssetManagerStorage storage assetManagerStorage,
         uint256 timestamp,
         address stableCoinAddress
     ) external onlyInitialized(trustStorage) {
@@ -314,7 +387,6 @@ library TrustLogic {
         if (!trustStorage.beneficiaryTimeEvents[timestamp].isPercentage) {
             VaultLogic.getMoney(
                 vaultStorage,
-                assetManagerStorage,
                 trustStorage.beneficiaryTimeEvents[timestamp].amount,
                 stableCoinAddress,
                 trustStorage.beneficiary
@@ -328,12 +400,10 @@ library TrustLogic {
         trustStorage.timeEventKeys.remove(timestamp);
     }
 
-    function getMoney(
-        TrustStorage storage trustStorage,
-        VaultStorage storage vaultStorage,
-        AssetManagerStorage storage assetManagerStorage,
-        address stableCoinAddress
-    ) external onlyInitialized(trustStorage) {
+    function getMoney(TrustStorage storage trustStorage, VaultStorage storage vaultStorage, address stableCoinAddress)
+        external
+        onlyInitialized(trustStorage)
+    {
         if (trustStorage.beneficiarySettings.amountPerWithdrawal == 0) {
             revert BeneficiarySettingsNotSet();
         }
@@ -346,7 +416,6 @@ library TrustLogic {
         }
         VaultLogic.getMoney(
             vaultStorage,
-            assetManagerStorage,
             trustStorage.beneficiarySettings.amountPerWithdrawal,
             stableCoinAddress,
             trustStorage.beneficiary
