@@ -6,22 +6,36 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.so
 
 contract MockYieldProvider is IYieldProvider {
     mapping(address => uint256) public balances;
-    mapping(address => IERC20) public tokens;
 
     function initialize(address newOwner) external override {}
 
     function supply(address asset, uint256 amount) external payable override {
-        IERC20(asset).transferFrom(msg.sender, address(this), amount);
-        balances[asset] += amount;
+        if (asset == address(0)) {
+            // Handle ETH
+            require(msg.value == amount, "ETH amount mismatch");
+            balances[asset] += amount;
+        } else {
+            // Handle ERC20
+            IERC20(asset).transferFrom(msg.sender, address(this), amount);
+            balances[asset] += amount;
+        }
     }
 
     function withdraw(address asset, uint256 amount) external override {
         require(balances[asset] >= amount, "Insufficient balance");
         balances[asset] -= amount;
-        IERC20(asset).transfer(msg.sender, amount);
+        if (asset == address(0)) {
+            // Handle ETH
+            payable(msg.sender).transfer(amount);
+        } else {
+            // Handle ERC20
+            IERC20(asset).transfer(msg.sender, amount);
+        }
     }
 
     function getBalance(address asset) external view override returns (uint256) {
         return balances[asset];
     }
+
+    receive() external payable {}
 }

@@ -63,10 +63,6 @@ contract TestAssetManager is Test, BittyVault {
         whiteList.addSwapProviders(swapProviders);
     }
 
-    function getClonedProvider(address provider) external view returns (address) {
-        return _assetManager.clonedProviders[provider];
-    }
-
     // Helper function to clone a provider for testing
     function cloneProviderForTesting(address provider) external returns (address) {
         return AssetManagerLogic.cloneProvider(_assetManager, provider);
@@ -149,13 +145,6 @@ contract TestAssetManager is Test, BittyVault {
         this.getRevenueFee(address(mockUSDT));
     }
 
-    function test_SupplyRevertAddressZero() public {
-        this.doInitialize();
-        vm.expectRevert(AddressZero.selector);
-        vm.prank(assetManagerAddress);
-        this.supply(address(mockYieldProvider), address(0), 1 ether);
-    }
-
     function test_SupplyRevertAmountIsZero() public {
         this.doInitialize();
         vm.expectRevert(AmountIsZero.selector);
@@ -168,13 +157,6 @@ contract TestAssetManager is Test, BittyVault {
         vm.expectRevert(AmountIsZero.selector);
         vm.prank(assetManagerAddress);
         this.withdraw(address(mockYieldProvider), address(mockWETH), 0);
-    }
-
-    function test_WithdrawRevertAddressZero() public {
-        this.doInitialize();
-        vm.expectRevert(AddressZero.selector);
-        vm.prank(assetManagerAddress);
-        this.withdraw(address(mockYieldProvider), address(0), 1 ether);
     }
 
     function test_revertTurnETHToWETH() public {
@@ -211,10 +193,10 @@ contract TestAssetManager is Test, BittyVault {
         this.supply(address(mockYieldProvider), address(mockToken), supplyAmount);
 
         // Get cloned provider address after supply
-        address clonedProvider = this.getClonedProvider(address(mockYieldProvider));
+        address clonedProvider = this.getProviderInstance(address(mockYieldProvider));
         require(clonedProvider != address(0), "Provider should be cloned");
 
-        uint256 balanceAfter = MockYieldProvider(clonedProvider).getBalance(address(mockToken));
+        uint256 balanceAfter = IYieldProvider(clonedProvider).getBalance(address(mockToken));
         assertEq(balanceAfter, supplyAmount);
 
         assertEq(mockToken.balanceOf(address(this)), 0);
@@ -232,7 +214,7 @@ contract TestAssetManager is Test, BittyVault {
         this.supply(address(mockYieldProvider), address(mockToken), supplyAmount);
 
         // Get cloned provider address
-        address clonedProvider = this.getClonedProvider(address(mockYieldProvider));
+        address clonedProvider = this.getProviderInstance(address(mockYieldProvider));
 
         uint256 balanceBefore = mockToken.balanceOf(address(this));
 
@@ -242,12 +224,11 @@ contract TestAssetManager is Test, BittyVault {
         uint256 balanceAfter = mockToken.balanceOf(address(this));
         assertEq(balanceAfter - balanceBefore, withdrawAmount);
 
-        assertEq(MockYieldProvider(clonedProvider).getBalance(address(mockToken)), supplyAmount - withdrawAmount);
+        assertEq(IYieldProvider(clonedProvider).getBalance(address(mockToken)), supplyAmount - withdrawAmount);
     }
 
     function test_YieldProviderRevertIfNotWhiteListed() public {
         this.doInitialize();
-
         address invalidYieldProvider = makeAddr("InvalidYieldProvider");
         vm.expectRevert(InvalidYieldProvider.selector);
         vm.prank(assetManagerAddress);
@@ -352,6 +333,72 @@ contract TestAssetManager is Test, BittyVault {
         WhiteList(whiteListAddress).deprecateYieldProviders(yieldProviders);
         uint256 balance = this.getBalance(address(mockYieldProvider), address(mockWETH));
         assertEq(balance, 0);
+    }
+
+    function test_SupplyWithETHSuccess() public {
+        this.doInitialize();
+
+        uint256 supplyAmount = 1 ether;
+
+        // Deal ETH to the contract
+        vm.deal(address(this), supplyAmount);
+
+        // Supply ETH
+        vm.prank(assetManagerAddress);
+        this.supply(address(mockYieldProvider), address(0), supplyAmount);
+
+        // Get cloned provider address
+        address clonedProvider = this.getProviderInstance(address(mockYieldProvider));
+        require(clonedProvider != address(0), "Provider should be cloned");
+
+        uint256 balanceAfter = IYieldProvider(clonedProvider).getBalance(address(0));
+        assertEq(balanceAfter, supplyAmount);
+
+        // Contract should have sent the ETH
+        assertEq(address(this).balance, 0);
+    }
+
+    function test_WithdrawWithETHSuccess() public {
+        this.doInitialize();
+
+        uint256 supplyAmount = 2 ether;
+        uint256 withdrawAmount = 1 ether;
+
+        // Deal ETH to the contract and supply it
+        vm.deal(address(this), supplyAmount);
+        vm.prank(assetManagerAddress);
+        this.supply(address(mockYieldProvider), address(0), supplyAmount);
+
+        // Get cloned provider address
+        address clonedProvider = this.getProviderInstance(address(mockYieldProvider));
+
+        uint256 balanceBefore = address(this).balance;
+
+        vm.prank(assetManagerAddress);
+        this.withdraw(address(mockYieldProvider), address(0), withdrawAmount);
+
+        uint256 balanceAfter = address(this).balance;
+        assertEq(balanceAfter - balanceBefore, withdrawAmount);
+
+        assertEq(IYieldProvider(clonedProvider).getBalance(address(0)), supplyAmount - withdrawAmount);
+    }
+
+    function test_GetBalanceWithETH() public {
+        this.doInitialize();
+
+        // Create a yield provider that supports ETH
+
+        uint256 depositAmount = 1 ether;
+
+        uint256 balance = this.getBalance(address(mockYieldProvider), address(0));
+        assertEq(balance, 0);
+
+        vm.deal(address(this), depositAmount);
+        vm.prank(assetManagerAddress);
+        this.supply(address(mockYieldProvider), address(0), depositAmount);
+
+        balance = this.getBalance(address(mockYieldProvider), address(0));
+        assertEq(balance, depositAmount);
     }
 }
 

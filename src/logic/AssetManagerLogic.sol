@@ -114,6 +114,15 @@ library AssetManagerLogic {
         return clonedProvider;
     }
 
+    function getProviderInstance(AssetManagerStorage storage logicStorage, address provider)
+        external
+        view
+        onlyInitialized(logicStorage)
+        returns (address)
+    {
+        return logicStorage.clonedProviders[provider];
+    }
+
     function cloneProvider(AssetManagerStorage storage logicStorage, address provider)
         external
         onlyInitialized(logicStorage)
@@ -153,18 +162,19 @@ library AssetManagerLogic {
         if (logicStorage.whiteList.isYieldProviderDeprecated(yieldProvider)) {
             revert Deprecated();
         }
-        if (assetAddress == address(0)) {
-            revert AddressZero();
-        }
         if (amount == 0) {
             revert AmountIsZero();
         }
         // note: every asset manager should have its own yield provider instance
         yieldProvider = _cloneProvider(logicStorage, yieldProvider);
-        IERC20(assetAddress).safeApprove(yieldProvider, amount);
         uint256 balanceBefore = IYieldProvider(yieldProvider).getBalance(assetAddress);
-        IYieldProvider(yieldProvider).supply(assetAddress, amount);
-        IERC20(assetAddress).safeApprove(yieldProvider, 0);
+        if (assetAddress == address(0)) {
+            IYieldProvider(yieldProvider).supply{value: amount}(assetAddress, amount);
+        } else {
+            IERC20(assetAddress).safeApprove(yieldProvider, amount);
+            IYieldProvider(yieldProvider).supply(assetAddress, amount);
+            IERC20(assetAddress).safeApprove(yieldProvider, 0);
+        }
         uint256 balanceAfter = IYieldProvider(yieldProvider).getBalance(assetAddress);
         if (balanceAfter - balanceBefore != amount) {
             revert SupplyAmountMismatch();
@@ -179,9 +189,6 @@ library AssetManagerLogic {
     ) external onlyInitialized(logicStorage) {
         if (!logicStorage.yieldProviders.contains(yieldProvider)) {
             revert InvalidYieldProvider();
-        }
-        if (assetAddress == address(0)) {
-            revert AddressZero();
         }
         if (amount == 0) {
             revert AmountIsZero();
@@ -218,7 +225,7 @@ library AssetManagerLogic {
 
     function _addressBalance(address assetAddress) private view returns (uint256) {
         if (assetAddress == address(0)) {
-            revert AddressZero();
+            return address(this).balance;
         }
         return IERC20(assetAddress).balanceOf(address(this));
     }

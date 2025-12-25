@@ -188,5 +188,7 @@ contract TestLidoProviderFork is Test {
         uint256 balanceAfterSecond = lidoProvider.getBalance(address(0));
         assertLt(balanceAfterSecond, balanceAfterFirst);
     }
+
+    receive() external payable {}
 }
 

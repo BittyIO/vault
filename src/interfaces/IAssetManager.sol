@@ -91,6 +91,8 @@ interface IAssetManager {
     function addSwapProviders(address[] memory swapProviderAddresses) external;
 
     function removeSwapProviders(address[] memory swapProviderAddresses) external;
+
+    function getProviderInstance(address provider) external view returns (address);
 }
 
 interface IProvider {

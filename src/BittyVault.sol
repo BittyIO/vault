@@ -302,6 +302,10 @@ contract BittyVault is ITrust, IAssetManager, IVault {
 
     // ============ IAssetManager Interface ============
 
+    function getProviderInstance(address provider) external view override returns (address) {
+        return _assetManager.getProviderInstance(provider);
+    }
+
     function getYieldProviders() external view override returns (address[] memory) {
         return _assetManager.getYieldProviders();
     }
@@ -531,4 +535,6 @@ contract BittyVault is ITrust, IAssetManager, IVault {
     function beneficiaryTimeEvents(uint256 timestamp) external view returns (IBeneficiary.TimeEvent memory) {
         return _trust.beneficiaryTimeEvents[timestamp];
     }
+
+    receive() external payable {}
 }

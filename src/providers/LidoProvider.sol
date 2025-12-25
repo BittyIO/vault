@@ -43,28 +43,37 @@ contract LidoProvider is IYieldProvider, Ownable, Initializable {
         if (asset != address(0)) {
             revert InvalidAsset();
         }
-        if (amount == 0) {
-            for (uint256 i = 0; i < _withdrawalRequests.length(); i++) {
-                uint256 requestId = _withdrawalRequests.at(i);
-                uint256[] memory requestIds = new uint256[](1);
-                requestIds[0] = requestId;
-                IUnstETH.WithdrawalRequestStatus[] memory statuses = unstETH.getWithdrawalStatus(requestIds);
-                if (statuses[0].isFinalized && !statuses[0].isClaimed) {
-                    unstETH.claimWithdrawal(requestId);
-                    _withdrawalRequests.remove(requestId);
-                    if (address(this).balance > 0) {
-                        Address.sendValue(payable(msg.sender), address(this).balance);
-                    }
-                }
+        uint256[] memory requestIds = _withdrawalRequests.values();
+        IUnstETH.WithdrawalRequestStatus[] memory _statuses;
+        uint256[] memory _requestIds = new uint256[](1);
+        uint256 _requestId;
+
+        for (uint256 i = 0; i < requestIds.length; i++) {
+            _requestId = requestIds[i];
+            _requestIds[0] = _requestId;
+            _statuses = unstETH.getWithdrawalStatus(_requestIds);
+            if (_statuses[0].isFinalized && !_statuses[0].isClaimed) {
+                unstETH.claimWithdrawal(_requestId);
+                _withdrawalRequests.remove(_requestId);
             }
-        } else {
+        }
+
+        if (amount > 0) {
             uint256[] memory amounts = new uint256[](1);
             amounts[0] = amount;
             // Approve unstETH to transfer stETH
             IERC20(address(stETH)).safeIncreaseAllowance(address(unstETH), amount);
-            uint256[] memory requestIds = unstETH.requestWithdrawals(amounts, address(this));
-            _withdrawalRequests.add(requestIds[0]);
+            _withdrawalRequests.add(unstETH.requestWithdrawals(amounts, address(this))[0]);
         }
+
+        if (address(this).balance > 0) {
+            Address.sendValue(payable(msg.sender), address(this).balance);
+        }
+    }
+
+    function getWithdrawalStatus() external view returns (IUnstETH.WithdrawalRequestStatus[] memory statuses) {
+        uint256[] memory requestIds = _withdrawalRequests.values();
+        return unstETH.getWithdrawalStatus(requestIds);
     }
 
     function getBalance(address asset) external view override returns (uint256) {
@@ -73,4 +82,6 @@ contract LidoProvider is IYieldProvider, Ownable, Initializable {
         }
         return stETH.balanceOf(address(this));
     }
+
+    receive() external payable {}
 }
