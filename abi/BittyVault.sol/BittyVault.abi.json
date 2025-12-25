@@ -222,6 +222,11 @@
             "name": "minimalWithdrawDuration",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "replaceTrusteeDuration",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
@@ -608,6 +613,13 @@
   },
   {
     "type": "function",
+    "name": "grantorPing",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "initialize",
     "inputs": [
       {
@@ -837,13 +849,6 @@
   },
   {
     "type": "function",
-    "name": "ping",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "rebalance",
     "inputs": [
       {
@@ -983,6 +988,19 @@
         "name": "yieldProviderAddresses",
         "type": "address[]",
         "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "replaceTrustee",
+    "inputs": [
+      {
+        "name": "newTrusteeAddress",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -1134,6 +1152,11 @@
             "name": "minimalWithdrawDuration",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "replaceTrusteeDuration",
+            "type": "uint256",
+            "internalType": "uint256"
           }
         ]
       }
@@ -1246,6 +1269,19 @@
   },
   {
     "type": "function",
+    "name": "setTrusteeInvalidAfterNoPing",
+    "inputs": [
+      {
+        "name": "trusteeInvalidAfterNoPing",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "startDistributionTimestamp",
     "inputs": [],
     "outputs": [
@@ -1295,6 +1331,26 @@
   },
   {
     "type": "function",
+    "name": "trusteeLastPingTime",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "trusteePing",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "turnETHToWETH",
     "inputs": [],
     "outputs": [],
@@ -1311,7 +1367,7 @@
       }
     ],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "view"
   },
   {
     "type": "function",

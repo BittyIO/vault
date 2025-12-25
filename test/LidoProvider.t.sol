@@ -234,13 +234,13 @@ contract TestLidoProvider is Test {
         IUnstETH.WithdrawalRequestStatus[] memory statuses = lidoProvider.getWithdrawalStatus();
         require(statuses.length > 0, "No withdrawal requests");
         assertFalse(statuses[0].isFinalized);
-        
+
         // Find the request ID (in mock, it starts from 1)
         uint256 requestId = 1;
-        
+
         // Fund unstETH with ETH to claim (simulating the withdrawal pool)
         vm.deal(address(unstETH), withdrawAmount);
-        
+
         // Finalize the withdrawal request
         unstETH.finalizeWithdrawal(requestId);
 
@@ -253,10 +253,10 @@ contract TestLidoProvider is Test {
         uint256 balanceBefore = address(this).balance;
         lidoProvider.withdraw(address(0), 0); // This should claim finalized withdrawals
         uint256 balanceAfter = address(this).balance;
-        
+
         // Balance should increase after claiming
         assertEq(balanceAfter - balanceBefore, withdrawAmount);
-        
+
         // Verify withdrawal is claimed
         statuses = lidoProvider.getWithdrawalStatus();
         assertEq(statuses.length, 0); // Should be removed after claiming

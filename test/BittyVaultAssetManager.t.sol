@@ -18,6 +18,7 @@ import {WhiteList} from "../src/WhiteList.sol";
 import {BittyVault} from "../src/BittyVault.sol";
 import {Migrator} from "../src/Migrator.sol";
 import {AssetManagerLogic} from "../src/logic/AssetManagerLogic.sol";
+import {IYieldProvider} from "../src/interfaces/IAssetManager.sol";
 
 contract TestAssetManager is Test, BittyVault {
     address public mockWETH;

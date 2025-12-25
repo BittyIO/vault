@@ -10,7 +10,14 @@ contract MockStETH is ERC20, IStETH {
 
     constructor() ERC20("Mock stETH", "stETH") {}
 
-    function submit(address /* _referral */) external payable override returns (uint256) {
+    function submit(
+        address /* _referral */
+    )
+        external
+        payable
+        override
+        returns (uint256)
+    {
         // Mint stETH 1:1 with ETH received
         uint256 shares = msg.value;
         _mint(msg.sender, shares);
