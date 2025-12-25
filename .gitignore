@@ -27,3 +27,4 @@ abi/**/*
 !abi/BittyVaultFactory.sol/BittyVaultFactory.abi.json
 !abi/Migrator.sol/Migrator.abi.json
 !abi/WhiteList.sol/WhiteList.abi.json
+!abi/LidoProvider.sol/LidoProvider.abi.json
