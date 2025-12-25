@@ -8,7 +8,8 @@ import {
     NotInitialized,
     InvalidYieldProvider,
     Deprecated,
-    OnlyAssetManager
+    OnlyAssetManager,
+    NotAuthorized
 } from "../src/interfaces/Errors.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
@@ -161,16 +162,68 @@ contract TestAssetManager is Test, BittyVault {
     }
 
     function test_revertTurnETHToWETH() public {
-        vm.expectRevert(NotInitialized.selector);
-        vm.prank(assetManagerAddress);
+        vm.expectRevert(NotAuthorized.selector);
         this.turnETHToWETH();
     }
 
     function test_TurnETHToWETHSuccess() public {
         this.doInitialize();
         vm.deal(address(this), 1 ether);
+        vm.prank(assetManagerAddress);
         this.turnETHToWETH();
         assertEq(WETH(payable(mockWETH)).balanceOf(address(this)), 1 ether);
+    }
+
+    function test_revertTurnWETHToETH() public {
+        vm.expectRevert(NotAuthorized.selector);
+        this.turnWETHToETH();
+    }
+
+    function test_TurnWETHToETHSuccess() public {
+        this.doInitialize();
+        // First, convert ETH to WETH
+        vm.deal(address(this), 1 ether);
+        vm.prank(assetManagerAddress);
+        this.turnETHToWETH();
+        assertEq(WETH(payable(mockWETH)).balanceOf(address(this)), 1 ether);
+
+        // Then, convert WETH back to ETH
+        uint256 ethBalanceBefore = address(this).balance;
+        vm.prank(assetManagerAddress);
+        this.turnWETHToETH();
+        assertEq(WETH(payable(mockWETH)).balanceOf(address(this)), 0);
+        assertEq(address(this).balance, ethBalanceBefore + 1 ether);
+    }
+
+    function test_TurnWETHToETH_ZeroBalance() public {
+        this.doInitialize();
+        uint256 ethBalanceBefore = address(this).balance;
+        vm.prank(assetManagerAddress);
+        this.turnWETHToETH();
+        assertEq(WETH(payable(mockWETH)).balanceOf(address(this)), 0);
+        assertEq(address(this).balance, ethBalanceBefore);
+    }
+
+    function test_TurnWETHToETH_RevertsIfNotAssetManager() public {
+        this.doInitialize();
+        address unauthorized = makeAddr("unauthorized");
+        vm.deal(address(this), 1 ether);
+        vm.prank(assetManagerAddress);
+        this.turnETHToWETH();
+
+        vm.expectRevert(OnlyAssetManager.selector);
+        vm.prank(unauthorized);
+        this.turnWETHToETH();
+    }
+
+    function test_TurnETHToWETH_RevertsIfNotAssetManager() public {
+        this.doInitialize();
+        address unauthorized = makeAddr("unauthorized");
+        vm.deal(address(this), 1 ether);
+
+        vm.expectRevert(OnlyAssetManager.selector);
+        vm.prank(unauthorized);
+        this.turnETHToWETH();
     }
 
     function test_SupplyRevertInvalidYieldProvider() public {

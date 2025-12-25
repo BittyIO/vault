@@ -5,6 +5,7 @@ import {IVersionized} from "./IVersionized.sol";
 
 interface IVault is IVersionized {
     function turnETHToWETH() external;
+    function turnWETHToETH() external;
     function addAssets(address[] memory assetAddresses) external;
 
     function removeAssets(address[] memory assetAddresses) external;

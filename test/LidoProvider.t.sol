@@ -41,13 +41,10 @@ contract TestLidoProvider is Test {
         uint256 supplyAmount = 1 ether;
         uint256 balanceBefore = stETH.balanceOf(address(lidoProvider));
 
-        // Supply ETH to Lido
         lidoProvider.supply{value: supplyAmount}(address(0), supplyAmount);
 
         uint256 balanceAfter = stETH.balanceOf(address(lidoProvider));
-        // stETH balance should increase
         assertGt(balanceAfter, balanceBefore);
-        // Should receive approximately the same amount in stETH (1:1 in mock)
         assertEq(balanceAfter - balanceBefore, supplyAmount);
     }
 
@@ -63,7 +60,6 @@ contract TestLidoProvider is Test {
         uint256 supplyAmount = 1 ether;
         vm.deal(address(this), supplyAmount);
 
-        // When asset is not address(0) and amount != msg.value, it should revert
         vm.expectRevert(LidoProvider.InvalidAsset.selector);
         lidoProvider.supply{value: supplyAmount / 2}(address(1), supplyAmount);
     }
@@ -78,7 +74,6 @@ contract TestLidoProvider is Test {
     }
 
     function test_Withdraw() public {
-        // First supply some ETH
         uint256 supplyAmount = 1 ether;
         vm.deal(address(this), supplyAmount);
         lidoProvider.supply{value: supplyAmount}(address(0), supplyAmount);
@@ -86,27 +81,21 @@ contract TestLidoProvider is Test {
         uint256 stETHBalance = stETH.balanceOf(address(lidoProvider));
         assertGt(stETHBalance, 0);
 
-        // Request withdrawal
         uint256 withdrawAmount = stETHBalance / 2;
         lidoProvider.withdraw(address(0), withdrawAmount);
 
-        // Balance should decrease after withdrawal request
         uint256 balanceAfter = stETH.balanceOf(address(lidoProvider));
         assertLt(balanceAfter, stETHBalance);
     }
 
     function test_WithdrawZeroAmount() public {
-        // First supply some ETH
         uint256 supplyAmount = 1 ether;
         vm.deal(address(this), supplyAmount);
         lidoProvider.supply{value: supplyAmount}(address(0), supplyAmount);
 
-        // Request a withdrawal first
         uint256 withdrawAmount = 0.5 ether;
         lidoProvider.withdraw(address(0), withdrawAmount);
 
-        // Call withdraw with amount 0 to check for finalized withdrawals
-        // This should not revert even if no withdrawals are finalized
         lidoProvider.withdraw(address(0), 0);
     }
 
@@ -122,21 +111,17 @@ contract TestLidoProvider is Test {
     }
 
     function test_GetBalance() public {
-        // Check balance before supply
         uint256 balanceBefore = lidoProvider.getBalance(address(0));
         assertEq(balanceBefore, 0);
 
-        // Supply ETH
         uint256 supplyAmount = 1 ether;
         vm.deal(address(this), supplyAmount);
         lidoProvider.supply{value: supplyAmount}(address(0), supplyAmount);
 
-        // Check balance after supply
         uint256 balanceAfter = lidoProvider.getBalance(address(0));
         assertGt(balanceAfter, 0);
         assertEq(balanceAfter, supplyAmount);
 
-        // Verify it matches stETH balance
         assertEq(balanceAfter, stETH.balanceOf(address(lidoProvider)));
     }
 
@@ -146,18 +131,15 @@ contract TestLidoProvider is Test {
     }
 
     function test_GetBalanceAfterWithdraw() public {
-        // Supply ETH
         uint256 supplyAmount = 1 ether;
         vm.deal(address(this), supplyAmount);
         lidoProvider.supply{value: supplyAmount}(address(0), supplyAmount);
 
         uint256 balanceBeforeWithdraw = lidoProvider.getBalance(address(0));
 
-        // Request withdrawal
         uint256 withdrawAmount = balanceBeforeWithdraw / 2;
         lidoProvider.withdraw(address(0), withdrawAmount);
 
-        // Balance should decrease
         uint256 balanceAfterWithdraw = lidoProvider.getBalance(address(0));
         assertLt(balanceAfterWithdraw, balanceBeforeWithdraw);
     }
@@ -168,11 +150,9 @@ contract TestLidoProvider is Test {
 
         vm.deal(address(this), supplyAmount1 + supplyAmount2);
 
-        // First supply
         lidoProvider.supply{value: supplyAmount1}(address(0), supplyAmount1);
         uint256 balanceAfterFirst = lidoProvider.getBalance(address(0));
 
-        // Second supply
         lidoProvider.supply{value: supplyAmount2}(address(0), supplyAmount2);
         uint256 balanceAfterSecond = lidoProvider.getBalance(address(0));
 
@@ -181,20 +161,17 @@ contract TestLidoProvider is Test {
     }
 
     function test_MultipleWithdrawals() public {
-        // Supply ETH
         uint256 supplyAmount = 2 ether;
         vm.deal(address(this), supplyAmount);
         lidoProvider.supply{value: supplyAmount}(address(0), supplyAmount);
 
         uint256 initialBalance = lidoProvider.getBalance(address(0));
 
-        // First withdrawal request
         uint256 withdrawAmount1 = initialBalance / 3;
         lidoProvider.withdraw(address(0), withdrawAmount1);
         uint256 balanceAfterFirst = lidoProvider.getBalance(address(0));
         assertLt(balanceAfterFirst, initialBalance);
 
-        // Second withdrawal request
         uint256 withdrawAmount2 = balanceAfterFirst / 2;
         lidoProvider.withdraw(address(0), withdrawAmount2);
         uint256 balanceAfterSecond = lidoProvider.getBalance(address(0));
@@ -202,16 +179,13 @@ contract TestLidoProvider is Test {
     }
 
     function test_GetWithdrawalStatus() public {
-        // Supply ETH
         uint256 supplyAmount = 1 ether;
         vm.deal(address(this), supplyAmount);
         lidoProvider.supply{value: supplyAmount}(address(0), supplyAmount);
 
-        // Request withdrawal
         uint256 withdrawAmount = 0.5 ether;
         lidoProvider.withdraw(address(0), withdrawAmount);
 
-        // Get withdrawal status
         IUnstETH.WithdrawalRequestStatus[] memory statuses = lidoProvider.getWithdrawalStatus();
         assertGt(statuses.length, 0);
         assertEq(statuses[0].amountOfStETH, withdrawAmount);
@@ -221,49 +195,38 @@ contract TestLidoProvider is Test {
     }
 
     function test_ClaimWithdrawal() public {
-        // Supply ETH
         uint256 supplyAmount = 1 ether;
         vm.deal(address(this), supplyAmount);
         lidoProvider.supply{value: supplyAmount}(address(0), supplyAmount);
 
-        // Request withdrawal
         uint256 withdrawAmount = 0.5 ether;
         lidoProvider.withdraw(address(0), withdrawAmount);
 
-        // Get withdrawal request ID
         IUnstETH.WithdrawalRequestStatus[] memory statuses = lidoProvider.getWithdrawalStatus();
         require(statuses.length > 0, "No withdrawal requests");
         assertFalse(statuses[0].isFinalized);
 
-        // Find the request ID (in mock, it starts from 1)
         uint256 requestId = 1;
 
-        // Fund unstETH with ETH to claim (simulating the withdrawal pool)
         vm.deal(address(unstETH), withdrawAmount);
 
-        // Finalize the withdrawal request
         unstETH.finalizeWithdrawal(requestId);
 
-        // Verify status is finalized
         statuses = lidoProvider.getWithdrawalStatus();
         assertTrue(statuses[0].isFinalized);
         assertFalse(statuses[0].isClaimed);
 
-        // Claim withdrawal (should transfer ETH back)
         uint256 balanceBefore = address(this).balance;
-        lidoProvider.withdraw(address(0), 0); // This should claim finalized withdrawals
+        lidoProvider.withdraw(address(0), 0);
         uint256 balanceAfter = address(this).balance;
 
-        // Balance should increase after claiming
         assertEq(balanceAfter - balanceBefore, withdrawAmount);
 
-        // Verify withdrawal is claimed
         statuses = lidoProvider.getWithdrawalStatus();
-        assertEq(statuses.length, 0); // Should be removed after claiming
+        assertEq(statuses.length, 0);
     }
 
     function test_Receive() public {
-        // Test that the contract can receive ETH
         vm.deal(address(1), 1 ether);
         vm.prank(address(1));
         (bool success,) = address(lidoProvider).call{value: 1 ether}("");

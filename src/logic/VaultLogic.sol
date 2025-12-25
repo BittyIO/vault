@@ -80,6 +80,13 @@ library VaultLogic {
         }
     }
 
+    function turnWETHToETH(VaultStorage storage logicStorage) external onlyInitialized(logicStorage) {
+        uint256 ethBalance = WETH(payable(logicStorage.weth)).balanceOf(address(this));
+        if (ethBalance > 0) {
+            WETH(payable(logicStorage.weth)).withdraw(ethBalance);
+        }
+    }
+
     function getMoney(VaultStorage storage vaultStorage, uint256 amount, address stableCoinAddress, address to)
         external
         onlyInitialized(vaultStorage)

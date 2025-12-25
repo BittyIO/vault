@@ -77,6 +77,27 @@ contract BittyVault is ITrust, IAssetManager, IVault {
         revert NotAuthorized();
     }
 
+    modifier onlyAssetManagerOrTrusteeOrGrantor() {
+        _onlyAssetManagerOrTrusteeOrGrantor();
+        _;
+    }
+
+    function _onlyAssetManagerOrTrusteeOrGrantor() internal view {
+        if (_assetManager.assetManager != address(0)) {
+            if (msg.sender != _assetManager.assetManager) revert OnlyAssetManager();
+            return;
+        }
+        if (_trust.trustee != address(0)) {
+            if (msg.sender != _trust.trustee) revert OnlyTrustee();
+            return;
+        }
+        if (_vault.grantor != address(0)) {
+            if (msg.sender != _vault.grantor) revert OnlyGrantor();
+            return;
+        }
+        revert NotAuthorized();
+    }
+
     modifier onlyAssetManager() {
         _onlyAssetManager();
         _;
@@ -353,8 +374,12 @@ contract BittyVault is ITrust, IAssetManager, IVault {
         _assetManager.rebalance(_vault, swapProvider, from, to, sellAmount, buyAmountMin, data);
     }
 
-    function turnETHToWETH() external override {
+    function turnETHToWETH() external override onlyAssetManagerOrTrusteeOrGrantor {
         _vault.turnETHToWETH();
+    }
+
+    function turnWETHToETH() external override onlyAssetManagerOrTrusteeOrGrantor {
+        _vault.turnWETHToETH();
     }
 
     function getBaseFee(address stableCoinAddress) external override(IAssetManager, ITrust) onlyAssetManager {

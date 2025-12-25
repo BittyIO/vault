@@ -949,6 +949,46 @@ contract BittyVaultGrantorTest is Test {
         );
     }
 
+    function test_TurnWETHToETH_Success() public {
+        // First, convert ETH to WETH
+        vm.deal(address(bittyVault), 1 ether);
+        bittyVault.turnETHToWETH();
+        assertEq(mockWETH.balanceOf(address(bittyVault)), 1 ether);
+        assertEq(address(bittyVault).balance, 0);
+
+        // Then, convert WETH back to ETH
+        uint256 ethBalanceBefore = address(bittyVault).balance;
+        bittyVault.turnWETHToETH();
+        assertEq(mockWETH.balanceOf(address(bittyVault)), 0);
+        assertEq(address(bittyVault).balance, ethBalanceBefore + 1 ether);
+    }
+
+    function test_TurnWETHToETH_ZeroBalance() public {
+        uint256 ethBalanceBefore = address(bittyVault).balance;
+        bittyVault.turnWETHToETH();
+        assertEq(mockWETH.balanceOf(address(bittyVault)), 0);
+        assertEq(address(bittyVault).balance, ethBalanceBefore);
+    }
+
+    function test_TurnWETHToETH_RevertsIfNotAuthorized() public {
+        address unauthorized = makeAddr("unauthorized");
+        vm.deal(address(bittyVault), 1 ether);
+        bittyVault.turnETHToWETH();
+
+        vm.expectRevert(OnlyGrantor.selector);
+        vm.prank(unauthorized);
+        bittyVault.turnWETHToETH();
+    }
+
+    function test_TurnETHToWETH_RevertsIfNotAuthorized() public {
+        address unauthorized = makeAddr("unauthorized");
+        vm.deal(address(bittyVault), 1 ether);
+
+        vm.expectRevert(OnlyGrantor.selector);
+        vm.prank(unauthorized);
+        bittyVault.turnETHToWETH();
+    }
+
     function test_Withdraw_Success() public {
         MockERC20 mockToken = new MockERC20("TestToken", "TEST", 18);
         uint256 withdrawAmount = 1000 * 10 ** mockToken.decimals();

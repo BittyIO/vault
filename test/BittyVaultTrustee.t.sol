@@ -16,7 +16,8 @@ import {
     NotWhiteListed,
     AddressZero,
     OnlyAssetManager,
-    OnlyTrustee
+    OnlyTrustee,
+    NotAuthorized
 } from "../src/interfaces/Errors.sol";
 
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
@@ -98,8 +99,6 @@ contract BittyVaultTrusteeTest is Test {
         );
         vm.prank(grantor);
         bittyVault.setTrustee(trustee);
-        vm.prank(trustee);
-        bittyVault.setAssetManager(assetManager);
         rebalanceLimits = IAssetManager.RebalanceLimit({
             minimalStableCoinBalance: 100 * 1e6, minimalTimestampBetweenRebalances: 30, maxRebalancePercentage: 10
         });
@@ -138,6 +137,8 @@ contract BittyVaultTrusteeTest is Test {
 
     function test_TrusteeGetBaseFeeFailedBeforeDuration() public {
         vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
+        vm.prank(trustee);
         bittyVault.setManageFee(manageFee);
         vm.expectRevert(BaseFeeDurationNotMet.selector);
         vm.prank(assetManager);
@@ -145,6 +146,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_TrusteeGetBaseFeeShouldBeFine() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         vm.prank(trustee);
         bittyVault.setManageFee(manageFee);
         deal(address(mockUSDT), address(bittyVault), manageFee.baseFeeAmount * 10 ** mockUSDT.decimals());
@@ -156,6 +159,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_TrusteeGetBaseFeeShouldBeFineByPercentage() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         manageFee.isBaseFeePercentage = true;
         manageFee.baseFeeAmount = 1000;
         vm.prank(trustee);
@@ -185,6 +190,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_TrusteeGetRevenueFailedIfDurationIsNotMet() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         manageFee.revenuePercentage = 10;
         manageFee.revenueDuration = 30 days;
         vm.prank(trustee);
@@ -210,6 +217,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_TrusteeGetRevenueFeeFailedIfRevenueIsZero() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         manageFee.revenuePercentage = 10;
         manageFee.revenueDuration = 30 days;
         vm.prank(trustee);
@@ -221,6 +230,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_TrusteeGetRevenueFeeSuccess() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         manageFee.revenuePercentage = 10;
         manageFee.revenueDuration = 30 days;
         vm.prank(trustee);
@@ -275,6 +286,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_RebalanceFailedIfRebalanceIsZero() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         vm.warp(block.timestamp + rebalanceLimits.minimalTimestampBetweenRebalances + 1);
         vm.expectRevert(AmountIsZero.selector);
         vm.prank(assetManager);
@@ -282,6 +295,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_RebalanceFailedIfRebalanceInMinimalTime() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         uint256 sellAmount = 1 * 1e6;
         uint256 buyAmount = 10 * 1e6;
 
@@ -313,6 +328,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_RebalanceFailedIfMinimalWBTCBalanceIsNotMet() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         uint256 sellAmount = 1;
         uint256 buyAmount = 10 * 1e6;
         vm.prank(trustee);
@@ -331,6 +348,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_RebalanceFailedIfMinimalWETHBalanceIsNotMet() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         uint256 sellAmount = 1;
         uint256 buyAmount = 10 * 1e6;
         vm.prank(trustee);
@@ -348,6 +367,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_RebalanceFailedIfMinimalStableCoinBalanceIsNotMet() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         uint256 sellAmount = 1;
         uint256 buyAmount = 1;
         bytes memory swapData = abi.encode(address(mockUSDT), sellAmount, address(mockWETH), buyAmount);
@@ -360,6 +381,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_RebalanceBetweenStableCoinsShouldBeFine() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         uint256 sellAmount = 1;
         deal(address(mockUSDT), address(bittyVault), rebalanceLimits.minimalStableCoinBalance + sellAmount);
 
@@ -455,6 +478,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_RebalanceFailedIfInvalidSwapData() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         uint256 sellAmount = 1 * 1e6;
         uint256 buyAmount = 10 * 1e6;
         // Invalid swap data - wrong sell token
@@ -468,6 +493,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_RebalanceFailedIfAssetConfigMinimalDurationNotMet() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         uint256 sellAmount = 1 * 1e6;
         uint256 buyAmount = 10 * 1e6;
         uint256 minimalDuration = 60;
@@ -505,6 +532,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_RebalanceSuccessAfterAssetConfigMinimalDuration() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         uint256 sellAmount = 1 * 1e6;
         uint256 buyAmount = 10 * 1e6;
         uint256 minimalDuration = 60;
@@ -558,6 +587,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_GetAllLastRebalanceTimestampKeys() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         IAssetManager.AssetConfig memory assetConfig =
             IAssetManager.AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 30});
         vm.prank(trustee);
@@ -650,6 +681,8 @@ contract BittyVaultTrusteeTest is Test {
     }
 
     function test_TrusteePing_RevertsIfAssetManagerCalls() public {
+        vm.prank(trustee);
+        bittyVault.setAssetManager(assetManager);
         vm.prank(assetManager);
         vm.expectRevert(OnlyTrustee.selector);
         bittyVault.trusteePing();
@@ -682,5 +715,40 @@ contract BittyVaultTrusteeTest is Test {
         bittyVault.setTrustee(newTrustee);
 
         assertEq(bittyVault.trusteeLastPingTime(), setTime);
+    }
+
+    function test_TurnWETHToETH_Success_AsTrustee() public {
+        // First, convert ETH to WETH
+        vm.deal(address(bittyVault), 1 ether);
+        vm.prank(trustee);
+        bittyVault.turnETHToWETH();
+        assertEq(mockWETH.balanceOf(address(bittyVault)), 1 ether);
+        assertEq(address(bittyVault).balance, 0);
+
+        // Then, convert WETH back to ETH as trustee
+        uint256 ethBalanceBefore = address(bittyVault).balance;
+        vm.prank(trustee);
+        bittyVault.turnWETHToETH();
+        assertEq(mockWETH.balanceOf(address(bittyVault)), 0);
+        assertEq(address(bittyVault).balance, ethBalanceBefore + 1 ether);
+    }
+
+    function test_TurnWETHToETH_ZeroBalance_AsTrustee() public {
+        uint256 ethBalanceBefore = address(bittyVault).balance;
+        vm.prank(trustee);
+        bittyVault.turnWETHToETH();
+        assertEq(mockWETH.balanceOf(address(bittyVault)), 0);
+        assertEq(address(bittyVault).balance, ethBalanceBefore);
+    }
+
+    function test_TurnWETHToETH_RevertsIfNotAuthorized() public {
+        address unauthorized = makeAddr("unauthorized");
+        vm.deal(address(bittyVault), 1 ether);
+        vm.prank(trustee);
+        bittyVault.turnETHToWETH();
+
+        vm.expectRevert(OnlyTrustee.selector);
+        vm.prank(unauthorized);
+        bittyVault.turnWETHToETH();
     }
 }
