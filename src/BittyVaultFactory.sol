@@ -5,7 +5,6 @@ import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/In
 import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {AddressZero, VaultAlreadyDeployed} from "./interfaces/Errors.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
-import {IMigrator} from "./interfaces/IMigrator.sol";
 import {BittyVault} from "./BittyVault.sol";
 import {FactoryHelper} from "./helpers/FactoryHelper.sol";
 
@@ -16,7 +15,6 @@ import {FactoryHelper} from "./helpers/FactoryHelper.sol";
  */
 contract BittyVaultFactory is Initializable {
     IWhiteList public whiteList;
-    IMigrator public migrator;
     address public vaultImplementation;
     address public wethAddress;
     /**
@@ -27,12 +25,10 @@ contract BittyVaultFactory is Initializable {
      */
     event VaultDeployed(address indexed vault, address indexed grantor, string inputSalt);
 
-    function initialize(
-        address vaultImplementation_,
-        address whiteListAddress_,
-        address migratorAddress_,
-        address wethAddress_
-    ) public initializer {
+    function initialize(address vaultImplementation_, address whiteListAddress_, address wethAddress_)
+        public
+        initializer
+    {
         if (vaultImplementation_ == address(0)) {
             revert AddressZero();
         }
@@ -41,10 +37,6 @@ contract BittyVaultFactory is Initializable {
             revert AddressZero();
         }
         whiteList = IWhiteList(whiteListAddress_);
-        if (migratorAddress_ == address(0)) {
-            revert AddressZero();
-        }
-        migrator = IMigrator(migratorAddress_);
         if (wethAddress_ == address(0)) {
             revert AddressZero();
         }
@@ -71,7 +63,6 @@ contract BittyVaultFactory is Initializable {
             .initialize(
                 msg.sender,
                 address(whiteList),
-                address(migrator),
                 wethAddress,
                 assetAddresses,
                 stableCoinAddresses,

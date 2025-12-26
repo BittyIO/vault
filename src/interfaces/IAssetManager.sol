@@ -16,8 +16,20 @@ interface IAssetManager {
     }
 
     struct RebalanceLimit {
+        /**
+         * @dev The minimal stable coin balance.
+         * @param minimalStableCoinBalance The minimal stable coin balance.
+         */
         uint256 minimalStableCoinBalance;
+        /**
+         * @dev The minimal timestamp between rebalances.
+         * @param minimalTimestampBetweenRebalances The minimal timestamp between rebalances.
+         */
         uint256 minimalTimestampBetweenRebalances;
+        /**
+         * @dev The max rebalance percentage.
+         * @param maxRebalancePercentage The max rebalance percentage.
+         */
         uint256 maxRebalancePercentage;
     }
 
@@ -52,11 +64,17 @@ interface IAssetManager {
         uint256 revenueDuration;
     }
 
+    /**
+     * @notice Get the yield providers.
+     * @dev Get the yield providers.
+     * @return yieldProviderAddresses The addresses of the yield providers.
+     */
     function getYieldProviders() external view returns (address[] memory);
     function getSwapProviders() external view returns (address[] memory);
 
     function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external;
     function setAssetConfig(address assetAddress, AssetConfig memory assetConfig) external;
+    function setAssetManager(address assetManager) external;
     function setManageFee(ManageFee memory manageFee) external;
 
     function supply(address yieldProvider, address assetAddress, uint256 amount) external;

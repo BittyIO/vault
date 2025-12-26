@@ -2,33 +2,8 @@
 pragma solidity ^0.8.27;
 
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {IBeneficiary} from "../interfaces/IBeneficiary.sol";
 import {IAssetManager} from "../interfaces/IAssetManager.sol";
 import {IWhiteList} from "../interfaces/IWhiteList.sol";
-
-struct TrustStorage {
-    bool isInitialized;
-    address trustee;
-    address beneficiary;
-
-    bool isIrrevocable;
-    uint256 autoIrrevocableAfterNoPing;
-    uint256 lastPingTime;
-    uint256 autoIrrevocableStartTime;
-
-    uint256 trusteeInvalidAfterNoPing;
-    uint256 trusteeLastPingTime;
-
-    IBeneficiary.BeneficiarySettings beneficiarySettings;
-    uint256 lastWithdrawalTime;
-    uint256 startDistributionTimestamp;
-
-    mapping(bytes32 => IBeneficiary.TriggerEvent) beneficiaryTriggerEvents;
-    mapping(uint256 => IBeneficiary.TimeEvent) beneficiaryTimeEvents;
-
-    EnumerableSet.Bytes32Set triggerEventKeys;
-    EnumerableSet.UintSet timeEventKeys;
-}
 
 struct AssetManagerStorage {
     bool isInitialized;
@@ -62,9 +37,4 @@ struct VaultStorage {
     IWhiteList whiteList;
     EnumerableSet.AddressSet assets;
     EnumerableSet.AddressSet stableCoins;
-}
-
-struct MigratorStorage {
-    bool isInitialized;
-    address migrator;
 }

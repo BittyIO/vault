@@ -16,7 +16,6 @@ import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {BittyVault} from "../src/BittyVault.sol";
-import {Migrator} from "../src/Migrator.sol";
 import {AssetManagerLogic} from "../src/logic/AssetManagerLogic.sol";
 
 contract TestAssetManager is Test, BittyVault {
@@ -31,7 +30,6 @@ contract TestAssetManager is Test, BittyVault {
     address[] public stableCoins;
     address[] public yieldProviders;
     address[] public swapProviders;
-    address public migratorAddress;
     address public assetManagerAddress;
     address public grantorAddress;
 
@@ -52,7 +50,6 @@ contract TestAssetManager is Test, BittyVault {
         swapProviders = new address[](1);
         mockSwapProvider = new MockSwapProvider();
         swapProviders[0] = address(mockSwapProvider);
-        migratorAddress = address(new Migrator());
         grantorAddress = makeAddr("grantor");
         assetManagerAddress = makeAddr("assetManager");
         WhiteList whiteList = new WhiteList();
@@ -76,41 +73,17 @@ contract TestAssetManager is Test, BittyVault {
         address[] memory containingAddressZero = new address[](1);
         containingAddressZero[0] = address(0);
         vm.expectRevert(AddressZero.selector);
-        this.initialize(
-            address(0), whiteListAddress, migratorAddress, mockWETH, assets, stableCoins, yieldProviders, swapProviders
-        );
+        this.initialize(address(0), whiteListAddress, mockWETH, assets, stableCoins, yieldProviders, swapProviders);
+        vm.expectRevert(AddressZero.selector);
+        this.initialize(grantorAddress, address(0), mockWETH, assets, stableCoins, yieldProviders, swapProviders);
         vm.expectRevert(AddressZero.selector);
         this.initialize(
-            grantorAddress, address(0), migratorAddress, mockWETH, assets, stableCoins, yieldProviders, swapProviders
-        );
-        vm.expectRevert(AddressZero.selector);
-        this.initialize(
-            grantorAddress, whiteListAddress, address(0), mockWETH, assets, stableCoins, yieldProviders, swapProviders
-        );
-        vm.expectRevert(AddressZero.selector);
-        this.initialize(
-            grantorAddress,
-            whiteListAddress,
-            migratorAddress,
-            address(0),
-            assets,
-            stableCoins,
-            yieldProviders,
-            swapProviders
+            grantorAddress, whiteListAddress, address(0), assets, stableCoins, yieldProviders, swapProviders
         );
     }
 
     function doInitialize() public {
-        this.initialize(
-            grantorAddress,
-            whiteListAddress,
-            migratorAddress,
-            mockWETH,
-            assets,
-            stableCoins,
-            yieldProviders,
-            swapProviders
-        );
+        this.initialize(grantorAddress, whiteListAddress, mockWETH, assets, stableCoins, yieldProviders, swapProviders);
         vm.prank(grantorAddress);
         this.setAssetManager(assetManagerAddress);
     }

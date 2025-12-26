@@ -12,7 +12,6 @@ import {
 import {IWhiteList} from "../interfaces/IWhiteList.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 import {VaultStorage} from "./Storages.sol";
 import {VaultHelper} from "../helpers/VaultHelper.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
@@ -20,7 +19,6 @@ import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 library VaultLogic {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
-    using Address for address;
 
     modifier onlyInitialized(VaultStorage storage logicStorage) {
         _onlyInitialized(logicStorage);
@@ -108,35 +106,6 @@ library VaultLogic {
             revert InsufficientBalance();
         }
         IERC20(assetAddress).safeTransfer(to, amount);
-    }
-
-    function revoke(VaultStorage storage logicStorage, address moneyWithdrawTo) external {
-        if (moneyWithdrawTo == address(0)) {
-            revert AddressZero();
-        }
-        for (uint256 i = 0; i < logicStorage.assets.length(); i++) {
-            _transferAllERC20(logicStorage.assets.at(i), moneyWithdrawTo);
-        }
-
-        for (uint256 i = 0; i < logicStorage.stableCoins.length(); i++) {
-            _transferAllERC20(logicStorage.stableCoins.at(i), moneyWithdrawTo);
-        }
-
-        // Transfer any remaining ETH
-        if (address(this).balance > 0) {
-            Address.sendValue(payable(moneyWithdrawTo), address(this).balance);
-        }
-    }
-
-    function _transferAllERC20(address tokenAddress, address to) private {
-        if (tokenAddress == address(0)) {
-            return;
-        }
-        IERC20 token = IERC20(tokenAddress);
-        uint256 balance = token.balanceOf(address(this));
-        if (balance > 0) {
-            token.safeTransfer(to, balance);
-        }
     }
 
     function addAssets(VaultStorage storage logicStorage, address[] memory assetAddresses)

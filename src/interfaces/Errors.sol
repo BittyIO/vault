@@ -4,14 +4,8 @@ pragma solidity ^0.8.27;
 // Common errors
 error AddressZero();
 error AmountIsZero();
-error LengthMismatch();
 error NotAuthorized();
-error OnlyVaultOwner();
 // AssetManager errors
-error WETHNotSet();
-error AssetAlreadySet();
-error InvalidAssetType();
-error InvalidStableCoinType();
 error RebalanceInMinimalTime();
 error InsufficientBalance();
 error SellAmountMismatch();
@@ -28,22 +22,10 @@ error AlreadyInitialized();
 error NotInitialized();
 error AutoIrrevocableAfterNoPingNotSet();
 error StartDistributionTimestampAlreadySet();
-error AmountPerWithdrawalIsZero();
-error minimalWithdrawDurationLessThan1Day();
-error BeneficiarySettingsNotSet();
-error BeneficiaryWithdrawalInLimitDays();
-error InsufficientStablecoinBalance();
-error TransferFailed();
-error EventNameIsEmpty();
-error EventNameDuplicated();
-error EventNameNotFound();
-error percentageMoreThan10K();
-error EventTriggerError();
 error TimestampIsZero();
 error TimestampNotFound();
-error TimestampDuplicated();
-error TimestampIsInTheFuture();
-error ReplaceTrusteeFailed();
+error InsufficientStablecoinBalance();
+error TransferFailed();
 
 // Grantor errors
 error BaseFeeDurationNotMet();
@@ -52,17 +34,14 @@ error RevenueIsZero();
 error RevenuePercentageIsZero();
 error RevenueDurationIsZero();
 error OnlyRevocable();
-error OnlyIrrevocable();
 error OnlyGrantor();
 error OnlyTrustee();
 error OnlyBeneficiary();
 error OnlyAssetManager();
 
 // Factory errors
-error DeploymentFailed();
 error NotWhiteListed();
 error Deprecated();
-error Unauthorized();
 error VaultAlreadyDeployed();
 error SwapProviderShouldNotBeAllRemoved();
 

@@ -16,9 +16,8 @@ contract BittyVaultFactoryScript is DeployScript {
         console2.log("Factory deployed at", address(factory));
 
         address whiteList = getAddress("WHITE_LIST");
-        address migrator = getAddress("MIGRATOR");
         address weth = getAddress("WETH");
-        factory.initialize(address(vaultImplementation), whiteList, migrator, weth);
+        factory.initialize(address(vaultImplementation), whiteList, weth);
 
         saveAddress("BITY_VAULT_FACTORY", address(factory));
     }
