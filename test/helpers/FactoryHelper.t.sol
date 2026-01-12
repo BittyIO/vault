@@ -12,14 +12,13 @@ contract FactoryHelperWrapper {
         IWhiteList whiteList,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
-        address[] memory yieldProviders,
+        address[] memory lendingProviders,
+        address[] memory stakingProviders,
         address[] memory swapProviders
     ) external view {
-        FactoryHelper.checkWhiteList(whiteList, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
-    }
-
-    function computeAddress(bytes32 salt, bytes32 bytecodeHash, address deployer) external pure returns (address) {
-        return FactoryHelper.computeAddress(salt, bytecodeHash, deployer);
+        FactoryHelper.checkWhiteList(
+            whiteList, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, swapProviders
+        );
     }
 }
 
@@ -37,25 +36,35 @@ contract FactoryHelperTest is Test {
         address asset2 = makeAddr("asset2");
         address stableCoin1 = makeAddr("stableCoin1");
         address stableCoin2 = makeAddr("stableCoin2");
-        address yieldProvider1 = makeAddr("yieldProvider1");
-        address swapProvider1 = makeAddr("swapProvider1");
+        address lendingProvider = makeAddr("lendingProvider");
+        address stakingProvider = makeAddr("stakingProvider");
+        address swapProvider = makeAddr("swapProvider");
 
         address[] memory assets = new address[](2);
         assets[0] = asset1;
         assets[1] = asset2;
+        vm.prank(tx.origin);
         whiteList.addAssets(assets);
 
         address[] memory stableCoins = new address[](2);
         stableCoins[0] = stableCoin1;
         stableCoins[1] = stableCoin2;
+        vm.prank(tx.origin);
         whiteList.addStableCoins(stableCoins);
 
-        address[] memory yieldProviders = new address[](1);
-        yieldProviders[0] = yieldProvider1;
-        whiteList.addYieldProviders(yieldProviders);
+        address[] memory lendingProviders = new address[](1);
+        lendingProviders[0] = lendingProvider;
+        vm.prank(tx.origin);
+        whiteList.addLendingProviders(lendingProviders);
+
+        address[] memory stakingProviders = new address[](1);
+        stakingProviders[0] = stakingProvider;
+        vm.prank(tx.origin);
+        whiteList.addStakingProviders(stakingProviders);
 
         address[] memory swapProviders = new address[](1);
-        swapProviders[0] = swapProvider1;
+        swapProviders[0] = swapProvider;
+        vm.prank(tx.origin);
         whiteList.addSwapProviders(swapProviders);
 
         address[] memory testAssets = new address[](2);
@@ -66,14 +75,22 @@ contract FactoryHelperTest is Test {
         testStableCoins[0] = stableCoin1;
         testStableCoins[1] = stableCoin2;
 
-        address[] memory testYieldProviders = new address[](1);
-        testYieldProviders[0] = yieldProvider1;
+        address[] memory testLendingProviders = new address[](1);
+        testLendingProviders[0] = lendingProvider;
+
+        address[] memory testStakingProviders = new address[](1);
+        testStakingProviders[0] = stakingProvider;
 
         address[] memory testSwapProviders = new address[](1);
-        testSwapProviders[0] = swapProvider1;
+        testSwapProviders[0] = swapProvider;
 
         wrapper.checkWhiteList(
-            IWhiteList(address(whiteList)), testAssets, testStableCoins, testYieldProviders, testSwapProviders
+            IWhiteList(address(whiteList)),
+            testAssets,
+            testStableCoins,
+            testLendingProviders,
+            testStakingProviders,
+            testSwapProviders
         );
     }
 
@@ -83,6 +100,7 @@ contract FactoryHelperTest is Test {
 
         address[] memory assets = new address[](1);
         assets[0] = asset1;
+        vm.prank(tx.origin);
         whiteList.addAssets(assets);
 
         address[] memory testAssets = new address[](1);
@@ -90,7 +108,7 @@ contract FactoryHelperTest is Test {
         address[] memory empty = new address[](0);
 
         vm.expectRevert(NotWhiteListed.selector);
-        wrapper.checkWhiteList(IWhiteList(address(whiteList)), testAssets, empty, empty, empty);
+        wrapper.checkWhiteList(IWhiteList(address(whiteList)), testAssets, empty, empty, empty, empty);
     }
 
     function test_CheckWhiteList_InvalidStableCoin() public {
@@ -99,6 +117,7 @@ contract FactoryHelperTest is Test {
 
         address[] memory stableCoins = new address[](1);
         stableCoins[0] = stableCoin1;
+        vm.prank(tx.origin);
         whiteList.addStableCoins(stableCoins);
 
         address[] memory testStableCoins = new address[](1);
@@ -106,31 +125,33 @@ contract FactoryHelperTest is Test {
         address[] memory empty = new address[](0);
 
         vm.expectRevert(NotWhiteListed.selector);
-        wrapper.checkWhiteList(IWhiteList(address(whiteList)), empty, testStableCoins, empty, empty);
+        wrapper.checkWhiteList(IWhiteList(address(whiteList)), empty, testStableCoins, empty, empty, empty);
     }
 
-    function test_CheckWhiteList_InvalidYieldProvider() public {
-        address yieldProvider1 = makeAddr("yieldProvider1");
-        address invalidYieldProvider = makeAddr("invalidYieldProvider");
+    function test_CheckWhiteList_InvalidLendingProvider() public {
+        address lendingProvider = makeAddr("lendingProvider");
+        address invalidLendingProvider = makeAddr("invalidLendingProvider");
 
-        address[] memory yieldProviders = new address[](1);
-        yieldProviders[0] = yieldProvider1;
-        whiteList.addYieldProviders(yieldProviders);
+        address[] memory LendingProviders = new address[](1);
+        LendingProviders[0] = lendingProvider;
+        vm.prank(tx.origin);
+        whiteList.addLendingProviders(LendingProviders);
 
-        address[] memory testYieldProviders = new address[](1);
-        testYieldProviders[0] = invalidYieldProvider;
+        address[] memory testLendingProviders = new address[](1);
+        testLendingProviders[0] = invalidLendingProvider;
         address[] memory empty = new address[](0);
 
         vm.expectRevert(NotWhiteListed.selector);
-        wrapper.checkWhiteList(IWhiteList(address(whiteList)), empty, empty, testYieldProviders, empty);
+        wrapper.checkWhiteList(IWhiteList(address(whiteList)), empty, empty, testLendingProviders, empty, empty);
     }
 
     function test_CheckWhiteList_InvalidSwapProvider() public {
-        address swapProvider1 = makeAddr("swapProvider1");
+        address swapProvider = makeAddr("swapProvider");
         address invalidSwapProvider = makeAddr("invalidSwapProvider");
 
         address[] memory swapProviders = new address[](1);
-        swapProviders[0] = swapProvider1;
+        swapProviders[0] = swapProvider;
+        vm.prank(tx.origin);
         whiteList.addSwapProviders(swapProviders);
 
         address[] memory testSwapProviders = new address[](1);
@@ -138,13 +159,13 @@ contract FactoryHelperTest is Test {
         address[] memory empty = new address[](0);
 
         vm.expectRevert(NotWhiteListed.selector);
-        wrapper.checkWhiteList(IWhiteList(address(whiteList)), empty, empty, empty, testSwapProviders);
+        wrapper.checkWhiteList(IWhiteList(address(whiteList)), empty, empty, empty, empty, testSwapProviders);
     }
 
     function test_CheckWhiteList_EmptyArrays() public view {
         address[] memory empty = new address[](0);
 
-        wrapper.checkWhiteList(IWhiteList(address(whiteList)), empty, empty, empty, empty);
+        wrapper.checkWhiteList(IWhiteList(address(whiteList)), empty, empty, empty, empty, empty);
     }
 
     function test_CheckWhiteList_MultipleInvalid() public {
@@ -153,6 +174,7 @@ contract FactoryHelperTest is Test {
 
         address[] memory assets = new address[](1);
         assets[0] = asset1;
+        vm.prank(tx.origin);
         whiteList.addAssets(assets);
 
         address[] memory testAssets = new address[](2);
@@ -162,55 +184,7 @@ contract FactoryHelperTest is Test {
         address[] memory empty = new address[](0);
 
         vm.expectRevert(NotWhiteListed.selector);
-        wrapper.checkWhiteList(IWhiteList(address(whiteList)), testAssets, empty, empty, empty);
-    }
-
-    function test_ComputeAddress_Deterministic() public {
-        bytes32 salt = keccak256("testSalt");
-        bytes32 bytecodeHash = keccak256("testBytecode");
-        address deployer = makeAddr("deployer");
-
-        address addr1 = wrapper.computeAddress(salt, bytecodeHash, deployer);
-        address addr2 = wrapper.computeAddress(salt, bytecodeHash, deployer);
-
-        assertEq(addr1, addr2, "Same inputs should produce same address");
-        assertTrue(addr1 != address(0), "Address should not be zero");
-    }
-
-    function test_ComputeAddress_DifferentSalt() public {
-        bytes32 salt1 = keccak256("salt1");
-        bytes32 salt2 = keccak256("salt2");
-        bytes32 bytecodeHash = keccak256("testBytecode");
-        address deployer = makeAddr("deployer");
-
-        address addr1 = wrapper.computeAddress(salt1, bytecodeHash, deployer);
-        address addr2 = wrapper.computeAddress(salt2, bytecodeHash, deployer);
-
-        assertTrue(addr1 != addr2, "Different salts should produce different addresses");
-    }
-
-    function test_ComputeAddress_DifferentDeployer() public {
-        bytes32 salt = keccak256("testSalt");
-        bytes32 bytecodeHash = keccak256("testBytecode");
-        address deployer1 = makeAddr("deployer1");
-        address deployer2 = makeAddr("deployer2");
-
-        address addr1 = wrapper.computeAddress(salt, bytecodeHash, deployer1);
-        address addr2 = wrapper.computeAddress(salt, bytecodeHash, deployer2);
-
-        assertTrue(addr1 != addr2, "Different deployers should produce different addresses");
-    }
-
-    function test_ComputeAddress_DifferentBytecodeHash() public {
-        bytes32 salt = keccak256("testSalt");
-        bytes32 bytecodeHash1 = keccak256("bytecode1");
-        bytes32 bytecodeHash2 = keccak256("bytecode2");
-        address deployer = makeAddr("deployer");
-
-        address addr1 = wrapper.computeAddress(salt, bytecodeHash1, deployer);
-        address addr2 = wrapper.computeAddress(salt, bytecodeHash2, deployer);
-
-        assertTrue(addr1 != addr2, "Different bytecode hashes should produce different addresses");
+        wrapper.checkWhiteList(IWhiteList(address(whiteList)), testAssets, empty, empty, empty, empty);
     }
 }
 

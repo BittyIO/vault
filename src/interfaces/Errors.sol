@@ -4,46 +4,37 @@ pragma solidity ^0.8.27;
 // Common errors
 error AddressZero();
 error AmountIsZero();
-error NotAuthorized();
+
+// Vault errors
+error InsufficientStablecoinBalance();
+error TransferFailed();
+error NotInitialized();
+error AlreadyInitialized();
+
 // AssetManager errors
 error RebalanceInMinimalTime();
+error RebalanceMaxPercentage();
 error InsufficientBalance();
 error SellAmountMismatch();
 error BuyAmountNotEnough();
 error MinimalBalanceNotMet();
 error SupplyAmountMismatch();
 error WithdrawAmountMismatch();
-error InvalidYieldProvider();
+error InvalidLendingProvider();
+error InvalidStakingProvider();
 error InvalidSwapProvider();
 error InvalidSwapData();
+error StakeAmountMismatch();
+error UnstakeAmountMismatch();
 
-// Trust errors
-error AlreadyInitialized();
-error NotInitialized();
-error AutoIrrevocableAfterNoPingNotSet();
-error StartDistributionTimestampAlreadySet();
-error TimestampIsZero();
-error TimestampNotFound();
-error InsufficientStablecoinBalance();
-error TransferFailed();
-
-// Grantor errors
-error BaseFeeDurationNotMet();
-error RevenueDurationNotMet();
-error RevenueIsZero();
-error RevenuePercentageIsZero();
-error RevenueDurationIsZero();
-error OnlyRevocable();
-error OnlyGrantor();
-error OnlyTrustee();
-error OnlyBeneficiary();
+// Owner errors
+error OnlyOwner();
 error OnlyAssetManager();
 
 // Factory errors
 error NotWhiteListed();
 error Deprecated();
 error VaultAlreadyDeployed();
-error SwapProviderShouldNotBeAllRemoved();
 
 // Subscribe errors
 error AlreadySubscribed();

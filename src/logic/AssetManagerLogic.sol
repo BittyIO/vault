@@ -3,7 +3,11 @@ pragma solidity ^0.8.27;
 
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IWhiteList} from "../interfaces/IWhiteList.sol";
-import {IAssetManager, IProvider, IYieldProvider, ISwapProvider} from "../interfaces/IAssetManager.sol";
+import {IAssetManager} from "../interfaces/IAssetManager.sol";
+import {IProvider} from "../interfaces/IProvider.sol";
+import {ILendingProvider} from "../interfaces/ILendingProvider.sol";
+import {IStakingProvider} from "../interfaces/IStakingProvider.sol";
+import {ISwapProvider} from "../interfaces/ISwapProvider.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
@@ -12,6 +16,7 @@ import {
     AddressZero,
     AmountIsZero,
     RebalanceInMinimalTime,
+    RebalanceMaxPercentage,
     InsufficientBalance,
     SellAmountMismatch,
     BuyAmountNotEnough,
@@ -19,17 +24,15 @@ import {
     NotInitialized,
     SupplyAmountMismatch,
     WithdrawAmountMismatch,
-    InvalidYieldProvider,
+    StakeAmountMismatch,
+    UnstakeAmountMismatch,
+    InvalidLendingProvider,
+    InvalidStakingProvider,
     InvalidSwapProvider,
     Deprecated,
     NotWhiteListed,
     InvalidSwapData,
-    AlreadyInitialized,
-    BaseFeeDurationNotMet,
-    RevenueDurationNotMet,
-    RevenueIsZero,
-    RevenuePercentageIsZero,
-    RevenueDurationIsZero
+    AlreadyInitialized
 } from "../interfaces/Errors.sol";
 import {AssetManagerStorage, VaultStorage} from "./Storages.sol";
 import {VaultLogic} from "./VaultLogic.sol";
@@ -83,22 +86,6 @@ library AssetManagerLogic {
         logicStorage.assetManager = assetManagerAddress;
     }
 
-    function setManageFee(AssetManagerStorage storage logicStorage, IAssetManager.ManageFee memory manageFee_)
-        external
-        onlyInitialized(logicStorage)
-    {
-        if (manageFee_.baseFeeAmount == 0 && manageFee_.revenuePercentage == 0) {
-            revert AmountIsZero();
-        }
-        if (manageFee_.revenuePercentage > 0 && manageFee_.revenueDuration == 0) {
-            revert RevenueDurationIsZero();
-        }
-        if (manageFee_.revenuePercentage == 0 && manageFee_.revenueDuration > 0) {
-            revert RevenuePercentageIsZero();
-        }
-        logicStorage.manageFee = manageFee_;
-    }
-
     function _cloneProvider(AssetManagerStorage storage logicStorage, address provider)
         private
         onlyInitialized(logicStorage)
@@ -143,14 +130,14 @@ library AssetManagerLogic {
 
     function supply(
         AssetManagerStorage storage logicStorage,
-        address yieldProvider,
+        address lendingProvider,
         address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
-        if (!logicStorage.yieldProviders.contains(yieldProvider)) {
-            revert InvalidYieldProvider();
+        if (!logicStorage.lendingProviders.contains(lendingProvider)) {
+            revert InvalidLendingProvider();
         }
-        if (logicStorage.whiteList.isYieldProviderDeprecated(yieldProvider)) {
+        if (logicStorage.whiteList.isLendingProviderDeprecated(lendingProvider)) {
             revert Deprecated();
         }
         if (assetAddress == address(0)) {
@@ -159,13 +146,12 @@ library AssetManagerLogic {
         if (amount == 0) {
             revert AmountIsZero();
         }
-        // note: every asset manager should have its own yield provider instance
-        yieldProvider = _cloneProvider(logicStorage, yieldProvider);
-        IERC20(assetAddress).safeApprove(yieldProvider, amount);
-        uint256 balanceBefore = IYieldProvider(yieldProvider).getBalance(assetAddress);
-        IYieldProvider(yieldProvider).supply(assetAddress, amount);
-        IERC20(assetAddress).safeApprove(yieldProvider, 0);
-        uint256 balanceAfter = IYieldProvider(yieldProvider).getBalance(assetAddress);
+        lendingProvider = _cloneProvider(logicStorage, lendingProvider);
+        IERC20(assetAddress).safeApprove(lendingProvider, amount);
+        uint256 balanceBefore = ILendingProvider(lendingProvider).getLendingBalance(assetAddress);
+        ILendingProvider(lendingProvider).supply(assetAddress, amount);
+        IERC20(assetAddress).safeApprove(lendingProvider, 0);
+        uint256 balanceAfter = ILendingProvider(lendingProvider).getLendingBalance(assetAddress);
         if (balanceAfter - balanceBefore != amount) {
             revert SupplyAmountMismatch();
         }
@@ -173,12 +159,12 @@ library AssetManagerLogic {
 
     function withdraw(
         AssetManagerStorage storage logicStorage,
-        address yieldProvider,
+        address lendingProvider,
         address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
-        if (!logicStorage.yieldProviders.contains(yieldProvider)) {
-            revert InvalidYieldProvider();
+        if (!logicStorage.lendingProviders.contains(lendingProvider)) {
+            revert InvalidLendingProvider();
         }
         if (assetAddress == address(0)) {
             revert AddressZero();
@@ -186,34 +172,112 @@ library AssetManagerLogic {
         if (amount == 0) {
             revert AmountIsZero();
         }
-        // note: every asset manager should have its own yield provider instance
-        yieldProvider = _cloneProvider(logicStorage, yieldProvider);
-        uint256 supplyAmount = IYieldProvider(yieldProvider).getBalance(assetAddress);
+        lendingProvider = _cloneProvider(logicStorage, lendingProvider);
+        uint256 supplyAmount = ILendingProvider(lendingProvider).getLendingBalance(assetAddress);
         if (supplyAmount < amount) {
             revert InsufficientBalance();
         }
         uint256 balanceBefore = _addressBalance(assetAddress);
-        IYieldProvider(yieldProvider).withdraw(assetAddress, amount);
+        ILendingProvider(lendingProvider).withdraw(assetAddress, amount);
         uint256 balanceAfter = _addressBalance(assetAddress);
         if (balanceAfter - balanceBefore != amount) {
             revert WithdrawAmountMismatch();
         }
     }
 
-    function getBalance(AssetManagerStorage storage logicStorage, address yieldProvider, address assetAddress)
+    function getLendingBalance(AssetManagerStorage storage logicStorage, address lendingProvider, address assetAddress)
         external
         view
         onlyInitialized(logicStorage)
         returns (uint256)
     {
-        if (!logicStorage.yieldProviders.contains(yieldProvider)) {
-            revert InvalidYieldProvider();
+        if (!logicStorage.lendingProviders.contains(lendingProvider)) {
+            revert InvalidLendingProvider();
         }
-        address _clonedProvider = logicStorage.clonedProviders[yieldProvider];
+        address _clonedProvider = logicStorage.clonedProviders[lendingProvider];
         if (_clonedProvider == address(0)) {
             return 0;
         }
-        return IYieldProvider(_clonedProvider).getBalance(assetAddress);
+        return ILendingProvider(_clonedProvider).getLendingBalance(assetAddress);
+    }
+
+    function stake(
+        AssetManagerStorage storage logicStorage,
+        address stakingProvider,
+        address wethAddress,
+        uint256 amount
+    ) external onlyInitialized(logicStorage) {
+        if (!logicStorage.stakingProviders.contains(stakingProvider)) {
+            revert InvalidStakingProvider();
+        }
+        if (logicStorage.whiteList.isStakingProviderDeprecated(stakingProvider)) {
+            revert Deprecated();
+        }
+        if (wethAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (amount == 0) {
+            revert AmountIsZero();
+        }
+        stakingProvider = _cloneProvider(logicStorage, stakingProvider);
+        IERC20(wethAddress).safeApprove(stakingProvider, amount);
+        IStakingProvider(stakingProvider).stake(amount);
+    }
+
+    function unstake(
+        AssetManagerStorage storage logicStorage,
+        address stakingProvider,
+        address wethAddress,
+        uint256 amount
+    ) external onlyInitialized(logicStorage) {
+        if (!logicStorage.stakingProviders.contains(stakingProvider)) {
+            revert InvalidStakingProvider();
+        }
+        if (wethAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (amount == 0) {
+            revert AmountIsZero();
+        }
+        stakingProvider = _cloneProvider(logicStorage, stakingProvider);
+        uint256 stakingBalance = IStakingProvider(stakingProvider).getStakingBalance();
+        if (stakingBalance < amount) {
+            revert InsufficientBalance();
+        }
+        IStakingProvider(stakingProvider).unstake(amount);
+    }
+
+    function getStakingBalance(AssetManagerStorage storage logicStorage, address stakingProvider)
+        external
+        view
+        onlyInitialized(logicStorage)
+        returns (uint256)
+    {
+        if (!logicStorage.stakingProviders.contains(stakingProvider)) {
+            revert InvalidStakingProvider();
+        }
+        address _clonedProvider = logicStorage.clonedProviders[stakingProvider];
+        if (_clonedProvider == address(0)) {
+            return 0;
+        }
+        return IStakingProvider(_clonedProvider).getStakingBalance();
+    }
+
+    function getUnstakeRequestIds(AssetManagerStorage storage logicStorage, address stakingProvider)
+        external
+        view
+        onlyInitialized(logicStorage)
+        returns (uint256[] memory)
+    {
+        if (!logicStorage.stakingProviders.contains(stakingProvider)) {
+            revert InvalidStakingProvider();
+        }
+
+        address _clonedProvider = logicStorage.clonedProviders[stakingProvider];
+        if (_clonedProvider == address(0)) {
+            return new uint256[](0);
+        }
+        return IStakingProvider(_clonedProvider).getUnstakeRequestIds();
     }
 
     function _addressBalance(address assetAddress) private view returns (uint256) {
@@ -249,10 +313,21 @@ library AssetManagerLogic {
         _checkSwapProvider(logicStorage, swapProvider);
         IAssetManager.AssetConfig memory assetConfigFrom = logicStorage.assetConfigs[from];
         IAssetManager.AssetConfig memory assetConfigTo = logicStorage.assetConfigs[to];
+        uint256 fromBalance = _addressBalance(from);
+
         if (
-            logicStorage.rebalanceLimit.minimalTimestampBetweenRebalances > 0 && logicStorage.lastRebalanceTimestamp > 0
+            (logicStorage.rebalanceLimit.minimalDurationBetweenRebalances > 0
+                    && (sellAmount * 10000 / fromBalance)
+                        > logicStorage.rebalanceLimit.minimalDurationBetweenRebalances)
+                || (assetConfigFrom.maxRebalancePercentage != 0
+                    && (sellAmount * 10000 / fromBalance) > assetConfigFrom.maxRebalancePercentage)
+        ) {
+            revert RebalanceMaxPercentage();
+        }
+        if (
+            logicStorage.rebalanceLimit.minimalDurationBetweenRebalances > 0 && logicStorage.lastRebalanceTimestamp > 0
                 && block.timestamp - logicStorage.lastRebalanceTimestamp
-                    < logicStorage.rebalanceLimit.minimalTimestampBetweenRebalances
+                    < logicStorage.rebalanceLimit.minimalDurationBetweenRebalances
         ) {
             revert RebalanceInMinimalTime();
         }
@@ -269,7 +344,6 @@ library AssetManagerLogic {
             revert RebalanceInMinimalTime();
         }
         if (assetConfigFrom.minimalBalance > 0) {
-            uint256 fromBalance = _addressBalance(from);
             if (fromBalance < sellAmount || fromBalance - sellAmount < assetConfigFrom.minimalBalance) {
                 revert MinimalBalanceNotMet();
             }
@@ -297,7 +371,7 @@ library AssetManagerLogic {
             logicStorage.lastRebalanceTimestamps[to] = block.timestamp;
             logicStorage.lastRebalanceTimestampKeys.add(to);
         }
-        if (logicStorage.rebalanceLimit.minimalTimestampBetweenRebalances > 0) {
+        if (logicStorage.rebalanceLimit.minimalDurationBetweenRebalances > 0) {
             logicStorage.lastRebalanceTimestamp = block.timestamp;
         }
     }
@@ -328,7 +402,6 @@ library AssetManagerLogic {
         }
         uint256 buyAssetBalanceBefore = _addressBalance(toAssetAddress);
 
-        // note: every asset manager should have its own swap provider instance
         swapProvider = _cloneProvider(logicStorage, swapProvider);
 
         ISwapProvider(swapProvider).swap(data);
@@ -343,70 +416,45 @@ library AssetManagerLogic {
         }
     }
 
-    function getBaseFee(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address stableCoinAddress
-    ) external onlyInitialized(logicStorage) {
-        if (stableCoinAddress == address(0)) {
-            revert AddressZero();
-        }
-        if (block.timestamp - logicStorage.lastBaseFeeTime < logicStorage.manageFee.baseFeeDuration) {
-            revert BaseFeeDurationNotMet();
-        }
-        logicStorage.lastBaseFeeTime = block.timestamp;
-        if (!logicStorage.manageFee.isBaseFeePercentage) {
-            VaultLogic.getMoney(
-                vaultStorage, logicStorage.manageFee.baseFeeAmount, stableCoinAddress, logicStorage.assetManager
-            );
-        } else {
-            VaultLogic.getPercentageMoney(vaultStorage, logicStorage.manageFee.baseFeeAmount, logicStorage.assetManager);
-        }
-    }
-
-    // TODO, when listing higher with buy low, sell to add revenues and get revenue fee from that
-    function getRevenueFee(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address stableCoinAddress
-    ) external onlyInitialized(logicStorage) {
-        if (stableCoinAddress == address(0)) {
-            revert AddressZero();
-        }
-        if (block.timestamp - logicStorage.lastRevenueTime < logicStorage.manageFee.revenueDuration) {
-            revert RevenueDurationNotMet();
-        }
-        if (logicStorage.revenue == 0) {
-            revert RevenueIsZero();
-        }
-        VaultLogic.getMoney(
-            vaultStorage,
-            logicStorage.revenue * logicStorage.manageFee.revenuePercentage / 10000,
-            stableCoinAddress,
-            logicStorage.assetManager
-        );
-        logicStorage.lastRevenueTime = block.timestamp;
-        logicStorage.revenue = 0;
-    }
-
-    function addYieldProviders(AssetManagerStorage storage logicStorage, address[] memory yieldProviderAddresses)
+    function addLendingProviders(AssetManagerStorage storage logicStorage, address[] memory lendingProviderAddresses)
         external
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < yieldProviderAddresses.length; i++) {
-            if (!logicStorage.whiteList.isYieldProviderWhiteListed(yieldProviderAddresses[i])) {
+        for (uint256 i = 0; i < lendingProviderAddresses.length; i++) {
+            if (!logicStorage.whiteList.isLendingProviderWhiteListed(lendingProviderAddresses[i])) {
                 revert NotWhiteListed();
             }
-            logicStorage.yieldProviders.add(yieldProviderAddresses[i]);
+            logicStorage.lendingProviders.add(lendingProviderAddresses[i]);
         }
     }
 
-    function removeYieldProviders(AssetManagerStorage storage logicStorage, address[] memory yieldProviderAddresses)
+    function addStakingProviders(AssetManagerStorage storage logicStorage, address[] memory stakingProviderAddresses)
         external
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < yieldProviderAddresses.length; i++) {
-            logicStorage.yieldProviders.remove(yieldProviderAddresses[i]);
+        for (uint256 i = 0; i < stakingProviderAddresses.length; i++) {
+            if (!logicStorage.whiteList.isStakingProviderWhiteListed(stakingProviderAddresses[i])) {
+                revert NotWhiteListed();
+            }
+            logicStorage.stakingProviders.add(stakingProviderAddresses[i]);
+        }
+    }
+
+    function removeLendingProviders(AssetManagerStorage storage logicStorage, address[] memory lendingProviderAddresses)
+        external
+        onlyInitialized(logicStorage)
+    {
+        for (uint256 i = 0; i < lendingProviderAddresses.length; i++) {
+            logicStorage.lendingProviders.remove(lendingProviderAddresses[i]);
+        }
+    }
+
+    function removeStakingProviders(AssetManagerStorage storage logicStorage, address[] memory stakingProviderAddresses)
+        external
+        onlyInitialized(logicStorage)
+    {
+        for (uint256 i = 0; i < stakingProviderAddresses.length; i++) {
+            logicStorage.stakingProviders.remove(stakingProviderAddresses[i]);
         }
     }
 
@@ -431,8 +479,12 @@ library AssetManagerLogic {
         }
     }
 
-    function getYieldProviders(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
-        return logicStorage.yieldProviders.values();
+    function getLendingProviders(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+        return logicStorage.lendingProviders.values();
+    }
+
+    function getStakingProviders(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+        return logicStorage.stakingProviders.values();
     }
 
     function getSwapProviders(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {

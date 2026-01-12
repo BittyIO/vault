@@ -1,36 +1,42 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
+import "forge-std/console.sol";
 import {Test} from "lib/forge-std/src/Test.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
-import {MockYieldProvider} from "./mock/MockYieldProvider.sol";
+import {MockLendingProvider} from "./mock/MockLendingProvider.sol";
+import {MockStakingProvider} from "./mock/MockStakingProvider.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
-import {SwapProviderShouldNotBeAllRemoved} from "../src/interfaces/Errors.sol";
+import {SwapProviderShouldNotBeAllRemoved} from "../src/interfaces/IWhiteList.sol";
 
 contract WhiteListTest is Test {
     WhiteList public whiteList;
     address public protocolOwner;
     MockSwapProvider public mockSwapProvider;
-    MockYieldProvider public mockYieldProvider;
+    MockLendingProvider public mockLendingProvider;
+    MockStakingProvider public mockStakingProvider;
     MockERC20 public mockWETH;
     MockERC20 public mockWBTC;
     MockERC20 public mockUSDT;
     MockERC20 public mockUSDC;
     address[] public assets;
     address[] public stableCoins;
-    address[] public yieldProviders;
+    address[] public lendingProviders;
+    address[] public stakingProviders;
     address[] public swapProviders;
 
     function setUp() public {
         protocolOwner = makeAddr("protocolOwner");
         mockSwapProvider = new MockSwapProvider();
-        mockYieldProvider = new MockYieldProvider();
+        mockLendingProvider = new MockLendingProvider();
+        mockStakingProvider = new MockStakingProvider();
         mockWETH = new MockERC20("WETH", "WETH", 18);
         mockWBTC = new MockERC20("WBTC", "WBTC", 8);
         mockUSDT = new MockERC20("USDT", "USDT", 6);
         mockUSDC = new MockERC20("USDC", "USDC", 6);
         whiteList = new WhiteList();
+        vm.prank(tx.origin);
         whiteList.transferOwnership(protocolOwner);
         assets = new address[](2);
         assets[0] = address(mockWETH);
@@ -38,8 +44,10 @@ contract WhiteListTest is Test {
         stableCoins = new address[](2);
         stableCoins[0] = address(mockUSDT);
         stableCoins[1] = address(mockUSDC);
-        yieldProviders = new address[](1);
-        yieldProviders[0] = address(mockYieldProvider);
+        lendingProviders = new address[](1);
+        lendingProviders[0] = address(mockLendingProvider);
+        stakingProviders = new address[](1);
+        stakingProviders[0] = address(mockStakingProvider);
         swapProviders = new address[](1);
         swapProviders[0] = address(mockSwapProvider);
     }
@@ -47,48 +55,62 @@ contract WhiteListTest is Test {
     function test_AddWhiteListedAssets() public {
         vm.prank(protocolOwner);
         whiteList.addAssets(assets);
-        assertEq(whiteList.isAssetWhiteListed(address(mockWETH)), true);
-        assertEq(whiteList.isAssetWhiteListed(address(mockWBTC)), true);
+        assertTrue(whiteList.isAssetWhiteListed(address(mockWETH)));
+        assertTrue(whiteList.isAssetWhiteListed(address(mockWBTC)));
     }
 
     function test_RemoveAssets() public {
         vm.prank(protocolOwner);
         whiteList.removeAssets(assets);
-        assertEq(whiteList.isAssetWhiteListed(address(mockWETH)), false);
-        assertEq(whiteList.isAssetWhiteListed(address(mockWBTC)), false);
+        assertFalse(whiteList.isAssetWhiteListed(address(mockWETH)));
+        assertFalse(whiteList.isAssetWhiteListed(address(mockWBTC)));
     }
 
     function test_AddStableCoins() public {
         vm.prank(protocolOwner);
         whiteList.addStableCoins(stableCoins);
-        assertEq(whiteList.isStableCoinWhiteListed(address(mockUSDT)), true);
-        assertEq(whiteList.isStableCoinWhiteListed(address(mockUSDC)), true);
+        assertTrue(whiteList.isStableCoinWhiteListed(address(mockUSDT)));
+        assertTrue(whiteList.isStableCoinWhiteListed(address(mockUSDC)));
     }
 
     function test_RemoveStableCoins() public {
         vm.prank(protocolOwner);
         whiteList.removeStableCoins(stableCoins);
-        assertEq(whiteList.isStableCoinWhiteListed(address(mockUSDT)), false);
-        assertEq(whiteList.isStableCoinWhiteListed(address(mockUSDC)), false);
+        assertFalse(whiteList.isStableCoinWhiteListed(address(mockUSDT)));
+        assertFalse(whiteList.isStableCoinWhiteListed(address(mockUSDC)));
     }
 
-    function test_AddYieldProviders() public {
+    function test_AddLendingProviders() public {
         vm.prank(protocolOwner);
-        whiteList.addYieldProviders(yieldProviders);
-        assertEq(whiteList.isYieldProviderWhiteListed(address(mockYieldProvider)), true);
+        whiteList.addLendingProviders(lendingProviders);
+        assertTrue(whiteList.isLendingProviderWhiteListed(address(mockLendingProvider)));
     }
 
-    function test_DeprecateYieldProviders() public {
+    function test_DeprecateLendingProviders() public {
         vm.prank(protocolOwner);
-        whiteList.deprecateYieldProviders(yieldProviders);
-        assertEq(whiteList.isYieldProviderWhiteListed(address(mockYieldProvider)), false);
-        assertEq(whiteList.isYieldProviderDeprecated(address(mockYieldProvider)), true);
+        whiteList.deprecateLendingProviders(lendingProviders);
+        assertFalse(whiteList.isLendingProviderWhiteListed(address(mockLendingProvider)));
+        assertTrue(whiteList.isLendingProviderDeprecated(address(mockLendingProvider)));
+    }
+
+    function test_AddStakingProviders() public {
+        vm.prank(protocolOwner);
+        whiteList.addStakingProviders(stakingProviders);
+        assertTrue(whiteList.isStakingProviderWhiteListed(address(mockStakingProvider)));
+        assertFalse(whiteList.isStakingProviderDeprecated(address(mockStakingProvider)));
+    }
+
+    function test_DeprecateStakingProviders() public {
+        vm.prank(protocolOwner);
+        whiteList.deprecateStakingProviders(stakingProviders);
+        assertFalse(whiteList.isStakingProviderWhiteListed(address(mockStakingProvider)));
+        assertTrue(whiteList.isStakingProviderDeprecated(address(mockStakingProvider)));
     }
 
     function test_AddSwapProviders() public {
         vm.prank(protocolOwner);
         whiteList.addSwapProviders(swapProviders);
-        assertEq(whiteList.isSwapProviderWhiteListed(address(mockSwapProvider)), true);
+        assertTrue(whiteList.isSwapProviderWhiteListed(address(mockSwapProvider)));
     }
 
     function test_RemoveSwapProvidersFailedWhenAllRemoved() public {
@@ -117,15 +139,20 @@ contract WhiteListTest is Test {
 
     function test_AddWhiteListedNeedToRemoveDeprecated() public {
         vm.prank(protocolOwner);
-        whiteList.addYieldProviders(yieldProviders);
-        assertEq(whiteList.isYieldProviderWhiteListed(address(mockYieldProvider)), true);
+        whiteList.addLendingProviders(lendingProviders);
+        assertTrue(whiteList.isLendingProviderWhiteListed(address(mockLendingProvider)));
         vm.prank(protocolOwner);
-        whiteList.deprecateYieldProviders(yieldProviders);
-        assertEq(whiteList.isYieldProviderWhiteListed(address(mockYieldProvider)), false);
-        assertEq(whiteList.isYieldProviderDeprecated(address(mockYieldProvider)), true);
+        whiteList.deprecateLendingProviders(lendingProviders);
+        assertFalse(whiteList.isLendingProviderWhiteListed(address(mockLendingProvider)));
+        assertTrue(whiteList.isLendingProviderDeprecated(address(mockLendingProvider)));
         vm.prank(protocolOwner);
-        whiteList.addYieldProviders(yieldProviders);
-        assertEq(whiteList.isYieldProviderWhiteListed(address(mockYieldProvider)), true);
-        assertEq(whiteList.isYieldProviderDeprecated(address(mockYieldProvider)), false);
+        whiteList.addLendingProviders(lendingProviders);
+        assertTrue(whiteList.isLendingProviderWhiteListed(address(mockLendingProvider)));
+        assertFalse(whiteList.isLendingProviderDeprecated(address(mockLendingProvider)));
+    }
+
+    function test_GetWhiteListInitCode() public pure {
+        bytes memory bytecode = type(WhiteList).creationCode;
+        console.logBytes32(keccak256(bytecode));
     }
 }

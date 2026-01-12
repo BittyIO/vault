@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {IYieldProvider} from "../interfaces/IAssetManager.sol";
+import {ILendingProvider} from "../interfaces/ILendingProvider.sol";
 import {IAaveV3, IAavePool} from "../libs/Aave.sol";
 import {IPoolDataProvider} from "../libs/Aave.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -9,7 +9,7 @@ import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 
-contract AaveProvider is IYieldProvider, Ownable, Initializable {
+contract AaveV3Provider is ILendingProvider, Ownable, Initializable {
     using SafeERC20 for IERC20;
     address public immutable aaveV3;
     address public immutable poolDataProvider;
@@ -35,7 +35,7 @@ contract AaveProvider is IYieldProvider, Ownable, Initializable {
         IERC20(asset).safeTransfer(msg.sender, amount);
     }
 
-    function getBalance(address asset) external view override returns (uint256) {
+    function getLendingBalance(address asset) external view override returns (uint256) {
         (uint256 currentATokenBalance,,,,,,,,) =
             IPoolDataProvider(poolDataProvider).getUserReserveData(asset, address(this));
         return currentATokenBalance;

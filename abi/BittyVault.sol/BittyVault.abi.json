@@ -105,10 +105,10 @@
   },
   {
     "type": "function",
-    "name": "addYieldProviders",
+    "name": "addLendingProviders",
     "inputs": [
       {
-        "name": "yieldProviderAddresses",
+        "name": "lendingProviderAddresses",
         "type": "address[]",
         "internalType": "address[]"
       }
@@ -437,7 +437,7 @@
     "name": "getBalance",
     "inputs": [
       {
-        "name": "yieldProvider",
+        "name": "LendingProvider",
         "type": "address",
         "internalType": "address"
       },
@@ -559,7 +559,7 @@
   },
   {
     "type": "function",
-    "name": "getYieldProviders",
+    "name": "getLendingProviders",
     "inputs": [],
     "outputs": [
       {
@@ -618,7 +618,7 @@
         "internalType": "address[]"
       },
       {
-        "name": "yieldProviders",
+        "name": "LendingProviders",
         "type": "address[]",
         "internalType": "address[]"
       },
@@ -873,7 +873,7 @@
             "internalType": "uint256"
           },
           {
-            "name": "minimalTimestampBetweenRebalances",
+            "name": "minimalDurationBetweenRebalances",
             "type": "uint256",
             "internalType": "uint256"
           },
@@ -954,10 +954,10 @@
   },
   {
     "type": "function",
-    "name": "removeYieldProviders",
+    "name": "removeLendingProviders",
     "inputs": [
       {
-        "name": "yieldProviderAddresses",
+        "name": "lendingProviderAddresses",
         "type": "address[]",
         "internalType": "address[]"
       }
@@ -1173,7 +1173,7 @@
             "internalType": "uint256"
           },
           {
-            "name": "minimalTimestampBetweenRebalances",
+            "name": "minimalDurationBetweenRebalances",
             "type": "uint256",
             "internalType": "uint256"
           },
@@ -1239,7 +1239,7 @@
     "name": "supply",
     "inputs": [
       {
-        "name": "yieldProvider",
+        "name": "LendingProvider",
         "type": "address",
         "internalType": "address"
       },
@@ -1334,7 +1334,7 @@
     "name": "withdraw",
     "inputs": [
       {
-        "name": "yieldProvider",
+        "name": "LendingProvider",
         "type": "address",
         "internalType": "address"
       },

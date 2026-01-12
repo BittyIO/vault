@@ -5,6 +5,7 @@ import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/
 import {
     AlreadyInitialized,
     AddressZero,
+    AmountIsZero,
     NotInitialized,
     NotWhiteListed,
     InsufficientBalance
@@ -13,10 +14,22 @@ import {IWhiteList} from "../interfaces/IWhiteList.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {VaultStorage} from "./Storages.sol";
-import {VaultHelper} from "../helpers/VaultHelper.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
+import {
+    IVault,
+    ReceiverNotFound,
+    ReceiverImmutable,
+    ReceiverPaymentCountZero,
+    ReceiverTriggerError,
+    ReceiverNotStartYet,
+    ReceiverInDuration,
+    ReceiverUpdatedInOneWeek,
+    ETHBalanceNotEnough,
+    WETHBalanceNotEnough
+} from "../interfaces/IVault.sol";
 
 library VaultLogic {
+    uint256 public constant RECEIVER_UPDATE_DELAY = 7 days;
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
 
@@ -42,14 +55,10 @@ library VaultLogic {
         }
     }
 
-    function initialize(VaultStorage storage logicStorage, address grantor, address weth, address whiteListAddress)
+    function initialize(VaultStorage storage logicStorage, address weth, address whiteListAddress)
         external
         onlyNotInitialized(logicStorage)
     {
-        if (grantor == address(0)) {
-            revert AddressZero();
-        }
-        logicStorage.grantor = grantor;
         if (weth == address(0)) {
             revert AddressZero();
         }
@@ -61,51 +70,114 @@ library VaultLogic {
         logicStorage.isInitialized = true;
     }
 
-    function changeGrantorAddress(VaultStorage storage logicStorage, address grantor)
+    function addReceiver(VaultStorage storage logicStorage, string memory name, IVault.Receiver memory receiver)
         external
         onlyInitialized(logicStorage)
     {
-        if (grantor == address(0)) {
-            revert AddressZero();
-        }
-        logicStorage.grantor = grantor;
+        _checkReceiver(receiver);
+        receiver.lastModifyTimestamp = block.timestamp;
+        logicStorage.receivers[name] = receiver;
     }
 
-    function turnETHToWETH(VaultStorage storage logicStorage) external onlyInitialized(logicStorage) {
+    function getReceiverAddress(VaultStorage storage logicStorage, string memory name) external view returns (address) {
+        return logicStorage.receivers[name].receiverAddress;
+    }
+
+    function changeReceiverAddress(VaultStorage storage logicStorage, string memory name, address newReceiverAddress)
+        external
+        onlyInitialized(logicStorage)
+    {
+        IVault.Receiver storage receiver = logicStorage.receivers[name];
+        if (receiver.isImmutable) {
+            revert ReceiverImmutable();
+        }
+        receiver.receiverAddress = newReceiverAddress;
+        receiver.lastModifyTimestamp = block.timestamp;
+    }
+
+    function updateReceiver(VaultStorage storage logicStorage, string memory name, IVault.Receiver memory receiver)
+        external
+        onlyInitialized(logicStorage)
+    {
+        IVault.Receiver memory existing = logicStorage.receivers[name];
+        if (existing.receiverAddress == address(0)) {
+            revert ReceiverNotFound();
+        }
+        if (existing.isImmutable) {
+            revert ReceiverImmutable();
+        }
+        _checkReceiver(receiver);
+        receiver.lastModifyTimestamp = block.timestamp;
+        logicStorage.receivers[name] = receiver;
+    }
+
+    function _checkReceiver(IVault.Receiver memory receiver) internal pure {
+        if (receiver.amount == 0) {
+            revert AmountIsZero();
+        }
+        if (receiver.paymentCount == 0) {
+            revert ReceiverPaymentCountZero();
+        }
+    }
+
+    function removeReceiver(VaultStorage storage logicStorage, string memory name)
+        external
+        onlyInitialized(logicStorage)
+    {
+        delete logicStorage.receivers[name];
+    }
+
+    function ETHToWETH(VaultStorage storage logicStorage, uint256 amount) external onlyInitialized(logicStorage) {
         uint256 ethBalance = address(this).balance;
-        if (ethBalance > 0) {
-            WETH(payable(logicStorage.weth)).deposit{value: ethBalance}();
+        if (ethBalance < amount) {
+            revert ETHBalanceNotEnough();
         }
+        WETH(payable(logicStorage.weth)).deposit{value: amount}();
     }
 
-    function getMoney(VaultStorage storage vaultStorage, uint256 amount, address stableCoinAddress, address to)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        VaultHelper.getMoney(address(this), amount, stableCoinAddress, to);
-    }
-
-    function getPercentageMoney(VaultStorage storage vaultStorage, uint256 percentage, address to)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        VaultHelper.getPercentageMoney(
-            address(this), vaultStorage.stableCoins.values(), vaultStorage.assets.values(), percentage, to
-        );
-    }
-
-    function withdraw(VaultStorage storage logicStorage, address assetAddress, uint256 amount, address to)
-        external
-        onlyInitialized(logicStorage)
-    {
-        if (assetAddress == address(0)) {
-            revert AddressZero();
+    function WETHToETH(VaultStorage storage logicStorage, uint256 amount) external onlyInitialized(logicStorage) {
+        uint256 wethBalance = IERC20(logicStorage.weth).balanceOf(address(this));
+        if (wethBalance < amount) {
+            revert WETHBalanceNotEnough();
         }
-        uint256 balance = IERC20(assetAddress).balanceOf(address(this));
+        WETH(payable(logicStorage.weth)).withdraw(amount);
+    }
+
+    function payReceiver(VaultStorage storage vaultStorage, string memory name) external {
+        IVault.Receiver memory receiver = vaultStorage.receivers[name];
+        if (receiver.amount == 0) {
+            revert ReceiverNotFound();
+        }
+        if (receiver.paymentCount == 0) {
+            revert ReceiverPaymentCountZero();
+        }
+        if (receiver.trigger != address(0) && msg.sender != receiver.trigger) {
+            revert ReceiverTriggerError();
+        }
+        if (receiver.startTimestamp < block.timestamp) {
+            revert ReceiverNotStartYet();
+        }
+        if (receiver.lastModifyTimestamp + RECEIVER_UPDATE_DELAY > block.timestamp) {
+            revert ReceiverUpdatedInOneWeek();
+        }
+        if (
+            receiver.durationTimestamp != 0
+                && block.timestamp - receiver.lastReceiveTimestamp < receiver.durationTimestamp
+        ) {
+            revert ReceiverInDuration();
+        }
+        _transferMoney(receiver.assetAddress, receiver.amount, receiver.receiverAddress);
+        receiver.lastReceiveTimestamp = block.timestamp;
+        receiver.paymentCount = receiver.paymentCount - 1;
+    }
+
+    function _transferMoney(address erc20Address, uint256 amount, address receiverAddress) internal {
+        IERC20 asset = IERC20(erc20Address);
+        uint256 balance = asset.balanceOf(address(this));
         if (balance < amount) {
             revert InsufficientBalance();
         }
-        IERC20(assetAddress).safeTransfer(to, amount);
+        asset.safeTransfer(receiverAddress, amount);
     }
 
     function addAssets(VaultStorage storage logicStorage, address[] memory assetAddresses)

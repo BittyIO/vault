@@ -13,6 +13,11 @@ interface IAssetManager {
          * @param minimalDurationBetweenRebalances The minimal duration between rebalances.
          */
         uint256 minimalDurationBetweenRebalances;
+        /**
+         * @dev The max rebalance percentage, 1-10000, 1000 means 10%
+         * @param maxRebalancePercentage The max rebalance percentage.
+         */
+        uint256 maxRebalancePercentage;
     }
 
     struct RebalanceLimit {
@@ -23,63 +28,126 @@ interface IAssetManager {
         uint256 minimalStableCoinBalance;
         /**
          * @dev The minimal timestamp between rebalances.
-         * @param minimalTimestampBetweenRebalances The minimal timestamp between rebalances.
+         * @param minimalDurationBetweenRebalances The minimal timestamp between rebalances.
          */
-        uint256 minimalTimestampBetweenRebalances;
+        uint256 minimalDurationBetweenRebalances;
         /**
-         * @dev The max rebalance percentage.
+         * @dev The max rebalance percentage, 1-10000, 1000 means 10%
          * @param maxRebalancePercentage The max rebalance percentage.
          */
         uint256 maxRebalancePercentage;
     }
-
-    struct ManageFee {
-        /**
-         *
-         * @param baseFeeAmount The base fee amount.
-         * @dev The base fee amount, if isBaseFeePercentage is true, this is 1 / 10000 as unit.
-         */
-        uint256 baseFeeAmount;
-        /**
-         * @dev The base fee duration.
-         * @param baseFeeDuration The base fee duration.
-         */
-        uint256 baseFeeDuration;
-        /**
-         * @dev Whether the base fee is a percentage.
-         * @param isBaseFeePercentage Whether the base fee is a percentage.
-         */
-        bool isBaseFeePercentage;
-
-        /**
-         * @dev The revenue percentage, this is 1 / 10000 as unit.
-         * @param revenuePercentage The revenue percentage.
-         */
-        uint256 revenuePercentage;
-
-        /**
-         * @dev The revenue duration.
-         * @param revenueDuration The revenue duration.
-         */
-        uint256 revenueDuration;
-    }
-
     /**
      * @notice Get the yield providers.
      * @dev Get the yield providers.
-     * @return yieldProviderAddresses The addresses of the yield providers.
+     * @return lendingProviderAddresses The addresses of the yield providers.
      */
-    function getYieldProviders() external view returns (address[] memory);
+    function getLendingProviders() external view returns (address[] memory);
+
+    /**
+     * @notice Get the staking providers.
+     * @dev Get the staking providers.
+     * @return stakingProviderAddresses The addresses of the staking providers.
+     */
+    function getStakingProviders() external view returns (address[] memory);
+
+    /**
+     * @notice Get the swap providers.
+     * @dev Get the swap providers.
+     * @return swapProviderAddresses The addresses of the swap providers.
+     */
     function getSwapProviders() external view returns (address[] memory);
 
+    /**
+     * @notice Set the rebalance rules.
+     * @dev Set the rebalance rules.
+     * @param rebalanceLimit The rebalance rules.
+     */
     function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external;
-    function setAssetConfig(address assetAddress, AssetConfig memory assetConfig) external;
-    function setAssetManager(address assetManager) external;
-    function setManageFee(ManageFee memory manageFee) external;
 
-    function supply(address yieldProvider, address assetAddress, uint256 amount) external;
-    function withdraw(address yieldProvider, address assetAddress, uint256 amount) external;
-    function getBalance(address yieldProvider, address assetAddress) external view returns (uint256);
+    /**
+     * @notice Set the asset config.
+     * @dev Set the asset config.
+     * @param assetAddress The address of the asset.
+     * @param assetConfig The asset config.
+     */
+    function setAssetConfig(address assetAddress, AssetConfig memory assetConfig) external;
+
+    /**
+     * @notice Change the asset manager.
+     * @dev Change the asset manager.
+     * @param assetManager The address of the asset manager.
+     */
+    function changeAssetManager(address assetManager) external;
+
+    /**
+     * @notice Supply the asset to the lending provider.
+     * @dev Supply the asset to the lending provider.
+     * @param lendingProvider The address of the lending provider.
+     * @param assetAddress The address of the asset.
+     * @param amount The amount of the asset.
+     */
+    function supply(address lendingProvider, address assetAddress, uint256 amount) external;
+
+    /**
+     * @notice Withdraw the asset from the lending provider.
+     * @dev Withdraw the asset from the lending provider.
+     * @param lendingProvider The address of the lending provider.
+     * @param assetAddress The address of the asset.
+     * @param amount The amount of the asset.
+     */
+    function withdraw(address lendingProvider, address assetAddress, uint256 amount) external;
+
+    /**
+     *
+     * @param lendingProvider The address of the lending provider.
+     * @param assetAddress The address of the asset.
+     * @return The balance of the asset.
+     */
+    function getLendingBalance(address lendingProvider, address assetAddress) external view returns (uint256);
+
+    /**
+     * @notice Stake the asset to the staking provider.
+     * @dev Stake the asset to the staking provider, this only works for ETH mainnet.
+     * @param stakingProvider The address of the staking provider.
+     * @param amount The amount of the weth.
+     */
+    function stake(address stakingProvider, uint256 amount) external;
+
+    /**
+     * @notice Get the staking balance.
+     * @dev Get the staking balance.
+     * @param stakingProvider The address of the staking provider.
+     * @return The staking balance.
+     */
+    function getStakingBalance(address stakingProvider) external view returns (uint256);
+
+    /**
+     * @notice Unstake the asset from the staking provider.
+     * @dev Unstake the asset from the staking provider, this only works for ETH mainnet.
+     * @param stakingProvider The address of the staking provider.
+     * @param amount The amount of the weth.
+     */
+    function unstake(address stakingProvider, uint256 amount) external;
+
+    /**
+     * @notice Get the unstake request ids.
+     * @dev Get the unstake request ids.
+     * @param stakingProvider The address of the staking provider.
+     * @return unstakeRequestIds The unstake request ids.
+     */
+    function getUnstakeRequestIds(address stakingProvider) external view returns (uint256[] memory);
+
+    /**
+     *
+     * @param swapProvider The address of the swap provider.
+     * @param from The address of the from asset.
+     * @param to The address of the to asset, asset should be in the added whitelist.
+     * @param sellAmount The amount of the from asset to sell.
+     * @param buyAmountMin The minimum amount of the to asset to buy.
+     * @param data The data for the swap.
+     * @dev Rebalance the assets.
+     */
     function rebalance(
         address swapProvider,
         address from,
@@ -88,39 +156,51 @@ interface IAssetManager {
         uint256 buyAmountMin,
         bytes memory data
     ) external;
-    /**
-     * @notice Get the trustee base fee.
-     * @dev Get the trustee base fee.
-     * @param stableCoinAddress The address of the stablecoin to get the money.
-     */
-    function getBaseFee(address stableCoinAddress) external;
 
     /**
-     * @notice Get the revenue fee.
-     * @dev Get the revenue fee.
-     * @param stableCoinAddress The address of the stablecoin to get the money.
+     * @notice Add the lending providers.
+     * @param lendingProviderAddresses The addresses of the lending providers.
+     * @dev Add the lending providers.
      */
-    function getRevenueFee(address stableCoinAddress) external;
+    function addLendingProviders(address[] memory lendingProviderAddresses) external;
 
-    function addYieldProviders(address[] memory yieldProviderAddresses) external;
+    /**
+     * @notice Remove the lending providers.
+     * @dev Remove the lending providers.
+     * @param lendingProviderAddresses The addresses of the lending providers.
+     * @dev Remove the lending providers.
+     */
+    function removeLendingProviders(address[] memory lendingProviderAddresses) external;
 
-    function removeYieldProviders(address[] memory yieldProviderAddresses) external;
+    /**
+     * @notice Add the staking providers.
+     * @dev Add the staking providers.
+     * @param stakingProviderAddresses The addresses of the staking providers.
+     * @dev Add the staking providers.
+     */
+    function addStakingProviders(address[] memory stakingProviderAddresses) external;
 
+    /**
+     * @notice Remove the staking providers.
+     * @dev Remove the staking providers.
+     * @param stakingProviderAddresses The addresses of the staking providers.
+     * @dev Remove the staking providers.
+     */
+    function removeStakingProviders(address[] memory stakingProviderAddresses) external;
+
+    /**
+     * @notice Add the swap providers.
+     * @dev Add the swap providers.
+     * @param swapProviderAddresses The addresses of the swap providers.
+     * @dev Add the swap providers.
+     */
     function addSwapProviders(address[] memory swapProviderAddresses) external;
 
+    /**
+     * @notice Remove the swap providers.
+     * @dev Remove the swap providers.
+     * @param swapProviderAddresses The addresses of the swap providers.
+     * @dev Remove the swap providers.
+     */
     function removeSwapProviders(address[] memory swapProviderAddresses) external;
-}
-
-interface IProvider {
-    function initialize(address newOwner) external;
-}
-
-interface IYieldProvider is IProvider {
-    function supply(address asset, uint256 amount) external payable;
-    function withdraw(address asset, uint256 amount) external;
-    function getBalance(address asset) external view returns (uint256);
-}
-
-interface ISwapProvider is IProvider {
-    function swap(bytes memory data) external payable;
 }

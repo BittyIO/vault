@@ -3,10 +3,10 @@ pragma solidity ^0.8.13;
 
 import {DeployScript} from "./BaseDeploy.sol";
 import {console2} from "lib/forge-std/src/console2.sol";
-import {AaveProvider} from "../src/providers/AaveProvider.sol";
+import {AaveV3Provider} from "../src/providers/AaveV3Provider.sol";
 import {UniswapV4Provider} from "../src/providers/UniswapV4Provider.sol";
 import {UniswapV3Provider} from "../src/providers/UniswapV3Provider.sol";
-import {LidoProvider} from "../src/providers/LidoProvider.sol";
+import {LidoV2Provider} from "../src/providers/LidoV2Provider.sol";
 
 contract ProvidersScript is DeployScript {
     function deploy() public override {
@@ -19,9 +19,9 @@ contract ProvidersScript is DeployScript {
         address poolManager = getAddress("POOL_MANAGER");
         address uniswapV3Router = getAddress("UNISWAP_V3_ROUTER");
 
-        AaveProvider aaveProvider = new AaveProvider(aaveV3, poolDataProvider);
+        AaveV3Provider aaveProvider = new AaveV3Provider(aaveV3, poolDataProvider);
         console2.log("AaveProvider deployed at", address(aaveProvider));
-        LidoProvider lidoProvider = new LidoProvider(steth, unsteth, weth);
+        LidoV2Provider lidoProvider = new LidoV2Provider(steth, unsteth, weth);
         console2.log("LidoProvider deployed at", address(lidoProvider));
         UniswapV4Provider uniswapV4Provider = new UniswapV4Provider(uniswapV4Router, poolManager);
         console2.log("UniswapV4Provider deployed at", address(uniswapV4Provider));

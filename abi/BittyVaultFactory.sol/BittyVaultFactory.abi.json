@@ -43,7 +43,7 @@
         "internalType": "address[]"
       },
       {
-        "name": "yieldProviders",
+        "name": "LendingProviders",
         "type": "address[]",
         "internalType": "address[]"
       },

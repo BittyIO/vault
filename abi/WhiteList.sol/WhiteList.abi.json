@@ -1,13 +1,7 @@
 [
   {
     "type": "constructor",
-    "inputs": [
-      {
-        "name": "poolManagerAddress",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
+    "inputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -16,6 +10,19 @@
     "inputs": [
       {
         "name": "assetAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "addLendingProviders",
+    "inputs": [
+      {
+        "name": "lendingProviderAddresses",
         "type": "address[]",
         "internalType": "address[]"
       }
@@ -38,6 +45,19 @@
   },
   {
     "type": "function",
+    "name": "addStakingProviders",
+    "inputs": [
+      {
+        "name": "stakingProviderAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "addSwapProviders",
     "inputs": [
       {
@@ -51,33 +71,7 @@
   },
   {
     "type": "function",
-    "name": "addYieldProviders",
-    "inputs": [
-      {
-        "name": "yieldProviderAddresses",
-        "type": "address[]",
-        "internalType": "address[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "deprecateYieldProviders",
-    "inputs": [
-      {
-        "name": "yieldProviderAddresses",
-        "type": "address[]",
-        "internalType": "address[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "deprecatedYieldProviders",
+    "name": "assets",
     "inputs": [
       {
         "name": "",
@@ -96,10 +90,145 @@
   },
   {
     "type": "function",
+    "name": "deprecateLendingProviders",
+    "inputs": [
+      {
+        "name": "lendingProviderAddresses",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "deprecateStakingProviders",
+    "inputs": [
+      {
+        "name": "stakingProviderAddress",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "deprecatedLendingProviders",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "deprecatedStakingProviders",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "assets_",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "stableCoins_",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "lendingProviders_",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "stakingProviders_",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "swapProviders_",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "isAssetWhiteListed",
     "inputs": [
       {
         "name": "assetAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isLendingProviderDeprecated",
+    "inputs": [
+      {
+        "name": "lendingProviderAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isLendingProviderWhiteListed",
+    "inputs": [
+      {
+        "name": "lendingProviderAddress",
         "type": "address",
         "internalType": "address"
       }
@@ -134,6 +263,44 @@
   },
   {
     "type": "function",
+    "name": "isStakingProviderDeprecated",
+    "inputs": [
+      {
+        "name": "stakingProviderAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isStakingProviderWhiteListed",
+    "inputs": [
+      {
+        "name": "stakingProviderAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "isSwapProviderWhiteListed",
     "inputs": [
       {
@@ -153,29 +320,10 @@
   },
   {
     "type": "function",
-    "name": "isYieldProviderDeprecated",
+    "name": "lendingProviders",
     "inputs": [
-      {
-        "name": "yieldProviderAddress",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
       {
         "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "isYieldProviderWhiteListed",
-    "inputs": [
-      {
-        "name": "yieldProviderAddress",
         "type": "address",
         "internalType": "address"
       }
@@ -192,19 +340,6 @@
   {
     "type": "function",
     "name": "owner",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "poolManager",
     "inputs": [],
     "outputs": [
       {
@@ -263,6 +398,44 @@
   },
   {
     "type": "function",
+    "name": "stableCoins",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "stakingProviders",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "transferOwnership",
     "inputs": [
       {
@@ -273,63 +446,6 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "whiteListedAssets",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "whiteListedStableCoins",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "whiteListedYieldProviders",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "event",

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {ISwapProvider} from "../../src/interfaces/IAssetManager.sol";
+import {ISwapProvider} from "../../src/interfaces/ISwapProvider.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 contract MockSwapProvider is ISwapProvider {
@@ -18,10 +18,8 @@ contract MockSwapProvider is ISwapProvider {
 
         if (buyAssetAddress != address(0) && buyAmountMin > 0) {
             if (buyAssetAddress == address(0)) {
-                // Returning ETH
                 payable(msg.sender).transfer(buyAmountMin);
             } else {
-                // Returning ERC20 token
                 IERC20(buyAssetAddress).transfer(msg.sender, buyAmountMin);
             }
         }

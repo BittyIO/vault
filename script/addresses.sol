@@ -6,6 +6,7 @@ library mainnet {
     address public constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address public constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     address public constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+    address public constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
 
     address public constant AAVE_V3 = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e;
 
@@ -17,6 +18,8 @@ library mainnet {
 
     address public constant STETH = 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84;
     address public constant UNSTETH = 0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1;
+    address public constant WHITE_LIST = 0x000000004A3dE1BE76e6325ba40f00F8E186AE7F;
+    address public constant VAULT_IMPL = 0x8D1a105Bbd2818A8D5915f726259aFE0ff0680b6;
 }
 
 library sepolia {
@@ -24,6 +27,7 @@ library sepolia {
     address public constant WETH = 0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9;
     address public constant USDT = 0x7169D38820dfd117C3FA1f22a697dBA58d90BA06;
     address public constant USDC = 0x00000000100aaAF8Cff772A414b18168FA758af9;
+    address public constant DAI = 0x3e622317f8C93f7328350cF0B56d9eD4C620C5d6;
 
     address public constant AAVE_V3 = 0x012bAC54348C0E635dCAc9D5FB99f06F24136C9A;
 
@@ -35,4 +39,6 @@ library sepolia {
 
     address public constant STETH = 0x3e3FE7dBc6B4C189E7128855dD526361c49b40Af;
     address public constant UNSTETH = 0x1583C7b3f4C3B008720E6BcE5726336b0aB25fdd;
+    address public constant WHITE_LIST = 0x000000004A3dE1BE76e6325ba40f00F8E186AE7F;
+    address public constant VAULT_IMPL = 0x8D1a105Bbd2818A8D5915f726259aFE0ff0680b6;
 }

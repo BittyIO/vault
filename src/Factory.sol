@@ -5,25 +5,24 @@ import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/In
 import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {AddressZero, VaultAlreadyDeployed} from "./interfaces/Errors.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
-import {BittyVault} from "./BittyVault.sol";
+import {Vault} from "./Vault.sol";
 import {FactoryHelper} from "./helpers/FactoryHelper.sol";
 
 /**
- * @title BittyVaultFactory
- * @notice Factory contract for deploying BittyVault instances using CREATE2
- * @dev Each grantor address will generate a unique, deterministic BittyVault address
+ * @title Factory
+ * @notice Factory contract for deploying Vault instances using CREATE2
+ * @dev Each owner address will generate a unique, deterministic Vault address
  */
-contract BittyVaultFactory is Initializable {
+contract Factory is Initializable {
     IWhiteList public whiteList;
     address public vaultImplementation;
     address public wethAddress;
     /**
-     * @notice Emitted when a new BittyVault is deployed
+     * @notice Emitted when a new Vault is deployed
      * @param vault The address of the deployed vault
-     * @param grantor The grantor address that will own this vault
-     * @param inputSalt The salt used for the deployment
+     * @param owner The owner address that will own this vault
      */
-    event VaultDeployed(address indexed vault, address indexed grantor, string inputSalt);
+    event VaultDeployed(address indexed vault, address indexed owner);
 
     function initialize(address vaultImplementation_, address whiteListAddress_, address wethAddress_)
         public
@@ -44,37 +43,39 @@ contract BittyVaultFactory is Initializable {
     }
 
     function deployVault(
-        string memory inputSalt,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
-        address[] memory yieldProviders,
+        address[] memory lendingProviders,
+        address[] memory stakingProviders,
         address[] memory swapProviders
     ) external returns (address vault) {
-        FactoryHelper.checkWhiteList(whiteList, assetAddresses, stableCoinAddresses, yieldProviders, swapProviders);
+        FactoryHelper.checkWhiteList(
+            whiteList, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, swapProviders
+        );
 
-        bytes32 salt = keccak256(abi.encodePacked(msg.sender, inputSalt));
+        bytes32 salt = keccak256(abi.encodePacked(msg.sender));
         address computedAddress = Clones.predictDeterministicAddress(vaultImplementation, salt, address(this));
 
         if (computedAddress.code.length > 0) revert VaultAlreadyDeployed();
 
         vault = Clones.cloneDeterministic(vaultImplementation, salt);
 
-        BittyVault(payable(vault))
+        Vault(payable(vault))
             .initialize(
-                msg.sender,
                 address(whiteList),
                 wethAddress,
                 assetAddresses,
                 stableCoinAddresses,
-                yieldProviders,
+                lendingProviders,
+                stakingProviders,
                 swapProviders
             );
 
-        emit VaultDeployed(vault, msg.sender, inputSalt);
+        emit VaultDeployed(vault, msg.sender);
     }
 
-    function computeVaultAddress(address grantor, string memory inputSalt) external view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(grantor, inputSalt));
+    function computeVaultAddress(address owner) external view returns (address) {
+        bytes32 salt = keccak256(abi.encodePacked(owner));
         return Clones.predictDeterministicAddress(vaultImplementation, salt, address(this));
     }
 }

@@ -1,8 +1,95 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
+error ReceiverNotFound();
+error ReceiverImmutable();
+error ReceiverPaymentCountZero();
+error ReceiverTriggerError();
+error ReceiverNotStartYet();
+error ReceiverInDuration();
+error ReceiverUpdatedInOneWeek();
+error OnlyReceiver();
+
+error ETHBalanceNotEnough();
+error WETHBalanceNotEnough();
+
+/**
+ * @title Turtum Vault
+ * @notice Multi-sigs + Turtum Vault ensure your safe.
+ *
+ * Vault is not going to fix the safety of private key management, the best practise of private key management is multi-sigs.
+ *
+ * Vault is going to implement:
+ * 1. Familly/Company weekly/monthly spending.
+ * 2. Money for kids get in the future.
+ * 3. Investment avoiding scams assets by Turtum whitelist.
+ * 4. Yielding avoid high risk lending/staking protocols by Turtum whitelist.
+ * 5. Trading avoid scam protocols by Turtum whitelist.
+ * 6. Stay away from frontend supply chain attacks(which is the biggest security issue in DeFi) when interating with trading/lending/staking protocols.
+ */
 interface IVault {
-    function turnETHToWETH() external;
+    struct Receiver {
+        // a more complex receiver contract can be implemented for advanced users out of this repo
+        address receiverAddress;
+        // if this is not address(0), then only this trigger address can trigger the payment
+        address trigger;
+        address assetAddress;
+        uint256 amount;
+        uint8 paymentCount;
+        uint256 startTimestamp;
+        uint256 durationTimestamp;
+        uint256 lastReceiveTimestamp;
+        // payment should happened after lastModifyTimestamp + 7 days for safety
+        uint256 lastModifyTimestamp;
+        bool isImmutable;
+    }
+
+    /**
+     * @notice add a receiver.
+     * @param receiver receiver.
+     */
+    function addReceiver(string memory name, Receiver calldata receiver) external;
+
+    /**
+     *
+     * @param name name of the receiver.
+     * @param receiver the updated receiver.
+     */
+    function updateReceiver(string memory name, Receiver calldata receiver) external;
+
+    /**
+     * @notice change the receiver address.
+     * @param name name of the receiver.
+     * @param newReceiverAddress new receiver address.
+     * @dev Only the old receiver address can execute it.
+     */
+    function changeReceiverAddress(string memory name, address newReceiverAddress) external;
+
+    /**
+     * @notice remove a recipient.
+     * @param name the name of the recipient.
+     */
+    function removeReceiver(string memory name) external;
+
+    /**
+     * @notice set the asset manager of this vault.
+     * @param assetManager the address of asset manager.
+     */
+    function setAssetManager(address assetManager) external;
+
+    /**
+     * @notice Turn the ETH to WETH.
+     * @dev Turn the ETH to WETH.
+     * @param amount The amount of ETH to turn.
+     */
+    function ETHToWETH(uint256 amount) external;
+
+    /**
+     * @notice Turn the WETH to ETH.
+     * @dev Turn the WETH to ETH.
+     * @param amount The amount of WETH to turn.
+     */
+    function WETHToETH(uint256 amount) external;
 
     /**
      * @notice Add the assets to the vault.
@@ -61,11 +148,10 @@ interface IVault {
     function getStableCoins() external view returns (address[] memory);
 
     /**
-     * @notice Withdraw the asset from the trust.
-     * @dev Withdraw the asset from the trust.
-     * @param assetAddress The address of the asset.
-     * @param amount The amount of the asset to withdraw.
+     *
+     * @param name the name of the recipient.
+     * @dev Trigger or anyone can execute it.
      */
-    function withdraw(address assetAddress, uint256 amount) external;
+    function payReceiver(string memory name) external;
 }
 

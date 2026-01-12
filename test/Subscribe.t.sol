@@ -38,6 +38,7 @@ contract SubscribeTest is Test {
         address[] memory stableCoins = new address[](2);
         stableCoins[0] = address(mockStableCoin);
         stableCoins[1] = address(mockStableCoin2);
+        vm.prank(tx.origin);
         IWhiteList(whiteList).addStableCoins(stableCoins);
     }
 

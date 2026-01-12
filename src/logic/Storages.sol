@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IAssetManager} from "../interfaces/IAssetManager.sol";
 import {IWhiteList} from "../interfaces/IWhiteList.sol";
+import {IVault} from "../interfaces/IVault.sol";
 
 struct AssetManagerStorage {
     bool isInitialized;
@@ -16,23 +17,19 @@ struct AssetManagerStorage {
     EnumerableSet.AddressSet assetConfigKeys;
     EnumerableSet.AddressSet lastRebalanceTimestampKeys;
 
-    EnumerableSet.AddressSet yieldProviders;
+    EnumerableSet.AddressSet lendingProviders;
+    EnumerableSet.AddressSet stakingProviders;
     EnumerableSet.AddressSet swapProviders;
 
     IWhiteList whiteList;
 
     uint256 lastRebalanceTimestamp;
     IAssetManager.RebalanceLimit rebalanceLimit;
-
-    IAssetManager.ManageFee manageFee;
-    uint256 lastBaseFeeTime;
-    uint256 lastRevenueTime;
-    uint256 revenue;
 }
 
 struct VaultStorage {
     bool isInitialized;
-    address grantor;
+    mapping(string => IVault.Receiver) receivers;
     address weth;
     IWhiteList whiteList;
     EnumerableSet.AddressSet assets;
