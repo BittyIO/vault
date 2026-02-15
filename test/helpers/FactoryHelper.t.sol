@@ -4,8 +4,7 @@ pragma solidity ^0.8.27;
 import {Test} from "lib/forge-std/src/Test.sol";
 import {FactoryHelper} from "../../src/helpers/FactoryHelper.sol";
 import {WhiteList} from "../../src/WhiteList.sol";
-import {IWhiteList} from "../../src/interfaces/IWhiteList.sol";
-import {NotWhiteListed} from "../../src/interfaces/Errors.sol";
+import {IWhiteList, NotWhiteListed} from "../../src/interfaces/IWhiteList.sol";
 
 contract FactoryHelperWrapper {
     function checkWhiteList(
@@ -132,10 +131,10 @@ contract FactoryHelperTest is Test {
         address lendingProvider = makeAddr("lendingProvider");
         address invalidLendingProvider = makeAddr("invalidLendingProvider");
 
-        address[] memory LendingProviders = new address[](1);
-        LendingProviders[0] = lendingProvider;
+        address[] memory lendingProviders = new address[](1);
+        lendingProviders[0] = lendingProvider;
         vm.prank(tx.origin);
-        whiteList.addLendingProviders(LendingProviders);
+        whiteList.addLendingProviders(lendingProviders);
 
         address[] memory testLendingProviders = new address[](1);
         testLendingProviders[0] = invalidLendingProvider;

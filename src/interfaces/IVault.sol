@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
+// common errors
+error AddressZero();
+error AmountIsZero();
+error TransferFailed();
+error NotInitialized();
+error AlreadyInitialized();
+error InsufficientBalance();
+
+// receiver errors
 error ReceiverNotFound();
 error ReceiverImmutable();
 error ReceiverPaymentCountZero();

@@ -3,17 +3,18 @@ pragma solidity ^0.8.27;
 
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
-import {AddressZero, VaultAlreadyDeployed} from "./interfaces/Errors.sol";
+import {AddressZero} from "./interfaces/IVault.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
 import {Vault} from "./Vault.sol";
 import {FactoryHelper} from "./helpers/FactoryHelper.sol";
+import {IFactory, VaultAlreadyDeployed} from "./interfaces/IFactory.sol";
 
 /**
  * @title Factory
  * @notice Factory contract for deploying Vault instances using CREATE2
  * @dev Each owner address will generate a unique, deterministic Vault address
  */
-contract Factory is Initializable {
+contract Factory is IFactory, Initializable {
     IWhiteList public whiteList;
     address public vaultImplementation;
     address public wethAddress;
@@ -25,7 +26,8 @@ contract Factory is Initializable {
     event VaultDeployed(address indexed vault, address indexed owner);
 
     function initialize(address vaultImplementation_, address whiteListAddress_, address wethAddress_)
-        public
+        external
+        override
         initializer
     {
         if (vaultImplementation_ == address(0)) {
@@ -48,7 +50,7 @@ contract Factory is Initializable {
         address[] memory lendingProviders,
         address[] memory stakingProviders,
         address[] memory swapProviders
-    ) external returns (address vault) {
+    ) external override returns (address vault) {
         FactoryHelper.checkWhiteList(
             whiteList, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, swapProviders
         );
@@ -74,7 +76,7 @@ contract Factory is Initializable {
         emit VaultDeployed(vault, msg.sender);
     }
 
-    function computeVaultAddress(address owner) external view returns (address) {
+    function computeVaultAddress(address owner) external view override returns (address) {
         bytes32 salt = keccak256(abi.encodePacked(owner));
         return Clones.predictDeterministicAddress(vaultImplementation, salt, address(this));
     }

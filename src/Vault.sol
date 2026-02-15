@@ -3,10 +3,9 @@ pragma solidity ^0.8.27;
 
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
-import {IAssetManager} from "./interfaces/IAssetManager.sol";
+import {IAssetManager, OnlyAssetManager} from "./interfaces/IAssetManager.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
-import {IVault} from "./interfaces/IVault.sol";
-import {AddressZero, OnlyOwner, OnlyAssetManager} from "./interfaces/Errors.sol";
+import {IVault, AddressZero} from "./interfaces/IVault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";

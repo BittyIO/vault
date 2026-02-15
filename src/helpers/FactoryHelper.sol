@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {IWhiteList} from "../interfaces/IWhiteList.sol";
-import {NotWhiteListed} from "../interfaces/Errors.sol";
+import {IWhiteList, NotWhiteListed} from "../interfaces/IWhiteList.sol";
 
 library FactoryHelper {
     /**

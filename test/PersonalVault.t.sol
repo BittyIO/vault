@@ -3,7 +3,7 @@ pragma solidity ^0.8.27;
 
 import {Test} from "lib/forge-std/src/Test.sol";
 import {Vault} from "../src/Vault.sol";
-import {AddressZero, AlreadyInitialized} from "../src/interfaces/Errors.sol";
+import {AddressZero, AlreadyInitialized} from "../src/interfaces/IVault.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";

@@ -7,10 +7,9 @@ import {
     AddressZero,
     AmountIsZero,
     NotInitialized,
-    NotWhiteListed,
     InsufficientBalance
-} from "../interfaces/Errors.sol";
-import {IWhiteList} from "../interfaces/IWhiteList.sol";
+} from "../interfaces/IVault.sol";
+import {IWhiteList, NotWhiteListed} from "../interfaces/IWhiteList.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {VaultStorage} from "./Storages.sol";

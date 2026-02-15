@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {IWhiteList} from "../interfaces/IWhiteList.sol";
+import {IWhiteList, NotWhiteListed, Deprecated} from "../interfaces/IWhiteList.sol";
 import {
     IAssetManager,
     DisableRebalanceUntilTimestampTooEarly,
@@ -34,10 +34,8 @@ import {
     AmountIsZero,
     InsufficientBalance,
     NotInitialized,
-    Deprecated,
-    NotWhiteListed,
     AlreadyInitialized
-} from "../interfaces/Errors.sol";
+} from "../interfaces/IVault.sol";
 import {AssetManagerStorage, VaultStorage} from "./Storages.sol";
 import {VaultLogic} from "./VaultLogic.sol";
 
