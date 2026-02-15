@@ -25,7 +25,8 @@ import {
     ReceiverInDuration,
     ReceiverUpdatedInOneWeek,
     ETHBalanceNotEnough,
-    WETHBalanceNotEnough
+    WETHBalanceNotEnough,
+    AddingAssetsDisabled
 } from "../interfaces/IVault.sol";
 
 library VaultLogic {
@@ -184,12 +185,19 @@ library VaultLogic {
         external
         onlyInitialized(logicStorage)
     {
+        if (logicStorage.addingAssetsDisabled) {
+            revert AddingAssetsDisabled();
+        }
         for (uint256 i = 0; i < assetAddresses.length; i++) {
             if (!logicStorage.whiteList.isAssetWhiteListed(assetAddresses[i])) {
                 revert NotWhiteListed();
             }
             logicStorage.assets.add(assetAddresses[i]);
         }
+    }
+
+    function disableAddingAssets(VaultStorage storage logicStorage) external onlyInitialized(logicStorage) {
+        logicStorage.addingAssetsDisabled = true;
     }
 
     function removeAssets(VaultStorage storage logicStorage, address[] memory assetAddresses)

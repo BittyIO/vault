@@ -195,6 +195,10 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _vault.addAssets(assetAddresses);
     }
 
+    function disableAddingAssets() external override onlyOwner {
+        _vault.disableAddingAssets();
+    }
+
     function removeAssets(address[] memory assetAddresses) external override onlyOwner {
         _vault.removeAssets(assetAddresses);
     }

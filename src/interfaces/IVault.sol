@@ -12,6 +12,7 @@ error OnlyReceiver();
 
 error ETHBalanceNotEnough();
 error WETHBalanceNotEnough();
+error AddingAssetsDisabled();
 
 /**
  * @title Turtum Vault
@@ -97,6 +98,15 @@ interface IVault {
      * @param assetAddresses The addresses of the assets.
      */
     function addAssets(address[] memory assetAddresses) external;
+
+    /**
+     * @notice Disable the adding assets.
+     * @dev Disable the adding assets.
+     *
+     * After disabling, the assets can not be added, but can be removed or reset.
+     * It would be useful when someone try to limit the asset manager to just buy limited assets like wbtc, weth.
+     */
+    function disableAddingAssets() external;
 
     /**
      * @notice Remove the assets from the vault.
