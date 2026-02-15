@@ -2,16 +2,14 @@
 pragma solidity ^0.8.27;
 
 import {Test} from "lib/forge-std/src/Test.sol";
+import {AmountIsZero, AddressZero, NotInitialized, Deprecated, OnlyAssetManager} from "../src/interfaces/Errors.sol";
 import {
-    AmountIsZero,
-    AddressZero,
-    NotInitialized,
     InvalidLendingProvider,
     InvalidStakingProvider,
-    Deprecated,
-    OnlyAssetManager,
-    RebalanceMaxPercentage
-} from "../src/interfaces/Errors.sol";
+    RebalanceMaxPercentage,
+    RebalanceDisabled,
+    DisableRebalanceUntilTimestampTooEarly
+} from "../src/interfaces/IAssetManager.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {MockLendingProvider} from "./mock/MockLendingProvider.sol";
@@ -346,6 +344,8 @@ contract TestAssetManager is Test, Vault {
         assertEq(balance, 0);
     }
 
+    // ---------- rebalance tests ----------
+
     function test_RebalanceMaxPercentage_ExceedsAssetConfig() public {
         this.doInitialize();
         AssetConfig memory assetConfig =
@@ -417,6 +417,93 @@ contract TestAssetManager is Test, Vault {
 
         vm.prank(assetManagerAddress);
         this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+    }
+
+    function test_CheckRebalanceDisabledUntilTimestamp_RevertsWhenBeforeTimestamp() public {
+        this.doInitialize();
+        AssetConfig memory assetConfig =
+            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 0, maxRebalancePercentage: 0});
+        vm.prank(ownerAddress);
+        this.setAssetConfig(address(mockWETH), assetConfig);
+
+        uint256 disabledUntil = block.timestamp + 100;
+        vm.prank(assetManagerAddress);
+        this.disableRebalanceUntilTimestamp(disabledUntil);
+
+        uint256 sellAmount = 1 * 1e18;
+        uint256 buyAmount = 10 * 1e6;
+        deal(address(mockWETH), address(this), sellAmount);
+        address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
+        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
+        MockERC20(mockWETH).approve(clonedSwapProvider, sellAmount);
+
+        vm.expectRevert(RebalanceDisabled.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+    }
+
+    function test_CheckRebalanceDisabledUntilTimestamp_SucceedsAfterTimestamp() public {
+        this.doInitialize();
+        AssetConfig memory assetConfig =
+            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 0, maxRebalancePercentage: 0});
+        vm.prank(ownerAddress);
+        this.setAssetConfig(address(mockWETH), assetConfig);
+
+        uint256 disabledUntil = block.timestamp + 100;
+        vm.prank(assetManagerAddress);
+        this.disableRebalanceUntilTimestamp(disabledUntil);
+
+        vm.warp(disabledUntil + 1);
+
+        uint256 sellAmount = 1 * 1e18;
+        uint256 buyAmount = 10 * 1e6;
+        deal(address(mockWETH), address(this), sellAmount);
+        address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
+        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
+        MockERC20(mockWETH).approve(clonedSwapProvider, sellAmount);
+
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+
+        assertEq(MockERC20(mockWETH).balanceOf(address(this)), 0);
+        assertEq(MockERC20(mockUSDT).balanceOf(address(this)), buyAmount);
+    }
+
+    function test_CheckRebalanceDisabledUntilTimestamp_SucceedsWhenNeverDisabled() public {
+        this.doInitialize();
+        AssetConfig memory assetConfig =
+            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 0, maxRebalancePercentage: 0});
+        vm.prank(ownerAddress);
+        this.setAssetConfig(address(mockWETH), assetConfig);
+
+        uint256 sellAmount = 1 * 1e18;
+        uint256 buyAmount = 10 * 1e6;
+        deal(address(mockWETH), address(this), sellAmount);
+        address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
+        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
+        MockERC20(mockWETH).approve(clonedSwapProvider, sellAmount);
+
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+
+        assertEq(MockERC20(mockWETH).balanceOf(address(this)), 0);
+        assertEq(MockERC20(mockUSDT).balanceOf(address(this)), buyAmount);
+    }
+
+    function test_DisableRebalanceUntilTimestampTooEarly_RevertsWhenNewTimestampEarlier() public {
+        this.doInitialize();
+
+        uint256 firstDisabledUntil = block.timestamp + 200;
+        vm.prank(assetManagerAddress);
+        this.disableRebalanceUntilTimestamp(firstDisabledUntil);
+
+        uint256 earlierTimestamp = block.timestamp + 100;
+        vm.expectRevert(DisableRebalanceUntilTimestampTooEarly.selector);
+        vm.prank(assetManagerAddress);
+        this.disableRebalanceUntilTimestamp(earlierTimestamp);
     }
 
     // ---------- staking tests ----------

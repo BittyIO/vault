@@ -25,6 +25,7 @@ struct AssetManagerStorage {
 
     uint256 lastRebalanceTimestamp;
     IAssetManager.RebalanceLimit rebalanceLimit;
+    uint256 rebalanceDisabledUntilTimestamp;
 }
 
 struct VaultStorage {

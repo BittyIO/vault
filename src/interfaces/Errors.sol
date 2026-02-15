@@ -6,26 +6,11 @@ error AddressZero();
 error AmountIsZero();
 
 // Vault errors
+error InsufficientBalance();
 error InsufficientStablecoinBalance();
 error TransferFailed();
 error NotInitialized();
 error AlreadyInitialized();
-
-// AssetManager errors
-error RebalanceInMinimalTime();
-error RebalanceMaxPercentage();
-error InsufficientBalance();
-error SellAmountMismatch();
-error BuyAmountNotEnough();
-error MinimalBalanceNotMet();
-error SupplyAmountMismatch();
-error WithdrawAmountMismatch();
-error InvalidLendingProvider();
-error InvalidStakingProvider();
-error InvalidSwapProvider();
-error InvalidSwapData();
-error StakeAmountMismatch();
-error UnstakeAmountMismatch();
 
 // Owner errors
 error OnlyOwner();

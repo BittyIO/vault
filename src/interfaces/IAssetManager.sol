@@ -1,6 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
+error RebalanceInMinimalTime();
+error RebalanceMaxPercentage();
+error SellAmountMismatch();
+error BuyAmountNotEnough();
+error MinimalBalanceNotMet();
+error SupplyAmountMismatch();
+error WithdrawAmountMismatch();
+error InvalidLendingProvider();
+error InvalidStakingProvider();
+error InvalidSwapProvider();
+error InvalidSwapData();
+error StakeAmountMismatch();
+error UnstakeAmountMismatch();
+error DisableRebalanceUntilTimestampTooEarly();
+error RebalanceDisabled();
+
 interface IAssetManager {
     struct AssetConfig {
         /**
@@ -156,6 +172,13 @@ interface IAssetManager {
         uint256 buyAmountMin,
         bytes memory data
     ) external;
+
+    /**
+     * @notice Disable the rebalance until the timestamp.
+     * @dev Disable the rebalance until the timestamp.
+     * @param timestamp The timestamp to disable the rebalance until.
+     */
+    function disableRebalanceUntilTimestamp(uint256 timestamp) external;
 
     /**
      * @notice Add the lending providers.
