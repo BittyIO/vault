@@ -129,6 +129,10 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _assetManager.rebalance(_vault, swapProvider, from, to, sellAmount, buyAmountMin, data);
     }
 
+    function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyAssetManager {
+        _assetManager.disableRebalanceUntilTimestamp(timestamp);
+    }
+
     function ETHToWETH(uint256 amount) external override onlyAssetManager {
         _vault.ETHToWETH(amount);
     }

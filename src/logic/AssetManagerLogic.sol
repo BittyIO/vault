@@ -3,7 +3,24 @@ pragma solidity ^0.8.27;
 
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IWhiteList} from "../interfaces/IWhiteList.sol";
-import {IAssetManager} from "../interfaces/IAssetManager.sol";
+import {
+    IAssetManager,
+    DisableRebalanceUntilTimestampTooEarly,
+    RebalanceDisabled,
+    RebalanceInMinimalTime,
+    RebalanceMaxPercentage,
+    SellAmountMismatch,
+    BuyAmountNotEnough,
+    MinimalBalanceNotMet,
+    SupplyAmountMismatch,
+    WithdrawAmountMismatch,
+    StakeAmountMismatch,
+    UnstakeAmountMismatch,
+    InvalidLendingProvider,
+    InvalidStakingProvider,
+    InvalidSwapProvider,
+    InvalidSwapData
+} from "../interfaces/IAssetManager.sol";
 import {IProvider} from "../interfaces/IProvider.sol";
 import {ILendingProvider} from "../interfaces/ILendingProvider.sol";
 import {IStakingProvider} from "../interfaces/IStakingProvider.sol";
@@ -15,23 +32,10 @@ import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {
     AddressZero,
     AmountIsZero,
-    RebalanceInMinimalTime,
-    RebalanceMaxPercentage,
     InsufficientBalance,
-    SellAmountMismatch,
-    BuyAmountNotEnough,
-    MinimalBalanceNotMet,
     NotInitialized,
-    SupplyAmountMismatch,
-    WithdrawAmountMismatch,
-    StakeAmountMismatch,
-    UnstakeAmountMismatch,
-    InvalidLendingProvider,
-    InvalidStakingProvider,
-    InvalidSwapProvider,
     Deprecated,
     NotWhiteListed,
-    InvalidSwapData,
     AlreadyInitialized
 } from "../interfaces/Errors.sol";
 import {AssetManagerStorage, VaultStorage} from "./Storages.sol";
@@ -296,6 +300,15 @@ library AssetManagerLogic {
         }
     }
 
+    function _checkRebalanceDisabledUntilTimestamp(AssetManagerStorage storage logicStorage) private view {
+        if (
+            logicStorage.rebalanceDisabledUntilTimestamp > 0
+                && block.timestamp < logicStorage.rebalanceDisabledUntilTimestamp
+        ) {
+            revert RebalanceDisabled();
+        }
+    }
+
     function rebalance(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
@@ -311,6 +324,7 @@ library AssetManagerLogic {
         }
         VaultLogic.checkAsset(vaultStorage, to);
         _checkSwapProvider(logicStorage, swapProvider);
+        _checkRebalanceDisabledUntilTimestamp(logicStorage);
         IAssetManager.AssetConfig memory assetConfigFrom = logicStorage.assetConfigs[from];
         IAssetManager.AssetConfig memory assetConfigTo = logicStorage.assetConfigs[to];
         uint256 fromBalance = _addressBalance(from);
@@ -414,6 +428,19 @@ library AssetManagerLogic {
         if (buyAssetBalanceAfter - buyAssetBalanceBefore < buyAmountMin) {
             revert BuyAmountNotEnough();
         }
+    }
+
+    function disableRebalanceUntilTimestamp(AssetManagerStorage storage logicStorage, uint256 timestamp)
+        external
+        onlyInitialized(logicStorage)
+    {
+        if (timestamp == 0) {
+            return;
+        }
+        if (timestamp < logicStorage.rebalanceDisabledUntilTimestamp) {
+            revert DisableRebalanceUntilTimestampTooEarly();
+        }
+        logicStorage.rebalanceDisabledUntilTimestamp = timestamp;
     }
 
     function addLendingProviders(AssetManagerStorage storage logicStorage, address[] memory lendingProviderAddresses)
