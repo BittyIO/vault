@@ -5,10 +5,10 @@ import {Test} from "lib/forge-std/src/Test.sol";
 
 import {ISubscribe} from "../src/interfaces/ISubscribe.sol";
 import {Subscribe} from "../src/Subscribe.sol";
-import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
+import {IWhiteList, NotWhiteListed} from "../src/interfaces/IWhiteList.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
-import {AddressZero, NotWhiteListed, InsufficientBalance} from "../src/interfaces/Errors.sol";
+import {AddressZero, InsufficientBalance} from "../src/interfaces/IVault.sol";
 import {
     AlreadySubscribed,
     AlreadyPremium,

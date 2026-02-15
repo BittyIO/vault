@@ -4,9 +4,10 @@ pragma solidity ^0.8.27;
 import "forge-std/console.sol";
 import {Test} from "lib/forge-std/src/Test.sol";
 import {Vault} from "../src/Vault.sol";
-import {AddressZero, AmountIsZero} from "../src/interfaces/Errors.sol";
 import {
     IVault,
+    AddressZero,
+    AmountIsZero,
     ReceiverNotFound,
     ReceiverImmutable,
     ReceiverPaymentCountZero,

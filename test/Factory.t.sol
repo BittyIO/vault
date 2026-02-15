@@ -4,10 +4,11 @@ pragma solidity ^0.8.27;
 import {Test} from "lib/forge-std/src/Test.sol";
 import {Factory} from "../src/Factory.sol";
 import {Vault} from "../src/Vault.sol";
+import {AddressZero} from "../src/interfaces/IVault.sol";
 import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
-import {AddressZero, NotWhiteListed, VaultAlreadyDeployed} from "../src/interfaces/Errors.sol";
+import {VaultAlreadyDeployed} from "../src/interfaces/IFactory.sol";
 import {WhiteList} from "../src/WhiteList.sol";
-import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
+import {IWhiteList, NotWhiteListed} from "../src/interfaces/IWhiteList.sol";
 
 contract FactoryTest is Test {
     Factory public factory;

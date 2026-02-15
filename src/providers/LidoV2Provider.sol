@@ -11,7 +11,6 @@ import {IStETH, IUnstETH} from "../libs/Lido.sol";
 import {ETHBalanceNotEnough} from "../interfaces/IVault.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 
 contract LidoV2Provider is IStakingProvider, Ownable, Initializable {
     using SafeERC20 for IERC20;

@@ -2,6 +2,8 @@
 pragma solidity ^0.8.27;
 
 error SwapProviderShouldNotBeAllRemoved();
+error NotWhiteListed();
+error Deprecated();
 
 /**
  * @title Manage the white listed assets and protocols.
