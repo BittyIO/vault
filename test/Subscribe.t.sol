@@ -8,18 +8,16 @@ import {Subscribe} from "../src/Subscribe.sol";
 import {IWhiteList} from "../src/interfaces/IWhiteList.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
+import {AddressZero, NotWhiteListed, InsufficientBalance} from "../src/interfaces/Errors.sol";
 import {
-    AddressZero,
-    NotWhiteListed,
-    InsufficientBalance,
+    AlreadySubscribed,
     AlreadyPremium,
     AlreadyBase,
     SubscriptionNone,
     SubscriptionDowngrade,
     SubscriptionUpgrade,
-    InsufficientWithdrawableFee,
-    AlreadySubscribed
-} from "../src/interfaces/Errors.sol";
+    InsufficientWithdrawableFee
+} from "../src/interfaces/ISubscribe.sol";
 
 contract SubscribeTest is Test {
     address public user;

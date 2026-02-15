@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
+error AlreadySubscribed();
+error AlreadyPremium();
+error AlreadyBase();
+error SubscriptionNone();
+error SubscriptionDowngrade();
+error SubscriptionUpgrade();
+error InsufficientWithdrawableFee();
+
 interface ISubscribe {
     enum Subscription {
         None,
