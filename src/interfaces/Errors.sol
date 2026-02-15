@@ -20,12 +20,3 @@ error OnlyAssetManager();
 error NotWhiteListed();
 error Deprecated();
 error VaultAlreadyDeployed();
-
-// Subscribe errors
-error AlreadySubscribed();
-error AlreadyPremium();
-error AlreadyBase();
-error SubscriptionNone();
-error SubscriptionDowngrade();
-error SubscriptionUpgrade();
-error InsufficientWithdrawableFee();

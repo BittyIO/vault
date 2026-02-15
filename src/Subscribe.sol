@@ -1,21 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {ISubscribe} from "./interfaces/ISubscribe.sol";
-import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
-import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {
-    AddressZero,
-    NotWhiteListed,
-    InsufficientBalance,
+    ISubscribe,
+    AlreadySubscribed,
     AlreadyPremium,
     AlreadyBase,
     SubscriptionNone,
     SubscriptionDowngrade,
     SubscriptionUpgrade,
-    InsufficientWithdrawableFee,
-    AlreadySubscribed
-} from "./interfaces/Errors.sol";
+    InsufficientWithdrawableFee
+} from "./interfaces/ISubscribe.sol";
+import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
+import {AddressZero, NotWhiteListed, InsufficientBalance} from "./interfaces/Errors.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IERC20Metadata} from "lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
