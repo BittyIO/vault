@@ -18,6 +18,7 @@ import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
 import {WhiteList} from "../src/WhiteList.sol";
 import {Vault} from "../src/Vault.sol";
 import {AssetManagerLogic} from "../src/logic/AssetManagerLogic.sol";
+import {IVault, AddingAssetsDisabled} from "../src/interfaces/IVault.sol";
 
 contract TestAssetManager is Test, Vault {
     address public mockWETH;
@@ -504,6 +505,32 @@ contract TestAssetManager is Test, Vault {
         vm.expectRevert(DisableRebalanceUntilTimestampTooEarly.selector);
         vm.prank(assetManagerAddress);
         this.disableRebalanceUntilTimestamp(earlierTimestamp);
+    }
+
+    // ---------- disableAddingAssets tests ----------
+
+    function test_DisableAddingAssets_RevertsWhenNotOwner() public {
+        this.doInitialize();
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert("Ownable: caller is not the owner");
+        this.disableAddingAssets();
+    }
+
+    function test_DisableAddingAssets_SucceedsAndAddAssetsReverts() public {
+        this.doInitialize();
+
+        MockERC20 mockDAI = new MockERC20("DAI", "DAI", 18);
+        address[] memory newAssets = new address[](1);
+        newAssets[0] = address(mockDAI);
+        vm.prank(ownerAddress);
+        WhiteList(whiteListAddress).addAssets(newAssets);
+
+        vm.prank(ownerAddress);
+        this.disableAddingAssets();
+
+        vm.expectRevert(AddingAssetsDisabled.selector);
+        vm.prank(ownerAddress);
+        this.addAssets(newAssets);
     }
 
     // ---------- staking tests ----------

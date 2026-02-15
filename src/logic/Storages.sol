@@ -35,4 +35,5 @@ struct VaultStorage {
     IWhiteList whiteList;
     EnumerableSet.AddressSet assets;
     EnumerableSet.AddressSet stableCoins;
+    bool addingAssetsDisabled;
 }
