@@ -73,10 +73,6 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         return _assetManager.getSwapProviders();
     }
 
-    function setRebalanceRules(IAssetManager.RebalanceLimit memory _rebalanceLimit) external override onlyOwner {
-        _assetManager.setRebalanceRules(_rebalanceLimit);
-    }
-
     function setAssetConfig(address assetAddress, IAssetManager.AssetConfig memory _assetConfig)
         external
         override
@@ -242,14 +238,6 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
 
     function whiteList() external view returns (IWhiteList) {
         return _assetManager.whiteList;
-    }
-
-    function lastRebalanceTimestamp() external view returns (uint256) {
-        return _assetManager.lastRebalanceTimestamp;
-    }
-
-    function rebalanceLimit() external view returns (IAssetManager.RebalanceLimit memory) {
-        return _assetManager.rebalanceLimit;
     }
 
     function getAllAssetConfigKeys() external view returns (address[] memory) {

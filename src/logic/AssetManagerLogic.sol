@@ -111,13 +111,6 @@ library AssetManagerLogic {
         return _cloneProvider(logicStorage, provider);
     }
 
-    function setRebalanceRules(
-        AssetManagerStorage storage logicStorage,
-        IAssetManager.RebalanceLimit memory rebalanceLimit_
-    ) external onlyInitialized(logicStorage) {
-        logicStorage.rebalanceLimit = rebalanceLimit_;
-    }
-
     function setAssetConfig(
         AssetManagerStorage storage logicStorage,
         address assetAddress,
@@ -327,21 +320,10 @@ library AssetManagerLogic {
         IAssetManager.AssetConfig memory assetConfigTo = logicStorage.assetConfigs[to];
         uint256 fromBalance = _addressBalance(from);
 
-        if (
-            (logicStorage.rebalanceLimit.minimalDurationBetweenRebalances > 0
-                    && (sellAmount * 10000 / fromBalance)
-                        > logicStorage.rebalanceLimit.minimalDurationBetweenRebalances)
-                || (assetConfigFrom.maxRebalancePercentage != 0
-                    && (sellAmount * 10000 / fromBalance) > assetConfigFrom.maxRebalancePercentage)
-        ) {
-            revert RebalanceMaxPercentage();
-        }
-        if (
-            logicStorage.rebalanceLimit.minimalDurationBetweenRebalances > 0 && logicStorage.lastRebalanceTimestamp > 0
-                && block.timestamp - logicStorage.lastRebalanceTimestamp
-                    < logicStorage.rebalanceLimit.minimalDurationBetweenRebalances
-        ) {
-            revert RebalanceInMinimalTime();
+        if (assetConfigFrom.maxRebalancePercentage > 0) {
+            if (sellAmount * 10000 > fromBalance * assetConfigFrom.maxRebalancePercentage) {
+                revert RebalanceMaxPercentage();
+            }
         }
         if (
             (assetConfigFrom.minimalDurationBetweenRebalances > 0
@@ -360,18 +342,6 @@ library AssetManagerLogic {
                 revert MinimalBalanceNotMet();
             }
         }
-        if (vaultStorage.stableCoins.contains(from) && logicStorage.rebalanceLimit.minimalStableCoinBalance > 0) {
-            uint256 stableCoinBalanceTotalBalance = 0;
-            for (uint256 i = 0; i < vaultStorage.stableCoins.length(); i++) {
-                stableCoinBalanceTotalBalance += _addressBalance(vaultStorage.stableCoins.at(i));
-            }
-            if (
-                stableCoinBalanceTotalBalance < sellAmount
-                    || stableCoinBalanceTotalBalance - sellAmount < logicStorage.rebalanceLimit.minimalStableCoinBalance
-            ) {
-                revert MinimalBalanceNotMet();
-            }
-        }
 
         _swap(logicStorage, swapProvider, from, sellAmount, to, buyAmountMin, data);
 
@@ -382,9 +352,6 @@ library AssetManagerLogic {
         if (assetConfigTo.minimalDurationBetweenRebalances > 0) {
             logicStorage.lastRebalanceTimestamps[to] = block.timestamp;
             logicStorage.lastRebalanceTimestampKeys.add(to);
-        }
-        if (logicStorage.rebalanceLimit.minimalDurationBetweenRebalances > 0) {
-            logicStorage.lastRebalanceTimestamp = block.timestamp;
         }
     }
 

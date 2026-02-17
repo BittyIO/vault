@@ -105,19 +105,6 @@ contract TestAssetManager is Test, Vault {
         this.setAssetManager(assetManagerAddress);
     }
 
-    function test_SetRebalanceRules() public {
-        this.doInitialize();
-        RebalanceLimit memory rebalanceLimit = RebalanceLimit({
-            minimalStableCoinBalance: 100 * 1e6, minimalDurationBetweenRebalances: 30, maxRebalancePercentage: 10
-        });
-        vm.prank(ownerAddress);
-        this.setRebalanceRules(rebalanceLimit);
-        RebalanceLimit memory rebalanceLimit_ = this.rebalanceLimit();
-        assertEq(rebalanceLimit_.minimalStableCoinBalance, 100 * 1e6);
-        assertEq(rebalanceLimit_.minimalDurationBetweenRebalances, 30);
-        assertEq(rebalanceLimit_.maxRebalancePercentage, 10);
-    }
-
     function test_SetAssetConfig() public {
         this.doInitialize();
         AssetConfig memory assetConfig =

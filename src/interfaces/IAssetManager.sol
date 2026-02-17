@@ -37,23 +37,6 @@ interface IAssetManager {
         uint256 maxRebalancePercentage;
     }
 
-    struct RebalanceLimit {
-        /**
-         * @dev The minimal stable coin balance.
-         * @param minimalStableCoinBalance The minimal stable coin balance.
-         */
-        uint256 minimalStableCoinBalance;
-        /**
-         * @dev The minimal timestamp between rebalances.
-         * @param minimalDurationBetweenRebalances The minimal timestamp between rebalances.
-         */
-        uint256 minimalDurationBetweenRebalances;
-        /**
-         * @dev The max rebalance percentage, 1-10000, 1000 means 10%
-         * @param maxRebalancePercentage The max rebalance percentage.
-         */
-        uint256 maxRebalancePercentage;
-    }
     /**
      * @notice Get the yield providers.
      * @dev Get the yield providers.
@@ -74,13 +57,6 @@ interface IAssetManager {
      * @return swapProviderAddresses The addresses of the swap providers.
      */
     function getSwapProviders() external view returns (address[] memory);
-
-    /**
-     * @notice Set the rebalance rules.
-     * @dev Set the rebalance rules.
-     * @param rebalanceLimit The rebalance rules.
-     */
-    function setRebalanceRules(RebalanceLimit memory rebalanceLimit) external;
 
     /**
      * @notice Set the asset config.

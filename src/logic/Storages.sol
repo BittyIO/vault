@@ -23,8 +23,6 @@ struct AssetManagerStorage {
 
     IWhiteList whiteList;
 
-    uint256 lastRebalanceTimestamp;
-    IAssetManager.RebalanceLimit rebalanceLimit;
     uint256 rebalanceDisabledUntilTimestamp;
 }
 
