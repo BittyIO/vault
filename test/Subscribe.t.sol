@@ -458,4 +458,32 @@ contract SubscribeTest is Test {
         assertEq(mockStableCoin.balanceOf(address(subscribe)), baseFee * 2);
         assertEq(mockStableCoin.balanceOf(user), 0);
     }
+
+    function test_Renew_expirationTimeUpdatedInStorageAndFeeScaledByYearCount() public {
+        subscribe.initialize(whiteList);
+        uint256 baseFee = subscribe.BASE_FEE() * (10 ** mockStableCoin.decimals());
+        deal(address(mockStableCoin), user, baseFee + baseFee * 2);
+        vm.prank(user);
+        mockStableCoin.approve(address(subscribe), baseFee * 3);
+        vm.prank(user);
+        subscribe.subscribe(ISubscribe.Subscription.BASE, address(mockStableCoin));
+
+        uint256 expirationAfterSubscribe = subscribe.expiredTime(user);
+        uint256 subscribeBalanceBeforeRenew = mockStableCoin.balanceOf(address(subscribe));
+
+        vm.prank(user);
+        subscribe.renew(2);
+
+        assertEq(
+            subscribe.expiredTime(user),
+            expirationAfterSubscribe + 2 * 365 days,
+            "expiration must be extended by 2 years in storage"
+        );
+        uint256 renewFeeForTwoYears = baseFee * 2;
+        assertEq(
+            mockStableCoin.balanceOf(address(subscribe)),
+            subscribeBalanceBeforeRenew + renewFeeForTwoYears,
+            "fee must scale with yearCount (2x)"
+        );
+    }
 }
