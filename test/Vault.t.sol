@@ -299,6 +299,20 @@ contract VaultTest is Test {
         vault.changeReceiverAddress("alice", bob);
     }
 
+    function test_ChangeReceiverAddressRevertReceiverNotFound() public {
+        vault.initialize(
+            whiteListAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        vm.expectRevert(ReceiverNotFound.selector);
+        vault.changeReceiverAddress("nonexistent", makeAddr("attacker"));
+    }
+
     function test_ChangeReceiverAddressRevertOnlyReceiver() public {
         vault.initialize(
             whiteListAddress,
