@@ -58,8 +58,8 @@ contract LidoV2Provider is IStakingProvider, Ownable, Initializable {
     }
 
     function claim() external override onlyOwner {
-        for (uint256 i = 0; i < _unstakeRequests.length(); i++) {
-            uint256 requestId = _unstakeRequests.at(i);
+        for (uint256 i = _unstakeRequests.length(); i > 0; i--) {
+            uint256 requestId = _unstakeRequests.at(i - 1);
             uint256[] memory requestIds = new uint256[](1);
             requestIds[0] = requestId;
             IUnstETH.WithdrawalRequestStatus[] memory statuses = unstETH.getWithdrawalStatus(requestIds);
