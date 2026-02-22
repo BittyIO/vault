@@ -52,6 +52,18 @@ contract TestUniswapXProviderFork is Test {
         assertTrue(result != MAGICVALUE);
     }
 
+    function test_CancelTrade() public {
+        bytes32 hash = keccak256("trade to cancel");
+        uniswapXProvider.approveHash(hash);
+        assertTrue(uniswapXProvider.approvedHashes(address(this), hash));
+
+        uniswapXProvider.cancelTrade(abi.encode(hash));
+        assertFalse(uniswapXProvider.approvedHashes(address(this), hash));
+
+        bytes4 result = uniswapXProvider.isValidSignature(hash, "");
+        assertTrue(result != MAGICVALUE);
+    }
+
     function test_Swap_ApprovesHashAndPermit2() public {
         uint256 sellAmount = 1000 * 1e6;
         uint256 buyAmountMin = 1e15;
@@ -64,7 +76,7 @@ contract TestUniswapXProviderFork is Test {
         bytes memory swapData =
             abi.encode(address(mainnet.USDC), sellAmount, address(mainnet.WETH), buyAmountMin, validTo, hashToApprove);
 
-        uniswapXProvider.swap(swapData);
+        uniswapXProvider.trade(swapData);
 
         assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(uniswapXProvider)), sellAmount);
         assertTrue(uniswapXProvider.approvedHashes(address(this), hashToApprove));
@@ -80,7 +92,7 @@ contract TestUniswapXProviderFork is Test {
 
         bytes memory swapData = abi.encode(address(mainnet.USDC), sellAmount, address(mainnet.WETH), buyAmountMin);
 
-        uniswapXProvider.swap(swapData);
+        uniswapXProvider.trade(swapData);
 
         assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(uniswapXProvider)), sellAmount);
         assertEq(IERC20(address(mainnet.USDC)).allowance(address(uniswapXProvider), mainnet.PERMIT2), sellAmount);
