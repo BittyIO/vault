@@ -144,7 +144,7 @@ library VaultLogic {
     }
 
     function payReceiver(VaultStorage storage vaultStorage, string memory name) external {
-        IVault.Receiver memory receiver = vaultStorage.receivers[name];
+        IVault.Receiver storage receiver = vaultStorage.receivers[name];
         if (receiver.amount == 0) {
             revert ReceiverNotFound();
         }
