@@ -154,7 +154,7 @@ library VaultLogic {
         if (receiver.trigger != address(0) && msg.sender != receiver.trigger) {
             revert ReceiverTriggerError();
         }
-        if (receiver.startTimestamp < block.timestamp) {
+        if (receiver.startTimestamp > block.timestamp) {
             revert ReceiverNotStartYet();
         }
         if (receiver.lastModifyTimestamp + RECEIVER_UPDATE_DELAY > block.timestamp) {
