@@ -67,7 +67,7 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
             revert SubscriptionNone();
         }
         IERC20Metadata stableCoin = IERC20Metadata(subscriptions[msg.sender].stableCoinAddress);
-        uint256 fee = _getFee(subscriptions[msg.sender].subscription) * 10 ** stableCoin.decimals();
+        uint256 fee = _getFee(subscriptions[msg.sender].subscription) * 10 ** stableCoin.decimals() * yearCount;
         if (stableCoin.balanceOf(msg.sender) < fee) {
             revert InsufficientBalance();
         }
