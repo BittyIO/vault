@@ -5,7 +5,7 @@ import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/In
 import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IAssetManager, OnlyAssetManager} from "./interfaces/IAssetManager.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
-import {IVault, AddressZero} from "./interfaces/IVault.sol";
+import {IVault, AddressZero, ReceiverNotFound} from "./interfaces/IVault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
@@ -172,7 +172,10 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
 
     function changeReceiverAddress(string memory name, address newReceiverAddress) external override {
         address oldReceiverAddress = _vault.getReceiverAddress(name);
-        if (oldReceiverAddress != address(0) && oldReceiverAddress != msg.sender) {
+        if (oldReceiverAddress == address(0)) {
+            revert ReceiverNotFound();
+        }
+        if (oldReceiverAddress != msg.sender) {
             revert OnlyReceiver();
         }
         _vault.changeReceiverAddress(name, newReceiverAddress);
