@@ -377,4 +377,32 @@ contract VaultTest is Test {
         vm.expectRevert(ReceiverNotStartYet.selector);
         vault.payReceiver("alice");
     }
+
+    function test_PayReceiver_receiverStorageUpdatedSoPaymentCountEnforced() public {
+        vault.initialize(
+            whiteListAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        address receiverAddr = makeAddr("receiver");
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 2, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        deal(address(weth), address(vault), 2 ether);
+        vm.warp(block.timestamp + 8 days);
+
+        vault.payReceiver("alice");
+        vault.payReceiver("alice");
+
+        assertEq(weth.balanceOf(receiverAddr), 2 ether, "receiver should have received 2 payments");
+
+        vm.expectRevert(ReceiverPaymentCountZero.selector);
+        vault.payReceiver("alice");
+    }
 }
