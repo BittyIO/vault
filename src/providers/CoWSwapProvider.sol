@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {ISwapProvider} from "../interfaces/ISwapProvider.sol";
+import {IIntentProvider} from "../interfaces/IIntentProvider.sol";
 import {IGPv2Settlement} from "../libs/cow/GPv2Settlement.sol";
 import {GPv2Order} from "../libs/cow/GPv2Order.sol";
 import {IERC1271} from "../libs/cow/IERC1271.sol";
@@ -12,14 +12,14 @@ import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/In
 
 /**
  * @title CoW Swap Provider
- * @notice ISwapProvider implementation for CoW Protocol using EIP-1271 and PreSign
+ * @notice IIntentProvider implementation for CoW Protocol using EIP-1271 and PreSign
  * @dev CoW Protocol uses an off-chain order book. Orders are signed (PreSign or EIP-1271),
  *      submitted to the CoW API, and settled asynchronously by solvers.
  *      For use with AssetManager rebalance: an off-chain service must submit the order
  *      to the CoW API after swap() sets the PreSignature. Settlement occurs when
  *      a solver includes the order in a batch.
  */
-contract CoWSwapProvider is ISwapProvider, IERC1271, Ownable, Initializable {
+contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     using SafeERC20 for IERC20;
 
     // @dev EIP-1271 magic value for valid signature
@@ -57,7 +57,7 @@ contract CoWSwapProvider is ISwapProvider, IERC1271, Ownable, Initializable {
      *             (sellToken, sellAmount, buyToken, buyAmountMin, validTo, isSellOrder)
      *             isSellOrder: true = sell order (default), false = buy order
      */
-    function swap(bytes memory data) external payable override onlyOwner {
+    function trade(bytes memory data) external payable override onlyOwner {
         (
             address sellToken,
             uint256 sellAmount,
@@ -97,6 +97,8 @@ contract CoWSwapProvider is ISwapProvider, IERC1271, Ownable, Initializable {
         if (sellToken != address(0)) {
             IERC20(sellToken).safeApprove(vaultRelayer, 0);
         }
+
+        emit Trade(data, msg.sender, address(this));
     }
 
     /**
@@ -118,6 +120,19 @@ contract CoWSwapProvider is ISwapProvider, IERC1271, Ownable, Initializable {
     }
 
     /**
+     * @notice Cancel a trade by revoking order digest and PreSignature
+     * @param data abi.encode(bytes32 orderDigest, uint32 validTo)
+     */
+    function cancelTrade(bytes memory data) external override onlyOwner {
+        (bytes32 orderDigest, uint32 validTo) = abi.decode(data, (bytes32, uint32));
+        approvedOrderDigests[owner()][orderDigest] = false;
+        bytes memory orderUid = GPv2Order.packOrderUid(orderDigest, address(this), validTo);
+        settlement.setPreSignature(orderUid, false);
+
+        emit CancelTrade(data, msg.sender, address(this));
+    }
+
+    /**
      * @notice EIP-1271: Verify signature for CoW Protocol orders
      * @dev Returns MAGICVALUE if the order digest is approved by the owner
      * @param hash The order digest (EIP-712 hash of the order)
@@ -128,7 +143,7 @@ contract CoWSwapProvider is ISwapProvider, IERC1271, Ownable, Initializable {
     )
         external
         view
-        override
+        override(IERC1271, IIntentProvider)
         returns (bytes4)
     {
         if (approvedOrderDigests[owner()][hash]) {

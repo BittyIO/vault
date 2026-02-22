@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {ISwapProvider} from "../interfaces/ISwapProvider.sol";
+import {IIntentProvider} from "../interfaces/IIntentProvider.sol";
 import {IERC1271} from "../libs/cow/IERC1271.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -10,14 +10,14 @@ import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/In
 
 /**
  * @title UniswapX Provider
- * @notice ISwapProvider implementation for UniswapX using EIP-1271
+ * @notice IIntentProvider implementation for UniswapX using EIP-1271
  * @dev UniswapX uses Permit2 for token transfers. Orders are signed (EIP-1271 for contracts),
  *      submitted to the UniswapX API, and settled asynchronously by fillers.
  *      For use with AssetManager rebalance: an off-chain service must submit the order
  *      to the UniswapX API after swap() approves the hash. Settlement occurs when
  *      a filler executes the order via the reactor.
  */
-contract UniswapXProvider is ISwapProvider, IERC1271, Ownable, Initializable {
+contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     using SafeERC20 for IERC20;
 
     // @dev EIP-1271 magic value for valid signature
@@ -35,6 +35,11 @@ contract UniswapXProvider is ISwapProvider, IERC1271, Ownable, Initializable {
      */
     mapping(address => mapping(bytes32 => bool)) public approvedHashes;
 
+    /**
+     * @notice Constructor
+     * @param reactor_ The address of the UniswapX reactor
+     * @param permit2_ The address of the Permit2 contract
+     */
     constructor(address reactor_, address permit2_) {
         reactor = reactor_;
         permit2 = permit2_;
@@ -59,7 +64,7 @@ contract UniswapXProvider is ISwapProvider, IERC1271, Ownable, Initializable {
      *             (sellToken, sellAmount, buyToken, buyAmountMin, validTo, hashToApprove, isSellOrder)
      *             hashToApprove = full EIP-712 hash from Permit2 permitWitnessTransferFrom (computed off-chain)
      */
-    function swap(bytes memory data) external payable override onlyOwner {
+    function trade(bytes memory data) external payable override onlyOwner {
         (
             address sellToken,
             uint256 sellAmount,
@@ -82,7 +87,15 @@ contract UniswapXProvider is ISwapProvider, IERC1271, Ownable, Initializable {
             approvedHashes[owner()][hashToApprove] = true;
         }
 
+        emit Trade(data, msg.sender, address(this));
+
         // Note: Permit2 approval is kept - filler will pull tokens when executing the order
+    }
+
+    function cancelTrade(bytes memory data) external override onlyOwner {
+        (bytes32 hash) = abi.decode(data, (bytes32));
+        approvedHashes[owner()][hash] = false;
+        emit CancelTrade(data, msg.sender, address(this));
     }
 
     /**
@@ -114,7 +127,7 @@ contract UniswapXProvider is ISwapProvider, IERC1271, Ownable, Initializable {
     )
         external
         view
-        override
+        override(IERC1271, IIntentProvider)
         returns (bytes4)
     {
         if (approvedHashes[owner()][hash]) {

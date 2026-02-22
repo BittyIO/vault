@@ -38,7 +38,7 @@ contract TestCoWSwapProviderFork is Test {
         bytes memory swapData =
             abi.encode(address(mainnet.USDC), sellAmount, address(mainnet.WETH), buyAmountMin, validTo);
 
-        cowProvider.swap(swapData);
+        cowProvider.trade(swapData);
 
         assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(cowProvider)), sellAmount);
 
@@ -91,6 +91,44 @@ contract TestCoWSwapProviderFork is Test {
         assertTrue(result != MAGICVALUE);
     }
 
+    function test_CancelTrade_RevokesPreSignature() public {
+        uint256 sellAmount = 1000 * 1e6;
+        uint256 buyAmountMin = 1e15;
+        uint32 validTo = uint32(block.timestamp + 3600);
+
+        deal(address(mainnet.USDC), address(this), sellAmount);
+        IERC20(address(mainnet.USDC)).safeApprove(address(cowProvider), sellAmount);
+
+        bytes memory swapData =
+            abi.encode(address(mainnet.USDC), sellAmount, address(mainnet.WETH), buyAmountMin, validTo);
+
+        cowProvider.trade(swapData);
+
+        GPv2Order.Data memory order = GPv2Order.Data({
+            sellToken: IERC20(address(mainnet.USDC)),
+            buyToken: IERC20(address(mainnet.WETH)),
+            receiver: address(this),
+            sellAmount: sellAmount,
+            buyAmount: buyAmountMin,
+            validTo: validTo,
+            appData: bytes32(0),
+            feeAmount: 0,
+            kind: GPv2Order.KIND_SELL,
+            partiallyFillable: false,
+            sellTokenBalance: GPv2Order.BALANCE_ERC20,
+            buyTokenBalance: GPv2Order.BALANCE_ERC20
+        });
+
+        bytes32 digest = cowProvider.getOrderDigest(order);
+        assertTrue(cowProvider.approvedOrderDigests(address(this), digest));
+
+        cowProvider.cancelTrade(abi.encode(digest, validTo));
+
+        assertFalse(cowProvider.approvedOrderDigests(address(this), digest));
+        bytes4 result = cowProvider.isValidSignature(digest, "");
+        assertTrue(result != MAGICVALUE);
+    }
+
     function test_Swap_WithBuyOrder() public {
         uint256 sellAmount = 1000 * 1e6;
         uint256 buyAmountMin = 1e15;
@@ -103,7 +141,7 @@ contract TestCoWSwapProviderFork is Test {
         bytes memory swapData =
             abi.encode(address(mainnet.USDC), sellAmount, address(mainnet.WETH), buyAmountMin, validTo, isSellOrder);
 
-        cowProvider.swap(swapData);
+        cowProvider.trade(swapData);
 
         assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(cowProvider)), sellAmount);
     }
