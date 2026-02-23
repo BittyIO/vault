@@ -7,8 +7,8 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.so
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {IStETH, IUnstETH} from "../libs/Lido.sol";
-import {ETHBalanceNotEnough} from "../interfaces/IVault.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
+import {WETHBalanceNotEnough} from "../interfaces/IVault.sol";
 import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
 contract LidoV2Provider is IStakingProvider, Ownable, Initializable {
@@ -30,10 +30,14 @@ contract LidoV2Provider is IStakingProvider, Ownable, Initializable {
         _transferOwnership(newOwner);
     }
 
+    receive() external payable {}
+
     function stake(uint256 amount) external payable override onlyOwner {
-        if (address(this).balance < amount) {
-            revert ETHBalanceNotEnough();
+        if (weth.balanceOf(msg.sender) < amount) {
+            revert WETHBalanceNotEnough();
         }
+        IERC20(address(weth)).safeTransferFrom(msg.sender, address(this), amount);
+        weth.withdraw(amount);
         stETH.submit{value: amount}(address(this));
     }
 
