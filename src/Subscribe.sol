@@ -9,6 +9,7 @@ import {
     SubscriptionNone,
     SubscriptionDowngrade,
     SubscriptionUpgrade,
+    StableCoinMismatch,
     InsufficientWithdrawableFee
 } from "./interfaces/ISubscribe.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
@@ -99,6 +100,9 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
         }
         if (subscriptionInfo.subscription >= subscription) {
             revert SubscriptionDowngrade();
+        }
+        if (subscriptionInfo.stableCoinAddress != stableCoinAddress) {
+            revert StableCoinMismatch();
         }
         IERC20Metadata stableCoin = IERC20Metadata(stableCoinAddress);
         uint256 fee = _getFee(subscription) * 10 ** stableCoin.decimals();
