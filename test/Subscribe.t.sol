@@ -53,6 +53,13 @@ contract SubscribeTest is Test {
         subscribe.subscribe(ISubscribe.Subscription.BASE, invalidStableCoin);
     }
 
+    function test_SubscribeFailedWhenSubscriptionNone() public {
+        subscribe.initialize(whiteList);
+        vm.prank(user);
+        vm.expectRevert(SubscriptionNone.selector);
+        subscribe.subscribe(ISubscribe.Subscription.None, address(mockStableCoin));
+    }
+
     function test_SubscribeFailedWhenBalanceNotEnough() public {
         subscribe.initialize(whiteList);
         vm.prank(user);
