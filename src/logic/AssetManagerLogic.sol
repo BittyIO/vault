@@ -143,13 +143,8 @@ library AssetManagerLogic {
         }
         lendingProvider = _cloneProvider(logicStorage, lendingProvider);
         IERC20(assetAddress).safeApprove(lendingProvider, amount);
-        uint256 balanceBefore = ILendingProvider(lendingProvider).getLendingBalance(assetAddress);
         ILendingProvider(lendingProvider).supply(assetAddress, amount);
         IERC20(assetAddress).safeApprove(lendingProvider, 0);
-        uint256 balanceAfter = ILendingProvider(lendingProvider).getLendingBalance(assetAddress);
-        if (balanceAfter - balanceBefore != amount) {
-            revert SupplyAmountMismatch();
-        }
     }
 
     function withdraw(
