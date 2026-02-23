@@ -16,6 +16,7 @@ import {
     SubscriptionNone,
     SubscriptionDowngrade,
     SubscriptionUpgrade,
+    StableCoinMismatch,
     InsufficientWithdrawableFee
 } from "../src/interfaces/ISubscribe.sol";
 
@@ -32,6 +33,7 @@ contract SubscribeTest is Test {
         feeReceiver = makeAddr("feeReceiver");
         whiteList = address(new WhiteList());
         mockStableCoin = new MockERC20("StableCoin", "USDT", 6);
+        mockStableCoin2 = new MockERC20("StableCoin2", "USDC", 6);
         subscribe = new Subscribe();
         address[] memory stableCoins = new address[](2);
         stableCoins[0] = address(mockStableCoin);
@@ -176,6 +178,23 @@ contract SubscribeTest is Test {
         vm.prank(user);
         vm.expectRevert(InsufficientBalance.selector);
         subscribe.upgrade(ISubscribe.Subscription.PREMIUM, address(mockStableCoin));
+    }
+
+    function test_UpgradeFailedWhenStableCoinMismatch() public {
+        subscribe.initialize(whiteList);
+        uint256 standardFee = subscribe.STANDARD_FEE() * (10 ** mockStableCoin.decimals());
+        uint256 premiumFee = subscribe.PREMIUM_FEE() * (10 ** mockStableCoin2.decimals());
+        deal(address(mockStableCoin), user, standardFee);
+        deal(address(mockStableCoin2), user, premiumFee);
+        vm.prank(user);
+        mockStableCoin.approve(address(subscribe), standardFee);
+        vm.prank(user);
+        subscribe.subscribe(ISubscribe.Subscription.STANDARD, address(mockStableCoin));
+        vm.prank(user);
+        mockStableCoin2.approve(address(subscribe), premiumFee);
+        vm.prank(user);
+        vm.expectRevert(StableCoinMismatch.selector);
+        subscribe.upgrade(ISubscribe.Subscription.PREMIUM, address(mockStableCoin2));
     }
 
     function test_UpgradeSuccess() public {

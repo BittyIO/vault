@@ -7,6 +7,7 @@ error AlreadyBase();
 error SubscriptionNone();
 error SubscriptionDowngrade();
 error SubscriptionUpgrade();
+error StableCoinMismatch();
 error InsufficientWithdrawableFee();
 
 interface ISubscribe {
