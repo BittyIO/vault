@@ -40,6 +40,9 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
     }
 
     function subscribe(ISubscribe.Subscription subscription, address stableCoinAddress) external override {
+        if (subscription == ISubscribe.Subscription.None) {
+            revert SubscriptionNone();
+        }
         if (subscriptions[msg.sender].subscription != ISubscribe.Subscription.None) {
             revert AlreadySubscribed();
         }
