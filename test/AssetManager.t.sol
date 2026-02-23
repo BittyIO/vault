@@ -647,5 +647,38 @@ contract TestAssetManager is Test, Vault {
         vm.expectRevert(InvalidStakingProvider.selector);
         this.getUnstakeRequestIds(makeAddr("InvalidStakingProvider"));
     }
+
+    function test_SupplyAllowanceIsZeroAfterSuccess() public {
+        this.doInitialize();
+
+        MockERC20 mockToken = new MockERC20("MockToken", "MTK", 18);
+        uint256 supplyAmount = 1000 * 1e18;
+        deal(address(mockToken), address(this), supplyAmount);
+
+        vm.prank(assetManagerAddress);
+        this.supply(address(mockLendingProvider), address(mockToken), supplyAmount);
+
+        address clonedProvider = this.getClonedProvider(address(mockLendingProvider));
+        assertEq(mockToken.allowance(address(this), clonedProvider), 0, "Allowance should be 0 after supply");
+    }
+
+    function test_SupplySucceedsWithPreExistingResidualAllowance() public {
+        this.doInitialize();
+
+        MockERC20 mockToken = new MockERC20("MockToken", "MTK", 18);
+        uint256 supplyAmount = 1000 * 1e18;
+        deal(address(mockToken), address(this), supplyAmount);
+
+        address clonedProvider = this.cloneProviderForTesting(address(mockLendingProvider));
+
+        mockToken.approve(clonedProvider, 1);
+        assertEq(mockToken.allowance(address(this), clonedProvider), 1, "Pre-condition: residual allowance must exist");
+
+        vm.prank(assetManagerAddress);
+        this.supply(address(mockLendingProvider), address(mockToken), supplyAmount);
+
+        assertEq(mockToken.allowance(address(this), clonedProvider), 0, "Allowance should be 0 after successful supply");
+        assertEq(MockLendingProvider(clonedProvider).getLendingBalance(address(mockToken)), supplyAmount);
+    }
 }
 
