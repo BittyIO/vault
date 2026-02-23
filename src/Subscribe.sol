@@ -111,6 +111,9 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
     }
 
     function downgrade(ISubscribe.Subscription subscription) external override {
+        if (subscription == ISubscribe.Subscription.None) {
+            revert SubscriptionNone();
+        }
         ISubscribe.SubscriptionInfo memory subscriptionInfo = subscriptions[msg.sender];
         if (subscriptionInfo.subscription == ISubscribe.Subscription.None) {
             revert SubscriptionNone();

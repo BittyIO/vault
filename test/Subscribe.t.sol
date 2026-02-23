@@ -211,6 +211,19 @@ contract SubscribeTest is Test {
         subscribe.downgrade(ISubscribe.Subscription.PREMIUM);
     }
 
+    function test_DowngradeFailedWhenTargetIsNone() public {
+        subscribe.initialize(whiteList);
+        uint256 standardFee = subscribe.STANDARD_FEE() * (10 ** mockStableCoin.decimals());
+        deal(address(mockStableCoin), user, standardFee);
+        vm.prank(user);
+        mockStableCoin.approve(address(subscribe), standardFee);
+        vm.prank(user);
+        subscribe.subscribe(ISubscribe.Subscription.STANDARD, address(mockStableCoin));
+        vm.prank(user);
+        vm.expectRevert(SubscriptionNone.selector);
+        subscribe.downgrade(ISubscribe.Subscription.None);
+    }
+
     function test_DowngradeFailedWhenSubscriptionBase() public {
         subscribe.initialize(whiteList);
         uint256 baseFee = subscribe.BASE_FEE() * (10 ** mockStableCoin.decimals());
