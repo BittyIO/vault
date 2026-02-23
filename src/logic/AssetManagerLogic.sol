@@ -142,9 +142,12 @@ library AssetManagerLogic {
             revert AmountIsZero();
         }
         lendingProvider = _cloneProvider(logicStorage, lendingProvider);
-        IERC20(assetAddress).safeApprove(lendingProvider, amount);
+        IERC20(assetAddress).safeIncreaseAllowance(lendingProvider, amount);
         ILendingProvider(lendingProvider).supply(assetAddress, amount);
-        IERC20(assetAddress).safeApprove(lendingProvider, 0);
+        uint256 remaining = IERC20(assetAddress).allowance(address(this), lendingProvider);
+        if (remaining > 0) {
+            IERC20(assetAddress).safeDecreaseAllowance(lendingProvider, remaining);
+        }
     }
 
     function withdraw(
