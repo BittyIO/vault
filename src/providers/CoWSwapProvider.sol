@@ -94,10 +94,6 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         approvedOrderDigests[owner()][orderDigest] = true;
         settlement.setPreSignature(orderUid, true);
 
-        if (sellToken != address(0)) {
-            IERC20(sellToken).safeApprove(vaultRelayer, 0);
-        }
-
         emit Trade(data, msg.sender, address(this));
     }
 
