@@ -64,6 +64,23 @@ contract TestCoWSwapProviderFork is Test {
         assertTrue(cowProvider.approvedOrderDigests(address(this), digest));
     }
 
+    function test_Trade_AllowancePersistsForAsyncSettlement() public {
+        uint256 sellAmount = 1000 * 1e6;
+        uint256 buyAmountMin = 1e15;
+        uint32 validTo = uint32(block.timestamp + 3600);
+
+        deal(address(mainnet.USDC), address(this), sellAmount);
+        IERC20(address(mainnet.USDC)).safeApprove(address(cowProvider), sellAmount);
+
+        bytes memory swapData =
+            abi.encode(address(mainnet.USDC), sellAmount, address(mainnet.WETH), buyAmountMin, validTo);
+
+        cowProvider.trade(swapData);
+
+        uint256 allowance = IERC20(address(mainnet.USDC)).allowance(address(cowProvider), cowProvider.vaultRelayer());
+        assertEq(allowance, sellAmount, "Allowance must persist for vaultRelayer to pull tokens at settlement time");
+    }
+
     function test_EIP1271_IsValidSignature_ApprovedDigest() public {
         bytes32 digest = keccak256("test order digest");
         cowProvider.approveOrderDigest(digest);
