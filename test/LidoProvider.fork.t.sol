@@ -57,5 +57,56 @@ contract TestLidoProviderFork is Test {
         vm.expectRevert(WETHBalanceNotEnough.selector);
         lidoProvider.stake(stakeAmount + 1 ether);
     }
+
+    function test_Claim_emptyUnstakeRequests_doesNotRevert() public {
+        lidoProvider.claim();
+    }
+
+    function test_Claim_multipleRequests_allClaimedAndRemoved() public {
+        uint256 amountPerRequest = 0.5 ether;
+        uint256 numRequests = 2;
+
+        uint256 totalStake = amountPerRequest * numRequests;
+        deal(address(weth), address(this), totalStake);
+        weth.approve(address(lidoProvider), totalStake);
+        lidoProvider.stake(totalStake);
+
+        for (uint256 i = 0; i < numRequests; i++) {
+            lidoProvider.unstake(amountPerRequest);
+        }
+
+        uint256[] memory ids = lidoProvider.getUnstakeRequestIds();
+        assertEq(ids.length, numRequests, "all unstake requests should be tracked");
+
+        for (uint256 i = 0; i < ids.length; i++) {
+            uint256 id = ids[i];
+
+            uint256[] memory oneId = new uint256[](1);
+            oneId[0] = id;
+
+            IUnstETH.WithdrawalRequestStatus[] memory statuses = new IUnstETH.WithdrawalRequestStatus[](1);
+            statuses[0] = IUnstETH.WithdrawalRequestStatus({
+                amountOfStETH: amountPerRequest,
+                amountOfShares: 0,
+                owner: address(lidoProvider),
+                timestamp: block.timestamp,
+                isFinalized: true,
+                isClaimed: false
+            });
+
+            vm.mockCall(
+                address(unstETH),
+                abi.encodeWithSelector(IUnstETH.getWithdrawalStatus.selector, oneId),
+                abi.encode(statuses)
+            );
+
+            vm.mockCall(address(unstETH), abi.encodeWithSelector(IUnstETH.claimWithdrawal.selector, id), "");
+        }
+
+        lidoProvider.claim();
+
+        uint256[] memory remaining = lidoProvider.getUnstakeRequestIds();
+        assertEq(remaining.length, 0, "all claimable requests must be removed");
+    }
 }
 
