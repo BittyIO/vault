@@ -14,7 +14,6 @@ import {
     PathKey,
     IPoolManager,
     PoolStateLibrary,
-    BaseData,
     PoolId,
     PoolIdLibrary
 } from "../src/libs/uniswap/v4/Uniswap.sol";
@@ -91,13 +90,9 @@ contract TestUniswapProviderFork is Test {
         uint256 sellAmount = 1 ether;
         uint256 buyAmountMin = Math.mulDiv(price, 95, 100);
 
-        BaseData memory baseData = BaseData({
-            amount: sellAmount, amountLimit: buyAmountMin, payer: address(0), receiver: address(0), flags: 0
-        });
-
         PathKey[] memory paths = new PathKey[](1);
         paths[0] = pathKey;
-        bytes memory swapData = abi.encode(baseData, address(0), paths);
+        bytes memory swapData = abi.encode(address(0), sellAmount, address(mainnet.USDT), buyAmountMin, paths);
 
         uint256 usdtBalanceBefore = IERC20(address(mainnet.USDT)).balanceOf(address(this));
         vm.deal(address(this), 1 ether);
@@ -120,13 +115,9 @@ contract TestUniswapProviderFork is Test {
         uint256 expectedEthOutput = Math.mulDiv(sellAmount, 1e18, price);
         uint256 buyAmountMin = Math.mulDiv(expectedEthOutput, 95, 100);
 
-        BaseData memory baseData = BaseData({
-            amount: sellAmount, amountLimit: buyAmountMin, payer: address(0), receiver: address(0), flags: 0
-        });
-
         PathKey[] memory paths = new PathKey[](1);
         paths[0] = pathKey;
-        bytes memory swapData = abi.encode(baseData, address(mainnet.USDC), paths);
+        bytes memory swapData = abi.encode(address(mainnet.USDC), sellAmount, address(0), buyAmountMin, paths);
 
         uint256 ethBalanceBefore = address(this).balance;
         deal(address(mainnet.USDC), address(this), sellAmount);
@@ -157,14 +148,11 @@ contract TestUniswapProviderFork is Test {
 
         uint256 buyAmountMin = Math.mulDiv(expectedUsdtOutput, 95, 100);
 
-        BaseData memory baseData = BaseData({
-            amount: sellAmount, amountLimit: buyAmountMin, payer: address(0), receiver: address(0), flags: 0
-        });
-
         PathKey[] memory paths = new PathKey[](2);
         paths[0] = pathKey1;
         paths[1] = pathKey2;
-        bytes memory swapData = abi.encode(baseData, address(mainnet.USDC), paths);
+        bytes memory swapData =
+            abi.encode(address(mainnet.USDC), sellAmount, address(mainnet.USDT), buyAmountMin, paths);
 
         uint256 usdtBalanceBefore = IERC20(address(mainnet.USDT)).balanceOf(address(this));
         deal(address(mainnet.USDC), address(this), sellAmount);
@@ -193,7 +181,7 @@ contract TestUniswapProviderFork is Test {
         uint256 sellAmount = 1 ether;
         uint256 buyAmountMin = Math.mulDiv(price, 95, 100);
 
-        bytes memory swapData = abi.encode(encodedPath, address(0), sellAmount, buyAmountMin);
+        bytes memory swapData = abi.encode(path[0], sellAmount, path[1], buyAmountMin, encodedPath);
 
         uint256 usdtBalanceBefore = IERC20(address(mainnet.USDT)).balanceOf(address(this));
         deal(address(mainnet.WETH), address(this), sellAmount);
@@ -221,7 +209,7 @@ contract TestUniswapProviderFork is Test {
         uint256 expectedEthOutput = Math.mulDiv(sellAmount, 1e18, price);
         uint256 buyAmountMin = Math.mulDiv(expectedEthOutput, 95, 100);
 
-        bytes memory swapData = abi.encode(encodedPath, address(0), sellAmount, buyAmountMin);
+        bytes memory swapData = abi.encode(path[0], sellAmount, path[1], buyAmountMin, encodedPath);
 
         uint256 wethBalanceBefore = IERC20(address(mainnet.WETH)).balanceOf(address(this));
         deal(address(mainnet.USDC), address(this), sellAmount);
@@ -249,7 +237,7 @@ contract TestUniswapProviderFork is Test {
         uint256 expectedEthOutput = Math.mulDiv(sellAmount, 1e18, price);
         uint256 buyAmountMin = Math.mulDiv(expectedEthOutput, 95, 100);
 
-        bytes memory swapData = abi.encode(encodedPath, address(0), sellAmount, buyAmountMin);
+        bytes memory swapData = abi.encode(path[0], sellAmount, path[1], buyAmountMin, encodedPath);
 
         uint256 wethBalanceBefore = IERC20(address(mainnet.WETH)).balanceOf(address(this));
         deal(address(mainnet.USDT), address(this), sellAmount);
@@ -286,7 +274,7 @@ contract TestUniswapProviderFork is Test {
 
         uint256 buyAmountMin = Math.mulDiv(expectedUsdtOutput, 95, 100);
 
-        bytes memory swapData = abi.encode(encodedPath, address(0), sellAmount, buyAmountMin);
+        bytes memory swapData = abi.encode(path[0], sellAmount, path[2], buyAmountMin, encodedPath);
 
         uint256 usdtBalanceBefore = IERC20(address(mainnet.USDT)).balanceOf(address(this));
         deal(address(mainnet.USDC), address(this), sellAmount);

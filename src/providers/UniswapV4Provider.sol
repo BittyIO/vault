@@ -29,22 +29,23 @@ contract UniswapV4Provider is ISwapProvider, Ownable, Initializable {
     receive() external payable {}
 
     function swap(bytes memory data) external payable override onlyOwner {
-        (BaseData memory baseData, address startCurrency, PathKey[] memory path) =
-            abi.decode(data, (BaseData, address, PathKey[]));
+        (address payAsset, uint256 amountIn,, uint256 amountOutMinimum, PathKey[] memory path) =
+            abi.decode(data, (address, uint256, address, uint256, PathKey[]));
 
-        baseData.payer = address(this);
-        baseData.receiver = address(this);
-
-        data = abi.encode(baseData, startCurrency, path);
-        address payAsset = startCurrency;
         address receiveAsset = path[path.length - 1].intermediateCurrency;
 
+        BaseData memory baseData = BaseData({
+            amount: amountIn, amountLimit: amountOutMinimum, payer: address(this), receiver: address(this), flags: 0
+        });
+
+        bytes memory routerData = abi.encode(baseData, payAsset, path);
+
         if (payAsset != address(0)) {
-            IERC20(payAsset).safeTransferFrom(msg.sender, address(this), baseData.amount);
-            IERC20(payAsset).safeApprove(router, baseData.amount);
+            IERC20(payAsset).safeTransferFrom(msg.sender, address(this), amountIn);
+            IERC20(payAsset).safeApprove(router, amountIn);
         }
 
-        IUniswapV4Router04(router).swap{value: msg.value}(data, block.timestamp);
+        IUniswapV4Router04(router).swap{value: msg.value}(routerData, block.timestamp);
 
         if (payAsset != address(0)) {
             IERC20(payAsset).safeApprove(router, 0);
