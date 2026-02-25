@@ -673,5 +673,33 @@ contract TestAssetManager is Test, Vault {
         assertEq(mockToken.allowance(address(this), clonedProvider), 0, "Allowance should be 0 after successful supply");
         assertEq(MockLendingProvider(clonedProvider).getLendingBalance(address(mockToken)), supplyAmount);
     }
+
+    function test_StakeSucceedsWithPreExistingResidualAllowance() public {
+        this.doInitialize();
+        this.prepareStakingProvider();
+
+        uint256 stakeAmount = 1 ether;
+        deal(mockWETH, address(this), stakeAmount);
+
+        address clonedProvider = this.getClonedProvider(address(mockStakingProvider));
+        assertTrue(clonedProvider != address(0), "Clone must exist after prepareStakingProvider");
+
+        WETH(payable(mockWETH)).approve(clonedProvider, 1);
+        assertEq(
+            WETH(payable(mockWETH)).allowance(address(this), clonedProvider),
+            1,
+            "Pre-condition: residual allowance must exist"
+        );
+
+        vm.prank(assetManagerAddress);
+        this.stake(address(mockStakingProvider), stakeAmount);
+
+        assertEq(
+            WETH(payable(mockWETH)).allowance(address(this), clonedProvider),
+            0,
+            "Allowance should be 0 after successful stake"
+        );
+        assertEq(MockStakingProvider(clonedProvider).getStakingBalance(), stakeAmount);
+    }
 }
 

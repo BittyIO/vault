@@ -213,8 +213,12 @@ library AssetManagerLogic {
             revert AmountIsZero();
         }
         stakingProvider = _cloneProvider(logicStorage, stakingProvider);
-        IERC20(wethAddress).safeApprove(stakingProvider, amount);
+        IERC20(wethAddress).safeIncreaseAllowance(stakingProvider, amount);
         IStakingProvider(stakingProvider).stake(amount);
+        uint256 remaining = IERC20(wethAddress).allowance(address(this), stakingProvider);
+        if (remaining > 0) {
+            IERC20(wethAddress).safeDecreaseAllowance(stakingProvider, remaining);
+        }
     }
 
     function unstake(
