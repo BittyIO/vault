@@ -31,8 +31,8 @@ contract AaveV3Provider is ILendingProvider, Ownable, Initializable {
     }
 
     function withdraw(address asset, uint256 amount) external override onlyOwner {
-        IAaveV3(aaveV3).getPool().withdraw(asset, amount, address(this));
-        IERC20(asset).safeTransfer(msg.sender, amount);
+        uint256 actualAmount = IAaveV3(aaveV3).getPool().withdraw(asset, amount, address(this));
+        IERC20(asset).safeTransfer(msg.sender, actualAmount);
     }
 
     function getLendingBalance(address asset) external view override returns (uint256) {
