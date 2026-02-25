@@ -381,7 +381,12 @@ library AssetManagerLogic {
 
         swapProvider = _cloneProvider(logicStorage, swapProvider);
 
+        IERC20(sellAssetAddress).safeIncreaseAllowance(swapProvider, sellAmount);
         ISwapProvider(swapProvider).swap(data);
+        uint256 remaining = IERC20(sellAssetAddress).allowance(address(this), swapProvider);
+        if (remaining > 0) {
+            IERC20(sellAssetAddress).safeDecreaseAllowance(swapProvider, remaining);
+        }
 
         uint256 sellAssetBalanceAfter = _addressBalance(sellAssetAddress);
         if (sellAssetBalanceBefore - sellAssetBalanceAfter != sellAmount) {
