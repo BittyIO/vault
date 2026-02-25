@@ -7,7 +7,7 @@ import {mainnet} from "../script/addresses.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
-import {IPoolDataProvider} from "../src/libs/Aave.sol";
+import {IAaveV3, IAavePool, IPoolDataProvider} from "../src/libs/Aave.sol";
 
 contract TestAaveProviderFork is Test {
     using SafeERC20 for IERC20;
@@ -61,6 +61,29 @@ contract TestAaveProviderFork is Test {
         (uint256 currentATokenBalance,,,,,,,,) =
             poolDataProvider.getUserReserveData(address(mainnet.WETH), address(aaveProvider));
         assertEq(currentATokenBalance, 0);
+    }
+
+    function test_Withdraw_UsesActualReturnedAmountNotInput() public {
+        address asset = address(mainnet.WETH);
+        uint256 requestAmount = 1000e18;
+        // Aave returns less than requested for rounding or liquidity reasons
+        uint256 mockReturnedAmount = 999e18;
+
+        IAavePool pool = IAaveV3(mainnet.AAVE_V3).getPool();
+
+        deal(asset, address(aaveProvider), mockReturnedAmount);
+
+        vm.mockCall(
+            address(pool),
+            abi.encodeWithSelector(IAavePool.withdraw.selector, asset, requestAmount, address(aaveProvider)),
+            abi.encode(mockReturnedAmount)
+        );
+
+        uint256 balanceBefore = IERC20(asset).balanceOf(address(this));
+        aaveProvider.withdraw(asset, requestAmount);
+        uint256 balanceAfter = IERC20(asset).balanceOf(address(this));
+
+        assertEq(balanceAfter - balanceBefore, mockReturnedAmount, "Must transfer actual returned amount, not input");
     }
 
     function test_GetBalance() public {
