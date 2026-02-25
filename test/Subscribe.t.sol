@@ -20,6 +20,73 @@ import {
     InsufficientWithdrawableFee
 } from "../src/interfaces/ISubscribe.sol";
 
+/// @notice ERC20 that notifies the receiver before completing a transfer. Used for reentrancy tests.
+interface IReentrancyReceiver {
+    function onTokenReceived(address token, address from, uint256 amount) external;
+}
+
+contract ReentrantERC20 is MockERC20 {
+    uint256 private _transferDepth;
+
+    constructor(string memory _name, string memory _symbol, uint8 _decimals) MockERC20(_name, _symbol, _decimals) {}
+
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        if (to.code.length > 0 && _transferDepth == 0) {
+            _transferDepth++;
+            IReentrancyReceiver(to).onTokenReceived(address(this), msg.sender, amount);
+            _transferDepth--;
+        }
+        return super.transfer(to, amount);
+    }
+}
+
+/// @notice Receiver that reenters renew() when it receives tokens. Used to verify
+/// "state change first, then transfer". If state is updated before transfer, renew()
+/// sees SubscriptionNone and reverts. If transfer happens first, renew() succeeds
+/// (subscription still exists) - test fails.
+contract ReentrantUnsubscribeReceiver {
+    Subscribe public subscribe;
+
+    constructor(Subscribe _subscribe) {
+        subscribe = _subscribe;
+    }
+
+    function onTokenReceived(address, address, uint256) external {
+        subscribe.renew(1);
+    }
+
+    function doSubscribe(ISubscribe.Subscription sub, address token) external {
+        subscribe.subscribe(sub, token);
+    }
+
+    function doUnsubscribe() external {
+        subscribe.unsubscribe();
+    }
+}
+
+/// @notice Receiver that reenters downgrade(STANDARD) when it receives a refund.
+/// - Correct order (state first): we're BASE, downgrade(STANDARD) reverts AlreadyBase.
+/// - Wrong order (transfer first): we're PREMIUM, downgrade(STANDARD) succeeds.
+contract ReentrantDowngradeReceiver {
+    Subscribe public subscribe;
+
+    constructor(Subscribe _subscribe) {
+        subscribe = _subscribe;
+    }
+
+    function onTokenReceived(address, address, uint256) external {
+        subscribe.downgrade(ISubscribe.Subscription.STANDARD);
+    }
+
+    function doSubscribe(ISubscribe.Subscription sub, address token) external {
+        subscribe.subscribe(sub, token);
+    }
+
+    function doDowngrade(ISubscribe.Subscription target) external {
+        subscribe.downgrade(target);
+    }
+}
+
 contract SubscribeTest is Test {
     address public user;
     Subscribe public subscribe;
@@ -423,6 +490,58 @@ contract SubscribeTest is Test {
         assertEq(mockStableCoin.balanceOf(to), baseFee);
         assertEq(mockStableCoin.balanceOf(user), 0);
         assertEq(mockStableCoin.balanceOf(address(subscribe)), 0);
+    }
+
+    function test_Unsubscribe_StateChangeBeforeTransfer_ReentrancySafe() public {
+        MockERC20 mockUSDC = new ReentrantERC20("USD Coin", "USDC", 6);
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(mockUSDC);
+        vm.prank(tx.origin);
+        IWhiteList(whiteList).addStableCoins(tokens);
+
+        Subscribe sub = new Subscribe();
+        sub.initialize(whiteList);
+
+        ReentrantUnsubscribeReceiver receiver = new ReentrantUnsubscribeReceiver(sub);
+
+        uint256 baseFee = sub.BASE_FEE() * (10 ** mockUSDC.decimals());
+        mockUSDC.mint(address(receiver), baseFee * 2);
+        vm.prank(address(receiver));
+        mockUSDC.approve(address(sub), baseFee * 2);
+        vm.prank(address(receiver));
+        receiver.doSubscribe(ISubscribe.Subscription.BASE, address(mockUSDC));
+
+        vm.warp(block.timestamp + 180 days);
+
+        vm.prank(address(receiver));
+        vm.expectRevert(SubscriptionNone.selector);
+        receiver.doUnsubscribe();
+    }
+
+    function test_Downgrade_StateChangeBeforeTransfer_ReentrancySafe() public {
+        MockERC20 mockUSDC = new ReentrantERC20("USD Coin", "USDC", 6);
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(mockUSDC);
+        vm.prank(tx.origin);
+        IWhiteList(whiteList).addStableCoins(tokens);
+
+        Subscribe sub = new Subscribe();
+        sub.initialize(whiteList);
+
+        ReentrantDowngradeReceiver receiver = new ReentrantDowngradeReceiver(sub);
+
+        uint256 premiumFee = sub.PREMIUM_FEE() * (10 ** mockUSDC.decimals());
+        mockUSDC.mint(address(receiver), premiumFee);
+        vm.prank(address(receiver));
+        mockUSDC.approve(address(sub), premiumFee);
+        vm.prank(address(receiver));
+        receiver.doSubscribe(ISubscribe.Subscription.PREMIUM, address(mockUSDC));
+
+        vm.warp(block.timestamp + 180 days);
+
+        vm.prank(address(receiver));
+        vm.expectRevert(AlreadyBase.selector);
+        receiver.doDowngrade(ISubscribe.Subscription.BASE);
     }
 
     function test_UnsubscribeSuccess() public {
