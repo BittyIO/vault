@@ -288,8 +288,6 @@ contract TestAssetManager is Test, Vault {
         address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
         deal(address(mockWETH), address(this), sellAmount);
         deal(address(mockUSDT), clonedSwapProvider, buyAmount);
-        vm.prank(address(this));
-        MockERC20(mockWETH).approve(clonedSwapProvider, sellAmount);
 
         vm.warp(block.timestamp + 31);
         vm.prank(assetManagerAddress);
@@ -375,7 +373,6 @@ contract TestAssetManager is Test, Vault {
         uint256 buyAmount = 10 * 1e6;
         deal(address(mockUSDT), clonedSwapProvider, buyAmount);
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
-        MockERC20(mockWETH).approve(clonedSwapProvider, sellAmount);
 
         vm.prank(assetManagerAddress);
         this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
@@ -403,7 +400,6 @@ contract TestAssetManager is Test, Vault {
         uint256 buyAmount = 10 * 1e6;
         deal(address(mockUSDT), clonedSwapProvider, buyAmount);
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
-        MockERC20(mockWETH).approve(clonedSwapProvider, sellAmount);
 
         vm.prank(assetManagerAddress);
         this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
@@ -426,7 +422,6 @@ contract TestAssetManager is Test, Vault {
         address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
         deal(address(mockUSDT), clonedSwapProvider, buyAmount);
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
-        MockERC20(mockWETH).approve(clonedSwapProvider, sellAmount);
 
         vm.expectRevert(RebalanceDisabled.selector);
         vm.prank(assetManagerAddress);
@@ -452,7 +447,6 @@ contract TestAssetManager is Test, Vault {
         address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
         deal(address(mockUSDT), clonedSwapProvider, buyAmount);
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
-        MockERC20(mockWETH).approve(clonedSwapProvider, sellAmount);
 
         vm.prank(assetManagerAddress);
         this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
@@ -474,7 +468,6 @@ contract TestAssetManager is Test, Vault {
         address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
         deal(address(mockUSDT), clonedSwapProvider, buyAmount);
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
-        MockERC20(mockWETH).approve(clonedSwapProvider, sellAmount);
 
         vm.prank(assetManagerAddress);
         this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
