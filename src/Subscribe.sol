@@ -85,9 +85,9 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
         }
         uint256 refundFee = _refundableFee(msg.sender, subscriptions[msg.sender].stableCoinAddress);
         IERC20Metadata stableCoin = IERC20Metadata(subscriptions[msg.sender].stableCoinAddress);
-        stableCoin.safeTransfer(msg.sender, refundFee);
         delete subscriptions[msg.sender];
         _subscribers.remove(msg.sender);
+        stableCoin.safeTransfer(msg.sender, refundFee);
     }
 
     function upgrade(ISubscribe.Subscription subscription, address stableCoinAddress) external override {
@@ -137,16 +137,18 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
         if (downgradedFee > refundFee && stableCoin.balanceOf(msg.sender) < (downgradedFee - refundFee)) {
             revert InsufficientBalance();
         }
-        if (downgradedFee < refundFee) {
-            stableCoin.safeTransfer(msg.sender, refundFee - downgradedFee);
-        } else if (downgradedFee > refundFee) {
-            stableCoin.safeTransferFrom(msg.sender, address(this), downgradedFee - refundFee);
-        }
+
         subscriptions[msg.sender] = ISubscribe.SubscriptionInfo({
             subscription: subscription,
             expirationTime: block.timestamp + 365 days,
             stableCoinAddress: subscriptionInfo.stableCoinAddress
         });
+
+        if (downgradedFee < refundFee) {
+            stableCoin.safeTransfer(msg.sender, refundFee - downgradedFee);
+        } else if (downgradedFee > refundFee) {
+            stableCoin.safeTransferFrom(msg.sender, address(this), downgradedFee - refundFee);
+        }
     }
 
     function subscriptionLevel(address user) external view override returns (ISubscribe.Subscription) {
