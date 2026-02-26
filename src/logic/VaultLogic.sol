@@ -91,6 +91,9 @@ library VaultLogic {
         if (receiver.isImmutable) {
             revert ReceiverImmutable();
         }
+        if (newReceiverAddress == address(0)) {
+            revert AddressZero();
+        }
         receiver.receiverAddress = newReceiverAddress;
         receiver.lastModifyTimestamp = block.timestamp;
     }
@@ -112,6 +115,9 @@ library VaultLogic {
     }
 
     function _checkReceiver(IVault.Receiver memory receiver) internal pure {
+        if (receiver.receiverAddress == address(0)) {
+            revert AddressZero();
+        }
         if (receiver.amount == 0) {
             revert AmountIsZero();
         }
@@ -166,9 +172,9 @@ library VaultLogic {
         ) {
             revert ReceiverInDuration();
         }
-        _transferMoney(receiver.assetAddress, receiver.amount, receiver.receiverAddress);
         receiver.lastReceiveTimestamp = block.timestamp;
         receiver.paymentCount = receiver.paymentCount - 1;
+        _transferMoney(receiver.assetAddress, receiver.amount, receiver.receiverAddress);
     }
 
     function _transferMoney(address erc20Address, uint256 amount, address receiverAddress) internal {
