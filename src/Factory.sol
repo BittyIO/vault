@@ -4,9 +4,8 @@ pragma solidity ^0.8.27;
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {AddressZero} from "./interfaces/IVault.sol";
-import {IWhiteList} from "./interfaces/IWhiteList.sol";
+import {IWhiteList, NotWhiteListed} from "./interfaces/IWhiteList.sol";
 import {Vault} from "./Vault.sol";
-import {FactoryHelper} from "./helpers/FactoryHelper.sol";
 import {IFactory, VaultAlreadyDeployed} from "./interfaces/IFactory.sol";
 
 /**
@@ -51,9 +50,7 @@ contract Factory is IFactory, Initializable {
         address[] memory stakingProviders,
         address[] memory swapProviders
     ) external override returns (address vault) {
-        FactoryHelper.checkWhiteList(
-            whiteList, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, swapProviders
-        );
+        _checkWhiteList(assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, swapProviders);
 
         bytes32 salt = keccak256(abi.encodePacked(msg.sender));
         address computedAddress = Clones.predictDeterministicAddress(vaultImplementation, salt, address(this));
@@ -79,6 +76,34 @@ contract Factory is IFactory, Initializable {
     function computeVaultAddress(address owner) external view override returns (address) {
         bytes32 salt = keccak256(abi.encodePacked(owner));
         return Clones.predictDeterministicAddress(vaultImplementation, salt, address(this));
+    }
+
+    /**
+     * @notice Check if all addresses are whitelisted
+     * @dev Validates assets, stablecoins, yield providers, and swap providers
+     */
+    function _checkWhiteList(
+        address[] memory assetAddresses,
+        address[] memory stableCoinAddresses,
+        address[] memory lendingProviders,
+        address[] memory stakingProviders,
+        address[] memory swapProviders
+    ) internal view {
+        for (uint256 i = 0; i < assetAddresses.length; i++) {
+            if (!whiteList.isAssetWhiteListed(assetAddresses[i])) revert NotWhiteListed();
+        }
+        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
+            if (!whiteList.isStableCoinWhiteListed(stableCoinAddresses[i])) revert NotWhiteListed();
+        }
+        for (uint256 i = 0; i < lendingProviders.length; i++) {
+            if (!whiteList.isLendingProviderWhiteListed(lendingProviders[i])) revert NotWhiteListed();
+        }
+        for (uint256 i = 0; i < stakingProviders.length; i++) {
+            if (!whiteList.isStakingProviderWhiteListed(stakingProviders[i])) revert NotWhiteListed();
+        }
+        for (uint256 i = 0; i < swapProviders.length; i++) {
+            if (!whiteList.isSwapProviderWhiteListed(swapProviders[i])) revert NotWhiteListed();
+        }
     }
 }
 

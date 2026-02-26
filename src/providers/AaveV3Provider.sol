@@ -2,8 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {ILendingProvider} from "../interfaces/ILendingProvider.sol";
-import {IAaveV3, IAavePool} from "../libs/Aave.sol";
-import {IPoolDataProvider} from "../libs/Aave.sol";
+import {IAaveV3, IAavePool, IPoolDataProvider} from "../libs/aave/v3/Aave.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";

@@ -67,11 +67,12 @@ interface IAssetManager {
     function setAssetConfig(address assetAddress, AssetConfig memory assetConfig) external;
 
     /**
-     * @notice Change the asset manager.
-     * @dev Change the asset manager.
-     * @param assetManager The address of the asset manager.
+     * @notice Change the asset manager address.
+     * @dev Change the asset manager address.
+     * @param newAssetManager The address of the new asset manager.
+     * @dev Only the current asset manager can execute it.
      */
-    function changeAssetManager(address assetManager) external;
+    function changeAssetManagerAddress(address newAssetManager) external;
 
     /**
      * @notice Supply the asset to the lending provider.

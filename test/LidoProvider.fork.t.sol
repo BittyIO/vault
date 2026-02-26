@@ -5,7 +5,7 @@ import "forge-std/console.sol";
 import {Test} from "lib/forge-std/src/Test.sol";
 import {LidoV2Provider} from "../src/providers/LidoV2Provider.sol";
 import {mainnet} from "../script/addresses.sol";
-import {IStETH, IUnstETH} from "../src/libs/Lido.sol";
+import {IStETH, IUnstETH} from "../src/libs/lido/v2/Lido.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 import {WETHBalanceNotEnough} from "../src/interfaces/IVault.sol";

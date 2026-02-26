@@ -125,13 +125,6 @@ interface IVault {
     function removeAssets(address[] memory assetAddresses) external;
 
     /**
-     * @notice Reset the assets of the vault.
-     * @dev Reset the assets of the vault.
-     * @param assetAddresses The addresses of the assets.
-     */
-    function resetAssets(address[] memory assetAddresses) external;
-
-    /**
      * @notice Add the stable coins to the vault.
      * @dev Add the stable coins to the vault.
      * @param stableCoinAddresses The addresses of the stable coins.
@@ -144,13 +137,6 @@ interface IVault {
      * @param stableCoinAddresses The addresses of the stable coins.
      */
     function removeStableCoins(address[] memory stableCoinAddresses) external;
-
-    /**
-     * @notice Reset the stable coins of the vault.
-     * @dev Reset the stable coins of the vault.
-     * @param stableCoinAddresses The addresses of the stable coins.
-     */
-    function resetStableCoins(address[] memory stableCoinAddresses) external;
 
     /**
      * @notice Get the assets of the vault.

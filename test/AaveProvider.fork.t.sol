@@ -7,7 +7,7 @@ import {mainnet} from "../script/addresses.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
-import {IAaveV3, IAavePool, IPoolDataProvider} from "../src/libs/Aave.sol";
+import {IAaveV3, IAavePool, IPoolDataProvider} from "../src/libs/aave/v3/Aave.sol";
 
 contract TestAaveProviderFork is Test {
     using SafeERC20 for IERC20;
