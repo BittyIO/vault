@@ -3,12 +3,12 @@ pragma solidity ^0.8.27;
 
 import "forge-std/console.sol";
 import {Test} from "lib/forge-std/src/Test.sol";
-import {WhiteList} from "../src/WhiteList.sol";
-import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
-import {MockLendingProvider} from "./mock/MockLendingProvider.sol";
-import {MockStakingProvider} from "./mock/MockStakingProvider.sol";
+import {WhiteList} from "../../src/WhiteList.sol";
+import {MockSwapProvider} from "../mock/MockSwapProvider.sol";
+import {MockLendingProvider} from "../mock/MockLendingProvider.sol";
+import {MockStakingProvider} from "../mock/MockStakingProvider.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
-import {SwapProviderShouldNotBeAllRemoved} from "../src/interfaces/IWhiteList.sol";
+import {SwapProviderShouldNotBeAllRemoved} from "../../src/interfaces/IWhiteList.sol";
 
 contract WhiteListTest is Test {
     WhiteList public whiteList;

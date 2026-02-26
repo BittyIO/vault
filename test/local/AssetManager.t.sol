@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {Test} from "lib/forge-std/src/Test.sol";
-import {AmountIsZero, AddressZero} from "../src/interfaces/IVault.sol";
+import {AmountIsZero, AddressZero} from "../../src/interfaces/IVault.sol";
 import {
     InvalidLendingProvider,
     InvalidStakingProvider,
@@ -10,17 +10,17 @@ import {
     RebalanceDisabled,
     DisableRebalanceUntilTimestampTooEarly,
     OnlyAssetManager
-} from "../src/interfaces/IAssetManager.sol";
-import {Deprecated} from "../src/interfaces/IWhiteList.sol";
+} from "../../src/interfaces/IAssetManager.sol";
+import {Deprecated} from "../../src/interfaces/IWhiteList.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
-import {MockLendingProvider} from "./mock/MockLendingProvider.sol";
-import {MockStakingProvider} from "./mock/MockStakingProvider.sol";
-import {MockSwapProvider} from "./mock/MockSwapProvider.sol";
-import {WhiteList} from "../src/WhiteList.sol";
-import {Vault} from "../src/Vault.sol";
-import {AssetManagerLogic} from "../src/logic/AssetManagerLogic.sol";
-import {AddingAssetsDisabled} from "../src/interfaces/IVault.sol";
+import {MockLendingProvider} from "../mock/MockLendingProvider.sol";
+import {MockStakingProvider} from "../mock/MockStakingProvider.sol";
+import {MockSwapProvider} from "../mock/MockSwapProvider.sol";
+import {WhiteList} from "../../src/WhiteList.sol";
+import {Vault} from "../../src/Vault.sol";
+import {AssetManagerLogic} from "../../src/logic/AssetManagerLogic.sol";
+import {AddingAssetsDisabled} from "../../src/interfaces/IVault.sol";
 
 contract TestAssetManager is Test, Vault {
     address public mockWETH;
