@@ -2,9 +2,9 @@
 pragma solidity ^0.8.27;
 
 import {Test} from "lib/forge-std/src/Test.sol";
-import {UniswapV4Provider} from "../src/providers/UniswapV4Provider.sol";
-import {UniswapV3Provider} from "../src/providers/UniswapV3Provider.sol";
-import {mainnet} from "../script/addresses.sol";
+import {UniswapV4Provider} from "../../src/providers/UniswapV4Provider.sol";
+import {UniswapV3Provider} from "../../src/providers/UniswapV3Provider.sol";
+import {mainnet} from "../../script/addresses.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
@@ -16,8 +16,8 @@ import {
     PoolStateLibrary,
     PoolId,
     PoolIdLibrary
-} from "../src/libs/uniswap/v4/Uniswap.sol";
-import {Path, IUniswapV3Factory, IUniswapV3Pool, IUniswapV3Router} from "../src/libs/uniswap/v3/Uniswap.sol";
+} from "../../src/libs/uniswap/v4/Uniswap.sol";
+import {Path, IUniswapV3Factory, IUniswapV3Pool, IUniswapV3Router} from "../../src/libs/uniswap/v3/Uniswap.sol";
 
 contract TestUniswapProviderFork is Test {
     using SafeERC20 for IERC20;
