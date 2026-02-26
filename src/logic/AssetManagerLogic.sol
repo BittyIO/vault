@@ -13,7 +13,6 @@ import {
     BuyAmountNotEnough,
     MinimalBalanceNotMet,
     SupplyAmountMismatch,
-    WithdrawAmountMismatch,
     StakeAmountMismatch,
     UnstakeAmountMismatch,
     InvalidLendingProvider,
@@ -170,12 +169,7 @@ library AssetManagerLogic {
         if (supplyAmount < amount) {
             revert InsufficientBalance();
         }
-        uint256 balanceBefore = _addressBalance(assetAddress);
         ILendingProvider(lendingProvider).withdraw(assetAddress, amount);
-        uint256 balanceAfter = _addressBalance(assetAddress);
-        if (balanceAfter - balanceBefore != amount) {
-            revert WithdrawAmountMismatch();
-        }
     }
 
     function getLendingBalance(AssetManagerStorage storage logicStorage, address lendingProvider, address assetAddress)

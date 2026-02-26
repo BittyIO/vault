@@ -8,7 +8,6 @@ error SellAmountMismatch();
 error BuyAmountNotEnough();
 error MinimalBalanceNotMet();
 error SupplyAmountMismatch();
-error WithdrawAmountMismatch();
 error InvalidLendingProvider();
 error InvalidStakingProvider();
 error InvalidSwapProvider();
