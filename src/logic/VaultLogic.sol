@@ -208,21 +208,6 @@ library VaultLogic {
         }
     }
 
-    function resetAssets(VaultStorage storage logicStorage, address[] memory assetAddresses)
-        external
-        onlyInitialized(logicStorage)
-    {
-        for (uint256 i = 0; i < assetAddresses.length; i++) {
-            logicStorage.assets.remove(assetAddresses[i]);
-        }
-        for (uint256 i = 0; i < assetAddresses.length; i++) {
-            if (!logicStorage.whiteList.isAssetWhiteListed(assetAddresses[i])) {
-                revert NotWhiteListed();
-            }
-            logicStorage.assets.add(assetAddresses[i]);
-        }
-    }
-
     function addStableCoins(VaultStorage storage logicStorage, address[] memory stableCoinAddresses)
         external
         onlyInitialized(logicStorage)
@@ -241,21 +226,6 @@ library VaultLogic {
     {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
             logicStorage.stableCoins.remove(stableCoinAddresses[i]);
-        }
-    }
-
-    function resetStableCoins(VaultStorage storage logicStorage, address[] memory stableCoinAddresses)
-        external
-        onlyInitialized(logicStorage)
-    {
-        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            logicStorage.stableCoins.remove(stableCoinAddresses[i]);
-        }
-        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            if (!logicStorage.whiteList.isStableCoinWhiteListed(stableCoinAddresses[i])) {
-                revert NotWhiteListed();
-            }
-            logicStorage.stableCoins.add(stableCoinAddresses[i]);
         }
     }
 

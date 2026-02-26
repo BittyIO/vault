@@ -27,12 +27,8 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _;
     }
 
-    function _onlyValidAsset(VaultStorage storage vaultStorage, address assetAddress) private view {
-        vaultStorage.checkAsset(assetAddress);
-    }
-
     modifier onlyValidAsset(address assetAddress) {
-        _onlyValidAsset(_vault, assetAddress);
+        _vault.checkAsset(assetAddress);
         _;
     }
 
@@ -57,7 +53,7 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
 
     // ============ IAssetManager Interface ============
 
-    function changeAssetManager(address newAssetManager) external override onlyAssetManager {
+    function changeAssetManagerAddress(address newAssetManager) external override onlyAssetManager {
         _assetManager.setAssetManager(newAssetManager);
     }
 
@@ -201,20 +197,12 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _vault.removeAssets(assetAddresses);
     }
 
-    function resetAssets(address[] memory assetAddresses) external override onlyOwner {
-        _vault.resetAssets(assetAddresses);
-    }
-
     function addStableCoins(address[] memory stableCoinAddresses) external override onlyOwner {
         _vault.addStableCoins(stableCoinAddresses);
     }
 
     function removeStableCoins(address[] memory stableCoinAddresses) external override onlyOwner {
         _vault.removeStableCoins(stableCoinAddresses);
-    }
-
-    function resetStableCoins(address[] memory stableCoinAddresses) external override onlyOwner {
-        _vault.resetStableCoins(stableCoinAddresses);
     }
 
     function getAssets() external view override returns (address[] memory) {
@@ -225,6 +213,11 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         return _vault.getStableCoins();
     }
 
+    /**
+     * @notice Pay the receiver, would be triggered by anyone including AI agents.
+     * @param name the name of the receiver.
+     * @dev Trigger or anyone can execute it.
+     */
     function payReceiver(string memory name) external override {
         _vault.payReceiver(name);
     }

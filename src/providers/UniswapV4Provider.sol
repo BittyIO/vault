@@ -9,9 +9,6 @@ import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 
-error InvalidPayer();
-error InvalidReceiver();
-
 contract UniswapV4Provider is ISwapProvider, Ownable, Initializable {
     using SafeERC20 for IERC20;
     address public immutable router;
