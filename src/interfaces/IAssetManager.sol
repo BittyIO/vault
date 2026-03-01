@@ -7,13 +7,10 @@ error RebalanceMaxPercentage();
 error SellAmountMismatch();
 error BuyAmountNotEnough();
 error MinimalBalanceNotMet();
-error SupplyAmountMismatch();
 error InvalidLendingProvider();
 error InvalidStakingProvider();
 error InvalidSwapProvider();
 error InvalidSwapData();
-error StakeAmountMismatch();
-error UnstakeAmountMismatch();
 error DisableRebalanceUntilTimestampTooEarly();
 error RebalanceDisabled();
 
