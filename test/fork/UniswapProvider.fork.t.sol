@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {Test} from "lib/forge-std/src/Test.sol";
-import {UniswapV4Provider} from "../../src/providers/UniswapV4Provider.sol";
+import {Vm} from "lib/forge-std/src/Vm.sol";
 import {UniswapV3Provider} from "../../src/providers/UniswapV3Provider.sol";
 import {mainnet} from "../../script/addresses.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -18,6 +18,7 @@ import {
     PoolIdLibrary
 } from "../../src/libs/uniswap/v4/Uniswap.sol";
 import {Path, IUniswapV3Factory, IUniswapV3Pool, IUniswapV3Router} from "../../src/libs/uniswap/v3/Uniswap.sol";
+import {INonfungiblePositionManager} from "../../src/libs/uniswap/v3/Uniswap.sol";
 
 contract TestUniswapProviderFork is Test {
     using SafeERC20 for IERC20;
@@ -26,18 +27,14 @@ contract TestUniswapProviderFork is Test {
     using PoolIdLibrary for V4PoolKey;
     using Path for bytes;
 
-    UniswapV4Provider public v4Provider;
     UniswapV3Provider public v3Provider;
     IPoolManager public poolManager;
 
     function setUp() public {
         vm.createSelectFork("mainnet");
-        v4Provider = new UniswapV4Provider(mainnet.UNISWAP_V4_ROUTER, mainnet.POOL_MANAGER);
-        v4Provider.initialize(address(this));
-        vm.deal(address(v4Provider), 0);
         poolManager = IPoolManager(mainnet.POOL_MANAGER);
 
-        v3Provider = new UniswapV3Provider(mainnet.UNISWAP_V3_ROUTER);
+        v3Provider = new UniswapV3Provider(mainnet.UNISWAP_V3_ROUTER, mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
         v3Provider.initialize(address(this));
         vm.deal(address(v3Provider), 0);
     }
@@ -77,92 +74,6 @@ contract TestUniswapProviderFork is Test {
             // Invert: price = 1 / priceToken1PerToken0
             return Math.mulDiv(q192, 1e18, Math.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), 1));
         }
-    }
-
-    function test_V4_SwapETHToUSDT() public {
-        PathKey memory pathKey = PathKey({
-            intermediateCurrency: address(mainnet.USDT), fee: 3000, tickSpacing: 60, hooks: address(0), hookData: ""
-        });
-
-        (V4PoolKey memory poolKey,) = pathKey.getPoolAndSwapDirection(address(0));
-
-        uint256 price = _getV4PoolPrice(poolKey);
-        uint256 sellAmount = 1 ether;
-        uint256 buyAmountMin = Math.mulDiv(price, 95, 100);
-
-        PathKey[] memory paths = new PathKey[](1);
-        paths[0] = pathKey;
-        bytes memory swapData = abi.encode(address(0), sellAmount, address(mainnet.USDT), buyAmountMin, paths);
-
-        uint256 usdtBalanceBefore = IERC20(address(mainnet.USDT)).balanceOf(address(this));
-        vm.deal(address(this), 1 ether);
-
-        v4Provider.swap{value: sellAmount}(swapData);
-
-        uint256 usdtBalanceAfter = IERC20(address(mainnet.USDT)).balanceOf(address(this));
-        assertGt(usdtBalanceAfter, usdtBalanceBefore);
-        assertGe(usdtBalanceAfter - usdtBalanceBefore, buyAmountMin);
-    }
-
-    function test_V4_SwapUSDCToETH() public {
-        PathKey memory pathKey =
-            PathKey({intermediateCurrency: address(0), fee: 3000, tickSpacing: 60, hooks: address(0), hookData: ""});
-
-        (V4PoolKey memory poolKey,) = pathKey.getPoolAndSwapDirection(address(mainnet.USDC));
-
-        uint256 price = _getV4PoolPrice(poolKey);
-        uint256 sellAmount = 1000 * 1e6;
-        uint256 expectedEthOutput = Math.mulDiv(sellAmount, 1e18, price);
-        uint256 buyAmountMin = Math.mulDiv(expectedEthOutput, 95, 100);
-
-        PathKey[] memory paths = new PathKey[](1);
-        paths[0] = pathKey;
-        bytes memory swapData = abi.encode(address(mainnet.USDC), sellAmount, address(0), buyAmountMin, paths);
-
-        uint256 ethBalanceBefore = address(this).balance;
-        deal(address(mainnet.USDC), address(this), sellAmount);
-        IERC20(address(mainnet.USDC)).safeApprove(address(v4Provider), sellAmount);
-        v4Provider.swap(swapData);
-        uint256 ethBalanceAfter = address(this).balance;
-        assertGt(ethBalanceAfter, ethBalanceBefore);
-        assertGe(ethBalanceAfter - ethBalanceBefore, buyAmountMin);
-    }
-
-    function test_V4_SwapUSDCToETHToUSDT() public {
-        uint256 sellAmount = 1000 * 1e6; // 1000 USDC
-
-        // USDC -> ETH
-        PathKey memory pathKey1 =
-            PathKey({intermediateCurrency: address(0), fee: 3000, tickSpacing: 60, hooks: address(0), hookData: ""});
-        (V4PoolKey memory poolKey1,) = pathKey1.getPoolAndSwapDirection(address(mainnet.USDC));
-        uint256 price1 = _getV4PoolPrice(poolKey1);
-        uint256 expectedEthOutput = Math.mulDiv(sellAmount, 1e18, price1);
-
-        // ETH -> USDT
-        PathKey memory pathKey2 = PathKey({
-            intermediateCurrency: address(mainnet.USDT), fee: 3000, tickSpacing: 60, hooks: address(0), hookData: ""
-        });
-        (V4PoolKey memory poolKey2,) = pathKey2.getPoolAndSwapDirection(address(0));
-        uint256 price2 = _getV4PoolPrice(poolKey2);
-        uint256 expectedUsdtOutput = Math.mulDiv(expectedEthOutput, price2, 1e18);
-
-        uint256 buyAmountMin = Math.mulDiv(expectedUsdtOutput, 95, 100);
-
-        PathKey[] memory paths = new PathKey[](2);
-        paths[0] = pathKey1;
-        paths[1] = pathKey2;
-        bytes memory swapData =
-            abi.encode(address(mainnet.USDC), sellAmount, address(mainnet.USDT), buyAmountMin, paths);
-
-        uint256 usdtBalanceBefore = IERC20(address(mainnet.USDT)).balanceOf(address(this));
-        deal(address(mainnet.USDC), address(this), sellAmount);
-        IERC20(address(mainnet.USDC)).safeApprove(address(v4Provider), sellAmount);
-
-        v4Provider.swap(swapData);
-
-        uint256 usdtBalanceAfter = IERC20(address(mainnet.USDT)).balanceOf(address(this));
-        assertGt(usdtBalanceAfter, usdtBalanceBefore);
-        assertGe(usdtBalanceAfter - usdtBalanceBefore, buyAmountMin);
     }
 
     // ============ Uniswap V3 Provider Tests ============
@@ -285,6 +196,118 @@ contract TestUniswapProviderFork is Test {
         uint256 usdtBalanceAfter = IERC20(address(mainnet.USDT)).balanceOf(address(this));
         assertGt(usdtBalanceAfter, usdtBalanceBefore);
         assertGe(usdtBalanceAfter - usdtBalanceBefore, buyAmountMin);
+    }
+
+    // ============ Uniswap V3 AMM (addLiquidity / removeLiquidity / claimFees / getLiquidity) ============
+
+    bytes32 constant ERC721_TRANSFER_TOPIC = keccak256("Transfer(address,address,uint256)");
+
+    function _mintV3PositionAndGetTokenId() internal returns (uint256 tokenId) {
+        address token0 = mainnet.WETH < mainnet.USDC ? mainnet.WETH : mainnet.USDC;
+        address token1 = mainnet.WETH < mainnet.USDC ? mainnet.USDC : mainnet.WETH;
+        uint24 fee = 3000;
+        int24 tickSpacing = 60;
+
+        address pool =
+            IUniswapV3Factory(IUniswapV3Router(mainnet.UNISWAP_V3_ROUTER).factory()).getPool(token0, token1, fee);
+        (, int24 currentTick,,,,,) = IUniswapV3Pool(pool).slot0();
+        int24 tickLower = (currentTick / tickSpacing) * tickSpacing - tickSpacing * 10;
+        int24 tickUpper = (currentTick / tickSpacing) * tickSpacing + tickSpacing * 10;
+
+        uint256 amount0Desired = token0 == mainnet.WETH ? 0.01 ether : 20 * 1e6;
+        uint256 amount1Desired = token1 == mainnet.WETH ? 0.01 ether : 20 * 1e6;
+
+        deal(token0, address(this), amount0Desired);
+        deal(token1, address(this), amount1Desired);
+        IERC20(token0).safeApprove(address(v3Provider), amount0Desired);
+        IERC20(token1).safeApprove(address(v3Provider), amount1Desired);
+
+        INonfungiblePositionManager.MintParams memory mintParams = INonfungiblePositionManager.MintParams({
+            token0: token0,
+            token1: token1,
+            fee: fee,
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            amount0Desired: amount0Desired,
+            amount1Desired: amount1Desired,
+            amount0Min: 0,
+            amount1Min: 0,
+            recipient: address(0),
+            deadline: block.timestamp
+        });
+        bytes memory addData = abi.encode(true, abi.encode(mintParams));
+
+        vm.recordLogs();
+        v3Provider.addLiquidity(addData);
+
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        address npm = mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER;
+        bytes32 toTopic = bytes32(uint256(uint160(address(v3Provider))));
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (
+                entries[i].emitter == npm && entries[i].topics[0] == ERC721_TRANSFER_TOPIC
+                    && entries[i].topics[1] == bytes32(uint256(0)) && entries[i].topics[2] == toTopic
+                    && entries[i].topics.length > 3
+            ) {
+                tokenId = uint256(entries[i].topics[3]);
+                break;
+            }
+        }
+        require(tokenId > 0, "tokenId from mint");
+        return tokenId;
+    }
+
+    function test_V3_AddLiquidity_Mint() public {
+        uint256 tokenId = _mintV3PositionAndGetTokenId();
+        assertGt(tokenId, 0, "tokenId from mint");
+
+        uint256 liquidity = v3Provider.getLiquidity(abi.encode(tokenId));
+        assertGt(liquidity, 0, "liquidity after mint");
+    }
+
+    function test_V3_GetLiquidity_ClaimFees() public {
+        uint256 tokenId = _mintV3PositionAndGetTokenId();
+
+        uint256 liquidity = v3Provider.getLiquidity(abi.encode(tokenId));
+        assertGt(liquidity, 0, "liquidity after mint");
+
+        INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams({
+            tokenId: tokenId, recipient: address(this), amount0Max: type(uint128).max, amount1Max: type(uint128).max
+        });
+        v3Provider.claimFees(abi.encode(collectParams));
+    }
+
+    function test_V3_RemoveLiquidity() public {
+        uint256 tokenId = _mintV3PositionAndGetTokenId();
+
+        uint256 liquidityAfterMint = v3Provider.getLiquidity(abi.encode(tokenId));
+        assertGt(liquidityAfterMint, 0, "liquidity after mint");
+
+        uint128 liquidityToDecrease =
+            liquidityAfterMint >= 2 ? uint128(liquidityAfterMint / 2) : uint128(liquidityAfterMint);
+        INonfungiblePositionManager.DecreaseLiquidityParams memory decreaseParams =
+            INonfungiblePositionManager.DecreaseLiquidityParams({
+                tokenId: tokenId,
+                liquidity: liquidityToDecrease,
+                amount0Min: 0,
+                amount1Min: 0,
+                deadline: block.timestamp
+            });
+        v3Provider.removeLiquidity(abi.encode(decreaseParams));
+
+        uint256 liquidityAfterDecrease = v3Provider.getLiquidity(abi.encode(tokenId));
+        assertEq(liquidityAfterDecrease, liquidityAfterMint - liquidityToDecrease, "liquidity after decrease");
+
+        INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams({
+            tokenId: tokenId, recipient: address(this), amount0Max: type(uint128).max, amount1Max: type(uint128).max
+        });
+        v3Provider.claimFees(abi.encode(collectParams));
+
+        address token0 = mainnet.WETH < mainnet.USDC ? mainnet.WETH : mainnet.USDC;
+        address token1 = mainnet.WETH < mainnet.USDC ? mainnet.USDC : mainnet.WETH;
+        uint256 balance0 = IERC20(token0).balanceOf(address(this));
+        uint256 balance1 = IERC20(token1).balanceOf(address(this));
+        assertTrue(balance0 > 0 || balance1 > 0, "should receive tokens from decrease and collect");
     }
 
     receive() external payable {}

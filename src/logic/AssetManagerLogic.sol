@@ -20,7 +20,7 @@ import {
 import {IProvider} from "../interfaces/IProvider.sol";
 import {ILendingProvider} from "../interfaces/ILendingProvider.sol";
 import {IStakingProvider} from "../interfaces/IStakingProvider.sol";
-import {ISwapProvider} from "../interfaces/ISwapProvider.sol";
+import {IAMMProvider} from "../interfaces/IAMMProvider.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
@@ -105,6 +105,15 @@ library AssetManagerLogic {
         returns (address)
     {
         return _cloneProvider(logicStorage, provider);
+    }
+
+    function getOrCloneSwapProvider(AssetManagerStorage storage logicStorage, address ammProvider)
+        external
+        onlyInitialized(logicStorage)
+        returns (address clone)
+    {
+        _checkSwapProvider(logicStorage, ammProvider);
+        return _cloneProvider(logicStorage, ammProvider);
     }
 
     function setAssetConfig(
@@ -377,7 +386,7 @@ library AssetManagerLogic {
         swapProvider = _cloneProvider(logicStorage, swapProvider);
 
         IERC20(sellAssetAddress).safeIncreaseAllowance(swapProvider, sellAmount);
-        ISwapProvider(swapProvider).swap(data);
+        IAMMProvider(swapProvider).swap(data);
         uint256 remaining = IERC20(sellAssetAddress).allowance(address(this), swapProvider);
         if (remaining > 0) {
             IERC20(sellAssetAddress).safeDecreaseAllowance(swapProvider, remaining);
@@ -491,5 +500,16 @@ library AssetManagerLogic {
         returns (address[] memory)
     {
         return logicStorage.lastRebalanceTimestampKeys.values();
+    }
+
+    function getLiquidity(AssetManagerStorage storage logicStorage, address ammProvider, bytes memory data)
+        external
+        view
+        returns (uint256)
+    {
+        _checkSwapProvider(logicStorage, ammProvider);
+        address clone = logicStorage.clonedProviders[ammProvider];
+        if (clone == address(0)) return 0;
+        return IAMMProvider(clone).getLiquidity(data);
     }
 }

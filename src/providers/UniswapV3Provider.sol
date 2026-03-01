@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {ISwapProvider} from "../interfaces/ISwapProvider.sol";
-import {IUniswapV3Router} from "../libs/uniswap/v3/Uniswap.sol";
+import {IAMMProvider} from "../interfaces/IAMMProvider.sol";
+import {IUniswapV3Router, INonfungiblePositionManager} from "../libs/uniswap/v3/Uniswap.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 
-contract UniswapV3Provider is ISwapProvider, Ownable, Initializable {
+contract UniswapV3Provider is IAMMProvider, Ownable, Initializable {
     using SafeERC20 for IERC20;
 
     address public immutable router;
+    address public immutable positionManager;
 
-    constructor(address router_) {
+    constructor(address router_, address positionManager_) {
         router = router_;
+        positionManager = positionManager_;
     }
 
     function initialize(address newOwner) external override initializer {
@@ -50,5 +52,60 @@ contract UniswapV3Provider is ISwapProvider, Ownable, Initializable {
         if (tokenOut != address(0)) {
             IERC20(tokenOut).safeTransfer(msg.sender, amountOut);
         }
+    }
+
+    function addLiquidity(bytes memory data) external payable override onlyOwner {
+        (bool isMint, bytes memory paramsEncoded) = abi.decode(data, (bool, bytes));
+        if (isMint) {
+            INonfungiblePositionManager.MintParams memory params =
+                abi.decode(paramsEncoded, (INonfungiblePositionManager.MintParams));
+            params.recipient = address(this);
+            if (params.token0 != address(0)) {
+                IERC20(params.token0).safeTransferFrom(msg.sender, address(this), params.amount0Desired);
+                IERC20(params.token0).safeApprove(positionManager, params.amount0Desired);
+            }
+            if (params.token1 != address(0)) {
+                IERC20(params.token1).safeTransferFrom(msg.sender, address(this), params.amount1Desired);
+                IERC20(params.token1).safeApprove(positionManager, params.amount1Desired);
+            }
+            INonfungiblePositionManager(positionManager).mint(params);
+            if (params.token0 != address(0)) IERC20(params.token0).safeApprove(positionManager, 0);
+            if (params.token1 != address(0)) IERC20(params.token1).safeApprove(positionManager, 0);
+        } else {
+            INonfungiblePositionManager.IncreaseLiquidityParams memory params =
+                abi.decode(paramsEncoded, (INonfungiblePositionManager.IncreaseLiquidityParams));
+            (,, address token0, address token1,,,,,,,,) =
+                INonfungiblePositionManager(positionManager).positions(params.tokenId);
+            if (token0 != address(0)) {
+                IERC20(token0).safeTransferFrom(msg.sender, address(this), params.amount0Desired);
+                IERC20(token0).safeApprove(positionManager, params.amount0Desired);
+            }
+            if (token1 != address(0)) {
+                IERC20(token1).safeTransferFrom(msg.sender, address(this), params.amount1Desired);
+                IERC20(token1).safeApprove(positionManager, params.amount1Desired);
+            }
+            INonfungiblePositionManager(positionManager).increaseLiquidity(params);
+            if (token0 != address(0)) IERC20(token0).safeApprove(positionManager, 0);
+            if (token1 != address(0)) IERC20(token1).safeApprove(positionManager, 0);
+        }
+    }
+
+    function removeLiquidity(bytes memory data) external payable override onlyOwner {
+        INonfungiblePositionManager.DecreaseLiquidityParams memory params =
+            abi.decode(data, (INonfungiblePositionManager.DecreaseLiquidityParams));
+        INonfungiblePositionManager(positionManager).decreaseLiquidity(params);
+    }
+
+    function claimFees(bytes memory data) external payable override onlyOwner {
+        INonfungiblePositionManager.CollectParams memory params =
+            abi.decode(data, (INonfungiblePositionManager.CollectParams));
+        if (params.recipient == address(0)) params.recipient = msg.sender;
+        INonfungiblePositionManager(positionManager).collect(params);
+    }
+
+    function getLiquidity(bytes memory data) external view override returns (uint256) {
+        uint256 tokenId = abi.decode(data, (uint256));
+        (,,,,,,, uint128 liquidity,,,,) = INonfungiblePositionManager(positionManager).positions(tokenId);
+        return uint256(liquidity);
     }
 }
