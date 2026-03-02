@@ -8,6 +8,7 @@ import {IWhiteList, NotWhiteListed} from "../../src/interfaces/IWhiteList.sol";
 import {WhiteList} from "../../src/WhiteList.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {AddressZero, InsufficientBalance} from "../../src/interfaces/IVault.sol";
+import {YearCountZero} from "../../src/interfaces/ISubscribe.sol";
 
 contract SubscribeTest is Test {
     address public user;
@@ -60,6 +61,16 @@ contract SubscribeTest is Test {
         vm.prank(user);
         vm.expectRevert(NotWhiteListed.selector);
         subscribe.subscribe(invalidStableCoin, 1);
+    }
+
+    function test_SubscribeFailedWhenYearCountZero() public {
+        uint256 fee = subscribe.SUBSCRIPTION_FEE() * (10 ** mockStableCoin.decimals()) * 1;
+        deal(address(mockStableCoin), user, fee);
+        vm.prank(user);
+        mockStableCoin.approve(address(subscribe), fee);
+        vm.prank(user);
+        vm.expectRevert(YearCountZero.selector);
+        subscribe.subscribe(address(mockStableCoin), 0);
     }
 
     function test_SubscribeFailedWhenBalanceNotEnough() public {
