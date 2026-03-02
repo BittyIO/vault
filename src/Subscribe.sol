@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {ISubscribe} from "./interfaces/ISubscribe.sol";
+import {ISubscribe, YearCountZero} from "./interfaces/ISubscribe.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {AddressZero, InsufficientBalance} from "./interfaces/IVault.sol";
@@ -37,6 +37,9 @@ contract Subscribe is ISubscribe, Ownable, Initializable {
     function subscribe(address stableCoinAddress, uint8 yearCount) external override {
         if (!IWhiteList(_whiteList).isStableCoinWhiteListed(stableCoinAddress)) {
             revert NotWhiteListed();
+        }
+        if (yearCount == 0) {
+            revert YearCountZero();
         }
         uint256 startTimestamp = (expirationTimes[msg.sender] == 0 || expirationTimes[msg.sender] < block.timestamp)
             ? block.timestamp
