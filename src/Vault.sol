@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IAssetManager, OnlyAssetManager} from "./interfaces/IAssetManager.sol";
+import {IAMMProvider} from "./interfaces/IAMMProvider.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
 import {IVault, ReceiverNotFound} from "./interfaces/IVault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
@@ -220,6 +221,25 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
      */
     function payReceiver(string memory name) external override {
         _vault.payReceiver(name);
+    }
+
+    function addLiquidity(address ammProvider, bytes memory data) external payable override onlyAssetManager {
+        address clone = _assetManager.getOrCloneSwapProvider(ammProvider);
+        IAMMProvider(clone).addLiquidity{value: msg.value}(data);
+    }
+
+    function removeLiquidity(address ammProvider, bytes memory data) external payable override onlyAssetManager {
+        address clone = _assetManager.getOrCloneSwapProvider(ammProvider);
+        IAMMProvider(clone).removeLiquidity{value: msg.value}(data);
+    }
+
+    function claimFees(address ammProvider, bytes memory data) external payable override onlyAssetManager {
+        address clone = _assetManager.getOrCloneSwapProvider(ammProvider);
+        IAMMProvider(clone).claimFees{value: msg.value}(data);
+    }
+
+    function getLiquidity(address ammProvider, bytes memory data) external view override returns (uint256) {
+        return _assetManager.getLiquidity(ammProvider, data);
     }
 
     // ============ View Interface ============

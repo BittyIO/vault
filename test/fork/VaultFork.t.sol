@@ -54,7 +54,8 @@ contract TestVaultFork is Test {
         vm.prank(tx.origin);
         whiteList.addStakingProviders(_arr(address(lidoProvider)));
 
-        uniswapV3Provider = new UniswapV3Provider(mainnet.UNISWAP_V3_ROUTER);
+        uniswapV3Provider =
+            new UniswapV3Provider(mainnet.UNISWAP_V3_ROUTER, mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
         uniswapV3Provider.initialize(address(this));
         vm.prank(tx.origin);
         whiteList.addSwapProviders(_arr(address(uniswapV3Provider)));

@@ -148,6 +148,42 @@ interface IAssetManager {
     ) external;
 
     /**
+     * @notice Add liquidity to the AMM provider.
+     * @dev Add liquidity to the AMM provider.
+     * @param ammProvider The address of the AMM provider.
+     * @param data The data for the add liquidity.
+     * @dev Only the asset manager can execute it.
+     */
+    function addLiquidity(address ammProvider, bytes memory data) external payable;
+
+    /**
+     * @notice Remove liquidity from the AMM provider.
+     * @dev Remove liquidity from the AMM provider.
+     * @param ammProvider The address of the AMM provider.
+     * @param data The data for the remove liquidity.
+     * @dev Only the asset manager can execute it.
+     */
+    function removeLiquidity(address ammProvider, bytes memory data) external payable;
+
+    /**
+     * @notice Claim fees from the AMM provider.
+     * @dev Claim fees from the AMM provider.
+     * @param ammProvider The address of the AMM provider.
+     * @param data The data for the claim fees.
+     * @dev Only the asset manager can execute it.
+     */
+    function claimFees(address ammProvider, bytes memory data) external payable;
+
+    /**
+     * @notice Get the liquidity of the AMM provider.
+     * @dev Get the liquidity of the AMM provider.
+     * @param ammProvider The address of the AMM provider.
+     * @param data The data for the get liquidity.
+     * @dev Only the asset manager can execute it.
+     */
+    function getLiquidity(address ammProvider, bytes memory data) external view returns (uint256);
+
+    /**
      * @notice Disable the rebalance until the timestamp.
      * @dev Disable the rebalance until the timestamp.
      * @param timestamp The timestamp to disable the rebalance until.

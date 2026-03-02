@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {ISwapProvider} from "../../src/interfaces/ISwapProvider.sol";
+import {IAMMProvider} from "../../src/interfaces/IAMMProvider.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
-contract MockSwapProvider is ISwapProvider {
+contract MockAMMProvider is IAMMProvider {
     function initialize(address newOwner) external override {}
 
     function swap(bytes memory data) external payable {
@@ -23,6 +23,16 @@ contract MockSwapProvider is ISwapProvider {
                 IERC20(buyAssetAddress).transfer(msg.sender, buyAmountMin);
             }
         }
+    }
+
+    function addLiquidity(bytes memory) external payable override {}
+
+    function removeLiquidity(bytes memory) external payable override {}
+
+    function claimFees(bytes memory) external payable override {}
+
+    function getLiquidity(bytes memory) external pure override returns (uint256) {
+        return 0;
     }
 
     receive() external payable {}

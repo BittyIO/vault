@@ -4,7 +4,7 @@ pragma solidity ^0.8.27;
 import "forge-std/console.sol";
 import {Test} from "lib/forge-std/src/Test.sol";
 import {WhiteList} from "../../src/WhiteList.sol";
-import {MockSwapProvider} from "../mock/MockSwapProvider.sol";
+import {MockAMMProvider} from "../mock/MockAMMProvider.sol";
 import {MockLendingProvider} from "../mock/MockLendingProvider.sol";
 import {MockStakingProvider} from "../mock/MockStakingProvider.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
@@ -13,7 +13,7 @@ import {SwapProviderShouldNotBeAllRemoved} from "../../src/interfaces/IWhiteList
 contract WhiteListTest is Test {
     WhiteList public whiteList;
     address public protocolOwner;
-    MockSwapProvider public mockSwapProvider;
+    MockAMMProvider public mockSwapProvider;
     MockLendingProvider public mockLendingProvider;
     MockStakingProvider public mockStakingProvider;
     MockERC20 public mockWETH;
@@ -28,7 +28,7 @@ contract WhiteListTest is Test {
 
     function setUp() public {
         protocolOwner = makeAddr("protocolOwner");
-        mockSwapProvider = new MockSwapProvider();
+        mockSwapProvider = new MockAMMProvider();
         mockLendingProvider = new MockLendingProvider();
         mockStakingProvider = new MockStakingProvider();
         mockWETH = new MockERC20("WETH", "WETH", 18);

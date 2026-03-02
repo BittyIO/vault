@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import {DeployScript} from "./BaseDeploy.sol";
 import {console2} from "lib/forge-std/src/console2.sol";
 import {AaveV3Provider} from "../src/providers/AaveV3Provider.sol";
-import {UniswapV4Provider} from "../src/providers/UniswapV4Provider.sol";
 import {UniswapV3Provider} from "../src/providers/UniswapV3Provider.sol";
 import {CoWSwapProvider} from "../src/providers/CoWSwapProvider.sol";
 import {UniswapXProvider} from "../src/providers/UniswapXProvider.sol";
@@ -29,9 +28,8 @@ contract ProvidersScript is DeployScript {
         console2.log("AaveProvider deployed at", address(aaveProvider));
         LidoV2Provider lidoProvider = new LidoV2Provider(steth, unsteth, weth);
         console2.log("LidoProvider deployed at", address(lidoProvider));
-        UniswapV4Provider uniswapV4Provider = new UniswapV4Provider(uniswapV4Router, poolManager);
-        console2.log("UniswapV4Provider deployed at", address(uniswapV4Provider));
-        UniswapV3Provider uniswapV3Provider = new UniswapV3Provider(uniswapV3Router);
+        UniswapV3Provider uniswapV3Provider =
+            new UniswapV3Provider(uniswapV3Router, getAddress("UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER"));
         console2.log("UniswapV3Provider deployed at", address(uniswapV3Provider));
         CoWSwapProvider cowSwapProvider = new CoWSwapProvider(cowSettlement, cowVaultRelayer);
         console2.log("CoWSwapProvider deployed at", address(cowSwapProvider));
@@ -40,7 +38,6 @@ contract ProvidersScript is DeployScript {
 
         saveAddress("AAVE_PROVIDER", address(aaveProvider));
         saveAddress("LIDO_PROVIDER", address(lidoProvider));
-        saveAddress("UNISWAP_V4_PROVIDER", address(uniswapV4Provider));
         saveAddress("UNISWAP_V3_PROVIDER", address(uniswapV3Provider));
         saveAddress("COW_SWAP_PROVIDER", address(cowSwapProvider));
         saveAddress("UNISWAPX_PROVIDER", address(uniswapXProvider));

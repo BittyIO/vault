@@ -16,7 +16,7 @@ import {WETH} from "lib/solmate/src/tokens/WETH.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 import {MockLendingProvider} from "../mock/MockLendingProvider.sol";
 import {MockStakingProvider} from "../mock/MockStakingProvider.sol";
-import {MockSwapProvider} from "../mock/MockSwapProvider.sol";
+import {MockAMMProvider} from "../mock/MockAMMProvider.sol";
 import {WhiteList} from "../../src/WhiteList.sol";
 import {Vault} from "../../src/Vault.sol";
 import {AssetManagerLogic} from "../../src/logic/AssetManagerLogic.sol";
@@ -29,7 +29,7 @@ contract TestAssetManager is Test, Vault {
     address public mockUSDC;
     MockLendingProvider public mockLendingProvider;
     MockStakingProvider public mockStakingProvider;
-    MockSwapProvider public mockSwapProvider;
+    MockAMMProvider public mockSwapProvider;
     address public whiteListAddress;
     address[] public assets;
     address[] public stableCoins;
@@ -59,7 +59,7 @@ contract TestAssetManager is Test, Vault {
         stakingProviders[0] = address(mockStakingProvider);
 
         swapProviders = new address[](1);
-        mockSwapProvider = new MockSwapProvider();
+        mockSwapProvider = new MockAMMProvider();
         swapProviders[0] = address(mockSwapProvider);
         ownerAddress = tx.origin;
         assetManagerAddress = makeAddr("assetManager");
