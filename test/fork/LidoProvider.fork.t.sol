@@ -66,7 +66,9 @@ contract TestLidoProviderFork is Test {
         uint256 amountPerRequest = 0.5 ether;
         uint256 numRequests = 2;
 
-        uint256 totalStake = amountPerRequest * numRequests;
+        // Stake extra to account for stETH share/ETH conversion rounding - requesting
+        // withdrawals transfers shares out and can leave slightly less than requested
+        uint256 totalStake = amountPerRequest * numRequests * 2;
         deal(address(weth), address(this), totalStake);
         weth.approve(address(lidoProvider), totalStake);
         lidoProvider.stake(totalStake);
