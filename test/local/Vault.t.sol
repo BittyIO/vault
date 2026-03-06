@@ -12,7 +12,6 @@ import {
     ReceiverImmutable,
     ReceiverPaymentCountZero,
     OnlyReceiver,
-    ReceiverUpdatedInOneWeek,
     ReceiverNotStartYet
 } from "../../src/interfaces/IVault.sol";
 import {WETH} from "lib/solmate/src/tokens/WETH.sol";
@@ -50,7 +49,6 @@ contract VaultTest is Test {
             startTimestamp: startTimestamp_,
             durationTimestamp: durationTimestamp_,
             lastReceiveTimestamp: 0,
-            lastModifyTimestamp: 0,
             isImmutable: isImmutable_
         });
     }
@@ -352,24 +350,6 @@ contract VaultTest is Test {
         vm.prank(alice);
         vm.expectRevert(ReceiverImmutable.selector);
         vault.changeReceiverAddress("alice", bob);
-    }
-
-    function test_PayReceiver_revertReceiverUpdatedInOneWeek() public {
-        vault.initialize(
-            whiteListAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        IVault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
-        vm.expectRevert(ReceiverUpdatedInOneWeek.selector);
-        vault.payReceiver("alice");
     }
 
     function test_PayReceiver_revertReceiverNotStartYet() public {

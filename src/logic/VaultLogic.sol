@@ -22,7 +22,6 @@ import {
     ReceiverTriggerError,
     ReceiverNotStartYet,
     ReceiverInDuration,
-    ReceiverUpdatedInOneWeek,
     ETHBalanceNotEnough,
     WETHBalanceNotEnough,
     AddingAssetsDisabled
@@ -75,7 +74,6 @@ library VaultLogic {
         onlyInitialized(logicStorage)
     {
         _checkReceiver(receiver);
-        receiver.lastModifyTimestamp = block.timestamp;
         logicStorage.receivers[name] = receiver;
     }
 
@@ -95,7 +93,6 @@ library VaultLogic {
             revert AddressZero();
         }
         receiver.receiverAddress = newReceiverAddress;
-        receiver.lastModifyTimestamp = block.timestamp;
     }
 
     function updateReceiver(VaultStorage storage logicStorage, string memory name, IVault.Receiver memory receiver)
@@ -110,7 +107,6 @@ library VaultLogic {
             revert ReceiverImmutable();
         }
         _checkReceiver(receiver);
-        receiver.lastModifyTimestamp = block.timestamp;
         logicStorage.receivers[name] = receiver;
     }
 
@@ -162,9 +158,6 @@ library VaultLogic {
         }
         if (receiver.startTimestamp > block.timestamp) {
             revert ReceiverNotStartYet();
-        }
-        if (receiver.lastModifyTimestamp + RECEIVER_UPDATE_DELAY > block.timestamp) {
-            revert ReceiverUpdatedInOneWeek();
         }
         if (
             receiver.durationTimestamp != 0
