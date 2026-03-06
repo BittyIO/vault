@@ -129,6 +129,14 @@ interface IAssetManager {
     function getUnstakeRequestIds(address stakingProvider) external view returns (uint256[] memory);
 
     /**
+     * @notice Claim withdrawn assets from the staking provider.
+     * @dev Claim withdrawn assets from the staking provider after unstake requests are finalized.
+     * @param stakingProvider The address of the staking provider.
+     * @param requestIds The request ids to claim.
+     */
+    function claim(address stakingProvider, uint256[] memory requestIds) external;
+
+    /**
      *
      * @param swapProvider The address of the swap provider.
      * @param from The address of the from asset.

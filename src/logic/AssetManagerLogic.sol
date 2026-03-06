@@ -277,6 +277,20 @@ library AssetManagerLogic {
         return IStakingProvider(_clonedProvider).getUnstakeRequestIds();
     }
 
+    function claim(AssetManagerStorage storage logicStorage, address stakingProvider, uint256[] memory requestIds)
+        external
+        onlyInitialized(logicStorage)
+    {
+        if (!logicStorage.stakingProviders.contains(stakingProvider)) {
+            revert InvalidStakingProvider();
+        }
+        if (requestIds.length == 0) {
+            return;
+        }
+        stakingProvider = _cloneProvider(logicStorage, stakingProvider);
+        IStakingProvider(stakingProvider).claim(requestIds);
+    }
+
     function _addressBalance(address assetAddress) private view returns (uint256) {
         if (assetAddress == address(0)) {
             revert AddressZero();

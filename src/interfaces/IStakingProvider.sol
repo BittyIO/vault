@@ -42,6 +42,7 @@ interface IStakingProvider is IProvider {
     /**
      * @notice Claim the asset from the staking provider.
      * @dev Claim the asset from the staking provider.
+     * @param requestIds The request ids to claim.
      */
-    function claim() external;
+    function claim(uint256[] memory requestIds) external;
 }

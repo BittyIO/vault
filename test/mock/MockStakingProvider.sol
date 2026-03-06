@@ -43,13 +43,11 @@ contract MockStakingProvider is IStakingProvider {
         _unstakeRequests.add(requestId);
     }
 
-    function claim() external override {
-        uint256[] memory requestIds = _unstakeRequests.values();
+    function claim(uint256[] memory requestIds) external override {
         for (uint256 i = 0; i < requestIds.length; i++) {
             uint256 requestId = requestIds[i];
-            uint256 amount = _requestAmounts[requestId];
-            if (amount == 0) continue;
-            IERC20(weth).transfer(msg.sender, amount);
+            if (_requestAmounts[requestId] == 0) continue;
+            IERC20(weth).transfer(msg.sender, _requestAmounts[requestId]);
             delete _requestAmounts[requestId];
             _unstakeRequests.remove(requestId);
         }

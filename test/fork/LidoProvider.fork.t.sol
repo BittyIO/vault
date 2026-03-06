@@ -59,7 +59,7 @@ contract TestLidoProviderFork is Test {
     }
 
     function test_Claim_emptyUnstakeRequests_doesNotRevert() public {
-        lidoProvider.claim();
+        lidoProvider.claim(new uint256[](0));
     }
 
     function test_Claim_multipleRequests_allClaimedAndRemoved() public {
@@ -104,8 +104,8 @@ contract TestLidoProviderFork is Test {
 
             vm.mockCall(address(unstETH), abi.encodeWithSelector(IUnstETH.claimWithdrawal.selector, id), "");
         }
-
-        lidoProvider.claim();
+        uint256[] memory requestIds = lidoProvider.getUnstakeRequestIds();
+        lidoProvider.claim(requestIds);
 
         uint256[] memory remaining = lidoProvider.getUnstakeRequestIds();
         assertEq(remaining.length, 0, "all claimable requests must be removed");

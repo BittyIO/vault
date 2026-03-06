@@ -168,6 +168,26 @@ contract TestVaultFork is Test {
         assertEq(ids.length, 1);
     }
 
+    function test_ClaimFromLido() public {
+        uint256 stakeAmount = 0.1 ether;
+        deal(mainnet.WETH, address(vault), stakeAmount);
+        vm.prank(assetManager);
+        vault.stake(address(lidoProvider), stakeAmount);
+
+        uint256 unstakeAmount = 0.05 ether;
+        vm.prank(assetManager);
+        vault.unstake(address(lidoProvider), unstakeAmount);
+
+        uint256[] memory ids = vault.getUnstakeRequestIds(address(lidoProvider));
+        assertEq(ids.length, 1);
+
+        vm.prank(assetManager);
+        vault.claim(address(lidoProvider), ids);
+        // On mainnet fork, Lido withdrawals are not finalized immediately, so request ids remain
+        uint256[] memory remaining = vault.getUnstakeRequestIds(address(lidoProvider));
+        assertEq(remaining.length, 1);
+    }
+
     function test_SupplyAndWithdrawFullCycle() public {
         uint256 amount = 1 ether;
         deal(mainnet.WETH, address(vault), amount);

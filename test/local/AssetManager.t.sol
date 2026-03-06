@@ -593,15 +593,64 @@ contract TestAssetManager is Test, Vault {
         this.unstake(address(mockStakingProvider), unstakeAmount);
         assertEq(this.getStakingBalance(address(mockStakingProvider)), stakeAmount - unstakeAmount);
 
-        address clonedProvider = this.getClonedProvider(address(mockStakingProvider));
         uint256[] memory requestIds = this.getUnstakeRequestIds(address(mockStakingProvider));
         assertEq(requestIds.length, 1);
 
-        uint256 claimerBalanceBefore = WETH(payable(mockWETH)).balanceOf(assetManagerAddress);
+        uint256 vaultBalanceBefore = WETH(payable(mockWETH)).balanceOf(address(this));
         vm.prank(assetManagerAddress);
-        MockStakingProvider(clonedProvider).claim();
-        uint256 claimerBalanceAfter = WETH(payable(mockWETH)).balanceOf(assetManagerAddress);
-        assertEq(claimerBalanceAfter - claimerBalanceBefore, unstakeAmount);
+        this.claim(address(mockStakingProvider), requestIds);
+        uint256 vaultBalanceAfter = WETH(payable(mockWETH)).balanceOf(address(this));
+        assertEq(vaultBalanceAfter - vaultBalanceBefore, unstakeAmount);
+    }
+
+    function test_ClaimSuccess() public {
+        this.doInitialize();
+        this.prepareStakingProvider();
+        uint256 stakeAmount = 1 ether;
+        uint256 unstakeAmount = 0.5 ether;
+        deal(mockWETH, address(this), stakeAmount);
+
+        vm.prank(assetManagerAddress);
+        this.stake(address(mockStakingProvider), stakeAmount);
+        vm.prank(assetManagerAddress);
+        this.unstake(address(mockStakingProvider), unstakeAmount);
+
+        uint256[] memory requestIds = this.getUnstakeRequestIds(address(mockStakingProvider));
+        assertEq(requestIds.length, 1);
+
+        uint256 vaultBalanceBefore = WETH(payable(mockWETH)).balanceOf(address(this));
+        vm.prank(assetManagerAddress);
+        this.claim(address(mockStakingProvider), requestIds);
+        uint256 vaultBalanceAfter = WETH(payable(mockWETH)).balanceOf(address(this));
+        assertEq(vaultBalanceAfter - vaultBalanceBefore, unstakeAmount);
+
+        uint256[] memory remaining = this.getUnstakeRequestIds(address(mockStakingProvider));
+        assertEq(remaining.length, 0);
+    }
+
+    function test_ClaimRevertOnlyAssetManager() public {
+        this.doInitialize();
+        this.prepareStakingProvider();
+        uint256[] memory requestIds = new uint256[](0);
+        vm.expectRevert(OnlyAssetManager.selector);
+        this.claim(address(mockStakingProvider), requestIds);
+    }
+
+    function test_ClaimRevertInvalidStakingProvider() public {
+        this.doInitialize();
+        uint256[] memory requestIds = new uint256[](1);
+        requestIds[0] = 1;
+        vm.expectRevert(InvalidStakingProvider.selector);
+        vm.prank(assetManagerAddress);
+        this.claim(makeAddr("InvalidStakingProvider"), requestIds);
+    }
+
+    function test_ClaimEmptyRequestIds_doesNotRevert() public {
+        this.doInitialize();
+        this.prepareStakingProvider();
+        uint256[] memory requestIds = new uint256[](0);
+        vm.prank(assetManagerAddress);
+        this.claim(address(mockStakingProvider), requestIds);
     }
 
     function test_UnstakeRevertAmountIsZero() public {
