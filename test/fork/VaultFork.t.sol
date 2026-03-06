@@ -251,7 +251,6 @@ contract TestVaultFork is Test {
             startTimestamp: block.timestamp,
             durationTimestamp: 0,
             lastReceiveTimestamp: 0,
-            lastModifyTimestamp: block.timestamp,
             isImmutable: false
         });
 

@@ -16,7 +16,6 @@ error ReceiverPaymentCountZero();
 error ReceiverTriggerError();
 error ReceiverNotStartYet();
 error ReceiverInDuration();
-error ReceiverUpdatedInOneWeek();
 error OnlyReceiver();
 
 error ETHBalanceNotEnough();
@@ -49,8 +48,6 @@ interface IVault {
         uint256 startTimestamp;
         uint256 durationTimestamp;
         uint256 lastReceiveTimestamp;
-        // payment should happened after lastModifyTimestamp + 7 days for safety
-        uint256 lastModifyTimestamp;
         bool isImmutable;
     }
 
