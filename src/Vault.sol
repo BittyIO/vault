@@ -110,6 +110,10 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         return _assetManager.getUnstakeRequestIds(stakingProvider);
     }
 
+    function claim(address stakingProvider, uint256[] memory requestIds) external override onlyAssetManager {
+        _assetManager.claim(stakingProvider, requestIds);
+    }
+
     function rebalance(
         address swapProvider,
         address from,
