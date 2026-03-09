@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {Test} from "lib/forge-std/src/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {AmountIsZero, AddressZero} from "../../src/interfaces/IVault.sol";
 import {
     InvalidLendingProvider,
@@ -11,13 +11,13 @@ import {
     DisableRebalanceUntilTimestampTooEarly,
     OnlyAssetManager
 } from "../../src/interfaces/IAssetManager.sol";
-import {Deprecated} from "../../src/interfaces/IWhiteList.sol";
-import {WETH} from "lib/solmate/src/tokens/WETH.sol";
-import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
+import {Deprecated} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
+import {WETH} from "solmate/tokens/WETH.sol";
+import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockLendingProvider} from "../mock/MockLendingProvider.sol";
 import {MockStakingProvider} from "../mock/MockStakingProvider.sol";
 import {MockAMMProvider} from "../mock/MockAMMProvider.sol";
-import {WhiteList} from "../../src/WhiteList.sol";
+import {WhiteList} from "whitelist-contracts/src/WhiteList.sol";
 import {Vault} from "../../src/Vault.sol";
 import {AssetManagerLogic} from "../../src/logic/AssetManagerLogic.sol";
 import {AddingAssetsDisabled} from "../../src/interfaces/IVault.sol";
@@ -29,7 +29,7 @@ contract TestAssetManager is Test, Vault {
     address public mockUSDC;
     MockLendingProvider public mockLendingProvider;
     MockStakingProvider public mockStakingProvider;
-    MockAMMProvider public mockSwapProvider;
+    MockAMMProvider public mockAMMProvider;
     address public whiteListAddress;
     address[] public assets;
     address[] public stableCoins;
@@ -59,8 +59,8 @@ contract TestAssetManager is Test, Vault {
         stakingProviders[0] = address(mockStakingProvider);
 
         swapProviders = new address[](1);
-        mockSwapProvider = new MockAMMProvider();
-        swapProviders[0] = address(mockSwapProvider);
+        mockAMMProvider = new MockAMMProvider();
+        swapProviders[0] = address(mockAMMProvider);
         ownerAddress = tx.origin;
         assetManagerAddress = makeAddr("assetManager");
         WhiteList whiteList = new WhiteList();
@@ -70,7 +70,7 @@ contract TestAssetManager is Test, Vault {
         whiteList.addStableCoins(stableCoins);
         whiteList.addLendingProviders(lendingProviders);
         whiteList.addStakingProviders(stakingProviders);
-        whiteList.addSwapProviders(swapProviders);
+        whiteList.addAMMProviders(swapProviders);
         vm.stopPrank();
     }
 
@@ -120,7 +120,7 @@ contract TestAssetManager is Test, Vault {
         vm.expectRevert(OnlyAssetManager.selector);
         this.withdraw(address(mockLendingProvider), address(mockWETH), 1 ether);
         vm.expectRevert(OnlyAssetManager.selector);
-        this.rebalance(address(mockSwapProvider), address(mockWBTC), address(mockUSDT), 1 ether, 1 ether, "");
+        this.rebalance(address(mockAMMProvider), address(mockWBTC), address(mockUSDT), 1 ether, 1 ether, "");
     }
 
     function test_SupplyRevertAddressZero() public {
@@ -285,13 +285,13 @@ contract TestAssetManager is Test, Vault {
         uint256 buyAmount = 10 * 1e6;
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
 
-        address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
+        address clonedAMMProvider = this.cloneProviderForTesting(address(mockAMMProvider));
         deal(address(mockWETH), address(this), sellAmount);
-        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        deal(address(mockUSDT), clonedAMMProvider, buyAmount);
 
         vm.warp(block.timestamp + 31);
         vm.prank(assetManagerAddress);
-        this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
 
         address[] memory keys = this.getAllLastRebalanceTimestampKeys();
         assertEq(keys.length, 1);
@@ -351,7 +351,7 @@ contract TestAssetManager is Test, Vault {
 
         vm.expectRevert(RebalanceMaxPercentage.selector);
         vm.prank(assetManagerAddress);
-        this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
     }
 
     function test_RebalanceMaxPercentage_WithinLimit() public {
@@ -368,14 +368,14 @@ contract TestAssetManager is Test, Vault {
         deal(address(mockWETH), address(this), fromBalance);
         MockERC20(mockWETH).approve(address(this), fromBalance);
 
-        address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
+        address clonedAMMProvider = this.cloneProviderForTesting(address(mockAMMProvider));
 
         uint256 buyAmount = 10 * 1e6;
-        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        deal(address(mockUSDT), clonedAMMProvider, buyAmount);
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
 
         assertEq(MockERC20(mockWETH).balanceOf(address(this)), fromBalance - sellAmount);
         assertEq(MockERC20(mockUSDT).balanceOf(address(this)), buyAmount);
@@ -395,14 +395,14 @@ contract TestAssetManager is Test, Vault {
         deal(address(mockWETH), address(this), fromBalance);
         MockERC20(mockWETH).approve(address(this), fromBalance);
 
-        address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
+        address clonedAMMProvider = this.cloneProviderForTesting(address(mockAMMProvider));
 
         uint256 buyAmount = 10 * 1e6;
-        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        deal(address(mockUSDT), clonedAMMProvider, buyAmount);
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_RevertsWhenBeforeTimestamp() public {
@@ -419,13 +419,13 @@ contract TestAssetManager is Test, Vault {
         uint256 sellAmount = 1 * 1e18;
         uint256 buyAmount = 10 * 1e6;
         deal(address(mockWETH), address(this), sellAmount);
-        address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
-        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        address clonedAMMProvider = this.cloneProviderForTesting(address(mockAMMProvider));
+        deal(address(mockUSDT), clonedAMMProvider, buyAmount);
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
 
         vm.expectRevert(RebalanceDisabled.selector);
         vm.prank(assetManagerAddress);
-        this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_SucceedsAfterTimestamp() public {
@@ -444,12 +444,12 @@ contract TestAssetManager is Test, Vault {
         uint256 sellAmount = 1 * 1e18;
         uint256 buyAmount = 10 * 1e6;
         deal(address(mockWETH), address(this), sellAmount);
-        address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
-        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        address clonedAMMProvider = this.cloneProviderForTesting(address(mockAMMProvider));
+        deal(address(mockUSDT), clonedAMMProvider, buyAmount);
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
 
         assertEq(MockERC20(mockWETH).balanceOf(address(this)), 0);
         assertEq(MockERC20(mockUSDT).balanceOf(address(this)), buyAmount);
@@ -465,12 +465,12 @@ contract TestAssetManager is Test, Vault {
         uint256 sellAmount = 1 * 1e18;
         uint256 buyAmount = 10 * 1e6;
         deal(address(mockWETH), address(this), sellAmount);
-        address clonedSwapProvider = this.cloneProviderForTesting(address(mockSwapProvider));
-        deal(address(mockUSDT), clonedSwapProvider, buyAmount);
+        address clonedAMMProvider = this.cloneProviderForTesting(address(mockAMMProvider));
+        deal(address(mockUSDT), clonedAMMProvider, buyAmount);
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(mockSwapProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
 
         assertEq(MockERC20(mockWETH).balanceOf(address(this)), 0);
         assertEq(MockERC20(mockUSDT).balanceOf(address(this)), buyAmount);

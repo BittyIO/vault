@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import {ILendingProvider} from "../../src/interfaces/ILendingProvider.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 contract MockLendingProvider is ILendingProvider {
     mapping(address => uint256) public balances;

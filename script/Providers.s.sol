@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {DeployScript} from "./BaseDeploy.sol";
-import {console2} from "lib/forge-std/src/console2.sol";
+import {console2} from "forge-std/console2.sol";
 import {AaveV3Provider} from "../src/providers/AaveV3Provider.sol";
 import {UniswapV3Provider} from "../src/providers/UniswapV3Provider.sol";
 import {CoWSwapProvider} from "../src/providers/CoWSwapProvider.sol";
@@ -16,8 +16,6 @@ contract ProvidersScript is DeployScript {
         address steth = getAddress("STETH");
         address unsteth = getAddress("UNSTETH");
         address weth = getAddress("WETH");
-        address uniswapV4Router = getAddress("UNISWAP_V4_ROUTER");
-        address poolManager = getAddress("POOL_MANAGER");
         address uniswapV3Router = getAddress("UNISWAP_V3_ROUTER");
         address cowSettlement = getAddress("COW_SETTLEMENT");
         address cowVaultRelayer = getAddress("COW_VAULT_RELAYER");

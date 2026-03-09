@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {IWhiteList, NotWhiteListed, Deprecated} from "../interfaces/IWhiteList.sol";
+import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
+import {IWhiteList, NotWhiteListed, Deprecated} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
 import {
     IAssetManager,
     DisableRebalanceUntilTimestampTooEarly,
@@ -14,17 +14,17 @@ import {
     MinimalBalanceNotMet,
     InvalidLendingProvider,
     InvalidStakingProvider,
-    InvalidSwapProvider,
+    InvalidAMMProvider,
     InvalidSwapData
 } from "../interfaces/IAssetManager.sol";
 import {IProvider} from "../interfaces/IProvider.sol";
 import {ILendingProvider} from "../interfaces/ILendingProvider.sol";
 import {IStakingProvider} from "../interfaces/IStakingProvider.sol";
 import {IAMMProvider} from "../interfaces/IAMMProvider.sol";
-import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {Address} from "lib/openzeppelin-contracts/contracts/utils/Address.sol";
-import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
+import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {
     AddressZero,
     AmountIsZero,
@@ -107,12 +107,12 @@ library AssetManagerLogic {
         return _cloneProvider(logicStorage, provider);
     }
 
-    function getOrCloneSwapProvider(AssetManagerStorage storage logicStorage, address ammProvider)
+    function getOrCloneAMMProvider(AssetManagerStorage storage logicStorage, address ammProvider)
         external
         onlyInitialized(logicStorage)
         returns (address clone)
     {
-        _checkSwapProvider(logicStorage, ammProvider);
+        _checkAMMProvider(logicStorage, ammProvider);
         return _cloneProvider(logicStorage, ammProvider);
     }
 
@@ -298,11 +298,11 @@ library AssetManagerLogic {
         return IERC20(assetAddress).balanceOf(address(this));
     }
 
-    function _checkSwapProvider(AssetManagerStorage storage logicStorage, address swapProvider) private view {
+    function _checkAMMProvider(AssetManagerStorage storage logicStorage, address swapProvider) private view {
         if (!logicStorage.swapProviders.contains(swapProvider)) {
-            revert InvalidSwapProvider();
+            revert InvalidAMMProvider();
         }
-        if (!logicStorage.whiteList.isSwapProviderWhiteListed(swapProvider)) {
+        if (!logicStorage.whiteList.isAMMProviderWhiteListed(swapProvider)) {
             revert NotWhiteListed();
         }
     }
@@ -330,7 +330,7 @@ library AssetManagerLogic {
             revert AddressZero();
         }
         VaultLogic.checkAsset(vaultStorage, to);
-        _checkSwapProvider(logicStorage, swapProvider);
+        _checkAMMProvider(logicStorage, swapProvider);
         _checkRebalanceDisabledUntilTimestamp(logicStorage);
         IAssetManager.AssetConfig memory assetConfigFrom = logicStorage.assetConfigs[from];
         IAssetManager.AssetConfig memory assetConfigTo = logicStorage.assetConfigs[to];
@@ -471,19 +471,19 @@ library AssetManagerLogic {
         }
     }
 
-    function addSwapProviders(AssetManagerStorage storage logicStorage, address[] memory swapProviderAddresses)
+    function addAMMProviders(AssetManagerStorage storage logicStorage, address[] memory swapProviderAddresses)
         external
         onlyInitialized(logicStorage)
     {
         for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
-            if (!logicStorage.whiteList.isSwapProviderWhiteListed(swapProviderAddresses[i])) {
+            if (!logicStorage.whiteList.isAMMProviderWhiteListed(swapProviderAddresses[i])) {
                 revert NotWhiteListed();
             }
             logicStorage.swapProviders.add(swapProviderAddresses[i]);
         }
     }
 
-    function removeSwapProviders(AssetManagerStorage storage logicStorage, address[] memory swapProviderAddresses)
+    function removeAMMProviders(AssetManagerStorage storage logicStorage, address[] memory swapProviderAddresses)
         external
         onlyInitialized(logicStorage)
     {
@@ -500,7 +500,7 @@ library AssetManagerLogic {
         return logicStorage.stakingProviders.values();
     }
 
-    function getSwapProviders(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+    function getAMMProviders(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
         return logicStorage.swapProviders.values();
     }
 
@@ -521,7 +521,7 @@ library AssetManagerLogic {
         view
         returns (uint256)
     {
-        _checkSwapProvider(logicStorage, ammProvider);
+        _checkAMMProvider(logicStorage, ammProvider);
         address clone = logicStorage.clonedProviders[ammProvider];
         if (clone == address(0)) return 0;
         return IAMMProvider(clone).getLiquidity(data);

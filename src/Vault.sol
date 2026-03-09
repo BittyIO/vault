@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {Ownable} from "../lib/openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
+import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IAssetManager, OnlyAssetManager} from "./interfaces/IAssetManager.sol";
 import {IAMMProvider} from "./interfaces/IAMMProvider.sol";
-import {IWhiteList} from "./interfaces/IWhiteList.sol";
+import {IWhiteList} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
 import {IVault, ReceiverNotFound} from "./interfaces/IVault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
@@ -49,7 +49,7 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _assetManager.initialize(whiteListAddress);
         _assetManager.addLendingProviders(lendingProviders);
         _assetManager.addStakingProviders(stakingProviders);
-        _assetManager.addSwapProviders(swapProviders);
+        _assetManager.addAMMProviders(swapProviders);
     }
 
     // ============ IAssetManager Interface ============
@@ -66,8 +66,8 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         return _assetManager.getStakingProviders();
     }
 
-    function getSwapProviders() external view override returns (address[] memory) {
-        return _assetManager.getSwapProviders();
+    function getAMMProviders() external view override returns (address[] memory) {
+        return _assetManager.getAMMProviders();
     }
 
     function setAssetConfig(address assetAddress, IAssetManager.AssetConfig memory _assetConfig)
@@ -153,12 +153,12 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _assetManager.removeStakingProviders(stakingProviderAddresses);
     }
 
-    function addSwapProviders(address[] memory swapProviderAddresses) external override onlyOwner {
-        _assetManager.addSwapProviders(swapProviderAddresses);
+    function addAMMProviders(address[] memory swapProviderAddresses) external override onlyOwner {
+        _assetManager.addAMMProviders(swapProviderAddresses);
     }
 
-    function removeSwapProviders(address[] memory swapProviderAddresses) external override onlyOwner {
-        _assetManager.removeSwapProviders(swapProviderAddresses);
+    function removeAMMProviders(address[] memory swapProviderAddresses) external override onlyOwner {
+        _assetManager.removeAMMProviders(swapProviderAddresses);
     }
 
     // ============ IVault Interface ============
@@ -228,17 +228,17 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
     }
 
     function addLiquidity(address ammProvider, bytes memory data) external payable override onlyAssetManager {
-        address clone = _assetManager.getOrCloneSwapProvider(ammProvider);
+        address clone = _assetManager.getOrCloneAMMProvider(ammProvider);
         IAMMProvider(clone).addLiquidity{value: msg.value}(data);
     }
 
     function removeLiquidity(address ammProvider, bytes memory data) external payable override onlyAssetManager {
-        address clone = _assetManager.getOrCloneSwapProvider(ammProvider);
+        address clone = _assetManager.getOrCloneAMMProvider(ammProvider);
         IAMMProvider(clone).removeLiquidity{value: msg.value}(data);
     }
 
     function claimFees(address ammProvider, bytes memory data) external payable override onlyAssetManager {
-        address clone = _assetManager.getOrCloneSwapProvider(ammProvider);
+        address clone = _assetManager.getOrCloneAMMProvider(ammProvider);
         IAMMProvider(clone).claimFees{value: msg.value}(data);
     }
 

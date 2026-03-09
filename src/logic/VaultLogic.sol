@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
+import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {
     AlreadyInitialized,
     AddressZero,
@@ -9,11 +9,11 @@ import {
     NotInitialized,
     InsufficientBalance
 } from "../interfaces/IVault.sol";
-import {IWhiteList, NotWhiteListed} from "../interfaces/IWhiteList.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IWhiteList, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {VaultStorage} from "./Storages.sol";
-import {WETH} from "lib/solmate/src/tokens/WETH.sol";
+import {WETH} from "solmate/tokens/WETH.sol";
 import {
     IVault,
     ReceiverNotFound,

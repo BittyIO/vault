@@ -2,12 +2,12 @@
 pragma solidity ^0.8.27;
 
 import {ISubscribe, YearCountZero} from "./interfaces/ISubscribe.sol";
-import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
-import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
+import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {AddressZero, InsufficientBalance} from "./interfaces/IVault.sol";
-import {IWhiteList, NotWhiteListed} from "./interfaces/IWhiteList.sol";
-import {IERC20Metadata} from "lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IWhiteList, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
+import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract Subscribe is ISubscribe, Ownable, Initializable {
     using SafeERC20 for IERC20Metadata;

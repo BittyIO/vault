@@ -9,7 +9,7 @@ error BuyAmountNotEnough();
 error MinimalBalanceNotMet();
 error InvalidLendingProvider();
 error InvalidStakingProvider();
-error InvalidSwapProvider();
+error InvalidAMMProvider();
 error InvalidSwapData();
 error DisableRebalanceUntilTimestampTooEarly();
 error RebalanceDisabled();
@@ -52,7 +52,7 @@ interface IAssetManager {
      * @dev Get the swap providers.
      * @return swapProviderAddresses The addresses of the swap providers.
      */
-    function getSwapProviders() external view returns (address[] memory);
+    function getAMMProviders() external view returns (address[] memory);
 
     /**
      * @notice Set the asset config.
@@ -235,7 +235,7 @@ interface IAssetManager {
      * @param swapProviderAddresses The addresses of the swap providers.
      * @dev Add the swap providers.
      */
-    function addSwapProviders(address[] memory swapProviderAddresses) external;
+    function addAMMProviders(address[] memory swapProviderAddresses) external;
 
     /**
      * @notice Remove the swap providers.
@@ -243,5 +243,5 @@ interface IAssetManager {
      * @param swapProviderAddresses The addresses of the swap providers.
      * @dev Remove the swap providers.
      */
-    function removeSwapProviders(address[] memory swapProviderAddresses) external;
+    function removeAMMProviders(address[] memory swapProviderAddresses) external;
 }

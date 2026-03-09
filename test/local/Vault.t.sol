@@ -2,7 +2,7 @@
 pragma solidity ^0.8.27;
 
 import "forge-std/console.sol";
-import {Test} from "lib/forge-std/src/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {Vault} from "../../src/Vault.sol";
 import {
     IVault,
@@ -14,8 +14,8 @@ import {
     OnlyReceiver,
     ReceiverNotStartYet
 } from "../../src/interfaces/IVault.sol";
-import {WETH} from "lib/solmate/src/tokens/WETH.sol";
-import {WhiteList} from "../../src/WhiteList.sol";
+import {WETH} from "solmate/tokens/WETH.sol";
+import {WhiteList} from "whitelist-contracts/src/WhiteList.sol";
 
 contract VaultTest is Test {
     Vault public vault;

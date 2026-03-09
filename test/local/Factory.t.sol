@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {Test} from "lib/forge-std/src/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {Factory} from "../../src/Factory.sol";
 import {Vault} from "../../src/Vault.sol";
 import {AddressZero} from "../../src/interfaces/IVault.sol";
-import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
+import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {VaultAlreadyDeployed} from "../../src/interfaces/IFactory.sol";
-import {WhiteList} from "../../src/WhiteList.sol";
-import {IWhiteList, NotWhiteListed} from "../../src/interfaces/IWhiteList.sol";
+import {WhiteList} from "whitelist-contracts/src/WhiteList.sol";
+import {IWhiteList, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
 
 contract FactoryTest is Test {
     Factory public factory;
@@ -54,7 +54,7 @@ contract FactoryTest is Test {
         IWhiteList(whiteListAddress).addAssets(assetAddresses);
         IWhiteList(whiteListAddress).addStableCoins(stableCoinAddresses);
         IWhiteList(whiteListAddress).addLendingProviders(lendingProviders);
-        IWhiteList(whiteListAddress).addSwapProviders(swapProviders);
+        IWhiteList(whiteListAddress).addAMMProviders(swapProviders);
         IWhiteList(whiteListAddress).addStakingProviders(stakingProviders);
         vm.stopPrank();
     }
@@ -192,14 +192,14 @@ contract FactoryTest is Test {
         );
     }
 
-    function test_DeployVaultRevertsIfSwapProviderNotWhiteListed() public {
+    function test_DeployVaultRevertsIfAMMProviderNotWhiteListed() public {
         factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
-        address[] memory invalidSwapProviderArray = new address[](1);
-        invalidSwapProviderArray[0] = makeAddr("invalidSwapProvider");
+        address[] memory invalidAMMProviderArray = new address[](1);
+        invalidAMMProviderArray[0] = makeAddr("invalidAMMProvider");
         vm.prank(owner1);
         vm.expectRevert(NotWhiteListed.selector);
         factory.deployVault(
-            assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, invalidSwapProviderArray
+            assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, invalidAMMProviderArray
         );
     }
 
@@ -208,11 +208,11 @@ contract FactoryTest is Test {
         address[] memory emptyAssets = new address[](0);
         address[] memory emptyStableCoins = new address[](0);
         address[] memory emptyLendingProviders = new address[](0);
-        address[] memory emptySwapProviders = new address[](0);
+        address[] memory emptyAMMProviders = new address[](0);
 
         vm.prank(owner1);
         address vault = factory.deployVault(
-            emptyAssets, emptyStableCoins, emptyLendingProviders, stakingProviders, emptySwapProviders
+            emptyAssets, emptyStableCoins, emptyLendingProviders, stakingProviders, emptyAMMProviders
         );
 
         assertTrue(vault != address(0), "Vault should be deployed");
@@ -297,20 +297,20 @@ contract FactoryTest is Test {
         assertTrue(vault != address(0), "Vault should be deployed");
     }
 
-    function test_DeployVaultWithMultipleSwapProviders() public {
+    function test_DeployVaultWithMultipleAMMProviders() public {
         factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address swapProvider1 = makeAddr("swapProvider1");
         address swapProvider2 = makeAddr("swapProvider2");
-        address[] memory multipleSwapProviders = new address[](2);
-        multipleSwapProviders[0] = swapProvider1;
-        multipleSwapProviders[1] = swapProvider2;
+        address[] memory multipleAMMProviders = new address[](2);
+        multipleAMMProviders[0] = swapProvider1;
+        multipleAMMProviders[1] = swapProvider2;
 
         vm.prank(tx.origin);
-        IWhiteList(whiteListAddress).addSwapProviders(multipleSwapProviders);
+        IWhiteList(whiteListAddress).addAMMProviders(multipleAMMProviders);
 
         vm.prank(owner1);
         address vault = factory.deployVault(
-            assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, multipleSwapProviders
+            assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, multipleAMMProviders
         );
 
         assertTrue(vault != address(0), "Vault should be deployed");
@@ -358,22 +358,22 @@ contract FactoryTest is Test {
         factory.deployVault(assetAddresses, stableCoinAddresses, mixedLendingProviders, stakingProviders, swapProviders);
     }
 
-    function test_DeployVaultRevertsIfMultipleSwapProvidersOneNotWhiteListed() public {
+    function test_DeployVaultRevertsIfMultipleAMMProvidersOneNotWhiteListed() public {
         factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address swapProvider1 = makeAddr("swapProvider1");
-        address[] memory mixedSwapProviders = new address[](2);
-        mixedSwapProviders[0] = swapProvider1;
-        mixedSwapProviders[1] = makeAddr("invalidSwapProvider");
+        address[] memory mixedAMMProviders = new address[](2);
+        mixedAMMProviders[0] = swapProvider1;
+        mixedAMMProviders[1] = makeAddr("invalidAMMProvider");
 
         address[] memory validProvider = new address[](1);
         validProvider[0] = swapProvider1;
         vm.prank(tx.origin);
-        IWhiteList(whiteListAddress).addSwapProviders(validProvider);
+        IWhiteList(whiteListAddress).addAMMProviders(validProvider);
 
         vm.prank(owner1);
         vm.expectRevert(NotWhiteListed.selector);
 
-        factory.deployVault(assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, mixedSwapProviders);
+        factory.deployVault(assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, mixedAMMProviders);
     }
 
     function test_DeployVaultRevertsIfVaultAlreadyExistsAtComputedAddressForced() public {

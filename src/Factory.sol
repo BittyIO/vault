@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {Clones} from "lib/openzeppelin-contracts/contracts/proxy/Clones.sol";
+import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
+import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {AddressZero} from "./interfaces/IVault.sol";
-import {IWhiteList, NotWhiteListed} from "./interfaces/IWhiteList.sol";
+import {IWhiteList, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
 import {Vault} from "./Vault.sol";
 import {IFactory, VaultAlreadyDeployed} from "./interfaces/IFactory.sol";
 
@@ -102,7 +102,7 @@ contract Factory is IFactory, Initializable {
             if (!whiteList.isStakingProviderWhiteListed(stakingProviders[i])) revert NotWhiteListed();
         }
         for (uint256 i = 0; i < swapProviders.length; i++) {
-            if (!whiteList.isSwapProviderWhiteListed(swapProviders[i])) revert NotWhiteListed();
+            if (!whiteList.isAMMProviderWhiteListed(swapProviders[i])) revert NotWhiteListed();
         }
     }
 }

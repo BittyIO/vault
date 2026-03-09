@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {Test} from "lib/forge-std/src/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {Vault} from "../../src/Vault.sol";
 import {Factory} from "../../src/Factory.sol";
-import {WhiteList} from "../../src/WhiteList.sol";
+import {WhiteList} from "whitelist-contracts/src/WhiteList.sol";
 import {AaveV3Provider} from "../../src/providers/AaveV3Provider.sol";
 import {LidoV2Provider} from "../../src/providers/LidoV2Provider.sol";
 import {mainnet} from "../../script/addresses.sol";
-import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
 import {UniswapV3Provider} from "../../src/providers/UniswapV3Provider.sol";
 import {Path} from "../../src/libs/uniswap/v3/Uniswap.sol";
@@ -58,7 +58,7 @@ contract TestVaultFork is Test {
             new UniswapV3Provider(mainnet.UNISWAP_V3_ROUTER, mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
         uniswapV3Provider.initialize(address(this));
         vm.prank(tx.origin);
-        whiteList.addSwapProviders(_arr(address(uniswapV3Provider)));
+        whiteList.addAMMProviders(_arr(address(uniswapV3Provider)));
 
         assets = _arr(mainnet.WETH, mainnet.WBTC);
         stableCoins = _arr(mainnet.USDC, mainnet.USDT);
