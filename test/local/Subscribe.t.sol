@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {Test} from "lib/forge-std/src/Test.sol";
+import {Test} from "forge-std/Test.sol";
 
 import {Subscribe} from "../../src/Subscribe.sol";
-import {IWhiteList, NotWhiteListed} from "../../src/interfaces/IWhiteList.sol";
-import {WhiteList} from "../../src/WhiteList.sol";
-import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
+import {IWhiteList, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
+import {WhiteList} from "whitelist-contracts/src/WhiteList.sol";
+import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {AddressZero, InsufficientBalance} from "../../src/interfaces/IVault.sol";
 import {YearCountZero} from "../../src/interfaces/ISubscribe.sol";
 

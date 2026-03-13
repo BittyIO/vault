@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {Test} from "lib/forge-std/src/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {CoWSwapProvider} from "../../src/providers/CoWSwapProvider.sol";
 import {GPv2Order} from "../../src/libs/cow/GPv2Order.sol";
 import {mainnet} from "../../script/addresses.sol";
-import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IGPv2Settlement} from "../../src/libs/cow/GPv2Settlement.sol";
 
-contract TestCoWSwapProviderFork is Test {
+contract TestCoWAMMProviderFork is Test {
     using SafeERC20 for IERC20;
 
     CoWSwapProvider public cowProvider;

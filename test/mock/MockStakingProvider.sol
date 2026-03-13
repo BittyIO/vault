@@ -2,8 +2,8 @@
 pragma solidity ^0.8.27;
 
 import {IStakingProvider} from "../../src/interfaces/IStakingProvider.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
 contract MockStakingProvider is IStakingProvider {
     using EnumerableSet for EnumerableSet.UintSet;

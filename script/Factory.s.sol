@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Factory} from "../src/Factory.sol";
 import {Vault} from "../src/Vault.sol";
-import {console2} from "lib/forge-std/src/console2.sol";
+import {console2} from "forge-std/console2.sol";
 import {DeployScript} from "./BaseDeploy.sol";
 
 contract FactoryScript is DeployScript {

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {Script} from "lib/forge-std/src/Script.sol";
-import {Config} from "lib/forge-std/src/Config.sol";
-import {console2} from "lib/forge-std/src/console2.sol";
+import {Script} from "forge-std/Script.sol";
+import {Config} from "forge-std/Config.sol";
+import {console2} from "forge-std/console2.sol";
 
 abstract contract DeployScript is Script, Config {
     function __toUpper(string memory str) private pure returns (string memory) {

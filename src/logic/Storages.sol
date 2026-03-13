@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
-import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
+import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IAssetManager} from "../interfaces/IAssetManager.sol";
-import {IWhiteList} from "../interfaces/IWhiteList.sol";
+import {IWhiteList} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
 import {IVault} from "../interfaces/IVault.sol";
 
 struct AssetManagerStorage {

@@ -2,14 +2,14 @@
 pragma solidity ^0.8.27;
 
 import {IStakingProvider, UnstakeMoreThanStaked} from "../interfaces/IStakingProvider.sol";
-import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
-import {Initializable} from "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {IStETH, IUnstETH} from "../libs/lido/v2/Lido.sol";
-import {WETH} from "lib/solmate/src/tokens/WETH.sol";
+import {WETH} from "solmate/tokens/WETH.sol";
 import {WETHBalanceNotEnough} from "../interfaces/IVault.sol";
-import {EnumerableSet} from "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
+import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
 contract LidoV2Provider is IStakingProvider, Ownable, Initializable {
     using SafeERC20 for IERC20;
