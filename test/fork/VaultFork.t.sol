@@ -70,7 +70,9 @@ contract TestVaultFork is Test {
         factory = new Factory();
         factory.initialize(address(vaultImpl), address(whiteList), mainnet.WETH);
 
-        address vaultAddr = factory.deployVault(assets, stableCoins, lendingProviders, stakingProviders, swapProviders);
+        address vaultAddr = factory.deployVault(
+            assets, stableCoins, lendingProviders, stakingProviders, swapProviders, new address[](0)
+        );
         vault = Vault(payable(vaultAddr));
 
         assetManager = address(this);
@@ -228,7 +230,7 @@ contract TestVaultFork is Test {
 
     function test_FactoryRevertWhenVaultAlreadyDeployed() public {
         vm.expectRevert();
-        factory.deployVault(assets, stableCoins, lendingProviders, stakingProviders, swapProviders);
+        factory.deployVault(assets, stableCoins, lendingProviders, stakingProviders, swapProviders, new address[](0));
     }
 
     function test_RebalanceWETHToUSDT() public {
@@ -253,7 +255,9 @@ contract TestVaultFork is Test {
 
         uint256 usdtBefore = IERC20(mainnet.USDT).balanceOf(address(vault));
         vm.prank(assetManager);
-        vault.rebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        vault.rebalanceWithAMM(
+            address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData
+        );
         uint256 usdtAfter = IERC20(mainnet.USDT).balanceOf(address(vault));
         assertGt(usdtAfter, usdtBefore);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);

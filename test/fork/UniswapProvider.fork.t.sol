@@ -39,17 +39,6 @@ contract TestUniswapProviderFork is Test {
         vm.deal(address(v3Provider), 0);
     }
 
-    function _getV4PoolPrice(V4PoolKey memory key) internal view returns (uint256) {
-        PoolId poolId = PoolIdLibrary.toId(key);
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolId);
-        // price = (sqrtPriceX96 / 2^96)^2 = (sqrtPriceX96^2) / (2^192)
-        // Use mulDiv to avoid overflow and maintain precision
-        // Calculate price with 18 decimals precision: price = (sqrtPriceX96^2 * 1e18) / (2^192)
-        // Use nested mulDiv to avoid overflow: first multiply sqrtPriceX96 * 1e18, then multiply by sqrtPriceX96, then divide by Q192
-        uint256 q192 = 2 ** 192;
-        return Math.mulDiv(Math.mulDiv(uint256(sqrtPriceX96), 1e18, 1), uint256(sqrtPriceX96), q192);
-    }
-
     function _getV3PoolPrice(address tokenIn, address tokenOut, uint24 fee) internal view returns (uint256) {
         // Ensure token0 < token1 for Uniswap V3
         address token0 = tokenIn < tokenOut ? tokenIn : tokenOut;
@@ -108,7 +97,7 @@ contract TestUniswapProviderFork is Test {
     function test_V3_SwapUSDCToWETH() public {
         address[] memory path = new address[](2);
         path[0] = address(mainnet.USDC);
-        path[1] = address(mainnet.WETH); // WETH
+        path[1] = address(mainnet.WETH);
 
         uint24[] memory fees = new uint24[](1);
         fees[0] = 500; // 0.05% fee
@@ -136,7 +125,7 @@ contract TestUniswapProviderFork is Test {
     function test_V3_SwapUSDTToWETH() public {
         address[] memory path = new address[](2);
         path[0] = address(mainnet.USDT);
-        path[1] = address(mainnet.WETH); // ETH
+        path[1] = address(mainnet.WETH);
 
         uint24[] memory fees = new uint24[](1);
         fees[0] = 3000; // 0.3% fee
@@ -173,13 +162,11 @@ contract TestUniswapProviderFork is Test {
 
         bytes memory encodedPath = Path.encodePath(path, fees);
 
-        uint256 sellAmount = 1000 * 1e6; // 1000 USDC
+        uint256 sellAmount = 1000 * 1e6;
 
-        // USDC -> WETH
         uint256 price1 = _getV3PoolPrice(address(mainnet.USDC), address(mainnet.WETH), 500);
         uint256 expectedWethOutput = Math.mulDiv(sellAmount, 1e18, price1);
 
-        // WETH -> USDT
         uint256 price2 = _getV3PoolPrice(address(mainnet.WETH), address(mainnet.USDT), 3000);
         uint256 expectedUsdtOutput = Math.mulDiv(expectedWethOutput, price2, 1e18);
 

@@ -15,12 +15,14 @@ import {
     InvalidLendingProvider,
     InvalidStakingProvider,
     InvalidAMMProvider,
+    InvalidIntentProvider,
     InvalidSwapData
 } from "../interfaces/IAssetManager.sol";
 import {IProvider} from "../interfaces/IProvider.sol";
 import {ILendingProvider} from "../interfaces/ILendingProvider.sol";
 import {IStakingProvider} from "../interfaces/IStakingProvider.sol";
 import {IAMMProvider} from "../interfaces/IAMMProvider.sol";
+import {IIntentProvider} from "../interfaces/IIntentProvider.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
@@ -298,12 +300,21 @@ library AssetManagerLogic {
         return IERC20(assetAddress).balanceOf(address(this));
     }
 
-    function _checkAMMProvider(AssetManagerStorage storage logicStorage, address swapProvider) private view {
-        if (!logicStorage.swapProviders.contains(swapProvider)) {
+    function _checkAMMProvider(AssetManagerStorage storage logicStorage, address ammProvider) private view {
+        if (!logicStorage.swapProviders.contains(ammProvider)) {
             revert InvalidAMMProvider();
         }
-        if (!logicStorage.whiteList.isAMMProviderWhiteListed(swapProvider)) {
+        if (!logicStorage.whiteList.isAMMProviderWhiteListed(ammProvider)) {
             revert NotWhiteListed();
+        }
+    }
+
+    function _checkIntentProvider(AssetManagerStorage storage logicStorage, address intentProvider) private view {
+        if (!logicStorage.intentProviders.contains(intentProvider)) {
+            revert InvalidIntentProvider();
+        }
+        if (logicStorage.whiteList.isIntentProviderDeprecated(intentProvider)) {
+            revert Deprecated();
         }
     }
 
@@ -316,24 +327,24 @@ library AssetManagerLogic {
         }
     }
 
-    function rebalance(
+    function _validateRebalance(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
-        address swapProvider,
         address from,
         address to,
-        uint256 sellAmount,
-        uint256 buyAmountMin,
-        bytes memory data
-    ) external onlyInitialized(logicStorage) {
+        uint256 sellAmount
+    )
+        private
+        view
+        returns (IAssetManager.AssetConfig memory assetConfigFrom, IAssetManager.AssetConfig memory assetConfigTo)
+    {
         if (from == address(0)) {
             revert AddressZero();
         }
         VaultLogic.checkAsset(vaultStorage, to);
-        _checkAMMProvider(logicStorage, swapProvider);
         _checkRebalanceDisabledUntilTimestamp(logicStorage);
-        IAssetManager.AssetConfig memory assetConfigFrom = logicStorage.assetConfigs[from];
-        IAssetManager.AssetConfig memory assetConfigTo = logicStorage.assetConfigs[to];
+        assetConfigFrom = logicStorage.assetConfigs[from];
+        assetConfigTo = logicStorage.assetConfigs[to];
         uint256 fromBalance = _addressBalance(from);
 
         if (assetConfigFrom.maxRebalancePercentage > 0) {
@@ -358,9 +369,15 @@ library AssetManagerLogic {
                 revert MinimalBalanceNotMet();
             }
         }
+    }
 
-        _swap(logicStorage, swapProvider, from, sellAmount, to, buyAmountMin, data);
-
+    function _updateRebalanceTimestamps(
+        AssetManagerStorage storage logicStorage,
+        IAssetManager.AssetConfig memory assetConfigFrom,
+        IAssetManager.AssetConfig memory assetConfigTo,
+        address from,
+        address to
+    ) private {
         if (assetConfigFrom.minimalDurationBetweenRebalances > 0) {
             logicStorage.lastRebalanceTimestamps[from] = block.timestamp;
             logicStorage.lastRebalanceTimestampKeys.add(from);
@@ -371,9 +388,26 @@ library AssetManagerLogic {
         }
     }
 
+    function rebalanceWithAMM(
+        AssetManagerStorage storage logicStorage,
+        VaultStorage storage vaultStorage,
+        address ammProvider,
+        address from,
+        address to,
+        uint256 sellAmount,
+        uint256 buyAmountMin,
+        bytes memory data
+    ) external onlyInitialized(logicStorage) {
+        _checkAMMProvider(logicStorage, ammProvider);
+        (IAssetManager.AssetConfig memory assetConfigFrom, IAssetManager.AssetConfig memory assetConfigTo) =
+            _validateRebalance(logicStorage, vaultStorage, from, to, sellAmount);
+        _swap(logicStorage, ammProvider, from, sellAmount, to, buyAmountMin, data);
+        _updateRebalanceTimestamps(logicStorage, assetConfigFrom, assetConfigTo, from, to);
+    }
+
     function _swap(
         AssetManagerStorage storage logicStorage,
-        address swapProvider,
+        address ammProvider,
         address sellAssetAddress,
         uint256 sellAmount,
         address toAssetAddress,
@@ -397,13 +431,13 @@ library AssetManagerLogic {
         }
         uint256 buyAssetBalanceBefore = _addressBalance(toAssetAddress);
 
-        swapProvider = _cloneProvider(logicStorage, swapProvider);
+        ammProvider = _cloneProvider(logicStorage, ammProvider);
 
-        IERC20(sellAssetAddress).safeIncreaseAllowance(swapProvider, sellAmount);
-        IAMMProvider(swapProvider).swap(data);
-        uint256 remaining = IERC20(sellAssetAddress).allowance(address(this), swapProvider);
+        IERC20(sellAssetAddress).safeIncreaseAllowance(ammProvider, sellAmount);
+        IAMMProvider(ammProvider).swap(data);
+        uint256 remaining = IERC20(sellAssetAddress).allowance(address(this), ammProvider);
         if (remaining > 0) {
-            IERC20(sellAssetAddress).safeDecreaseAllowance(swapProvider, remaining);
+            IERC20(sellAssetAddress).safeDecreaseAllowance(ammProvider, remaining);
         }
 
         uint256 sellAssetBalanceAfter = _addressBalance(sellAssetAddress);
@@ -413,6 +447,58 @@ library AssetManagerLogic {
         uint256 buyAssetBalanceAfter = _addressBalance(toAssetAddress);
         if (buyAssetBalanceAfter - buyAssetBalanceBefore < buyAmountMin) {
             revert BuyAmountNotEnough();
+        }
+    }
+
+    function rebalanceWithIntent(
+        AssetManagerStorage storage logicStorage,
+        VaultStorage storage vaultStorage,
+        address intentProvider,
+        address from,
+        address to,
+        uint256 sellAmount,
+        uint256 buyAmountMin,
+        uint32 validTo,
+        bool isSellOrder
+    ) external onlyInitialized(logicStorage) {
+        _checkIntentProvider(logicStorage, intentProvider);
+        (IAssetManager.AssetConfig memory assetConfigFrom, IAssetManager.AssetConfig memory assetConfigTo) =
+            _validateRebalance(logicStorage, vaultStorage, from, to, sellAmount);
+        _trade(logicStorage, intentProvider, from, sellAmount, to, buyAmountMin, validTo, isSellOrder);
+        _updateRebalanceTimestamps(logicStorage, assetConfigFrom, assetConfigTo, from, to);
+    }
+
+    function _trade(
+        AssetManagerStorage storage logicStorage,
+        address intentProvider,
+        address sellAssetAddress,
+        uint256 sellAmount,
+        address toAssetAddress,
+        uint256 buyAmountMin,
+        uint32 validTo,
+        bool isSellOrder
+    ) private {
+        if (sellAmount == 0 || buyAmountMin == 0) {
+            revert AmountIsZero();
+        }
+        uint256 sellAssetBalanceBefore = _addressBalance(sellAssetAddress);
+        if (sellAssetBalanceBefore < sellAmount) {
+            revert InsufficientBalance();
+        }
+
+        intentProvider = _cloneProvider(logicStorage, intentProvider);
+
+        bytes memory data = abi.encode(sellAssetAddress, sellAmount, toAssetAddress, buyAmountMin, validTo, isSellOrder);
+        IERC20(sellAssetAddress).safeIncreaseAllowance(intentProvider, sellAmount);
+        IIntentProvider(intentProvider).trade(data);
+        uint256 remaining = IERC20(sellAssetAddress).allowance(address(this), intentProvider);
+        if (remaining > 0) {
+            IERC20(sellAssetAddress).safeDecreaseAllowance(intentProvider, remaining);
+        }
+
+        uint256 sellAssetBalanceAfter = _addressBalance(sellAssetAddress);
+        if (sellAssetBalanceBefore - sellAssetBalanceAfter != sellAmount) {
+            revert SellAmountMismatch();
         }
     }
 
@@ -525,5 +611,42 @@ library AssetManagerLogic {
         address clone = logicStorage.clonedProviders[ammProvider];
         if (clone == address(0)) return 0;
         return IAMMProvider(clone).getLiquidity(data);
+    }
+
+    function addIntentProviders(AssetManagerStorage storage logicStorage, address[] memory intentProviderAddresses)
+        external
+        onlyInitialized(logicStorage)
+    {
+        for (uint256 i = 0; i < intentProviderAddresses.length; i++) {
+            if (logicStorage.whiteList.isIntentProviderDeprecated(intentProviderAddresses[i])) {
+                revert Deprecated();
+            }
+            logicStorage.intentProviders.add(intentProviderAddresses[i]);
+        }
+    }
+
+    function removeIntentProviders(AssetManagerStorage storage logicStorage, address[] memory intentProviderAddresses)
+        external
+        onlyInitialized(logicStorage)
+    {
+        for (uint256 i = 0; i < intentProviderAddresses.length; i++) {
+            logicStorage.intentProviders.remove(intentProviderAddresses[i]);
+        }
+    }
+
+    function getIntentProviders(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+        return logicStorage.intentProviders.values();
+    }
+
+    function cancelRebalanceWithIntent(
+        AssetManagerStorage storage logicStorage,
+        address intentProvider,
+        bytes memory data
+    ) external onlyInitialized(logicStorage) {
+        address clone = logicStorage.clonedProviders[intentProvider];
+        if (clone == address(0)) {
+            revert InvalidIntentProvider();
+        }
+        IIntentProvider(clone).cancelTrade(data);
     }
 }

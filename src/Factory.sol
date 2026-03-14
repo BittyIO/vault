@@ -48,7 +48,8 @@ contract Factory is IFactory, Initializable {
         address[] memory stableCoinAddresses,
         address[] memory lendingProviders,
         address[] memory stakingProviders,
-        address[] memory swapProviders
+        address[] memory swapProviders,
+        address[] memory intentProviders
     ) external override returns (address vault) {
         _checkWhiteList(assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, swapProviders);
 
@@ -67,7 +68,8 @@ contract Factory is IFactory, Initializable {
                 stableCoinAddresses,
                 lendingProviders,
                 stakingProviders,
-                swapProviders
+                swapProviders,
+                intentProviders
             );
 
         emit VaultDeployed(vault, msg.sender);
