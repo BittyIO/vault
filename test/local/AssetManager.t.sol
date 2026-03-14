@@ -7,6 +7,7 @@ import {
     InvalidLendingProvider,
     InvalidStakingProvider,
     InvalidIntentProvider,
+    InvalidValidTo,
     RebalanceMaxPercentage,
     RebalanceDisabled,
     DisableRebalanceUntilTimestampTooEarly,
@@ -15,7 +16,7 @@ import {
     MinimalBalanceNotMet,
     RebalanceInMinimalTime
 } from "../../src/interfaces/IAssetManager.sol";
-import {Deprecated} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
+import {Deprecated, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockLendingProvider} from "../mock/MockLendingProvider.sol";
@@ -819,7 +820,7 @@ contract TestAssetManager is Test, Vault {
         vm.prank(tx.origin);
         WhiteList(whiteListAddress).deprecateIntentProviders(intentProviders_);
         vm.prank(ownerAddress);
-        vm.expectRevert(Deprecated.selector);
+        vm.expectRevert(NotWhiteListed.selector);
         this.addIntentProviders(intentProviders_);
     }
 
@@ -904,7 +905,7 @@ contract TestAssetManager is Test, Vault {
         uint256 buyAmountMin = 10 * 1e6;
         deal(address(mockWETH), address(this), sellAmount);
 
-        vm.expectRevert(Deprecated.selector);
+        vm.expectRevert(NotWhiteListed.selector);
         vm.prank(assetManagerAddress);
         this.rebalanceWithIntent(
             address(mockIntentProvider),
@@ -1109,6 +1110,40 @@ contract TestAssetManager is Test, Vault {
         bytes memory cancelData = abi.encode(bytes32(0));
         vm.expectRevert(OnlyAssetManager.selector);
         this.cancelRebalanceWithIntent(address(mockIntentProvider), cancelData);
+    }
+
+    function test_RebalanceWithIntent_RevertNotWhiteListedProvider() public {
+        this.doInitialize();
+        MockIntentProvider unlistedProvider = new MockIntentProvider();
+        address[] memory intentProviders_ = new address[](1);
+        intentProviders_[0] = address(unlistedProvider);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert();
+        this.addIntentProviders(intentProviders_);
+    }
+
+    function test_RebalanceWithIntent_RevertExpiredValidTo() public {
+        this.doInitialize();
+        address[] memory intentProviders_ = new address[](1);
+        intentProviders_[0] = address(mockIntentProvider);
+        vm.prank(ownerAddress);
+        this.addIntentProviders(intentProviders_);
+
+        uint256 sellAmount = 1 ether;
+        deal(address(mockWETH), address(this), sellAmount);
+
+        vm.expectRevert(InvalidValidTo.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalanceWithIntent(
+            address(mockIntentProvider),
+            address(mockWETH),
+            address(mockUSDT),
+            sellAmount,
+            10 * 1e6,
+            uint32(block.timestamp),
+            true
+        );
     }
 
     function test_CancelRebalanceWithIntent_AllowedAfterProviderRemoved() public {

@@ -16,7 +16,8 @@ import {
     InvalidStakingProvider,
     InvalidAMMProvider,
     InvalidIntentProvider,
-    InvalidSwapData
+    InvalidSwapData,
+    InvalidValidTo
 } from "../interfaces/IAssetManager.sol";
 import {IProvider} from "../interfaces/IProvider.sol";
 import {ILendingProvider} from "../interfaces/ILendingProvider.sol";
@@ -313,6 +314,9 @@ library AssetManagerLogic {
         if (!logicStorage.intentProviders.contains(intentProvider)) {
             revert InvalidIntentProvider();
         }
+        if (!logicStorage.whiteList.isIntentProviderWhiteListed(intentProvider)) {
+            revert NotWhiteListed();
+        }
         if (logicStorage.whiteList.isIntentProviderDeprecated(intentProvider)) {
             revert Deprecated();
         }
@@ -481,6 +485,9 @@ library AssetManagerLogic {
         if (sellAmount == 0 || buyAmountMin == 0) {
             revert AmountIsZero();
         }
+        if (validTo <= block.timestamp) {
+            revert InvalidValidTo();
+        }
         uint256 sellAssetBalanceBefore = _addressBalance(sellAssetAddress);
         if (sellAssetBalanceBefore < sellAmount) {
             revert InsufficientBalance();
@@ -618,8 +625,8 @@ library AssetManagerLogic {
         onlyInitialized(logicStorage)
     {
         for (uint256 i = 0; i < intentProviderAddresses.length; i++) {
-            if (logicStorage.whiteList.isIntentProviderDeprecated(intentProviderAddresses[i])) {
-                revert Deprecated();
+            if (!logicStorage.whiteList.isIntentProviderWhiteListed(intentProviderAddresses[i])) {
+                revert NotWhiteListed();
             }
             logicStorage.intentProviders.add(intentProviderAddresses[i]);
         }

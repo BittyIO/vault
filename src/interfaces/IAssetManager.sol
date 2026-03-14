@@ -12,6 +12,7 @@ error InvalidStakingProvider();
 error InvalidAMMProvider();
 error InvalidIntentProvider();
 error InvalidSwapData();
+error InvalidValidTo();
 error DisableRebalanceUntilTimestampTooEarly();
 error RebalanceDisabled();
 
