@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.34;
 
 import {Factory} from "../src/Factory.sol";
 import {Vault} from "../src/Vault.sol";
