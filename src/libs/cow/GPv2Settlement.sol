@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-pragma solidity ^0.8.27;
+pragma solidity ^0.8.34;
 
 /// @title CoW Protocol GPv2 Settlement Interface
 /// @notice Minimal interface for CoW Protocol settlement (PreSign, domain separator)

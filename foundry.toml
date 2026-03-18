@@ -2,7 +2,7 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-solc_version = "0.8.27"
+solc_version = "0.8.34"
 memory_limit = 43554432
 gas_limit = 9223372036854775807
 gas_price = 0

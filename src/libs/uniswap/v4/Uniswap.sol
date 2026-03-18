@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-pragma solidity ^0.8.27;
+pragma solidity ^0.8.34;
 
 struct PoolKey {
     /// @notice The lower currency of the pool, sorted numerically

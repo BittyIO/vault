@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-pragma solidity ^0.8.27;
+pragma solidity ^0.8.34;
 
 import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";

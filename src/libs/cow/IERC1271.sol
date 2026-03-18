@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-pragma solidity ^0.8.27;
+pragma solidity ^0.8.34;
 
 /// @title EIP-1271 Smart Contract Signature Verification
 /// @notice Interface for CoW Protocol EIP-1271 order signing
