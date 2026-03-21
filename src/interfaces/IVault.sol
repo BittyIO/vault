@@ -13,6 +13,7 @@ error InsufficientBalance();
 error ReceiverNotFound();
 error ReceiverImmutable();
 error ReceiverPaymentCountZero();
+error ReceiverDurationTimestampNotSet();
 error ReceiverTriggerError();
 error ReceiverNotStartYet();
 error ReceiverInDuration();

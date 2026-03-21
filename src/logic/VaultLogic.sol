@@ -19,6 +19,7 @@ import {
     ReceiverNotFound,
     ReceiverImmutable,
     ReceiverPaymentCountZero,
+    ReceiverDurationTimestampNotSet,
     ReceiverTriggerError,
     ReceiverNotStartYet,
     ReceiverInDuration,
@@ -119,6 +120,9 @@ library VaultLogic {
         }
         if (receiver.paymentCount == 0) {
             revert ReceiverPaymentCountZero();
+        }
+        if (receiver.paymentCount > 0 && receiver.durationTimestamp == 0) {
+            revert ReceiverDurationTimestampNotSet();
         }
     }
 
