@@ -11,6 +11,7 @@ import {
     ReceiverNotFound,
     ReceiverImmutable,
     ReceiverPaymentCountZero,
+    ReceiverDurationTimestampNotSet,
     OnlyReceiver,
     ReceiverNotStartYet
 } from "../../src/interfaces/IVault.sol";
@@ -109,7 +110,7 @@ contract VaultTest is Test {
         );
         address receiverAddr = makeAddr("receiver");
         IVault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
     }
@@ -126,7 +127,7 @@ contract VaultTest is Test {
             new address[](0)
         );
         IVault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(makeAddr("stranger"));
         vm.expectRevert("Ownable: caller is not the owner");
         vault.addReceiver("alice", r);
@@ -168,6 +169,47 @@ contract VaultTest is Test {
         vault.addReceiver("alice", r);
     }
 
+    function test_AddReceiverRevertDurationTimestampNotSet() public {
+        vault.initialize(
+            whiteListAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        IVault.Receiver memory r =
+            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 2, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vm.expectRevert(ReceiverDurationTimestampNotSet.selector);
+        vault.addReceiver("alice", r);
+    }
+
+    function test_UpdateReceiverRevertDurationTimestampNotSet() public {
+        vault.initialize(
+            whiteListAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        IVault.Receiver memory r =
+            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        r.paymentCount = 3;
+        r.durationTimestamp = 0;
+        vm.prank(ownerAddress);
+        vm.expectRevert(ReceiverDurationTimestampNotSet.selector);
+        vault.updateReceiver("alice", r);
+    }
+
     function test_UpdateReceiverSuccess() public {
         vault.initialize(
             whiteListAddress,
@@ -181,7 +223,7 @@ contract VaultTest is Test {
         );
         address receiverAddr = makeAddr("receiver");
         IVault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 2, block.timestamp, 0, false);
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 2, block.timestamp, 1 days, false);
         vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
         r.amount = 2 ether;
@@ -201,7 +243,7 @@ contract VaultTest is Test {
             new address[](0)
         );
         IVault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vm.expectRevert(ReceiverNotFound.selector);
         vault.updateReceiver("nonexistent", r);
@@ -219,7 +261,7 @@ contract VaultTest is Test {
             new address[](0)
         );
         IVault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, true);
+            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true);
         vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
         r.amount = 2 ether;
@@ -240,7 +282,7 @@ contract VaultTest is Test {
             new address[](0)
         );
         IVault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
         r.amount = 2 ether;
@@ -261,7 +303,7 @@ contract VaultTest is Test {
             new address[](0)
         );
         IVault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
         vault.removeReceiver("alice");
@@ -282,7 +324,7 @@ contract VaultTest is Test {
             new address[](0)
         );
         IVault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
         vm.prank(makeAddr("stranger"));
@@ -304,7 +346,7 @@ contract VaultTest is Test {
         address alice = makeAddr("alice");
         address bob = makeAddr("bob");
         IVault.Receiver memory r =
-            _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+            _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
         vm.prank(alice);
@@ -340,7 +382,7 @@ contract VaultTest is Test {
         address alice = makeAddr("alice");
         address bob = makeAddr("bob");
         IVault.Receiver memory r =
-            _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+            _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
         vm.prank(makeAddr("stranger"));
@@ -361,7 +403,8 @@ contract VaultTest is Test {
         );
         address alice = makeAddr("alice");
         address bob = makeAddr("bob");
-        IVault.Receiver memory r = _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 0, true);
+        IVault.Receiver memory r =
+            _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
         vm.prank(alice);
@@ -381,8 +424,9 @@ contract VaultTest is Test {
             new address[](0)
         );
         uint256 futureStartTimestamp = block.timestamp + 100;
-        IVault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, futureStartTimestamp, 0, false);
+        IVault.Receiver memory r = _makeReceiver(
+            makeAddr("receiver"), address(0), address(weth), 1 ether, 1, futureStartTimestamp, 1 days, false
+        );
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
@@ -402,15 +446,17 @@ contract VaultTest is Test {
             new address[](0)
         );
         address receiverAddr = makeAddr("receiver");
+        vm.warp(1000);
+        uint256 duration = 100;
         IVault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 2, block.timestamp, 0, false);
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 2, block.timestamp, duration, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         deal(address(weth), address(vault), 2 ether);
-        vm.warp(block.timestamp + 8 days);
 
         vault.payReceiver("alice");
+        vm.warp(block.timestamp + duration);
         vault.payReceiver("alice");
 
         assertEq(weth.balanceOf(receiverAddr), 2 ether, "receiver should have received 2 payments");

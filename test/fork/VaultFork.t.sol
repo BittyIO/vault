@@ -273,7 +273,7 @@ contract TestVaultFork is Test {
             amount: 100e6,
             paymentCount: 1,
             startTimestamp: block.timestamp,
-            durationTimestamp: 0,
+            durationTimestamp: 1 days,
             lastReceiveTimestamp: 0,
             isImmutable: false
         });
