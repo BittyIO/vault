@@ -221,6 +221,41 @@ contract FactoryTest is Test {
         );
     }
 
+    function test_DeployVaultRevertsIfIntentProviderNotWhiteListed() public {
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
+        address[] memory invalidIntentProviderArray = new address[](1);
+        invalidIntentProviderArray[0] = makeAddr("invalidIntentProvider");
+        vm.prank(owner1);
+        vm.expectRevert(NotWhiteListed.selector);
+        factory.deployVault(
+            assetAddresses,
+            stableCoinAddresses,
+            lendingProviders,
+            stakingProviders,
+            ammProviders,
+            invalidIntentProviderArray
+        );
+    }
+
+    function test_DeployVaultRevertsIfMultipleIntentProvidersOneNotWhiteListed() public {
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
+        address intentProvider1 = makeAddr("intentProvider1");
+        address[] memory mixedIntentProviders = new address[](2);
+        mixedIntentProviders[0] = intentProvider1;
+        mixedIntentProviders[1] = makeAddr("invalidIntentProvider");
+
+        address[] memory validProvider = new address[](1);
+        validProvider[0] = intentProvider1;
+        vm.prank(tx.origin);
+        IWhiteList(whiteListAddress).addIntentProviders(validProvider);
+
+        vm.prank(owner1);
+        vm.expectRevert(NotWhiteListed.selector);
+        factory.deployVault(
+            assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders, mixedIntentProviders
+        );
+    }
+
     function test_DeployVaultWithEmptyArrays() public {
         factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address[] memory emptyAssets = new address[](0);
