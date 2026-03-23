@@ -29,7 +29,6 @@ import {
 } from "../interfaces/IVault.sol";
 
 library VaultLogic {
-    uint256 public constant RECEIVER_UPDATE_DELAY = 7 days;
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
 

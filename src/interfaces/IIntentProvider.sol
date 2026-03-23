@@ -30,7 +30,7 @@ interface IIntentProvider is IProvider {
      * @dev Trade the asset.
      * @param data The data of the trade.
      */
-    function trade(bytes memory data) external payable;
+    function trade(bytes memory data) external;
 
     /**
      * @notice Check if the signature is valid.

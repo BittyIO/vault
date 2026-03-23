@@ -57,7 +57,7 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
      *             (sellToken, sellAmount, buyToken, buyAmountMin, validTo, isSellOrder)
      *             isSellOrder: true = sell order (default), false = buy order
      */
-    function trade(bytes memory data) external payable override onlyOwner {
+    function trade(bytes memory data) external override onlyOwner {
         (
             address sellToken,
             uint256 sellAmount,
