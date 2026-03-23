@@ -64,7 +64,7 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
      *             (sellToken, sellAmount, buyToken, buyAmountMin, validTo, hashToApprove, isSellOrder)
      *             hashToApprove = full EIP-712 hash from Permit2 permitWitnessTransferFrom (computed off-chain)
      */
-    function trade(bytes memory data) external payable override onlyOwner {
+    function trade(bytes memory data) external override onlyOwner {
         (address sellToken, uint256 sellAmount,,,, bytes32 hashToApprove,) = _decodeSwapData(data);
 
         if (sellToken != address(0)) {

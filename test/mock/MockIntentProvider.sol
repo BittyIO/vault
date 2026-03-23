@@ -7,7 +7,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 contract MockIntentProvider is IIntentProvider {
     function initialize(address) external override {}
 
-    function trade(bytes memory data) external payable override {
+    function trade(bytes memory data) external override {
         (address sellToken, uint256 sellAmount,,,,) =
             abi.decode(data, (address, uint256, address, uint256, uint32, bool));
         if (sellToken != address(0)) {
