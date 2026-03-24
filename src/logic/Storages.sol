@@ -19,7 +19,7 @@ struct AssetManagerStorage {
 
     EnumerableSet.AddressSet lendingProviders;
     EnumerableSet.AddressSet stakingProviders;
-    EnumerableSet.AddressSet swapProviders;
+    EnumerableSet.AddressSet ammProviders;
     EnumerableSet.AddressSet intentProviders;
 
     IWhiteList whiteList;

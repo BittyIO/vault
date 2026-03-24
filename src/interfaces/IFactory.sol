@@ -24,7 +24,7 @@ interface IFactory {
      * @param stableCoinAddresses The addresses of the stable coins.
      * @param lendingProviders The addresses of the lending providers.
      * @param stakingProviders The addresses of the staking providers.
-     * @param swapProviders The addresses of the swap providers.
+     * @param ammProviders The addresses of the swap providers.
      * @param intentProviders The addresses of the intent providers.
      */
     function deployVault(
@@ -32,7 +32,7 @@ interface IFactory {
         address[] memory stableCoinAddresses,
         address[] memory lendingProviders,
         address[] memory stakingProviders,
-        address[] memory swapProviders,
+        address[] memory ammProviders,
         address[] memory intentProviders
     ) external returns (address vault);
 
