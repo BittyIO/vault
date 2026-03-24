@@ -1,5 +1,5 @@
 {
-  "solidity.compileUsingRemoteVersion": "v0.8.29+commit.8753ae0d",
+  "solidity.compileUsingRemoteVersion": "v0.8.34+commit.80d5c536",
   "solidity.packageDefaultDependenciesContractsDirectory": "src",
   "solidity.packageDefaultDependenciesDirectory": "lib",
   "editor.formatOnSave": true,
