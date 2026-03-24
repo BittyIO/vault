@@ -40,7 +40,7 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         address[] memory stableCoinAddresses,
         address[] memory lendingProviders,
         address[] memory stakingProviders,
-        address[] memory swapProviders,
+        address[] memory ammProviders,
         address[] memory intentProviders_
     ) public initializer {
         _transferOwnership(tx.origin);
@@ -50,7 +50,7 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _assetManager.initialize(whiteListAddress);
         _assetManager.addLendingProviders(lendingProviders);
         _assetManager.addStakingProviders(stakingProviders);
-        _assetManager.addAMMProviders(swapProviders);
+        _assetManager.addAMMProviders(ammProviders);
         _assetManager.addIntentProviders(intentProviders_);
     }
 
@@ -173,12 +173,12 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _assetManager.removeStakingProviders(stakingProviderAddresses);
     }
 
-    function addAMMProviders(address[] memory swapProviderAddresses) external override onlyOwner {
-        _assetManager.addAMMProviders(swapProviderAddresses);
+    function addAMMProviders(address[] memory ammProviderAddresses) external override onlyOwner {
+        _assetManager.addAMMProviders(ammProviderAddresses);
     }
 
-    function removeAMMProviders(address[] memory swapProviderAddresses) external override onlyOwner {
-        _assetManager.removeAMMProviders(swapProviderAddresses);
+    function removeAMMProviders(address[] memory ammProviderAddresses) external override onlyOwner {
+        _assetManager.removeAMMProviders(ammProviderAddresses);
     }
 
     function addIntentProviders(address[] memory intentProviderAddresses) external override onlyOwner {

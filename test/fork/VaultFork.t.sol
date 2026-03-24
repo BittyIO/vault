@@ -33,7 +33,7 @@ contract TestVaultFork is Test {
     address[] public stableCoins;
     address[] public lendingProviders;
     address[] public stakingProviders;
-    address[] public swapProviders;
+    address[] public ammProviders;
 
     function setUp() public {
         vm.createSelectFork("mainnet");
@@ -64,14 +64,14 @@ contract TestVaultFork is Test {
         stableCoins = _arr(mainnet.USDC, mainnet.USDT);
         lendingProviders = _arr(address(aaveProvider));
         stakingProviders = _arr(address(lidoProvider));
-        swapProviders = _arr(address(uniswapV3Provider));
+        ammProviders = _arr(address(uniswapV3Provider));
 
         vaultImpl = new Vault();
         factory = new Factory();
         factory.initialize(address(vaultImpl), address(whiteList), mainnet.WETH);
 
         address vaultAddr = factory.deployVault(
-            assets, stableCoins, lendingProviders, stakingProviders, swapProviders, new address[](0)
+            assets, stableCoins, lendingProviders, stakingProviders, ammProviders, new address[](0)
         );
         vault = Vault(payable(vaultAddr));
 
@@ -230,7 +230,7 @@ contract TestVaultFork is Test {
 
     function test_FactoryRevertWhenVaultAlreadyDeployed() public {
         vm.expectRevert();
-        factory.deployVault(assets, stableCoins, lendingProviders, stakingProviders, swapProviders, new address[](0));
+        factory.deployVault(assets, stableCoins, lendingProviders, stakingProviders, ammProviders, new address[](0));
     }
 
     function test_RebalanceWETHToUSDT() public {

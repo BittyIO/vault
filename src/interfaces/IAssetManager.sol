@@ -52,7 +52,7 @@ interface IAssetManager {
     /**
      * @notice Get the swap providers.
      * @dev Get the swap providers.
-     * @return swapProviderAddresses The addresses of the swap providers.
+     * @return ammProviderAddresses The addresses of the swap providers.
      */
     function getAMMProviders() external view returns (address[] memory);
 
@@ -264,18 +264,18 @@ interface IAssetManager {
     /**
      * @notice Add the swap providers.
      * @dev Add the swap providers.
-     * @param swapProviderAddresses The addresses of the swap providers.
+     * @param ammProviderAddresses The addresses of the swap providers.
      * @dev Add the swap providers.
      */
-    function addAMMProviders(address[] memory swapProviderAddresses) external;
+    function addAMMProviders(address[] memory ammProviderAddresses) external;
 
     /**
      * @notice Remove the swap providers.
      * @dev Remove the swap providers.
-     * @param swapProviderAddresses The addresses of the swap providers.
+     * @param ammProviderAddresses The addresses of the swap providers.
      * @dev Remove the swap providers.
      */
-    function removeAMMProviders(address[] memory swapProviderAddresses) external;
+    function removeAMMProviders(address[] memory ammProviderAddresses) external;
 
     /**
      * @notice Add the intent providers.

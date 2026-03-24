@@ -302,7 +302,7 @@ library AssetManagerLogic {
     }
 
     function _checkAMMProvider(AssetManagerStorage storage logicStorage, address ammProvider) private view {
-        if (!logicStorage.swapProviders.contains(ammProvider)) {
+        if (!logicStorage.ammProviders.contains(ammProvider)) {
             revert InvalidAMMProvider();
         }
         if (!logicStorage.whiteList.isAMMProviderWhiteListed(ammProvider)) {
@@ -564,24 +564,24 @@ library AssetManagerLogic {
         }
     }
 
-    function addAMMProviders(AssetManagerStorage storage logicStorage, address[] memory swapProviderAddresses)
+    function addAMMProviders(AssetManagerStorage storage logicStorage, address[] memory ammProviderAddresses)
         external
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
-            if (!logicStorage.whiteList.isAMMProviderWhiteListed(swapProviderAddresses[i])) {
+        for (uint256 i = 0; i < ammProviderAddresses.length; i++) {
+            if (!logicStorage.whiteList.isAMMProviderWhiteListed(ammProviderAddresses[i])) {
                 revert NotWhiteListed();
             }
-            logicStorage.swapProviders.add(swapProviderAddresses[i]);
+            logicStorage.ammProviders.add(ammProviderAddresses[i]);
         }
     }
 
-    function removeAMMProviders(AssetManagerStorage storage logicStorage, address[] memory swapProviderAddresses)
+    function removeAMMProviders(AssetManagerStorage storage logicStorage, address[] memory ammProviderAddresses)
         external
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < swapProviderAddresses.length; i++) {
-            logicStorage.swapProviders.remove(swapProviderAddresses[i]);
+        for (uint256 i = 0; i < ammProviderAddresses.length; i++) {
+            logicStorage.ammProviders.remove(ammProviderAddresses[i]);
         }
     }
 
@@ -594,7 +594,7 @@ library AssetManagerLogic {
     }
 
     function getAMMProviders(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
-        return logicStorage.swapProviders.values();
+        return logicStorage.ammProviders.values();
     }
 
     function getAllAssetConfigKeys(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {

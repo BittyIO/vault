@@ -42,7 +42,7 @@ contract TestAssetManager is Test, Vault {
     address[] public stableCoins;
     address[] public lendingProviders;
     address[] public stakingProviders;
-    address[] public swapProviders;
+    address[] public ammProviders;
     address public assetManagerAddress;
     address public ownerAddress;
 
@@ -65,9 +65,9 @@ contract TestAssetManager is Test, Vault {
         stakingProviders = new address[](1);
         stakingProviders[0] = address(mockStakingProvider);
 
-        swapProviders = new address[](1);
+        ammProviders = new address[](1);
         mockAMMProvider = new MockAMMProvider();
-        swapProviders[0] = address(mockAMMProvider);
+        ammProviders[0] = address(mockAMMProvider);
 
         mockIntentProvider = new MockIntentProvider();
         ownerAddress = tx.origin;
@@ -79,7 +79,7 @@ contract TestAssetManager is Test, Vault {
         whiteList.addStableCoins(stableCoins);
         whiteList.addLendingProviders(lendingProviders);
         whiteList.addStakingProviders(stakingProviders);
-        whiteList.addAMMProviders(swapProviders);
+        whiteList.addAMMProviders(ammProviders);
         address[] memory intentProviderArr = new address[](1);
         intentProviderArr[0] = address(mockIntentProvider);
         whiteList.addIntentProviders(intentProviderArr);
@@ -108,7 +108,7 @@ contract TestAssetManager is Test, Vault {
             stableCoins,
             lendingProviders,
             stakingProviders,
-            swapProviders,
+            ammProviders,
             new address[](0)
         );
         vm.expectRevert(AddressZero.selector);
@@ -119,7 +119,7 @@ contract TestAssetManager is Test, Vault {
             stableCoins,
             lendingProviders,
             stakingProviders,
-            swapProviders,
+            ammProviders,
             new address[](0)
         );
     }
@@ -132,7 +132,7 @@ contract TestAssetManager is Test, Vault {
             stableCoins,
             lendingProviders,
             stakingProviders,
-            swapProviders,
+            ammProviders,
             new address[](0)
         );
         vm.prank(ownerAddress);
