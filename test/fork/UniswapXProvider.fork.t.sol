@@ -81,6 +81,13 @@ contract TestUniswapXProviderFork is Test {
         assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(uniswapXProvider)), sellAmount);
         assertTrue(uniswapXProvider.approvedHashes(address(this), hashToApprove));
         assertEq(IERC20(address(mainnet.USDC)).allowance(address(uniswapXProvider), mainnet.PERMIT2), sellAmount);
+
+        uniswapXProvider.cancelTrade(abi.encode(hashToApprove));
+        assertEq(
+            IERC20(address(mainnet.USDC)).allowance(address(uniswapXProvider), mainnet.PERMIT2),
+            0,
+            "Permit2 allowance revoked after cancel"
+        );
     }
 
     function test_Swap_WithoutHashToApprove() public {
@@ -96,5 +103,12 @@ contract TestUniswapXProviderFork is Test {
 
         assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(uniswapXProvider)), sellAmount);
         assertEq(IERC20(address(mainnet.USDC)).allowance(address(uniswapXProvider), mainnet.PERMIT2), sellAmount);
+
+        uniswapXProvider.cancelTrade(abi.encode(bytes32(0), address(mainnet.USDC)));
+        assertEq(
+            IERC20(address(mainnet.USDC)).allowance(address(uniswapXProvider), mainnet.PERMIT2),
+            0,
+            "Permit2 allowance revoked when canceling without stored hash"
+        );
     }
 }

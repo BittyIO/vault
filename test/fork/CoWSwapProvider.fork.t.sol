@@ -138,9 +138,19 @@ contract TestCoWAMMProviderFork is Test {
 
         bytes32 digest = cowProvider.getOrderDigest(order);
         assertTrue(cowProvider.approvedOrderDigests(address(this), digest));
+        assertEq(
+            IERC20(address(mainnet.USDC)).allowance(address(cowProvider), cowProvider.vaultRelayer()),
+            sellAmount,
+            "vault relayer allowance set after trade"
+        );
 
         cowProvider.cancelTrade(abi.encode(digest, validTo));
 
+        assertEq(
+            IERC20(address(mainnet.USDC)).allowance(address(cowProvider), cowProvider.vaultRelayer()),
+            0,
+            "vault relayer allowance revoked after cancel"
+        );
         assertFalse(cowProvider.approvedOrderDigests(address(this), digest));
         bytes4 result = cowProvider.isValidSignature(digest, "");
         assertTrue(result != MAGICVALUE);

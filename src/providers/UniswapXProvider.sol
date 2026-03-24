@@ -35,6 +35,9 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
      */
     mapping(address => mapping(bytes32 => bool)) public approvedHashes;
 
+    /// @dev Sell token for a Permit2 witness hash (set when trade approves that hash) so cancelTrade can revoke Permit2 allowance
+    mapping(bytes32 => address) private _hashToSellToken;
+
     /**
      * @notice Constructor
      * @param reactor_ The address of the UniswapX reactor
@@ -75,16 +78,39 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
 
         if (hashToApprove != bytes32(0)) {
             approvedHashes[owner()][hashToApprove] = true;
+            if (sellToken != address(0)) {
+                _hashToSellToken[hashToApprove] = sellToken;
+            }
         }
 
         emit Trade(data, msg.sender, address(this));
 
-        // Note: Permit2 approval is kept - filler will pull tokens when executing the order
+        // Note: Permit2 approval remains until cancelTrade or order fill; cancelTrade revokes allowance on the clone
     }
 
+    /// @notice Cancel a trade/order and revoke Permit2 allowance for the sell token when known.
+    /// @param data abi.encode(bytes32 hash) when hash was set in trade with hashToApprove, or
+    ///        abi.encode(bytes32 hash, address sellToken) to revoke approval (e.g. trade had hashToApprove == 0).
     function cancelTrade(bytes memory data) external override onlyOwner {
-        (bytes32 hash) = abi.decode(data, (bytes32));
-        approvedHashes[owner()][hash] = false;
+        bytes32 hash;
+        address sellToken;
+        if (data.length == 32) {
+            hash = abi.decode(data, (bytes32));
+            sellToken = _hashToSellToken[hash];
+            if (hash != bytes32(0)) {
+                approvedHashes[owner()][hash] = false;
+                delete _hashToSellToken[hash];
+            }
+        } else {
+            (hash, sellToken) = abi.decode(data, (bytes32, address));
+            if (hash != bytes32(0)) {
+                approvedHashes[owner()][hash] = false;
+                delete _hashToSellToken[hash];
+            }
+        }
+        if (sellToken != address(0)) {
+            IERC20(sellToken).safeApprove(permit2, 0);
+        }
         emit CancelTrade(data, msg.sender, address(this));
     }
 
