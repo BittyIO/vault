@@ -17,6 +17,7 @@ import {WETH} from "solmate/tokens/WETH.sol";
 import {
     IVault,
     ReceiverNotFound,
+    ReceiverNameAlreadyExists,
     ReceiverImmutable,
     ReceiverPaymentCountZero,
     ReceiverDurationTimestampNotSet,
@@ -73,6 +74,9 @@ library VaultLogic {
         external
         onlyInitialized(logicStorage)
     {
+        if (logicStorage.receivers[name].amount != 0) {
+            revert ReceiverNameAlreadyExists();
+        }
         _checkReceiver(receiver);
         logicStorage.receivers[name] = receiver;
     }
