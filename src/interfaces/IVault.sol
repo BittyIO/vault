@@ -11,6 +11,7 @@ error InsufficientBalance();
 
 // receiver errors
 error ReceiverNotFound();
+error ReceiverNameAlreadyExists();
 error ReceiverImmutable();
 error ReceiverPaymentCountZero();
 error ReceiverDurationTimestampNotSet();
@@ -54,6 +55,7 @@ interface IVault {
 
     /**
      * @notice add a receiver.
+     * @param name Unique name; reverts if a receiver with this name already exists (use updateReceiver or removeReceiver first).
      * @param receiver receiver.
      */
     function addReceiver(string memory name, Receiver calldata receiver) external;

@@ -9,6 +9,7 @@ import {
     AddressZero,
     AmountIsZero,
     ReceiverNotFound,
+    ReceiverNameAlreadyExists,
     ReceiverImmutable,
     ReceiverPaymentCountZero,
     ReceiverDurationTimestampNotSet,
@@ -113,6 +114,46 @@ contract VaultTest is Test {
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
+    }
+
+    function test_AddReceiverRevertDuplicateName() public {
+        vault.initialize(
+            whiteListAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        IVault.Receiver memory r =
+            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        vm.startPrank(ownerAddress);
+        vault.addReceiver("alice", r);
+        vm.expectRevert(ReceiverNameAlreadyExists.selector);
+        vault.addReceiver("alice", r);
+        vm.stopPrank();
+    }
+
+    function test_AddReceiverSuccessSameNameAfterRemoveReceiver() public {
+        vault.initialize(
+            whiteListAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        IVault.Receiver memory r =
+            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        vm.startPrank(ownerAddress);
+        vault.addReceiver("alice", r);
+        vault.removeReceiver("alice");
+        vault.addReceiver("alice", r);
+        vm.stopPrank();
     }
 
     function test_AddReceiverRevertOnlyOwner() public {
