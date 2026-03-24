@@ -42,10 +42,10 @@ interface IIntentProvider is IProvider {
     function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4);
 
     /**
-     * @notice Cancel a trade/order.
-     * @dev Provider-specific encoding. UniswapX: abi.encode(bytes32 hash).
-     *      CoW: abi.encode(bytes32 orderDigest, uint32 validTo).
-     * @param data Encoded cancellation data (hash or orderDigest+validTo).
+     * @notice Cancel a trade/order and revoke outstanding token approvals on the provider clone when applicable.
+     * @dev CoW: abi.encode(bytes32 orderDigest, uint32 validTo). Revokes vault relayer allowance for the sell token.
+     *      UniswapX: abi.encode(bytes32 hash) when hash was set in trade with hashToApprove; revokes Permit2 allowance.
+     *      UniswapX (trade without hashToApprove but ERC20 sell): abi.encode(bytes32(0), address sellToken).
      */
     function cancelTrade(bytes memory data) external;
 }

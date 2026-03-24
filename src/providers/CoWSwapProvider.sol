@@ -34,6 +34,9 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     // @dev Approved order digests for EIP-1271 signing (owner => digest => approved)
     mapping(address => mapping(bytes32 => bool)) public approvedOrderDigests;
 
+    /// @dev Sell token used for a given order digest (set in trade) so cancelTrade can revoke vault relayer allowance
+    mapping(bytes32 => address) private _digestToSellToken;
+
     constructor(address settlement_, address vaultRelayer_) {
         settlement = IGPv2Settlement(settlement_);
         vaultRelayer = vaultRelayer_;
@@ -94,6 +97,10 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         approvedOrderDigests[owner()][orderDigest] = true;
         settlement.setPreSignature(orderUid, true);
 
+        if (sellToken != address(0)) {
+            _digestToSellToken[orderDigest] = sellToken;
+        }
+
         emit Trade(data, msg.sender, address(this));
     }
 
@@ -124,6 +131,12 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         approvedOrderDigests[owner()][orderDigest] = false;
         bytes memory orderUid = GPv2Order.packOrderUid(orderDigest, address(this), validTo);
         settlement.setPreSignature(orderUid, false);
+
+        address sellToken = _digestToSellToken[orderDigest];
+        if (sellToken != address(0)) {
+            IERC20(sellToken).safeApprove(vaultRelayer, 0);
+            delete _digestToSellToken[orderDigest];
+        }
 
         emit CancelTrade(data, msg.sender, address(this));
     }

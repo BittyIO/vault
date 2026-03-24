@@ -295,7 +295,7 @@ interface IAssetManager {
      * @notice Cancel a pending intent order previously submitted via rebalanceWithIntent.
      * @dev Calls cancelTrade on the cloned intent provider. Provider-specific data encoding:
      *      CoW: abi.encode(bytes32 orderDigest, uint32 validTo).
-     *      UniswapX: abi.encode(bytes32 hash).
+     *      UniswapX: abi.encode(bytes32 hash), or abi.encode(bytes32(0), address sellToken) if canceling approval-only flow.
      * @param intentProvider The address of the intent provider.
      * @param data Encoded cancellation data.
      */
