@@ -16,9 +16,10 @@ contract MockAMMProvider is IAMMProvider {
             IERC20(sellAssetAddress).transferFrom(msg.sender, address(this), sellAmount);
         }
 
-        if (buyAssetAddress != address(0) && buyAmountMin > 0) {
+        if (buyAmountMin > 0) {
             if (buyAssetAddress == address(0)) {
-                payable(msg.sender).transfer(buyAmountMin);
+                (bool success,) = payable(msg.sender).call{value: buyAmountMin}("");
+                require(success);
             } else {
                 IERC20(buyAssetAddress).transfer(msg.sender, buyAmountMin);
             }
