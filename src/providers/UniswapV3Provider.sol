@@ -68,9 +68,17 @@ contract UniswapV3Provider is IAMMProvider, Ownable, Initializable {
                 IERC20(params.token1).safeTransferFrom(msg.sender, address(this), params.amount1Desired);
                 IERC20(params.token1).safeApprove(positionManager, params.amount1Desired);
             }
-            INonfungiblePositionManager(positionManager).mint(params);
-            if (params.token0 != address(0)) IERC20(params.token0).safeApprove(positionManager, 0);
-            if (params.token1 != address(0)) IERC20(params.token1).safeApprove(positionManager, 0);
+            (,, uint256 amount0Used, uint256 amount1Used) = INonfungiblePositionManager(positionManager).mint(params);
+            if (params.token0 != address(0)) {
+                IERC20(params.token0).safeApprove(positionManager, 0);
+                uint256 leftover0 = params.amount0Desired - amount0Used;
+                if (leftover0 > 0) IERC20(params.token0).safeTransfer(msg.sender, leftover0);
+            }
+            if (params.token1 != address(0)) {
+                IERC20(params.token1).safeApprove(positionManager, 0);
+                uint256 leftover1 = params.amount1Desired - amount1Used;
+                if (leftover1 > 0) IERC20(params.token1).safeTransfer(msg.sender, leftover1);
+            }
         } else {
             INonfungiblePositionManager.IncreaseLiquidityParams memory params =
                 abi.decode(paramsEncoded, (INonfungiblePositionManager.IncreaseLiquidityParams));
@@ -84,9 +92,18 @@ contract UniswapV3Provider is IAMMProvider, Ownable, Initializable {
                 IERC20(token1).safeTransferFrom(msg.sender, address(this), params.amount1Desired);
                 IERC20(token1).safeApprove(positionManager, params.amount1Desired);
             }
-            INonfungiblePositionManager(positionManager).increaseLiquidity(params);
-            if (token0 != address(0)) IERC20(token0).safeApprove(positionManager, 0);
-            if (token1 != address(0)) IERC20(token1).safeApprove(positionManager, 0);
+            (, uint256 amount0Used, uint256 amount1Used) =
+                INonfungiblePositionManager(positionManager).increaseLiquidity(params);
+            if (token0 != address(0)) {
+                IERC20(token0).safeApprove(positionManager, 0);
+                uint256 leftover0 = params.amount0Desired - amount0Used;
+                if (leftover0 > 0) IERC20(token0).safeTransfer(msg.sender, leftover0);
+            }
+            if (token1 != address(0)) {
+                IERC20(token1).safeApprove(positionManager, 0);
+                uint256 leftover1 = params.amount1Desired - amount1Used;
+                if (leftover1 > 0) IERC20(token1).safeTransfer(msg.sender, leftover1);
+            }
         }
     }
 
