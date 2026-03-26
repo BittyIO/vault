@@ -297,6 +297,96 @@ contract TestUniswapProviderFork is Test {
         assertTrue(balance0 > 0 || balance1 > 0, "should receive tokens from decrease and collect");
     }
 
+    function test_V3_AddLiquidity_Mint_ReturnsUnusedTokens() public {
+        address token0 = mainnet.WETH < mainnet.USDC ? mainnet.WETH : mainnet.USDC;
+        address token1 = mainnet.WETH < mainnet.USDC ? mainnet.USDC : mainnet.WETH;
+        uint24 fee = 3000;
+        int24 tickSpacing = 60;
+
+        address pool =
+            IUniswapV3Factory(IUniswapV3Router(mainnet.UNISWAP_V3_ROUTER).factory()).getPool(token0, token1, fee);
+        (, int24 currentTick,,,,,) = IUniswapV3Pool(pool).slot0();
+        int24 tickLower = (currentTick / tickSpacing) * tickSpacing - tickSpacing * 10;
+        int24 tickUpper = (currentTick / tickSpacing) * tickSpacing + tickSpacing * 10;
+
+        uint256 amount0Desired = token0 == mainnet.WETH ? 1 ether : 5000 * 1e6;
+        uint256 amount1Desired = token1 == mainnet.WETH ? 1 ether : 5000 * 1e6;
+
+        deal(token0, address(this), amount0Desired);
+        deal(token1, address(this), amount1Desired);
+        IERC20(token0).safeApprove(address(v3Provider), amount0Desired);
+        IERC20(token1).safeApprove(address(v3Provider), amount1Desired);
+
+        uint256 balance0Before = IERC20(token0).balanceOf(address(this));
+        uint256 balance1Before = IERC20(token1).balanceOf(address(this));
+
+        INonfungiblePositionManager.MintParams memory mintParams = INonfungiblePositionManager.MintParams({
+            token0: token0,
+            token1: token1,
+            fee: fee,
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            amount0Desired: amount0Desired,
+            amount1Desired: amount1Desired,
+            amount0Min: 0,
+            amount1Min: 0,
+            recipient: address(0),
+            deadline: block.timestamp
+        });
+        v3Provider.addLiquidity(abi.encode(true, abi.encode(mintParams)));
+
+        uint256 balance0After = IERC20(token0).balanceOf(address(this));
+        uint256 balance1After = IERC20(token1).balanceOf(address(this));
+
+        uint256 used0 = balance0Before - balance0After;
+        uint256 used1 = balance1Before - balance1After;
+        assertLe(used0, amount0Desired, "used0 exceeds desired");
+        assertLe(used1, amount1Desired, "used1 exceeds desired");
+        assertTrue(used0 < amount0Desired || used1 < amount1Desired, "at least one token should have leftover");
+        assertEq(IERC20(token0).balanceOf(address(v3Provider)), 0, "provider clone must hold no token0");
+        assertEq(IERC20(token1).balanceOf(address(v3Provider)), 0, "provider clone must hold no token1");
+    }
+
+    function test_V3_AddLiquidity_IncreaseLiquidity_ReturnsUnusedTokens() public {
+        uint256 tokenId = _mintV3PositionAndGetTokenId();
+
+        address token0 = mainnet.WETH < mainnet.USDC ? mainnet.WETH : mainnet.USDC;
+        address token1 = mainnet.WETH < mainnet.USDC ? mainnet.USDC : mainnet.WETH;
+
+        uint256 amount0Desired = token0 == mainnet.WETH ? 1 ether : 5000 * 1e6;
+        uint256 amount1Desired = token1 == mainnet.WETH ? 1 ether : 5000 * 1e6;
+
+        deal(token0, address(this), amount0Desired);
+        deal(token1, address(this), amount1Desired);
+        IERC20(token0).safeApprove(address(v3Provider), amount0Desired);
+        IERC20(token1).safeApprove(address(v3Provider), amount1Desired);
+
+        uint256 balance0Before = IERC20(token0).balanceOf(address(this));
+        uint256 balance1Before = IERC20(token1).balanceOf(address(this));
+
+        INonfungiblePositionManager.IncreaseLiquidityParams memory increaseParams =
+            INonfungiblePositionManager.IncreaseLiquidityParams({
+                tokenId: tokenId,
+                amount0Desired: amount0Desired,
+                amount1Desired: amount1Desired,
+                amount0Min: 0,
+                amount1Min: 0,
+                deadline: block.timestamp
+            });
+        v3Provider.addLiquidity(abi.encode(false, abi.encode(increaseParams)));
+
+        uint256 balance0After = IERC20(token0).balanceOf(address(this));
+        uint256 balance1After = IERC20(token1).balanceOf(address(this));
+
+        uint256 used0 = balance0Before - balance0After;
+        uint256 used1 = balance1Before - balance1After;
+        assertLe(used0, amount0Desired, "used0 exceeds desired");
+        assertLe(used1, amount1Desired, "used1 exceeds desired");
+        assertTrue(used0 < amount0Desired || used1 < amount1Desired, "at least one token should have leftover");
+        assertEq(IERC20(token0).balanceOf(address(v3Provider)), 0, "provider clone must hold no token0");
+        assertEq(IERC20(token1).balanceOf(address(v3Provider)), 0, "provider clone must hold no token1");
+    }
+
     receive() external payable {}
 }
 
