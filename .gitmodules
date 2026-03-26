@@ -9,5 +9,4 @@
 	url = https://github.com/transmissions11/solmate
 [submodule "lib/whitelist-contracts"]
 	path = lib/whitelist-contracts
-        url = https://github.com/Turtum/WhiteList
-
+    url = https://github.com/Turtum/WhiteList
