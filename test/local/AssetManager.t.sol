@@ -905,7 +905,7 @@ contract TestAssetManager is Test, Vault {
         uint256 buyAmountMin = 10 * 1e6;
         deal(address(mockWETH), address(this), sellAmount);
 
-        vm.expectRevert(NotWhiteListed.selector);
+        vm.expectRevert(Deprecated.selector);
         vm.prank(assetManagerAddress);
         this.rebalanceWithIntent(
             address(mockIntentProvider),

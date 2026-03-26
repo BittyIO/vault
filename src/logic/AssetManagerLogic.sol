@@ -314,11 +314,11 @@ library AssetManagerLogic {
         if (!logicStorage.intentProviders.contains(intentProvider)) {
             revert InvalidIntentProvider();
         }
-        if (!logicStorage.whiteList.isIntentProviderWhiteListed(intentProvider)) {
-            revert NotWhiteListed();
-        }
         if (logicStorage.whiteList.isIntentProviderDeprecated(intentProvider)) {
             revert Deprecated();
+        }
+        if (!logicStorage.whiteList.isIntentProviderWhiteListed(intentProvider)) {
+            revert NotWhiteListed();
         }
     }
 
