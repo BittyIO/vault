@@ -135,6 +135,8 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         address sellToken = _digestToSellToken[orderDigest];
         if (sellToken != address(0)) {
             IERC20(sellToken).safeApprove(vaultRelayer, 0);
+            uint256 balance = IERC20(sellToken).balanceOf(address(this));
+            if (balance > 0) IERC20(sellToken).safeTransfer(msg.sender, balance);
             delete _digestToSellToken[orderDigest];
         }
 
