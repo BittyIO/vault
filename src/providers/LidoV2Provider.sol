@@ -61,6 +61,7 @@ contract LidoV2Provider is IStakingProvider, Ownable, Initializable {
 
     function claim(uint256[] memory requestIds) external override onlyOwner {
         uint256[] memory oneIds = new uint256[](1);
+        uint256 ethBefore = address(this).balance;
         for (uint256 i = 0; i < requestIds.length; i++) {
             oneIds[0] = requestIds[i];
             IUnstETH.WithdrawalRequestStatus[] memory statuses = unstETH.getWithdrawalStatus(oneIds);
@@ -68,6 +69,11 @@ contract LidoV2Provider is IStakingProvider, Ownable, Initializable {
                 unstETH.claimWithdrawal(requestIds[i]);
                 _unstakeRequests.remove(requestIds[i]);
             }
+        }
+        uint256 ethClaimed = address(this).balance - ethBefore;
+        if (ethClaimed > 0) {
+            weth.deposit{value: ethClaimed}();
+            IERC20(address(weth)).safeTransfer(msg.sender, ethClaimed);
         }
     }
 }
