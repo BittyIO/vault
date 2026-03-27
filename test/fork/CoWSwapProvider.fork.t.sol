@@ -173,6 +173,51 @@ contract TestCoWAMMProviderFork is Test {
         assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(cowProvider)), sellAmount);
     }
 
+    function test_CancelTrade_ReturnsSellTokensToVault() public {
+        uint256 sellAmount = 1000 * 1e6;
+        uint256 buyAmountMin = 1e15;
+        uint32 validTo = uint32(block.timestamp + 3600);
+
+        deal(address(mainnet.USDC), address(this), sellAmount);
+        IERC20(address(mainnet.USDC)).safeApprove(address(cowProvider), sellAmount);
+
+        bytes memory swapData =
+            abi.encode(address(mainnet.USDC), sellAmount, address(mainnet.WETH), buyAmountMin, validTo);
+        cowProvider.trade(swapData);
+
+        assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(cowProvider)), sellAmount);
+        assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(this)), 0);
+
+        GPv2Order.Data memory order = GPv2Order.Data({
+            sellToken: IERC20(address(mainnet.USDC)),
+            buyToken: IERC20(address(mainnet.WETH)),
+            receiver: address(this),
+            sellAmount: sellAmount,
+            buyAmount: buyAmountMin,
+            validTo: validTo,
+            appData: bytes32(0),
+            feeAmount: 0,
+            kind: GPv2Order.KIND_SELL,
+            partiallyFillable: false,
+            sellTokenBalance: GPv2Order.BALANCE_ERC20,
+            buyTokenBalance: GPv2Order.BALANCE_ERC20
+        });
+
+        bytes32 digest = cowProvider.getOrderDigest(order);
+        cowProvider.cancelTrade(abi.encode(digest, validTo));
+
+        assertEq(
+            IERC20(address(mainnet.USDC)).balanceOf(address(cowProvider)),
+            0,
+            "provider balance should be 0 after cancel"
+        );
+        assertEq(
+            IERC20(address(mainnet.USDC)).balanceOf(address(this)),
+            sellAmount,
+            "sell tokens returned to vault after cancel"
+        );
+    }
+
     function test_GetOrderDigest_MatchesManualHash() public view {
         GPv2Order.Data memory order = GPv2Order.Data({
             sellToken: IERC20(address(mainnet.USDC)),

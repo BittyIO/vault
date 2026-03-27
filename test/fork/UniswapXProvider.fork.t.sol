@@ -90,6 +90,63 @@ contract TestUniswapXProviderFork is Test {
         );
     }
 
+    function test_CancelTrade_ReturnsSellTokensToVault() public {
+        uint256 sellAmount = 1000 * 1e6;
+        uint256 buyAmountMin = 1e15;
+        uint32 validTo = uint32(block.timestamp + 3600);
+        bytes32 hashToApprove = keccak256("permit2 witness hash");
+
+        deal(address(mainnet.USDC), address(this), sellAmount);
+        IERC20(address(mainnet.USDC)).safeApprove(address(uniswapXProvider), sellAmount);
+
+        bytes memory swapData =
+            abi.encode(address(mainnet.USDC), sellAmount, address(mainnet.WETH), buyAmountMin, validTo, hashToApprove);
+        uniswapXProvider.trade(swapData);
+
+        assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(uniswapXProvider)), sellAmount);
+        assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(this)), 0);
+
+        uniswapXProvider.cancelTrade(abi.encode(hashToApprove));
+
+        assertEq(
+            IERC20(address(mainnet.USDC)).balanceOf(address(uniswapXProvider)),
+            0,
+            "provider balance should be 0 after cancel"
+        );
+        assertEq(
+            IERC20(address(mainnet.USDC)).balanceOf(address(this)),
+            sellAmount,
+            "sell tokens returned to vault after cancel"
+        );
+    }
+
+    function test_CancelTrade_ReturnsSellTokensToVault_WithExplicitToken() public {
+        uint256 sellAmount = 1000 * 1e6;
+        uint256 buyAmountMin = 1e15;
+
+        deal(address(mainnet.USDC), address(this), sellAmount);
+        IERC20(address(mainnet.USDC)).safeApprove(address(uniswapXProvider), sellAmount);
+
+        bytes memory swapData = abi.encode(address(mainnet.USDC), sellAmount, address(mainnet.WETH), buyAmountMin);
+        uniswapXProvider.trade(swapData);
+
+        assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(uniswapXProvider)), sellAmount);
+        assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(this)), 0);
+
+        uniswapXProvider.cancelTrade(abi.encode(bytes32(0), address(mainnet.USDC)));
+
+        assertEq(
+            IERC20(address(mainnet.USDC)).balanceOf(address(uniswapXProvider)),
+            0,
+            "provider balance should be 0 after cancel"
+        );
+        assertEq(
+            IERC20(address(mainnet.USDC)).balanceOf(address(this)),
+            sellAmount,
+            "sell tokens returned to vault after cancel"
+        );
+    }
+
     function test_Swap_WithoutHashToApprove() public {
         uint256 sellAmount = 1000 * 1e6;
         uint256 buyAmountMin = 1e15;

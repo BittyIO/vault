@@ -110,6 +110,8 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         }
         if (sellToken != address(0)) {
             IERC20(sellToken).safeApprove(permit2, 0);
+            uint256 balance = IERC20(sellToken).balanceOf(address(this));
+            if (balance > 0) IERC20(sellToken).safeTransfer(msg.sender, balance);
         }
         emit CancelTrade(data, msg.sender, address(this));
     }
