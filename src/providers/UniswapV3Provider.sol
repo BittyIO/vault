@@ -111,6 +111,15 @@ contract UniswapV3Provider is IAMMProvider, Ownable, Initializable {
         INonfungiblePositionManager.DecreaseLiquidityParams memory params =
             abi.decode(data, (INonfungiblePositionManager.DecreaseLiquidityParams));
         INonfungiblePositionManager(positionManager).decreaseLiquidity(params);
+        INonfungiblePositionManager(positionManager)
+            .collect(
+                INonfungiblePositionManager.CollectParams({
+                    tokenId: params.tokenId,
+                    recipient: msg.sender,
+                    amount0Max: type(uint128).max,
+                    amount1Max: type(uint128).max
+                })
+            );
     }
 
     function claimFees(bytes memory data) external payable override onlyOwner {
