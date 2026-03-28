@@ -297,6 +297,36 @@ contract TestUniswapProviderFork is Test {
         assertTrue(balance0 > 0 || balance1 > 0, "should receive tokens from decrease and collect");
     }
 
+    function test_V3_RemoveLiquidity_CollectsTokensDirectly() public {
+        uint256 tokenId = _mintV3PositionAndGetTokenId();
+
+        address token0 = mainnet.WETH < mainnet.USDC ? mainnet.WETH : mainnet.USDC;
+        address token1 = mainnet.WETH < mainnet.USDC ? mainnet.USDC : mainnet.WETH;
+
+        uint128 liquidity = uint128(v3Provider.getLiquidity(abi.encode(tokenId)));
+        assertGt(liquidity, 0, "liquidity before remove");
+
+        uint256 balance0Before = IERC20(token0).balanceOf(address(this));
+        uint256 balance1Before = IERC20(token1).balanceOf(address(this));
+
+        INonfungiblePositionManager.DecreaseLiquidityParams memory decreaseParams =
+            INonfungiblePositionManager.DecreaseLiquidityParams({
+                tokenId: tokenId, liquidity: liquidity, amount0Min: 0, amount1Min: 0, deadline: block.timestamp
+            });
+
+        v3Provider.removeLiquidity(abi.encode(decreaseParams));
+
+        uint256 balance0After = IERC20(token0).balanceOf(address(this));
+        uint256 balance1After = IERC20(token1).balanceOf(address(this));
+
+        assertTrue(
+            balance0After > balance0Before || balance1After > balance1Before, "tokens must arrive without claimFees"
+        );
+        assertEq(IERC20(token0).balanceOf(address(v3Provider)), 0, "provider must hold no token0");
+        assertEq(IERC20(token1).balanceOf(address(v3Provider)), 0, "provider must hold no token1");
+        assertEq(v3Provider.getLiquidity(abi.encode(tokenId)), 0, "liquidity must be zero after full removal");
+    }
+
     function test_V3_AddLiquidity_Mint_ReturnsUnusedTokens() public {
         address token0 = mainnet.WETH < mainnet.USDC ? mainnet.WETH : mainnet.USDC;
         address token1 = mainnet.WETH < mainnet.USDC ? mainnet.USDC : mainnet.WETH;
