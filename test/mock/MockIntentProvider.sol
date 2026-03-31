@@ -23,4 +23,8 @@ contract MockIntentProvider is IIntentProvider {
     function cancelTrade(bytes memory data) external override {
         emit CancelTrade(data, msg.sender, address(this));
     }
+
+    function revokeApprovals(address[] calldata) external override {}
+
+    function cleanExpiredOrders(bytes32[] calldata) external override {}
 }

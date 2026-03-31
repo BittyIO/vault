@@ -300,4 +300,20 @@ interface IAssetManager {
      * @param data Encoded cancellation data.
      */
     function cancelRebalanceWithIntent(address intentProvider, bytes memory data) external;
+
+    /**
+     * @notice Revoke sell token approvals on an intent provider clone for multiple tokens.
+     * @dev Reverts with ApprovalNotFound if the clone has no approval for any token.
+     * @param intentProvider The address of the intent provider.
+     * @param tokens The sell tokens whose approvals should be revoked.
+     */
+    function revokeIntentProviderApprovals(address intentProvider, address[] calldata tokens) external;
+
+    /**
+     * @notice Permissionlessly clean up multiple expired intent orders on the provider clone.
+     * @dev Reverts with OrderNotExpired if validTo has not passed yet for any order.
+     * @param intentProvider The address of the intent provider.
+     * @param orderDigests The order digests (CoW) or Permit2 hashes (UniswapX).
+     */
+    function cleanExpiredIntentOrders(address intentProvider, bytes32[] calldata orderDigests) external;
 }

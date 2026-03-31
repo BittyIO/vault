@@ -23,7 +23,7 @@ import {IProvider} from "../interfaces/IProvider.sol";
 import {ILendingProvider} from "../interfaces/ILendingProvider.sol";
 import {IStakingProvider} from "../interfaces/IStakingProvider.sol";
 import {IAMMProvider} from "../interfaces/IAMMProvider.sol";
-import {IIntentProvider} from "../interfaces/IIntentProvider.sol";
+import {IIntentProvider, ApprovalNotFound, OrderNotExpired} from "../interfaces/IIntentProvider.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
@@ -655,5 +655,29 @@ library AssetManagerLogic {
             revert InvalidIntentProvider();
         }
         IIntentProvider(clone).cancelTrade(data);
+    }
+
+    function revokeIntentProviderApprovals(
+        AssetManagerStorage storage logicStorage,
+        address intentProvider,
+        address[] calldata tokens
+    ) external onlyInitialized(logicStorage) {
+        address clone = logicStorage.clonedProviders[intentProvider];
+        if (clone == address(0)) {
+            revert InvalidIntentProvider();
+        }
+        IIntentProvider(clone).revokeApprovals(tokens);
+    }
+
+    function cleanExpiredIntentOrders(
+        AssetManagerStorage storage logicStorage,
+        address intentProvider,
+        bytes32[] calldata orderDigests
+    ) external onlyInitialized(logicStorage) {
+        address clone = logicStorage.clonedProviders[intentProvider];
+        if (clone == address(0)) {
+            revert InvalidIntentProvider();
+        }
+        IIntentProvider(clone).cleanExpiredOrders(orderDigests);
     }
 }

@@ -27,6 +27,8 @@ contract AaveV3Provider is ILendingProvider, Ownable, Initializable {
         IAavePool pool = IAaveV3(aaveV3).getPool();
         IERC20(asset).safeIncreaseAllowance(address(pool), amount);
         pool.supply(asset, amount, address(this), 0);
+        uint256 remaining = IERC20(asset).allowance(address(this), address(pool));
+        if (remaining > 0) IERC20(asset).safeDecreaseAllowance(address(pool), remaining);
     }
 
     function withdraw(address asset, uint256 amount) external override onlyOwner {
