@@ -35,7 +35,7 @@ import {
     NotInitialized,
     AlreadyInitialized
 } from "../interfaces/IVault.sol";
-import {AssetManagerStorage, VaultStorage} from "./Storages.sol";
+import {AssetManagerStorage, VaultStorage, PendingIntentOrder} from "./Storages.sol";
 import {VaultLogic} from "./VaultLogic.sol";
 
 library AssetManagerLogic {
@@ -495,6 +495,13 @@ library AssetManagerLogic {
 
         intentProvider = _cloneProvider(logicStorage, intentProvider);
 
+        logicStorage.pendingIntentOrders[intentProvider] = PendingIntentOrder({
+            from: sellAssetAddress,
+            to: toAssetAddress,
+            prevFromTimestamp: logicStorage.lastRebalanceTimestamps[sellAssetAddress],
+            prevToTimestamp: logicStorage.lastRebalanceTimestamps[toAssetAddress]
+        });
+
         bytes memory data = abi.encode(sellAssetAddress, sellAmount, toAssetAddress, buyAmountMin, validTo, isSellOrder);
         IERC20(sellAssetAddress).safeIncreaseAllowance(intentProvider, sellAmount);
         IIntentProvider(intentProvider).trade(data);
@@ -655,6 +662,13 @@ library AssetManagerLogic {
             revert InvalidIntentProvider();
         }
         IIntentProvider(clone).cancelTrade(data);
+
+        PendingIntentOrder memory pending = logicStorage.pendingIntentOrders[clone];
+        if (pending.from != address(0)) {
+            logicStorage.lastRebalanceTimestamps[pending.from] = pending.prevFromTimestamp;
+            logicStorage.lastRebalanceTimestamps[pending.to] = pending.prevToTimestamp;
+            delete logicStorage.pendingIntentOrders[clone];
+        }
     }
 
     function revokeIntentProviderApprovals(
@@ -679,5 +693,12 @@ library AssetManagerLogic {
             revert InvalidIntentProvider();
         }
         IIntentProvider(clone).cleanExpiredOrders(orderDigests);
+
+        PendingIntentOrder memory pending = logicStorage.pendingIntentOrders[clone];
+        if (pending.from != address(0)) {
+            logicStorage.lastRebalanceTimestamps[pending.from] = pending.prevFromTimestamp;
+            logicStorage.lastRebalanceTimestamps[pending.to] = pending.prevToTimestamp;
+            delete logicStorage.pendingIntentOrders[clone];
+        }
     }
 }
