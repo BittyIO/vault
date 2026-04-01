@@ -172,9 +172,9 @@ library VaultLogic {
         ) {
             revert ReceiverInDuration();
         }
+        _transferMoney(receiver.assetAddress, receiver.amount, receiver.receiverAddress);
         receiver.lastReceiveTimestamp = block.timestamp;
         receiver.paymentCount = receiver.paymentCount - 1;
-        _transferMoney(receiver.assetAddress, receiver.amount, receiver.receiverAddress);
     }
 
     function _transferMoney(address erc20Address, uint256 amount, address receiverAddress) internal {
