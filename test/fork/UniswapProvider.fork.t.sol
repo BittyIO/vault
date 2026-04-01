@@ -264,6 +264,27 @@ contract TestUniswapProviderFork is Test {
         v3Provider.claimFees(abi.encode(collectParams));
     }
 
+    /// @notice `CollectParams.recipient` in calldata must be ignored; fees go to the provider owner only.
+    function test_V3_ClaimFees_EncodedRecipientDoesNotReceiveTokens() public {
+        uint256 tokenId = _mintV3PositionAndGetTokenId();
+        assertGt(v3Provider.getLiquidity(abi.encode(tokenId)), 0, "liquidity after mint");
+
+        address token0 = mainnet.WETH < mainnet.USDC ? mainnet.WETH : mainnet.USDC;
+        address token1 = mainnet.WETH < mainnet.USDC ? mainnet.USDC : mainnet.WETH;
+        address encodedRecipient = makeAddr("encodedRecipient");
+
+        uint256 bal0Before = IERC20(token0).balanceOf(encodedRecipient);
+        uint256 bal1Before = IERC20(token1).balanceOf(encodedRecipient);
+
+        INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams({
+            tokenId: tokenId, recipient: encodedRecipient, amount0Max: type(uint128).max, amount1Max: type(uint128).max
+        });
+        v3Provider.claimFees(abi.encode(collectParams));
+
+        assertEq(IERC20(token0).balanceOf(encodedRecipient), bal0Before, "token0 must not go to encoded recipient");
+        assertEq(IERC20(token1).balanceOf(encodedRecipient), bal1Before, "token1 must not go to encoded recipient");
+    }
+
     function test_V3_RemoveLiquidity() public {
         uint256 tokenId = _mintV3PositionAndGetTokenId();
 
