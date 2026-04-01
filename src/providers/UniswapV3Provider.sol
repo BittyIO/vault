@@ -122,10 +122,16 @@ contract UniswapV3Provider is IAMMProvider, Ownable, Initializable {
             );
     }
 
+    /**
+     * @notice Claim fees from the Uniswap V3 position.
+     * @dev Claim fees from the Uniswap V3 position.
+     * @param data The data for the claim fees.
+     * @dev Only the owner can execute it, the claim fees must go to the owner (vault).
+     */
     function claimFees(bytes memory data) external payable override onlyOwner {
         INonfungiblePositionManager.CollectParams memory params =
             abi.decode(data, (INonfungiblePositionManager.CollectParams));
-        if (params.recipient == address(0)) params.recipient = msg.sender;
+        params.recipient = msg.sender;
         INonfungiblePositionManager(positionManager).collect(params);
     }
 
