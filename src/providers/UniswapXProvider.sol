@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {IIntentProvider} from "../interfaces/IIntentProvider.sol";
+import {IIntentProvider, ApprovalNotFound, OrderNotExpired} from "../interfaces/IIntentProvider.sol";
 import {IERC1271} from "../libs/cow/IERC1271.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -38,6 +38,12 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     /// @dev Sell token for a Permit2 witness hash (set when trade approves that hash) so cancelTrade can revoke Permit2 allowance
     mapping(bytes32 => address) private _hashToSellToken;
 
+    /// @dev validTo for a given hash, used by cleanExpiredOrders
+    mapping(bytes32 => uint32) private _hashToValidTo;
+
+    /// @dev Sell amount for a given hash, used by cleanExpiredOrders to decrease allowance precisely
+    mapping(bytes32 => uint256) private _hashToSellAmount;
+
     /**
      * @notice Constructor
      * @param reactor_ The address of the UniswapX reactor
@@ -72,15 +78,17 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
 
         if (sellToken != address(0)) {
             IERC20(sellToken).safeTransferFrom(msg.sender, address(this), sellAmount);
-            IERC20(sellToken).safeApprove(permit2, 0);
-            IERC20(sellToken).safeApprove(permit2, sellAmount);
+            IERC20(sellToken).safeIncreaseAllowance(permit2, sellAmount);
         }
 
         if (hashToApprove != bytes32(0)) {
             approvedHashes[owner()][hashToApprove] = true;
             if (sellToken != address(0)) {
                 _hashToSellToken[hashToApprove] = sellToken;
+                _hashToSellAmount[hashToApprove] = sellAmount;
             }
+            (,,,, uint32 validTo,,) = _decodeSwapData(data);
+            _hashToValidTo[hashToApprove] = validTo;
         }
 
         emit Trade(data, msg.sender, address(this));
@@ -100,12 +108,16 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
             if (hash != bytes32(0)) {
                 approvedHashes[owner()][hash] = false;
                 delete _hashToSellToken[hash];
+                delete _hashToValidTo[hash];
+                delete _hashToSellAmount[hash];
             }
         } else {
             (hash, sellToken) = abi.decode(data, (bytes32, address));
             if (hash != bytes32(0)) {
                 approvedHashes[owner()][hash] = false;
                 delete _hashToSellToken[hash];
+                delete _hashToValidTo[hash];
+                delete _hashToSellAmount[hash];
             }
         }
         if (sellToken != address(0)) {
@@ -152,6 +164,34 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
             return MAGICVALUE;
         }
         return 0xffffffff;
+    }
+
+    function revokeApprovals(address[] calldata tokens) external override onlyOwner {
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (IERC20(tokens[i]).allowance(address(this), permit2) == 0) revert ApprovalNotFound();
+            IERC20(tokens[i]).safeApprove(permit2, 0);
+        }
+    }
+
+    function cleanExpiredOrders(bytes32[] calldata hashes) external override {
+        for (uint256 i = 0; i < hashes.length; i++) {
+            bytes32 hash = hashes[i];
+            if (block.timestamp <= _hashToValidTo[hash]) revert OrderNotExpired();
+            approvedHashes[owner()][hash] = false;
+            address sellToken = _hashToSellToken[hash];
+            if (sellToken != address(0)) {
+                uint256 orderSellAmount = _hashToSellAmount[hash];
+                uint256 currentAllowance = IERC20(sellToken).allowance(address(this), permit2);
+                uint256 decreaseBy = orderSellAmount < currentAllowance ? orderSellAmount : currentAllowance;
+                if (decreaseBy > 0) IERC20(sellToken).safeDecreaseAllowance(permit2, decreaseBy);
+                uint256 balance = IERC20(sellToken).balanceOf(address(this));
+                uint256 toReturn = orderSellAmount < balance ? orderSellAmount : balance;
+                if (toReturn > 0) IERC20(sellToken).safeTransfer(owner(), toReturn);
+                delete _hashToSellToken[hash];
+                delete _hashToSellAmount[hash];
+            }
+            delete _hashToValidTo[hash];
+        }
     }
 
     function _decodeSwapData(bytes memory data)

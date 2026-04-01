@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {IIntentProvider} from "../interfaces/IIntentProvider.sol";
+import {IIntentProvider, ApprovalNotFound, OrderNotExpired} from "../interfaces/IIntentProvider.sol";
 import {IGPv2Settlement} from "../libs/cow/GPv2Settlement.sol";
 import {GPv2Order} from "../libs/cow/GPv2Order.sol";
 import {IERC1271} from "../libs/cow/IERC1271.sol";
@@ -36,6 +36,12 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
 
     /// @dev Sell token used for a given order digest (set in trade) so cancelTrade can revoke vault relayer allowance
     mapping(bytes32 => address) private _digestToSellToken;
+
+    /// @dev validTo for a given order digest, used by cleanExpiredOrders
+    mapping(bytes32 => uint32) private _digestToValidTo;
+
+    /// @dev Sell amount for a given order digest, used by cleanExpiredOrders to decrease allowance precisely
+    mapping(bytes32 => uint256) private _digestToSellAmount;
 
     constructor(address settlement_, address vaultRelayer_) {
         settlement = IGPv2Settlement(settlement_);
@@ -72,8 +78,7 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
 
         if (sellToken != address(0)) {
             IERC20(sellToken).safeTransferFrom(msg.sender, address(this), sellAmount);
-            IERC20(sellToken).safeApprove(vaultRelayer, 0);
-            IERC20(sellToken).safeApprove(vaultRelayer, sellAmount);
+            IERC20(sellToken).safeIncreaseAllowance(vaultRelayer, sellAmount);
         }
 
         GPv2Order.Data memory order = GPv2Order.Data({
@@ -99,7 +104,9 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
 
         if (sellToken != address(0)) {
             _digestToSellToken[orderDigest] = sellToken;
+            _digestToSellAmount[orderDigest] = sellAmount;
         }
+        _digestToValidTo[orderDigest] = validTo;
 
         emit Trade(data, msg.sender, address(this));
     }
@@ -139,6 +146,7 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
             if (balance > 0) IERC20(sellToken).safeTransfer(msg.sender, balance);
             delete _digestToSellToken[orderDigest];
         }
+        delete _digestToValidTo[orderDigest];
 
         emit CancelTrade(data, msg.sender, address(this));
     }
@@ -171,10 +179,36 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         return GPv2Order.hash(order, settlement.domainSeparator());
     }
 
-    /**
-     * @notice Compute order UID for a given order
-     * @param order The CoW Protocol order
-     */
+    function revokeApprovals(address[] calldata tokens) external override onlyOwner {
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (IERC20(tokens[i]).allowance(address(this), vaultRelayer) == 0) revert ApprovalNotFound();
+            IERC20(tokens[i]).safeApprove(vaultRelayer, 0);
+        }
+    }
+
+    function cleanExpiredOrders(bytes32[] calldata orderDigests) external override {
+        for (uint256 i = 0; i < orderDigests.length; i++) {
+            bytes32 orderDigest = orderDigests[i];
+            if (block.timestamp <= _digestToValidTo[orderDigest]) revert OrderNotExpired();
+            approvedOrderDigests[owner()][orderDigest] = false;
+            bytes memory orderUid = GPv2Order.packOrderUid(orderDigest, address(this), _digestToValidTo[orderDigest]);
+            settlement.setPreSignature(orderUid, false);
+            address sellToken = _digestToSellToken[orderDigest];
+            if (sellToken != address(0)) {
+                uint256 orderSellAmount = _digestToSellAmount[orderDigest];
+                uint256 currentAllowance = IERC20(sellToken).allowance(address(this), vaultRelayer);
+                uint256 decreaseBy = orderSellAmount < currentAllowance ? orderSellAmount : currentAllowance;
+                if (decreaseBy > 0) IERC20(sellToken).safeDecreaseAllowance(vaultRelayer, decreaseBy);
+                uint256 balance = IERC20(sellToken).balanceOf(address(this));
+                uint256 toReturn = orderSellAmount < balance ? orderSellAmount : balance;
+                if (toReturn > 0) IERC20(sellToken).safeTransfer(owner(), toReturn);
+                delete _digestToSellToken[orderDigest];
+                delete _digestToSellAmount[orderDigest];
+            }
+            delete _digestToValidTo[orderDigest];
+        }
+    }
+
     function getOrderUid(GPv2Order.Data memory order) external view returns (bytes memory) {
         bytes32 digest = GPv2Order.hash(order, settlement.domainSeparator());
         return GPv2Order.packOrderUid(digest, address(this), order.validTo);

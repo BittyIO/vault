@@ -93,6 +93,19 @@ contract TestLidoProviderFork is Test {
         lidoProvider.stake(stakeAmount + 1 ether);
     }
 
+    function test_Unstake_ResetsApprovalToZero() public {
+        uint256 stakeAmount = 1 ether;
+        deal(address(weth), address(this), stakeAmount);
+        weth.approve(address(lidoProvider), stakeAmount);
+        lidoProvider.stake(stakeAmount);
+
+        uint256 unstakeAmount = stETH.balanceOf(address(lidoProvider));
+        lidoProvider.unstake(unstakeAmount);
+
+        uint256 remaining = IERC20(address(stETH)).allowance(address(lidoProvider), address(unstETH));
+        assertEq(remaining, 0, "approval to unstETH must be 0 after unstake");
+    }
+
     function test_Claim_ReturnWETHToVault() public {
         uint256 claimAmount = 1 ether;
         MockUnstETHSendsEth mockUnstETH = new MockUnstETHSendsEth{value: claimAmount}(claimAmount);

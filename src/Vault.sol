@@ -193,6 +193,18 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _assetManager.cancelRebalanceWithIntent(intentProvider, data);
     }
 
+    function revokeIntentProviderApprovals(address intentProvider, address[] calldata tokens)
+        external
+        override
+        onlyAssetManager
+    {
+        _assetManager.revokeIntentProviderApprovals(intentProvider, tokens);
+    }
+
+    function cleanExpiredIntentOrders(address intentProvider, bytes32[] calldata orderDigests) external override {
+        _assetManager.cleanExpiredIntentOrders(intentProvider, orderDigests);
+    }
+
     // ============ IVault Interface ============
 
     function addReceiver(string memory name, IVault.Receiver calldata receiver_) external override onlyOwner {

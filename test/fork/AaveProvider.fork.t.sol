@@ -102,6 +102,17 @@ contract TestAaveProviderFork is Test {
         assertEq(balanceAfter, currentATokenBalance);
     }
 
+    function test_Supply_ResetsApprovalToZero() public {
+        deal(address(mainnet.WETH), address(this), 1 ether);
+        IERC20(address(mainnet.WETH)).safeApprove(address(aaveProvider), 1 ether);
+
+        aaveProvider.supply(address(mainnet.WETH), 1 ether);
+
+        address pool = address(IAaveV3(mainnet.AAVE_V3).getPool());
+        uint256 remaining = IERC20(address(mainnet.WETH)).allowance(address(aaveProvider), pool);
+        assertEq(remaining, 0, "approval to Aave pool must be 0 after supply");
+    }
+
     function test_SupplyMultipleAssets() public {
         IERC20(address(mainnet.WETH)).safeApprove(address(aaveProvider), 1 ether);
         deal(address(mainnet.WETH), address(this), 1 ether);

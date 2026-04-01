@@ -56,6 +56,8 @@ contract LidoV2Provider is IStakingProvider, Ownable, Initializable {
         amounts[0] = amount;
         IERC20(address(stETH)).safeIncreaseAllowance(address(unstETH), amount);
         uint256[] memory requestIds = unstETH.requestWithdrawals(amounts, address(this));
+        uint256 remaining = IERC20(address(stETH)).allowance(address(this), address(unstETH));
+        if (remaining > 0) IERC20(address(stETH)).safeDecreaseAllowance(address(unstETH), remaining);
         _unstakeRequests.add(requestIds[0]);
     }
 

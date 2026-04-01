@@ -3,6 +3,9 @@ pragma solidity ^0.8.34;
 
 import {IProvider} from "./IProvider.sol";
 
+error ApprovalNotFound();
+error OrderNotExpired();
+
 /**
  * @title IIntentProvider
  * @notice Interface for intent providers.
@@ -48,4 +51,19 @@ interface IIntentProvider is IProvider {
      *      UniswapX (trade without hashToApprove but ERC20 sell): abi.encode(bytes32(0), address sellToken).
      */
     function cancelTrade(bytes memory data) external;
+
+    /**
+     * @notice Revoke token approvals to the settlement/relayer contract for multiple tokens.
+     * @dev Reverts with ApprovalNotFound if the current allowance is already zero for any token.
+     * @param tokens The sell tokens whose approvals should be revoked.
+     */
+    function revokeApprovals(address[] calldata tokens) external;
+
+    /**
+     * @notice Permissionlessly clean up multiple expired orders: revokes approvals, transfers
+     *         any remaining sell token balances back to the owner.
+     * @dev Reverts with OrderNotExpired if validTo has not passed yet for any order.
+     * @param orderDigests The order digests (CoW) or Permit2 hashes (UniswapX) to clean up.
+     */
+    function cleanExpiredOrders(bytes32[] calldata orderDigests) external;
 }

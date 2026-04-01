@@ -8,6 +8,7 @@ import {mainnet} from "../../script/addresses.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IGPv2Settlement} from "../../src/libs/cow/GPv2Settlement.sol";
+import {OrderNotExpired} from "../../src/interfaces/IIntentProvider.sol";
 
 contract TestCoWAMMProviderFork is Test {
     using SafeERC20 for IERC20;
@@ -216,6 +217,66 @@ contract TestCoWAMMProviderFork is Test {
             sellAmount,
             "sell tokens returned to vault after cancel"
         );
+    }
+
+    function _placeTrade(uint256 sellAmount, uint32 validTo) internal returns (bytes32 digest) {
+        deal(address(mainnet.USDC), address(this), sellAmount);
+        IERC20(address(mainnet.USDC)).safeApprove(address(cowProvider), sellAmount);
+        bytes memory swapData = abi.encode(address(mainnet.USDC), sellAmount, address(mainnet.WETH), 1e15, validTo);
+        cowProvider.trade(swapData);
+
+        GPv2Order.Data memory order = GPv2Order.Data({
+            sellToken: IERC20(address(mainnet.USDC)),
+            buyToken: IERC20(address(mainnet.WETH)),
+            receiver: address(this),
+            sellAmount: sellAmount,
+            buyAmount: 1e15,
+            validTo: validTo,
+            appData: bytes32(0),
+            feeAmount: 0,
+            kind: GPv2Order.KIND_SELL,
+            partiallyFillable: false,
+            sellTokenBalance: GPv2Order.BALANCE_ERC20,
+            buyTokenBalance: GPv2Order.BALANCE_ERC20
+        });
+        digest = cowProvider.getOrderDigest(order);
+    }
+
+    function test_CleanExpiredOrders_RevertsIfNotExpired() public {
+        uint32 validTo = uint32(block.timestamp + 3600);
+        bytes32 digest = _placeTrade(1000e6, validTo);
+
+        bytes32[] memory digests = new bytes32[](1);
+        digests[0] = digest;
+        vm.expectRevert(OrderNotExpired.selector);
+        cowProvider.cleanExpiredOrders(digests);
+    }
+
+    function test_CleanExpiredOrders_PermissionlesslyCleanupAfterExpiry() public {
+        uint256 sellAmount = 1000e6;
+        uint32 validTo = uint32(block.timestamp + 3600);
+        bytes32 digest = _placeTrade(sellAmount, validTo);
+
+        assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(cowProvider)), sellAmount);
+        assertEq(IERC20(address(mainnet.USDC)).allowance(address(cowProvider), cowProvider.vaultRelayer()), sellAmount);
+
+        vm.warp(validTo + 1);
+
+        bytes32[] memory digests = new bytes32[](1);
+        digests[0] = digest;
+        vm.prank(address(0xdead));
+        cowProvider.cleanExpiredOrders(digests);
+
+        assertEq(
+            IERC20(address(mainnet.USDC)).allowance(address(cowProvider), cowProvider.vaultRelayer()),
+            0,
+            "approval must be 0 after clean"
+        );
+        assertEq(IERC20(address(mainnet.USDC)).balanceOf(address(cowProvider)), 0, "provider must hold no tokens");
+        assertEq(
+            IERC20(address(mainnet.USDC)).balanceOf(address(this)), sellAmount, "tokens returned to vault after clean"
+        );
+        assertFalse(cowProvider.approvedOrderDigests(address(this), digest), "digest must be revoked");
     }
 
     function test_GetOrderDigest_MatchesManualHash() public view {
