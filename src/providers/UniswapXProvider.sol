@@ -13,7 +13,7 @@ import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initia
  * @notice IIntentProvider implementation for UniswapX using EIP-1271
  * @dev UniswapX uses Permit2 for token transfers. Orders are signed (EIP-1271 for contracts),
  *      submitted to the UniswapX API, and settled asynchronously by fillers.
- *      For use with AssetManager rebalanceWithAMM: an off-chain service must submit the order
+ *      For use with AssetManager ammRebalance: an off-chain service must submit the order
  *      to the UniswapX API after swap() approves the hash. Settlement occurs when
  *      a filler executes the order via the reactor.
  */
@@ -66,7 +66,7 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
      *      Tokens are transferred to this contract and approved for Permit2.
      *      Order must be submitted to UniswapX API by an off-chain service.
      *      Settlement is asynchronous (filler executes the order).
-     *      NOTE: Cannot be used with AssetManager.rebalanceWithAMM() as-is - settlement is async.
+     *      NOTE: Cannot be used with AssetManager.ammRebalance() as-is - settlement is async.
      * @param data Encoded: (sellToken, sellAmount, buyToken, buyAmountMin) or
      *             (sellToken, sellAmount, buyToken, buyAmountMin, validTo) or
      *             (sellToken, sellAmount, buyToken, buyAmountMin, validTo, hashToApprove) or
