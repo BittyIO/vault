@@ -392,7 +392,7 @@ library AssetManagerLogic {
         }
     }
 
-    function rebalanceWithAMM(
+    function ammRebalance(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address ammProvider,
@@ -454,7 +454,7 @@ library AssetManagerLogic {
         }
     }
 
-    function rebalanceWithIntent(
+    function intentRebalance(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address intentProvider,
@@ -652,11 +652,10 @@ library AssetManagerLogic {
         return logicStorage.intentProviders.values();
     }
 
-    function cancelRebalanceWithIntent(
-        AssetManagerStorage storage logicStorage,
-        address intentProvider,
-        bytes memory data
-    ) external onlyInitialized(logicStorage) {
+    function cancelIntentRebalance(AssetManagerStorage storage logicStorage, address intentProvider, bytes memory data)
+        external
+        onlyInitialized(logicStorage)
+    {
         address clone = logicStorage.clonedProviders[intentProvider];
         if (clone == address(0)) {
             revert InvalidIntentProvider();

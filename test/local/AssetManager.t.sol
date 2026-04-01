@@ -154,7 +154,7 @@ contract TestAssetManager is Test, Vault {
         vm.expectRevert(OnlyAssetManager.selector);
         this.withdraw(address(mockLendingProvider), address(mockWETH), 1 ether);
         vm.expectRevert(OnlyAssetManager.selector);
-        this.rebalanceWithAMM(address(mockAMMProvider), address(mockWBTC), address(mockUSDT), 1 ether, 1 ether, "");
+        this.ammRebalance(address(mockAMMProvider), address(mockWBTC), address(mockUSDT), 1 ether, 1 ether, "");
     }
 
     function test_SupplyRevertAddressZero() public {
@@ -325,7 +325,7 @@ contract TestAssetManager is Test, Vault {
 
         vm.warp(block.timestamp + 31);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithAMM(
+        this.ammRebalance(
             address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData
         );
 
@@ -385,7 +385,7 @@ contract TestAssetManager is Test, Vault {
 
         vm.expectRevert(RebalanceMaxPercentage.selector);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithAMM(
+        this.ammRebalance(
             address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData
         );
     }
@@ -411,7 +411,7 @@ contract TestAssetManager is Test, Vault {
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
 
         vm.prank(assetManagerAddress);
-        this.rebalanceWithAMM(
+        this.ammRebalance(
             address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData
         );
 
@@ -440,7 +440,7 @@ contract TestAssetManager is Test, Vault {
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
 
         vm.prank(assetManagerAddress);
-        this.rebalanceWithAMM(
+        this.ammRebalance(
             address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData
         );
     }
@@ -465,7 +465,7 @@ contract TestAssetManager is Test, Vault {
 
         vm.expectRevert(RebalanceDisabled.selector);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithAMM(
+        this.ammRebalance(
             address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData
         );
     }
@@ -491,7 +491,7 @@ contract TestAssetManager is Test, Vault {
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
 
         vm.prank(assetManagerAddress);
-        this.rebalanceWithAMM(
+        this.ammRebalance(
             address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData
         );
 
@@ -514,7 +514,7 @@ contract TestAssetManager is Test, Vault {
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
 
         vm.prank(assetManagerAddress);
-        this.rebalanceWithAMM(
+        this.ammRebalance(
             address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData
         );
 
@@ -835,7 +835,7 @@ contract TestAssetManager is Test, Vault {
         assertEq(this.getIntentProviders().length, 0);
     }
 
-    function test_RebalanceWithIntent_Success() public {
+    function test_intentRebalance_Success() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -848,7 +848,7 @@ contract TestAssetManager is Test, Vault {
         deal(address(mockWETH), address(this), sellAmount);
 
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmountMin, validTo, true
         );
 
@@ -857,11 +857,11 @@ contract TestAssetManager is Test, Vault {
         assertEq(MockERC20(mockWETH).balanceOf(clonedProvider), sellAmount);
     }
 
-    function test_RebalanceWithIntent_RevertInvalidIntentProvider() public {
+    function test_intentRebalance_RevertInvalidIntentProvider() public {
         this.doInitialize();
         vm.expectRevert(InvalidIntentProvider.selector);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider),
             address(mockWETH),
             address(mockUSDT),
@@ -872,7 +872,7 @@ contract TestAssetManager is Test, Vault {
         );
     }
 
-    function test_RebalanceWithIntent_RevertOnlyAssetManager() public {
+    function test_intentRebalance_RevertOnlyAssetManager() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -880,7 +880,7 @@ contract TestAssetManager is Test, Vault {
         this.addIntentProviders(intentProviders_);
 
         vm.expectRevert(OnlyAssetManager.selector);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider),
             address(mockWETH),
             address(mockUSDT),
@@ -891,7 +891,7 @@ contract TestAssetManager is Test, Vault {
         );
     }
 
-    function test_RebalanceWithIntent_RevertDeprecatedProvider() public {
+    function test_intentRebalance_RevertDeprecatedProvider() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -907,7 +907,7 @@ contract TestAssetManager is Test, Vault {
 
         vm.expectRevert(Deprecated.selector);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider),
             address(mockWETH),
             address(mockUSDT),
@@ -918,7 +918,7 @@ contract TestAssetManager is Test, Vault {
         );
     }
 
-    function test_RebalanceWithIntent_RevertMaxPercentage() public {
+    function test_intentRebalance_RevertMaxPercentage() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -936,7 +936,7 @@ contract TestAssetManager is Test, Vault {
 
         vm.expectRevert(RebalanceMaxPercentage.selector);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider),
             address(mockWETH),
             address(mockUSDT),
@@ -947,7 +947,7 @@ contract TestAssetManager is Test, Vault {
         );
     }
 
-    function test_RebalanceWithIntent_RevertMinimalBalance() public {
+    function test_intentRebalance_RevertMinimalBalance() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -965,7 +965,7 @@ contract TestAssetManager is Test, Vault {
 
         vm.expectRevert(MinimalBalanceNotMet.selector);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider),
             address(mockWETH),
             address(mockUSDT),
@@ -976,7 +976,7 @@ contract TestAssetManager is Test, Vault {
         );
     }
 
-    function test_RebalanceWithIntent_RevertMinimalDuration() public {
+    function test_intentRebalance_RevertMinimalDuration() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -994,19 +994,19 @@ contract TestAssetManager is Test, Vault {
         deal(address(mockWETH), address(this), sellAmount * 2);
 
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmountMin, validTo, true
         );
 
         deal(address(mockWETH), address(this), sellAmount);
         vm.expectRevert(RebalanceInMinimalTime.selector);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmountMin, validTo, true
         );
     }
 
-    function test_RebalanceWithIntent_UpdatesLastRebalanceTimestamp() public {
+    function test_intentRebalance_UpdatesLastRebalanceTimestamp() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -1023,7 +1023,7 @@ contract TestAssetManager is Test, Vault {
         deal(address(mockWETH), address(this), sellAmount);
 
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider),
             address(mockWETH),
             address(mockUSDT),
@@ -1036,7 +1036,7 @@ contract TestAssetManager is Test, Vault {
         assertEq(this.lastRebalanceTimestamps(address(mockWETH)), block.timestamp);
     }
 
-    function test_RebalanceWithIntent_AllowanceZeroAfterTrade() public {
+    function test_intentRebalance_AllowanceZeroAfterTrade() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -1048,7 +1048,7 @@ contract TestAssetManager is Test, Vault {
         deal(address(mockWETH), address(this), sellAmount);
 
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider),
             address(mockWETH),
             address(mockUSDT),
@@ -1062,7 +1062,7 @@ contract TestAssetManager is Test, Vault {
         assertEq(MockERC20(mockWETH).allowance(address(this), clonedProvider), 0);
     }
 
-    function test_CancelRebalanceWithIntent_Success() public {
+    function test_cancelIntentRebalance_Success() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -1072,7 +1072,7 @@ contract TestAssetManager is Test, Vault {
         uint256 sellAmount = 1 ether;
         deal(address(mockWETH), address(this), sellAmount);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider),
             address(mockWETH),
             address(mockUSDT),
@@ -1084,10 +1084,10 @@ contract TestAssetManager is Test, Vault {
 
         bytes memory cancelData = abi.encode(bytes32(0));
         vm.prank(assetManagerAddress);
-        this.cancelRebalanceWithIntent(address(mockIntentProvider), cancelData);
+        this.cancelIntentRebalance(address(mockIntentProvider), cancelData);
     }
 
-    function test_CancelRebalanceWithIntent_RevertNoClone() public {
+    function test_cancelIntentRebalance_RevertNoClone() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -1097,10 +1097,10 @@ contract TestAssetManager is Test, Vault {
         bytes memory cancelData = abi.encode(bytes32(0));
         vm.expectRevert(InvalidIntentProvider.selector);
         vm.prank(assetManagerAddress);
-        this.cancelRebalanceWithIntent(address(mockIntentProvider), cancelData);
+        this.cancelIntentRebalance(address(mockIntentProvider), cancelData);
     }
 
-    function test_CancelRebalanceWithIntent_RevertOnlyAssetManager() public {
+    function test_cancelIntentRebalance_RevertOnlyAssetManager() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -1109,10 +1109,10 @@ contract TestAssetManager is Test, Vault {
 
         bytes memory cancelData = abi.encode(bytes32(0));
         vm.expectRevert(OnlyAssetManager.selector);
-        this.cancelRebalanceWithIntent(address(mockIntentProvider), cancelData);
+        this.cancelIntentRebalance(address(mockIntentProvider), cancelData);
     }
 
-    function test_RebalanceWithIntent_RevertNotWhiteListedProvider() public {
+    function test_intentRebalance_RevertNotWhiteListedProvider() public {
         this.doInitialize();
         MockIntentProvider unlistedProvider = new MockIntentProvider();
         address[] memory intentProviders_ = new address[](1);
@@ -1123,7 +1123,7 @@ contract TestAssetManager is Test, Vault {
         this.addIntentProviders(intentProviders_);
     }
 
-    function test_RebalanceWithIntent_RevertExpiredValidTo() public {
+    function test_intentRebalance_RevertExpiredValidTo() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -1135,7 +1135,7 @@ contract TestAssetManager is Test, Vault {
 
         vm.expectRevert(InvalidValidTo.selector);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider),
             address(mockWETH),
             address(mockUSDT),
@@ -1146,7 +1146,7 @@ contract TestAssetManager is Test, Vault {
         );
     }
 
-    function test_CancelRebalanceWithIntent_AllowedAfterProviderRemoved() public {
+    function test_cancelIntentRebalance_AllowedAfterProviderRemoved() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -1156,7 +1156,7 @@ contract TestAssetManager is Test, Vault {
         uint256 sellAmount = 1 ether;
         deal(address(mockWETH), address(this), sellAmount);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider),
             address(mockWETH),
             address(mockUSDT),
@@ -1171,10 +1171,10 @@ contract TestAssetManager is Test, Vault {
 
         bytes memory cancelData = abi.encode(bytes32(0));
         vm.prank(assetManagerAddress);
-        this.cancelRebalanceWithIntent(address(mockIntentProvider), cancelData);
+        this.cancelIntentRebalance(address(mockIntentProvider), cancelData);
     }
 
-    function test_CancelRebalanceWithIntent_RestoresCooldownTimestamp() public {
+    function test_cancelIntentRebalance_RestoresCooldownTimestamp() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -1191,7 +1191,7 @@ contract TestAssetManager is Test, Vault {
         deal(address(mockWETH), address(this), sellAmount * 2);
 
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, validTo, true
         );
 
@@ -1199,17 +1199,17 @@ contract TestAssetManager is Test, Vault {
 
         bytes memory cancelData = abi.encode(bytes32(0));
         vm.prank(assetManagerAddress);
-        this.cancelRebalanceWithIntent(address(mockIntentProvider), cancelData);
+        this.cancelIntentRebalance(address(mockIntentProvider), cancelData);
 
         assertEq(this.lastRebalanceTimestamps(address(mockWETH)), 0, "timestamp must be restored after cancel");
 
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, validTo, true
         );
     }
 
-    function test_CancelRebalanceWithIntent_RestoresPreviousCooldownTimestamp() public {
+    function test_cancelIntentRebalance_RestoresPreviousCooldownTimestamp() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
@@ -1229,7 +1229,7 @@ contract TestAssetManager is Test, Vault {
         deal(address(mockUSDT), clonedAMMProvider, 10 * 1e6);
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), 10 * 1e6);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithAMM(
+        this.ammRebalance(
             address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, swapData
         );
 
@@ -1239,7 +1239,7 @@ contract TestAssetManager is Test, Vault {
         vm.warp(firstRebalanceTs + 31);
         uint32 validTo = uint32(block.timestamp + 3600);
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, validTo, true
         );
 
@@ -1247,7 +1247,7 @@ contract TestAssetManager is Test, Vault {
 
         bytes memory cancelData = abi.encode(bytes32(0));
         vm.prank(assetManagerAddress);
-        this.cancelRebalanceWithIntent(address(mockIntentProvider), cancelData);
+        this.cancelIntentRebalance(address(mockIntentProvider), cancelData);
 
         assertEq(
             this.lastRebalanceTimestamps(address(mockWETH)),
@@ -1273,7 +1273,7 @@ contract TestAssetManager is Test, Vault {
         deal(address(mockWETH), address(this), sellAmount * 2);
 
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, validTo, true
         );
 
@@ -1289,7 +1289,7 @@ contract TestAssetManager is Test, Vault {
         assertEq(this.lastRebalanceTimestamps(address(mockWETH)), 0, "timestamp must be restored after cleanup");
 
         vm.prank(assetManagerAddress);
-        this.rebalanceWithIntent(
+        this.intentRebalance(
             address(mockIntentProvider),
             address(mockWETH),
             address(mockUSDT),

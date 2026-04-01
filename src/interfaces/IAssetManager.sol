@@ -29,8 +29,8 @@ interface IAssetManager {
          */
         uint256 minimalDurationBetweenRebalances;
         /**
-         * @dev The max rebalanceWithAMM percentage, 1-10000, 1000 means 10%
-         * @param maxRebalancePercentage The max rebalanceWithAMM percentage.
+         * @dev The max ammRebalance percentage, 1-10000, 1000 means 10%
+         * @param maxRebalancePercentage The max ammRebalance percentage.
          */
         uint256 maxRebalancePercentage;
     }
@@ -155,7 +155,7 @@ interface IAssetManager {
      * @param data The data for the swap.
      * @dev Rebalance the assets.
      */
-    function rebalanceWithAMM(
+    function ammRebalance(
         address ammProvider,
         address from,
         address to,
@@ -168,7 +168,7 @@ interface IAssetManager {
      * @notice Rebalance assets using an intent-based provider (CoW, UniswapX).
      * @dev Creates an intent order for async settlement. The sell tokens are transferred
      *      to the intent provider immediately; buy tokens arrive when the order settles.
-     *      Same rebalanceWithAMM constraints apply (maxPercentage, minimalDuration, minimalBalance).
+     *      Same ammRebalance constraints apply (maxPercentage, minimalDuration, minimalBalance).
      * @param intentProvider The address of the intent provider.
      * @param from The address of the from asset.
      * @param to The address of the to asset, asset should be in the added whitelist.
@@ -177,7 +177,7 @@ interface IAssetManager {
      * @param validTo The expiry timestamp of the order (unix seconds).
      * @param isSellOrder True for a sell order (exact sell), false for a buy order (exact buy).
      */
-    function rebalanceWithIntent(
+    function intentRebalance(
         address intentProvider,
         address from,
         address to,
@@ -224,9 +224,9 @@ interface IAssetManager {
     function getLiquidity(address ammProvider, bytes memory data) external view returns (uint256);
 
     /**
-     * @notice Disable the rebalanceWithAMM until the timestamp.
-     * @dev Disable the rebalanceWithAMM until the timestamp.
-     * @param timestamp The timestamp to disable the rebalanceWithAMM until.
+     * @notice Disable the ammRebalance until the timestamp.
+     * @dev Disable the ammRebalance until the timestamp.
+     * @param timestamp The timestamp to disable the ammRebalance until.
      */
     function disableRebalanceUntilTimestamp(uint256 timestamp) external;
 
@@ -292,14 +292,14 @@ interface IAssetManager {
     function removeIntentProviders(address[] memory intentProviderAddresses) external;
 
     /**
-     * @notice Cancel a pending intent order previously submitted via rebalanceWithIntent.
+     * @notice Cancel a pending intent order previously submitted via intentRebalance.
      * @dev Calls cancelTrade on the cloned intent provider. Provider-specific data encoding:
      *      CoW: abi.encode(bytes32 orderDigest, uint32 validTo).
      *      UniswapX: abi.encode(bytes32 hash), or abi.encode(bytes32(0), address sellToken) if canceling approval-only flow.
      * @param intentProvider The address of the intent provider.
      * @param data Encoded cancellation data.
      */
-    function cancelRebalanceWithIntent(address intentProvider, bytes memory data) external;
+    function cancelIntentRebalance(address intentProvider, bytes memory data) external;
 
     /**
      * @notice Revoke sell token approvals on an intent provider clone for multiple tokens.

@@ -15,7 +15,7 @@ import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initia
  * @notice IIntentProvider implementation for CoW Protocol using EIP-1271 and PreSign
  * @dev CoW Protocol uses an off-chain order book. Orders are signed (PreSign or EIP-1271),
  *      submitted to the CoW API, and settled asynchronously by solvers.
- *      For use with AssetManager rebalanceWithAMM: an off-chain service must submit the order
+ *      For use with AssetManager ammRebalance: an off-chain service must submit the order
  *      to the CoW API after swap() sets the PreSignature. Settlement occurs when
  *      a solver includes the order in a batch.
  */
@@ -59,7 +59,7 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
      * @dev Sets PreSignature for the order and approves digest for EIP-1271.
      *      Tokens are transferred to this contract. Order must be submitted to CoW API
      *      by an off-chain service. Settlement is asynchronous (solver fills the order).
-     *      NOTE: Cannot be used with AssetManager.rebalanceWithAMM() as-is - settlement is async.
+     *      NOTE: Cannot be used with AssetManager.ammRebalance() as-is - settlement is async.
      *      Use with a custom flow or keeper that submits orders to CoW API.
      * @param data Encoded: (sellToken, sellAmount, buyToken, buyAmountMin) or
      *             (sellToken, sellAmount, buyToken, buyAmountMin, validTo) or

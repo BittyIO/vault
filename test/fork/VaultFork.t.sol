@@ -255,9 +255,7 @@ contract TestVaultFork is Test {
 
         uint256 usdtBefore = IERC20(mainnet.USDT).balanceOf(address(vault));
         vm.prank(assetManager);
-        vault.rebalanceWithAMM(
-            address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData
-        );
+        vault.ammRebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
         uint256 usdtAfter = IERC20(mainnet.USDT).balanceOf(address(vault));
         assertGt(usdtAfter, usdtBefore);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);

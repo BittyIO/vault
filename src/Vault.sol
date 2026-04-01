@@ -120,7 +120,7 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _assetManager.claim(stakingProvider, requestIds);
     }
 
-    function rebalanceWithAMM(
+    function ammRebalance(
         address ammProvider,
         address from,
         address to,
@@ -128,10 +128,10 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         uint256 buyAmountMin,
         bytes memory data
     ) external override onlyAssetManager onlyValidAsset(to) {
-        _assetManager.rebalanceWithAMM(_vault, ammProvider, from, to, sellAmount, buyAmountMin, data);
+        _assetManager.ammRebalance(_vault, ammProvider, from, to, sellAmount, buyAmountMin, data);
     }
 
-    function rebalanceWithIntent(
+    function intentRebalance(
         address intentProvider,
         address from,
         address to,
@@ -140,9 +140,7 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         uint32 validTo,
         bool isSellOrder
     ) external override onlyAssetManager onlyValidAsset(to) {
-        _assetManager.rebalanceWithIntent(
-            _vault, intentProvider, from, to, sellAmount, buyAmountMin, validTo, isSellOrder
-        );
+        _assetManager.intentRebalance(_vault, intentProvider, from, to, sellAmount, buyAmountMin, validTo, isSellOrder);
     }
 
     function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyAssetManager {
@@ -189,8 +187,8 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _assetManager.removeIntentProviders(intentProviderAddresses);
     }
 
-    function cancelRebalanceWithIntent(address intentProvider, bytes memory data) external override onlyAssetManager {
-        _assetManager.cancelRebalanceWithIntent(intentProvider, data);
+    function cancelIntentRebalance(address intentProvider, bytes memory data) external override onlyAssetManager {
+        _assetManager.cancelIntentRebalance(intentProvider, data);
     }
 
     function revokeIntentProviderApprovals(address intentProvider, address[] calldata tokens)
