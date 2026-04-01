@@ -1173,4 +1173,130 @@ contract TestAssetManager is Test, Vault {
         vm.prank(assetManagerAddress);
         this.cancelRebalanceWithIntent(address(mockIntentProvider), cancelData);
     }
+
+    function test_CancelRebalanceWithIntent_RestoresCooldownTimestamp() public {
+        this.doInitialize();
+        address[] memory intentProviders_ = new address[](1);
+        intentProviders_[0] = address(mockIntentProvider);
+        vm.prank(ownerAddress);
+        this.addIntentProviders(intentProviders_);
+
+        AssetConfig memory assetConfig =
+            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 3600, maxRebalancePercentage: 0});
+        vm.prank(ownerAddress);
+        this.setAssetConfig(address(mockWETH), assetConfig);
+
+        uint256 sellAmount = 1 ether;
+        uint32 validTo = uint32(block.timestamp + 3600);
+        deal(address(mockWETH), address(this), sellAmount * 2);
+
+        vm.prank(assetManagerAddress);
+        this.rebalanceWithIntent(
+            address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, validTo, true
+        );
+
+        assertEq(this.lastRebalanceTimestamps(address(mockWETH)), block.timestamp);
+
+        bytes memory cancelData = abi.encode(bytes32(0));
+        vm.prank(assetManagerAddress);
+        this.cancelRebalanceWithIntent(address(mockIntentProvider), cancelData);
+
+        assertEq(this.lastRebalanceTimestamps(address(mockWETH)), 0, "timestamp must be restored after cancel");
+
+        vm.prank(assetManagerAddress);
+        this.rebalanceWithIntent(
+            address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, validTo, true
+        );
+    }
+
+    function test_CancelRebalanceWithIntent_RestoresPreviousCooldownTimestamp() public {
+        this.doInitialize();
+        address[] memory intentProviders_ = new address[](1);
+        intentProviders_[0] = address(mockIntentProvider);
+        vm.prank(ownerAddress);
+        this.addIntentProviders(intentProviders_);
+
+        AssetConfig memory assetConfig =
+            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 30, maxRebalancePercentage: 0});
+        vm.prank(ownerAddress);
+        this.setAssetConfig(address(mockWETH), assetConfig);
+
+        uint256 sellAmount = 1 ether;
+        deal(address(mockWETH), address(this), sellAmount * 3);
+
+        vm.warp(block.timestamp + 31);
+        address clonedAMMProvider = this.cloneProviderForTesting(address(mockAMMProvider));
+        deal(address(mockUSDT), clonedAMMProvider, 10 * 1e6);
+        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), 10 * 1e6);
+        vm.prank(assetManagerAddress);
+        this.rebalanceWithAMM(
+            address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, swapData
+        );
+
+        uint256 firstRebalanceTs = this.lastRebalanceTimestamps(address(mockWETH));
+        assertEq(firstRebalanceTs, block.timestamp);
+
+        vm.warp(firstRebalanceTs + 31);
+        uint32 validTo = uint32(block.timestamp + 3600);
+        vm.prank(assetManagerAddress);
+        this.rebalanceWithIntent(
+            address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, validTo, true
+        );
+
+        assertGt(this.lastRebalanceTimestamps(address(mockWETH)), firstRebalanceTs);
+
+        bytes memory cancelData = abi.encode(bytes32(0));
+        vm.prank(assetManagerAddress);
+        this.cancelRebalanceWithIntent(address(mockIntentProvider), cancelData);
+
+        assertEq(
+            this.lastRebalanceTimestamps(address(mockWETH)),
+            firstRebalanceTs,
+            "timestamp must be restored to pre-intent value after cancel"
+        );
+    }
+
+    function test_CleanExpiredIntentOrders_RestoresCooldownTimestamp() public {
+        this.doInitialize();
+        address[] memory intentProviders_ = new address[](1);
+        intentProviders_[0] = address(mockIntentProvider);
+        vm.prank(ownerAddress);
+        this.addIntentProviders(intentProviders_);
+
+        AssetConfig memory assetConfig =
+            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 3600, maxRebalancePercentage: 0});
+        vm.prank(ownerAddress);
+        this.setAssetConfig(address(mockWETH), assetConfig);
+
+        uint256 sellAmount = 1 ether;
+        uint32 validTo = uint32(block.timestamp + 3600);
+        deal(address(mockWETH), address(this), sellAmount * 2);
+
+        vm.prank(assetManagerAddress);
+        this.rebalanceWithIntent(
+            address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, validTo, true
+        );
+
+        assertEq(this.lastRebalanceTimestamps(address(mockWETH)), block.timestamp);
+
+        vm.warp(validTo + 1);
+        uint256 tsAfterExpire = uint256(validTo) + 1;
+
+        bytes32[] memory digests = new bytes32[](1);
+        digests[0] = bytes32(0);
+        this.cleanExpiredIntentOrders(address(mockIntentProvider), digests);
+
+        assertEq(this.lastRebalanceTimestamps(address(mockWETH)), 0, "timestamp must be restored after cleanup");
+
+        vm.prank(assetManagerAddress);
+        this.rebalanceWithIntent(
+            address(mockIntentProvider),
+            address(mockWETH),
+            address(mockUSDT),
+            sellAmount,
+            10 * 1e6,
+            uint32(tsAfterExpire + 3600),
+            true
+        );
+    }
 }
