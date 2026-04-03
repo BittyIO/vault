@@ -181,7 +181,7 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
 
     function revokeApprovals(address[] calldata tokens) external override onlyOwner {
         for (uint256 i = 0; i < tokens.length; i++) {
-            if (IERC20(tokens[i]).allowance(address(this), vaultRelayer) == 0) revert ApprovalNotFound();
+            if (IERC20(tokens[i]).allowance(address(this), vaultRelayer) == 0) continue;
             IERC20(tokens[i]).safeApprove(vaultRelayer, 0);
         }
     }
