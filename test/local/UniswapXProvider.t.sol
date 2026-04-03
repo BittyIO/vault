@@ -150,4 +150,21 @@ contract UniswapXProviderTest is Test {
 
         assertEq(IERC20(address(usdc)).allowance(address(provider), permit2), 1000e6);
     }
+
+    function test_cancelTrade_ReturnsOnlyOrderSellAmountWhenBalanceExceedsOneOrder() public {
+        bytes32 hash1 = keccak256("order 1 stacked");
+        bytes32 hash2 = keccak256("order 2 stacked");
+        uint32 validTo = uint32(block.timestamp + 3600);
+        _trade(validTo, hash1);
+        _trade(validTo, hash2);
+
+        assertEq(usdc.balanceOf(address(provider)), 2000e6);
+        assertEq(usdc.balanceOf(owner), 0);
+
+        vm.prank(owner);
+        provider.cancelTrade(abi.encode(hash1));
+
+        assertEq(usdc.balanceOf(owner), 1000e6, "only first order's sell amount returned");
+        assertEq(usdc.balanceOf(address(provider)), 1000e6, "second order's funds stay on provider");
+    }
 }

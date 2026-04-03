@@ -146,7 +146,8 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
             uint256 decreaseBy = orderSellAmount < currentAllowance ? orderSellAmount : currentAllowance;
             if (decreaseBy > 0) IERC20(sellToken).safeDecreaseAllowance(vaultRelayer, decreaseBy);
             uint256 balance = IERC20(sellToken).balanceOf(address(this));
-            if (balance > 0) IERC20(sellToken).safeTransfer(msg.sender, balance);
+            uint256 toReturn = orderSellAmount < balance ? orderSellAmount : balance;
+            if (toReturn > 0) IERC20(sellToken).safeTransfer(msg.sender, toReturn);
             delete _digestToSellToken[orderDigest];
             delete _digestToSellAmount[orderDigest];
         }

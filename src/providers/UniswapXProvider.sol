@@ -124,13 +124,16 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
             }
         }
         if (sellToken != address(0)) {
+            uint256 currentAllowance = IERC20(sellToken).allowance(address(this), permit2);
             if (orderSellAmount > 0) {
-                uint256 currentAllowance = IERC20(sellToken).allowance(address(this), permit2);
                 uint256 decreaseBy = orderSellAmount < currentAllowance ? orderSellAmount : currentAllowance;
                 if (decreaseBy > 0) IERC20(sellToken).safeDecreaseAllowance(permit2, decreaseBy);
+            } else if (currentAllowance > 0) {
+                IERC20(sellToken).safeDecreaseAllowance(permit2, currentAllowance);
             }
             uint256 balance = IERC20(sellToken).balanceOf(address(this));
-            if (balance > 0) IERC20(sellToken).safeTransfer(msg.sender, balance);
+            uint256 toReturn = orderSellAmount > 0 ? (orderSellAmount < balance ? orderSellAmount : balance) : balance;
+            if (toReturn > 0) IERC20(sellToken).safeTransfer(msg.sender, toReturn);
         }
         emit CancelTrade(data, msg.sender, address(this));
     }

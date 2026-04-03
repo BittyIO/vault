@@ -237,4 +237,20 @@ contract CoWSwapProviderTest is Test {
 
         assertEq(IERC20(address(usdc)).allowance(address(provider), relayer), 1000e6);
     }
+
+    function test_cancelTrade_ReturnsOnlyOrderSellAmountWhenBalanceExceedsOneOrder() public {
+        uint32 validTo1 = uint32(block.timestamp + 3600);
+        uint32 validTo2 = uint32(block.timestamp + 7200);
+        bytes32 digest1 = _tradeDigest(validTo1);
+        _tradeDigest(validTo2);
+
+        assertEq(usdc.balanceOf(address(provider)), 2000e6);
+        assertEq(usdc.balanceOf(owner), 0);
+
+        vm.prank(owner);
+        provider.cancelTrade(abi.encode(digest1, validTo1));
+
+        assertEq(usdc.balanceOf(owner), 1000e6, "only first order's sell amount returned");
+        assertEq(usdc.balanceOf(address(provider)), 1000e6, "second order's funds stay on provider");
+    }
 }
