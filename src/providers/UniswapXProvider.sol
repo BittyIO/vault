@@ -176,7 +176,7 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     function cleanExpiredOrders(bytes32[] calldata hashes) external override {
         for (uint256 i = 0; i < hashes.length; i++) {
             bytes32 hash = hashes[i];
-            if (block.timestamp <= _hashToValidTo[hash]) revert OrderNotExpired();
+            if (_hashToValidTo[hash] == 0 || block.timestamp <= _hashToValidTo[hash]) revert OrderNotExpired();
             approvedHashes[owner()][hash] = false;
             address sellToken = _hashToSellToken[hash];
             if (sellToken != address(0)) {

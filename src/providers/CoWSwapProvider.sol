@@ -189,7 +189,9 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     function cleanExpiredOrders(bytes32[] calldata orderDigests) external override {
         for (uint256 i = 0; i < orderDigests.length; i++) {
             bytes32 orderDigest = orderDigests[i];
-            if (block.timestamp <= _digestToValidTo[orderDigest]) revert OrderNotExpired();
+            if (_digestToValidTo[orderDigest] == 0 || block.timestamp <= _digestToValidTo[orderDigest]) {
+                revert OrderNotExpired();
+            }
             approvedOrderDigests[owner()][orderDigest] = false;
             bytes memory orderUid = GPv2Order.packOrderUid(orderDigest, address(this), _digestToValidTo[orderDigest]);
             settlement.setPreSignature(orderUid, false);
