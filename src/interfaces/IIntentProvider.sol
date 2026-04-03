@@ -54,7 +54,7 @@ interface IIntentProvider is IProvider {
 
     /**
      * @notice Revoke token approvals to the settlement/relayer contract for multiple tokens.
-     * @dev Reverts with ApprovalNotFound if the current allowance is already zero for any token.
+     * @dev Silently skips tokens whose current allowance is already zero.
      * @param tokens The sell tokens whose approvals should be revoked.
      */
     function revokeApprovals(address[] calldata tokens) external;

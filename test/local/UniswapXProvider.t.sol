@@ -113,4 +113,26 @@ contract UniswapXProviderTest is Test {
         vm.expectRevert(OrderNotExpired.selector);
         provider.cleanExpiredOrders(hashes);
     }
+
+    function test_revokeApprovals_SkipsTokenWithZeroAllowance() public {
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(dai);
+
+        vm.prank(owner);
+        provider.revokeApprovals(tokens);
+    }
+
+    function test_revokeApprovals_MixedAllowances_SkipsZero() public {
+        _trade(uint32(block.timestamp + 3600), keccak256("h"));
+        assertGt(IERC20(address(usdc)).allowance(address(provider), permit2), 0);
+
+        address[] memory tokens = new address[](2);
+        tokens[0] = address(usdc);
+        tokens[1] = address(dai);
+
+        vm.prank(owner);
+        provider.revokeApprovals(tokens);
+
+        assertEq(IERC20(address(usdc)).allowance(address(provider), permit2), 0);
+    }
 }
