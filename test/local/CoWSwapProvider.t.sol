@@ -223,4 +223,18 @@ contract CoWSwapProviderTest is Test {
 
         assertEq(IERC20(address(usdc)).allowance(address(provider), relayer), 0);
     }
+
+    function test_cancelTrade_DecreasesAllowanceByOrderAmountOnly() public {
+        uint32 validTo1 = uint32(block.timestamp + 3600);
+        uint32 validTo2 = uint32(block.timestamp + 7200);
+        bytes32 digest1 = _tradeDigest(validTo1);
+        bytes32 digest2 = _tradeDigest(validTo2);
+
+        assertEq(IERC20(address(usdc)).allowance(address(provider), relayer), 2000e6);
+
+        vm.prank(owner);
+        provider.cancelTrade(abi.encode(digest1, validTo1));
+
+        assertEq(IERC20(address(usdc)).allowance(address(provider), relayer), 1000e6);
+    }
 }

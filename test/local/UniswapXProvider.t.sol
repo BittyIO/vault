@@ -135,4 +135,19 @@ contract UniswapXProviderTest is Test {
 
         assertEq(IERC20(address(usdc)).allowance(address(provider), permit2), 0);
     }
+
+    function test_cancelTrade_DecreasesAllowanceByOrderAmountOnly() public {
+        bytes32 hash1 = keccak256("order 1");
+        bytes32 hash2 = keccak256("order 2");
+        uint32 validTo = uint32(block.timestamp + 3600);
+        _trade(validTo, hash1);
+        _trade(validTo, hash2);
+
+        assertEq(IERC20(address(usdc)).allowance(address(provider), permit2), 2000e6);
+
+        vm.prank(owner);
+        provider.cancelTrade(abi.encode(hash1));
+
+        assertEq(IERC20(address(usdc)).allowance(address(provider), permit2), 1000e6);
+    }
 }

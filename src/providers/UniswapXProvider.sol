@@ -102,11 +102,13 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     function cancelTrade(bytes memory data) external override onlyOwner {
         bytes32 hash;
         address sellToken;
+        uint256 orderSellAmount;
         if (data.length == 32) {
             hash = abi.decode(data, (bytes32));
             sellToken = _hashToSellToken[hash];
             if (hash != bytes32(0)) {
                 approvedHashes[owner()][hash] = false;
+                orderSellAmount = _hashToSellAmount[hash];
                 delete _hashToSellToken[hash];
                 delete _hashToValidTo[hash];
                 delete _hashToSellAmount[hash];
@@ -115,13 +117,18 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
             (hash, sellToken) = abi.decode(data, (bytes32, address));
             if (hash != bytes32(0)) {
                 approvedHashes[owner()][hash] = false;
+                orderSellAmount = _hashToSellAmount[hash];
                 delete _hashToSellToken[hash];
                 delete _hashToValidTo[hash];
                 delete _hashToSellAmount[hash];
             }
         }
         if (sellToken != address(0)) {
-            IERC20(sellToken).safeApprove(permit2, 0);
+            if (orderSellAmount > 0) {
+                uint256 currentAllowance = IERC20(sellToken).allowance(address(this), permit2);
+                uint256 decreaseBy = orderSellAmount < currentAllowance ? orderSellAmount : currentAllowance;
+                if (decreaseBy > 0) IERC20(sellToken).safeDecreaseAllowance(permit2, decreaseBy);
+            }
             uint256 balance = IERC20(sellToken).balanceOf(address(this));
             if (balance > 0) IERC20(sellToken).safeTransfer(msg.sender, balance);
         }
