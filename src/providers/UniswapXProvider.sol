@@ -92,8 +92,6 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         }
 
         emit Trade(data, msg.sender, address(this));
-
-        // Note: Permit2 approval remains until cancelTrade or order fill; cancelTrade revokes allowance on the clone
     }
 
     /// @notice Cancel a trade/order and revoke Permit2 allowance for the sell token when known.
@@ -106,22 +104,15 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         if (data.length == 32) {
             hash = abi.decode(data, (bytes32));
             sellToken = _hashToSellToken[hash];
-            if (hash != bytes32(0)) {
-                approvedHashes[owner()][hash] = false;
-                orderSellAmount = _hashToSellAmount[hash];
-                delete _hashToSellToken[hash];
-                delete _hashToValidTo[hash];
-                delete _hashToSellAmount[hash];
-            }
         } else {
             (hash, sellToken) = abi.decode(data, (bytes32, address));
-            if (hash != bytes32(0)) {
-                approvedHashes[owner()][hash] = false;
-                orderSellAmount = _hashToSellAmount[hash];
-                delete _hashToSellToken[hash];
-                delete _hashToValidTo[hash];
-                delete _hashToSellAmount[hash];
-            }
+        }
+        if (hash != bytes32(0)) {
+            approvedHashes[owner()][hash] = false;
+            orderSellAmount = _hashToSellAmount[hash];
+            delete _hashToSellToken[hash];
+            delete _hashToValidTo[hash];
+            delete _hashToSellAmount[hash];
         }
         if (sellToken != address(0)) {
             uint256 currentAllowance = IERC20(sellToken).allowance(address(this), permit2);
