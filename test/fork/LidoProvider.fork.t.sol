@@ -79,7 +79,7 @@ contract TestLidoProviderFork is Test {
         weth.approve(address(lidoProvider), stakeAmount);
 
         uint256 balanceBefore = stETH.balanceOf(address(lidoProvider));
-        lidoProvider.stake(stakeAmount);
+        lidoProvider.stake(address(weth), stakeAmount);
         uint256 balanceAfter = stETH.balanceOf(address(lidoProvider));
         assertGt(balanceAfter, balanceBefore);
         assertApproxEqAbs(balanceAfter - balanceBefore, stakeAmount, 10);
@@ -90,17 +90,17 @@ contract TestLidoProviderFork is Test {
         deal(address(weth), address(this), stakeAmount);
         weth.approve(address(lidoProvider), stakeAmount);
         vm.expectRevert(WETHBalanceNotEnough.selector);
-        lidoProvider.stake(stakeAmount + 1 ether);
+        lidoProvider.stake(address(weth), stakeAmount + 1 ether);
     }
 
     function test_Unstake_ResetsApprovalToZero() public {
         uint256 stakeAmount = 1 ether;
         deal(address(weth), address(this), stakeAmount);
         weth.approve(address(lidoProvider), stakeAmount);
-        lidoProvider.stake(stakeAmount);
+        lidoProvider.stake(address(weth), stakeAmount);
 
         uint256 unstakeAmount = stETH.balanceOf(address(lidoProvider));
-        lidoProvider.unstake(unstakeAmount);
+        lidoProvider.unstake(address(weth), unstakeAmount);
 
         uint256 remaining = IERC20(address(stETH)).allowance(address(lidoProvider), address(unstETH));
         assertEq(remaining, 0, "approval to unstETH must be 0 after unstake");
@@ -165,10 +165,10 @@ contract TestLidoProviderFork is Test {
         uint256 totalStake = amountPerRequest * numRequests * 2;
         deal(address(weth), address(this), totalStake);
         weth.approve(address(lidoProvider), totalStake);
-        lidoProvider.stake(totalStake);
+        lidoProvider.stake(address(weth), totalStake);
 
         for (uint256 i = 0; i < numRequests; i++) {
-            lidoProvider.unstake(amountPerRequest);
+            lidoProvider.unstake(address(weth), amountPerRequest);
         }
 
         uint256[] memory ids = lidoProvider.getUnstakeRequestIds();

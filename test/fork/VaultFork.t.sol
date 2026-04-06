@@ -145,12 +145,12 @@ contract TestVaultFork is Test {
         uint256 stakeAmount = 0.1 ether;
         deal(mainnet.WETH, address(vault), stakeAmount);
 
-        uint256 stakingBalanceBefore = vault.getStakingBalance(address(lidoProvider));
+        uint256 stakingBalanceBefore = vault.getStakingBalance(address(lidoProvider), mainnet.WETH);
 
         vm.prank(assetManager);
-        vault.stake(address(lidoProvider), stakeAmount);
+        vault.stake(address(lidoProvider), mainnet.WETH, stakeAmount);
 
-        uint256 stakingBalanceAfter = vault.getStakingBalance(address(lidoProvider));
+        uint256 stakingBalanceAfter = vault.getStakingBalance(address(lidoProvider), mainnet.WETH);
         assertGt(stakingBalanceAfter, stakingBalanceBefore);
         assertApproxEqAbs(stakingBalanceAfter - stakingBalanceBefore, stakeAmount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
@@ -160,11 +160,11 @@ contract TestVaultFork is Test {
         uint256 stakeAmount = 0.1 ether;
         deal(mainnet.WETH, address(vault), stakeAmount);
         vm.prank(assetManager);
-        vault.stake(address(lidoProvider), stakeAmount);
+        vault.stake(address(lidoProvider), mainnet.WETH, stakeAmount);
 
         uint256 unstakeAmount = 0.05 ether;
         vm.prank(assetManager);
-        vault.unstake(address(lidoProvider), unstakeAmount);
+        vault.unstake(address(lidoProvider), mainnet.WETH, unstakeAmount);
 
         uint256[] memory ids = vault.getUnstakeRequestIds(address(lidoProvider));
         assertEq(ids.length, 1);
@@ -174,11 +174,11 @@ contract TestVaultFork is Test {
         uint256 stakeAmount = 0.1 ether;
         deal(mainnet.WETH, address(vault), stakeAmount);
         vm.prank(assetManager);
-        vault.stake(address(lidoProvider), stakeAmount);
+        vault.stake(address(lidoProvider), mainnet.WETH, stakeAmount);
 
         uint256 unstakeAmount = 0.05 ether;
         vm.prank(assetManager);
-        vault.unstake(address(lidoProvider), unstakeAmount);
+        vault.unstake(address(lidoProvider), mainnet.WETH, unstakeAmount);
 
         uint256[] memory ids = vault.getUnstakeRequestIds(address(lidoProvider));
         assertEq(ids.length, 1);

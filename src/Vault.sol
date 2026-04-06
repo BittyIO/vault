@@ -100,16 +100,16 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         return _assetManager.getLendingBalance(lendingProvider, assetAddress);
     }
 
-    function stake(address stakingProvider, uint256 amount) external override onlyAssetManager {
-        _assetManager.stake(stakingProvider, _vault.weth, amount);
+    function stake(address stakingProvider, address asset, uint256 amount) external override onlyAssetManager {
+        _assetManager.stake(stakingProvider, asset, amount);
     }
 
-    function unstake(address stakingProvider, uint256 amount) external override onlyAssetManager {
-        _assetManager.unstake(stakingProvider, _vault.weth, amount);
+    function unstake(address stakingProvider, address asset, uint256 amount) external override onlyAssetManager {
+        _assetManager.unstake(stakingProvider, asset, amount);
     }
 
-    function getStakingBalance(address stakingProvider) external view override returns (uint256) {
-        return _assetManager.getStakingBalance(stakingProvider);
+    function getStakingBalance(address stakingProvider, address asset) external view override returns (uint256) {
+        return _assetManager.getStakingBalance(stakingProvider, asset);
     }
 
     function getUnstakeRequestIds(address stakingProvider) external view override returns (uint256[] memory) {

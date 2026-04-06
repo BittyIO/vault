@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {IStakingProvider, UnstakeMoreThanStaked} from "../interfaces/IStakingProvider.sol";
+import {IStakingProvider, UnstakeMoreThanStaked, InvalidAsset} from "../interfaces/IStakingProvider.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
@@ -31,7 +31,10 @@ contract LidoV2Provider is IStakingProvider, Ownable, Initializable {
 
     receive() external payable {}
 
-    function stake(uint256 amount) external payable override onlyOwner {
+    function stake(address asset, uint256 amount) external payable override onlyOwner {
+        if (asset != address(weth)) {
+            revert InvalidAsset();
+        }
         if (weth.balanceOf(msg.sender) < amount) {
             revert WETHBalanceNotEnough();
         }
@@ -40,7 +43,16 @@ contract LidoV2Provider is IStakingProvider, Ownable, Initializable {
         stETH.submit{value: amount}(address(this));
     }
 
-    function getStakingBalance() external view override returns (uint256) {
+    /**
+     * @notice Get the staking balance of the WETH.
+     * @dev Get the staking balance of the WETH.
+     * @param asset The address of the WETH.
+     * @return The staking balance of the WETH query from stETH.
+     */
+    function getStakingBalance(address asset) external view override returns (uint256) {
+        if (asset != address(weth)) {
+            revert InvalidAsset();
+        }
         return stETH.balanceOf(address(this));
     }
 
@@ -48,7 +60,10 @@ contract LidoV2Provider is IStakingProvider, Ownable, Initializable {
         return _unstakeRequests.values();
     }
 
-    function unstake(uint256 amount) external override onlyOwner {
+    function unstake(address asset, uint256 amount) external override onlyOwner {
+        if (asset != address(weth)) {
+            revert InvalidAsset();
+        }
         if (stETH.balanceOf(address(this)) < amount) {
             revert UnstakeMoreThanStaked();
         }
