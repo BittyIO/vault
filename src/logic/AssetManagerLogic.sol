@@ -200,7 +200,7 @@ library AssetManagerLogic {
     function stake(
         AssetManagerStorage storage logicStorage,
         address stakingProvider,
-        address wethAddress,
+        address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
         if (!logicStorage.stakingProviders.contains(stakingProvider)) {
@@ -209,45 +209,45 @@ library AssetManagerLogic {
         if (logicStorage.whiteList.isStakingProviderDeprecated(stakingProvider)) {
             revert Deprecated();
         }
-        if (wethAddress == address(0)) {
+        if (assetAddress == address(0)) {
             revert AddressZero();
         }
         if (amount == 0) {
             revert AmountIsZero();
         }
         stakingProvider = _cloneProvider(logicStorage, stakingProvider);
-        IERC20(wethAddress).safeIncreaseAllowance(stakingProvider, amount);
-        IStakingProvider(stakingProvider).stake(amount);
-        uint256 remaining = IERC20(wethAddress).allowance(address(this), stakingProvider);
+        IERC20(assetAddress).safeIncreaseAllowance(stakingProvider, amount);
+        IStakingProvider(stakingProvider).stake(assetAddress, amount);
+        uint256 remaining = IERC20(assetAddress).allowance(address(this), stakingProvider);
         if (remaining > 0) {
-            IERC20(wethAddress).safeDecreaseAllowance(stakingProvider, remaining);
+            IERC20(assetAddress).safeDecreaseAllowance(stakingProvider, remaining);
         }
     }
 
     function unstake(
         AssetManagerStorage storage logicStorage,
         address stakingProvider,
-        address wethAddress,
+        address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
         if (!logicStorage.stakingProviders.contains(stakingProvider)) {
             revert InvalidStakingProvider();
         }
-        if (wethAddress == address(0)) {
+        if (assetAddress == address(0)) {
             revert AddressZero();
         }
         if (amount == 0) {
             revert AmountIsZero();
         }
         stakingProvider = _cloneProvider(logicStorage, stakingProvider);
-        uint256 stakingBalance = IStakingProvider(stakingProvider).getStakingBalance();
+        uint256 stakingBalance = IStakingProvider(stakingProvider).getStakingBalance(assetAddress);
         if (stakingBalance < amount) {
             revert InsufficientBalance();
         }
-        IStakingProvider(stakingProvider).unstake(amount);
+        IStakingProvider(stakingProvider).unstake(assetAddress, amount);
     }
 
-    function getStakingBalance(AssetManagerStorage storage logicStorage, address stakingProvider)
+    function getStakingBalance(AssetManagerStorage storage logicStorage, address stakingProvider, address assetAddress)
         external
         view
         onlyInitialized(logicStorage)
@@ -256,11 +256,14 @@ library AssetManagerLogic {
         if (!logicStorage.stakingProviders.contains(stakingProvider)) {
             revert InvalidStakingProvider();
         }
+        if (assetAddress == address(0)) {
+            revert AddressZero();
+        }
         address _clonedProvider = logicStorage.clonedProviders[stakingProvider];
         if (_clonedProvider == address(0)) {
             return 0;
         }
-        return IStakingProvider(_clonedProvider).getStakingBalance();
+        return IStakingProvider(_clonedProvider).getStakingBalance(assetAddress);
     }
 
     function getUnstakeRequestIds(AssetManagerStorage storage logicStorage, address stakingProvider)

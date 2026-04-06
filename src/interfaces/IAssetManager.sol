@@ -109,25 +109,28 @@ interface IAssetManager {
      * @notice Stake the asset to the staking provider.
      * @dev Stake the asset to the staking provider, this only works for ETH mainnet.
      * @param stakingProvider The address of the staking provider.
+     * @param asset The address of the asset.
      * @param amount The amount of the weth.
      */
-    function stake(address stakingProvider, uint256 amount) external;
+    function stake(address stakingProvider, address asset, uint256 amount) external;
 
     /**
      * @notice Get the staking balance.
      * @dev Get the staking balance.
      * @param stakingProvider The address of the staking provider.
+     * @param asset The address of the asset.
      * @return The staking balance.
      */
-    function getStakingBalance(address stakingProvider) external view returns (uint256);
+    function getStakingBalance(address stakingProvider, address asset) external view returns (uint256);
 
     /**
      * @notice Unstake the asset from the staking provider.
      * @dev Unstake the asset from the staking provider, this only works for ETH mainnet.
      * @param stakingProvider The address of the staking provider.
-     * @param amount The amount of the weth.
+     * @param asset The address of the asset.
+     * @param amount The amount of the asset.
      */
-    function unstake(address stakingProvider, uint256 amount) external;
+    function unstake(address stakingProvider, address asset, uint256 amount) external;
 
     /**
      * @notice Get the unstake request ids.

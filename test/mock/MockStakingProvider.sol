@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {IStakingProvider} from "../../src/interfaces/IStakingProvider.sol";
+import {IStakingProvider, InvalidAsset} from "../../src/interfaces/IStakingProvider.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
@@ -21,12 +21,14 @@ contract MockStakingProvider is IStakingProvider {
         weth = wethAddress;
     }
 
-    function stake(uint256 amount) external payable override {
+    function stake(address asset, uint256 amount) external payable override {
+        if (asset != weth) revert InvalidAsset();
         IERC20(weth).transferFrom(msg.sender, address(this), amount);
         balances[weth] += amount;
     }
 
-    function getStakingBalance() external view override returns (uint256) {
+    function getStakingBalance(address asset) external view override returns (uint256) {
+        if (asset != weth) revert InvalidAsset();
         return balances[weth];
     }
 
@@ -34,7 +36,8 @@ contract MockStakingProvider is IStakingProvider {
         return _unstakeRequests.values();
     }
 
-    function unstake(uint256 amount) external override {
+    function unstake(address asset, uint256 amount) external override {
+        if (asset != weth) revert InvalidAsset();
         require(balances[weth] >= amount, "Insufficient balance");
         balances[weth] -= amount;
 
