@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {UniswapXProvider} from "../../src/providers/UniswapXProvider.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {OrderNotExpired} from "../../src/interfaces/IIntentProvider.sol";
+import {OrderNotExpired, TwapNotSupported} from "../../src/interfaces/IIntentProvider.sol";
 
 contract UniswapXProviderTest is Test {
     UniswapXProvider provider;
@@ -166,5 +166,11 @@ contract UniswapXProviderTest is Test {
 
         assertEq(usdc.balanceOf(owner), 1000e6, "only first order's sell amount returned");
         assertEq(usdc.balanceOf(address(provider)), 1000e6, "second order's funds stay on provider");
+    }
+
+    function test_twapTrade_RevertsNotSupported() public {
+        vm.prank(owner);
+        vm.expectRevert(TwapNotSupported.selector);
+        provider.twapTrade("");
     }
 }

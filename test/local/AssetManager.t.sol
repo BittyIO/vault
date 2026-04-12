@@ -8,7 +8,7 @@ import {
     InvalidStakingProvider,
     InvalidIntentProvider,
     InvalidValidTo,
-    RebalanceMaxPercentage,
+    RebalanceMaxAmount,
     RebalanceDisabled,
     DisableRebalanceUntilTimestampTooEarly,
     OnlyAssetManager,
@@ -77,6 +77,12 @@ contract TestAssetManager is Test, Vault {
         WhiteList whiteList = new WhiteList();
         whiteListAddress = address(whiteList);
         vm.startPrank(tx.origin);
+        whiteList.grantRole(whiteList.ASSET_MANAGER_ROLE(), tx.origin);
+        whiteList.grantRole(whiteList.STABLE_COIN_MANAGER_ROLE(), tx.origin);
+        whiteList.grantRole(whiteList.LENDING_MANAGER_ROLE(), tx.origin);
+        whiteList.grantRole(whiteList.STAKING_MANAGER_ROLE(), tx.origin);
+        whiteList.grantRole(whiteList.AMM_MANAGER_ROLE(), tx.origin);
+        whiteList.grantRole(whiteList.INTENT_MANAGER_ROLE(), tx.origin);
         whiteList.addAssets(assets);
         whiteList.addStableCoins(stableCoins);
         whiteList.addLendingProviders(lendingProviders);
@@ -117,12 +123,12 @@ contract TestAssetManager is Test, Vault {
         this.setAssetManager(assetManagerAddress);
     }
 
-    function test_SetAssetConfig() public {
+    function test_SetRebalanceConfig() public {
         this.doInitialize();
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 100 * 1e6, minimalDurationBetweenRebalances: 30, maxRebalancePercentage: 0});
+        RebalanceConfig memory rebalanceConfig =
+            RebalanceConfig({minimalBalance: 100 * 1e6, minimalDuration: 30, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
     }
 
     function test_RevertOnlyAssetManager() public {
@@ -268,50 +274,6 @@ contract TestAssetManager is Test, Vault {
         this.withdraw(invalidLendingProvider, address(mockWETH), 1 ether);
     }
 
-    function test_GetAllAssetConfigKeys() public {
-        this.doInitialize();
-        AssetConfig memory assetConfig1 =
-            AssetConfig({minimalBalance: 100 * 1e6, minimalDurationBetweenRebalances: 30, maxRebalancePercentage: 0});
-        AssetConfig memory assetConfig2 =
-            AssetConfig({minimalBalance: 200 * 1e6, minimalDurationBetweenRebalances: 60, maxRebalancePercentage: 0});
-
-        vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig1);
-        vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWBTC), assetConfig2);
-
-        address[] memory keys = this.getAllAssetConfigKeys();
-        assertEq(keys.length, 2);
-        assertTrue(keys[0] == address(mockWETH) || keys[1] == address(mockWETH));
-        assertTrue(keys[0] == address(mockWBTC) || keys[1] == address(mockWBTC));
-    }
-
-    function test_GetAllLastRebalanceTimestampKeys() public {
-        this.doInitialize();
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 30, maxRebalancePercentage: 0});
-        vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
-
-        uint256 sellAmount = 1 * 1e6;
-        uint256 buyAmount = 10 * 1e6;
-        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
-
-        address clonedAMMProvider = this.cloneProviderForTesting(address(mockAMMProvider));
-        deal(address(mockWETH), address(this), sellAmount);
-        deal(address(mockUSDT), clonedAMMProvider, buyAmount);
-
-        vm.warp(block.timestamp + 31);
-        vm.prank(assetManagerAddress);
-        this.ammRebalance(
-            address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData
-        );
-
-        address[] memory keys = this.getAllLastRebalanceTimestampKeys();
-        assertEq(keys.length, 1);
-        assertEq(keys[0], address(mockWETH));
-    }
-
     function test_GetBalance() public {
         this.doInitialize();
         uint256 depositAmount = 5 ether;
@@ -346,12 +308,12 @@ contract TestAssetManager is Test, Vault {
         assertEq(balance, 0);
     }
 
-    function test_RebalanceMaxPercentage_ExceedsAssetConfig() public {
+    function test_RebalanceMaxAmount_ExceedsRebalanceConfig() public {
         this.doInitialize();
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 0, maxRebalancePercentage: 999});
+        RebalanceConfig memory rebalanceConfig =
+            RebalanceConfig({minimalBalance: 0, minimalDuration: 7 days, maxAmount: 999});
         vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
         uint256 fromBalance = 1000 * 1e18;
         uint256 sellAmount = 100 * 1e18;
 
@@ -361,20 +323,20 @@ contract TestAssetManager is Test, Vault {
         uint256 buyAmount = 10 * 1e6;
         bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
 
-        vm.expectRevert(RebalanceMaxPercentage.selector);
+        vm.expectRevert(RebalanceMaxAmount.selector);
         vm.prank(assetManagerAddress);
         this.ammRebalance(
             address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData
         );
     }
 
-    function test_RebalanceMaxPercentage_WithinLimit() public {
+    function test_RebalanceMaxAmount_WithinLimit() public {
         this.doInitialize();
 
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 0, maxRebalancePercentage: 1000});
+        RebalanceConfig memory rebalanceConfig =
+            RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 1000});
         vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
 
         uint256 fromBalance = 1000 * 1e18;
         uint256 sellAmount = 100 * 1e18;
@@ -397,13 +359,12 @@ contract TestAssetManager is Test, Vault {
         assertEq(MockERC20(mockUSDT).balanceOf(address(this)), buyAmount);
     }
 
-    function test_RebalanceMaxPercentage_ZeroSkipsCheck() public {
+    function test_RebalanceMaxAmount_ZeroSkipsCheck() public {
         this.doInitialize();
 
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 0, maxRebalancePercentage: 0});
+        RebalanceConfig memory rebalanceConfig = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
 
         uint256 fromBalance = 1000 * 1e18;
         uint256 sellAmount = 500 * 1e18;
@@ -425,10 +386,9 @@ contract TestAssetManager is Test, Vault {
 
     function test_CheckRebalanceDisabledUntilTimestamp_RevertsWhenBeforeTimestamp() public {
         this.doInitialize();
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 0, maxRebalancePercentage: 0});
+        RebalanceConfig memory rebalanceConfig = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
 
         uint256 disabledUntil = block.timestamp + 100;
         vm.prank(assetManagerAddress);
@@ -450,10 +410,9 @@ contract TestAssetManager is Test, Vault {
 
     function test_CheckRebalanceDisabledUntilTimestamp_SucceedsAfterTimestamp() public {
         this.doInitialize();
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 0, maxRebalancePercentage: 0});
+        RebalanceConfig memory rebalanceConfig = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
 
         uint256 disabledUntil = block.timestamp + 100;
         vm.prank(assetManagerAddress);
@@ -479,10 +438,9 @@ contract TestAssetManager is Test, Vault {
 
     function test_CheckRebalanceDisabledUntilTimestamp_SucceedsWhenNeverDisabled() public {
         this.doInitialize();
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 0, maxRebalancePercentage: 0});
+        RebalanceConfig memory rebalanceConfig = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
 
         uint256 sellAmount = 1 * 1e18;
         uint256 buyAmount = 10 * 1e6;
@@ -896,23 +854,23 @@ contract TestAssetManager is Test, Vault {
         );
     }
 
-    function test_intentRebalance_RevertMaxPercentage() public {
+    function test_intentRebalance_RevertMaxAmount() public {
         this.doInitialize();
         address[] memory intentProviders_ = new address[](1);
         intentProviders_[0] = address(mockIntentProvider);
         vm.prank(ownerAddress);
         this.addIntentProviders(intentProviders_);
 
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 0, maxRebalancePercentage: 1000});
+        RebalanceConfig memory rebalanceConfig =
+            RebalanceConfig({minimalBalance: 0, minimalDuration: 7 days, maxAmount: 100});
         vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
 
         uint256 balance = 10 ether;
-        uint256 sellAmount = 2 ether;
+        uint256 sellAmount = 101;
         deal(address(mockWETH), address(this), balance);
 
-        vm.expectRevert(RebalanceMaxPercentage.selector);
+        vm.expectRevert(RebalanceMaxAmount.selector);
         vm.prank(assetManagerAddress);
         this.intentRebalance(
             address(mockIntentProvider),
@@ -932,10 +890,10 @@ contract TestAssetManager is Test, Vault {
         vm.prank(ownerAddress);
         this.addIntentProviders(intentProviders_);
 
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 5 ether, minimalDurationBetweenRebalances: 0, maxRebalancePercentage: 0});
+        RebalanceConfig memory rebalanceConfig =
+            RebalanceConfig({minimalBalance: 5 ether, minimalDuration: 7 days, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
 
         uint256 balance = 6 ether;
         uint256 sellAmount = 2 ether;
@@ -961,10 +919,10 @@ contract TestAssetManager is Test, Vault {
         vm.prank(ownerAddress);
         this.addIntentProviders(intentProviders_);
 
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 3600, maxRebalancePercentage: 0});
+        RebalanceConfig memory rebalanceConfig =
+            RebalanceConfig({minimalBalance: 0, minimalDuration: 3600, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
 
         uint256 sellAmount = 1 ether;
         uint256 buyAmountMin = 10 * 1e6;
@@ -991,10 +949,10 @@ contract TestAssetManager is Test, Vault {
         vm.prank(ownerAddress);
         this.addIntentProviders(intentProviders_);
 
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 3600, maxRebalancePercentage: 0});
+        RebalanceConfig memory rebalanceConfig =
+            RebalanceConfig({minimalBalance: 0, minimalDuration: 3600, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
 
         uint256 sellAmount = 1 ether;
         uint256 buyAmountMin = 10 * 1e6;
@@ -1150,131 +1108,5 @@ contract TestAssetManager is Test, Vault {
         bytes memory cancelData = abi.encode(bytes32(0));
         vm.prank(assetManagerAddress);
         this.cancelIntentRebalance(address(mockIntentProvider), cancelData);
-    }
-
-    function test_cancelIntentRebalance_RestoresCooldownTimestamp() public {
-        this.doInitialize();
-        address[] memory intentProviders_ = new address[](1);
-        intentProviders_[0] = address(mockIntentProvider);
-        vm.prank(ownerAddress);
-        this.addIntentProviders(intentProviders_);
-
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 3600, maxRebalancePercentage: 0});
-        vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
-
-        uint256 sellAmount = 1 ether;
-        uint32 validTo = uint32(block.timestamp + 3600);
-        deal(address(mockWETH), address(this), sellAmount * 2);
-
-        vm.prank(assetManagerAddress);
-        this.intentRebalance(
-            address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, validTo, true
-        );
-
-        assertEq(this.lastRebalanceTimestamps(address(mockWETH)), block.timestamp);
-
-        bytes memory cancelData = abi.encode(bytes32(0));
-        vm.prank(assetManagerAddress);
-        this.cancelIntentRebalance(address(mockIntentProvider), cancelData);
-
-        assertEq(this.lastRebalanceTimestamps(address(mockWETH)), 0, "timestamp must be restored after cancel");
-
-        vm.prank(assetManagerAddress);
-        this.intentRebalance(
-            address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, validTo, true
-        );
-    }
-
-    function test_cancelIntentRebalance_RestoresPreviousCooldownTimestamp() public {
-        this.doInitialize();
-        address[] memory intentProviders_ = new address[](1);
-        intentProviders_[0] = address(mockIntentProvider);
-        vm.prank(ownerAddress);
-        this.addIntentProviders(intentProviders_);
-
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 30, maxRebalancePercentage: 0});
-        vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
-
-        uint256 sellAmount = 1 ether;
-        deal(address(mockWETH), address(this), sellAmount * 3);
-
-        vm.warp(block.timestamp + 31);
-        address clonedAMMProvider = this.cloneProviderForTesting(address(mockAMMProvider));
-        deal(address(mockUSDT), clonedAMMProvider, 10 * 1e6);
-        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), 10 * 1e6);
-        vm.prank(assetManagerAddress);
-        this.ammRebalance(
-            address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, swapData
-        );
-
-        uint256 firstRebalanceTs = this.lastRebalanceTimestamps(address(mockWETH));
-        assertEq(firstRebalanceTs, block.timestamp);
-
-        vm.warp(firstRebalanceTs + 31);
-        uint32 validTo = uint32(block.timestamp + 3600);
-        vm.prank(assetManagerAddress);
-        this.intentRebalance(
-            address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, validTo, true
-        );
-
-        assertGt(this.lastRebalanceTimestamps(address(mockWETH)), firstRebalanceTs);
-
-        bytes memory cancelData = abi.encode(bytes32(0));
-        vm.prank(assetManagerAddress);
-        this.cancelIntentRebalance(address(mockIntentProvider), cancelData);
-
-        assertEq(
-            this.lastRebalanceTimestamps(address(mockWETH)),
-            firstRebalanceTs,
-            "timestamp must be restored to pre-intent value after cancel"
-        );
-    }
-
-    function test_CleanExpiredIntentOrders_RestoresCooldownTimestamp() public {
-        this.doInitialize();
-        address[] memory intentProviders_ = new address[](1);
-        intentProviders_[0] = address(mockIntentProvider);
-        vm.prank(ownerAddress);
-        this.addIntentProviders(intentProviders_);
-
-        AssetConfig memory assetConfig =
-            AssetConfig({minimalBalance: 0, minimalDurationBetweenRebalances: 3600, maxRebalancePercentage: 0});
-        vm.prank(ownerAddress);
-        this.setAssetConfig(address(mockWETH), assetConfig);
-
-        uint256 sellAmount = 1 ether;
-        uint32 validTo = uint32(block.timestamp + 3600);
-        deal(address(mockWETH), address(this), sellAmount * 2);
-
-        vm.prank(assetManagerAddress);
-        this.intentRebalance(
-            address(mockIntentProvider), address(mockWETH), address(mockUSDT), sellAmount, 10 * 1e6, validTo, true
-        );
-
-        assertEq(this.lastRebalanceTimestamps(address(mockWETH)), block.timestamp);
-
-        vm.warp(validTo + 1);
-        uint256 tsAfterExpire = uint256(validTo) + 1;
-
-        bytes32[] memory digests = new bytes32[](1);
-        digests[0] = bytes32(0);
-        this.cleanExpiredIntentOrders(address(mockIntentProvider), digests);
-
-        assertEq(this.lastRebalanceTimestamps(address(mockWETH)), 0, "timestamp must be restored after cleanup");
-
-        vm.prank(assetManagerAddress);
-        this.intentRebalance(
-            address(mockIntentProvider),
-            address(mockWETH),
-            address(mockUSDT),
-            sellAmount,
-            10 * 1e6,
-            uint32(tsAfterExpire + 3600),
-            true
-        );
     }
 }

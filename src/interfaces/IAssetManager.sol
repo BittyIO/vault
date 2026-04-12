@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 error OnlyAssetManager();
 error RebalanceInMinimalTime();
-error RebalanceMaxPercentage();
+error RebalanceMaxAmount();
 error SellAmountMismatch();
 error BuyAmountNotEnough();
 error MinimalBalanceNotMet();
@@ -17,22 +17,36 @@ error DisableRebalanceUntilTimestampTooEarly();
 error RebalanceDisabled();
 
 interface IAssetManager {
-    struct AssetConfig {
+    /**
+     * @notice Asset config for the asset, Asset config can be something like the following:
+     * USDC, minimalBalance = 1000,000, minimalDuration = 13 seconds, maxAmount = 0
+     * WBTC, minimalBalance = 1, minimalDuration = 13 seconds, maxAmount = 0.1 WBTC
+     * WETH, minimalBalance = 10, minimalDuration = 13 seconds, maxAmount = 1 WETH
+     *
+     * @param minimalBalance The minimal balance of the asset.
+     * @param minimalDuration The minimal duration between rebalances.
+     * @param maxAmount The max rebalance amount of the asset.
+     */
+    struct RebalanceConfig {
         /**
          * @dev The minimal balance of the asset.
          * @param minimalBalance The minimal balance of the asset.
+         * @dev The minimal balance of the asset should remained after the rebalance, can be 0 to sell all of the asset.
+         *      If the minimal balance is not 0, use the receiver to get the remaining asset.
          */
         uint256 minimalBalance;
         /**
          * @dev The minimal duration between rebalances.
-         * @param minimalDurationBetweenRebalances The minimal duration between rebalances.
+         * @param minimalDuration The minimal duration between rebalances.
+         * @dev If the minimal duration is 0, means the asset config is null for the asset,
+         *      so make sure set it to a non-zero value if you want to use the rebalance config.
          */
-        uint256 minimalDurationBetweenRebalances;
+        uint256 minimalDuration;
         /**
-         * @dev The max ammRebalance percentage, 1-10000, 1000 means 10%
-         * @param maxRebalancePercentage The max ammRebalance percentage.
+         * @dev The max rebalance amount of the asset, if it is set to 0, means no limit for rebalance.
+         * @param maxAmount The max rebalance amount of the asset.
          */
-        uint256 maxRebalancePercentage;
+        uint256 maxAmount;
     }
 
     /**
@@ -69,7 +83,7 @@ interface IAssetManager {
      * @param assetAddress The address of the asset.
      * @param assetConfig The asset config.
      */
-    function setAssetConfig(address assetAddress, AssetConfig memory assetConfig) external;
+    function setRebalanceConfig(address assetAddress, RebalanceConfig memory assetConfig) external;
 
     /**
      * @notice Change the asset manager address.

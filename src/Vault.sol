@@ -77,12 +77,12 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         return _assetManager.getIntentProviders();
     }
 
-    function setAssetConfig(address assetAddress, IAssetManager.AssetConfig memory _assetConfig)
+    function setRebalanceConfig(address assetAddress, IAssetManager.RebalanceConfig memory _assetConfig)
         external
         override
         onlyOwner
     {
-        _assetManager.setAssetConfig(assetAddress, _assetConfig);
+        _assetManager.setRebalanceConfig(assetAddress, _assetConfig);
     }
 
     function supply(address lendingProvider, address assetAddress, uint256 amount) external override onlyAssetManager {
@@ -303,19 +303,11 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         return _assetManager.whiteList;
     }
 
-    function getAllAssetConfigKeys() external view returns (address[] memory) {
-        return _assetManager.getAllAssetConfigKeys();
-    }
-
-    function getAllLastRebalanceTimestampKeys() external view returns (address[] memory) {
-        return _assetManager.getAllLastRebalanceTimestampKeys();
-    }
-
     function lastRebalanceTimestamps(address assetAddress) external view returns (uint256) {
         return _assetManager.lastRebalanceTimestamps[assetAddress];
     }
 
-    function assetConfigs(address assetAddress) external view returns (IAssetManager.AssetConfig memory) {
-        return _assetManager.assetConfigs[assetAddress];
+    function rebalanceConfigs(address assetAddress) external view returns (IAssetManager.RebalanceConfig memory) {
+        return _assetManager.rebalanceConfigs[assetAddress];
     }
 }

@@ -241,14 +241,8 @@ library VaultLogic {
         return vaultStorage.stableCoins.values();
     }
 
-    function checkAsset(VaultStorage storage vaultStorage, address assetAddress) external view {
-        if (vaultStorage.whiteList.isAssetWhiteListed(assetAddress) && vaultStorage.assets.contains(assetAddress)) {
-            return;
-        }
-        if (
-            vaultStorage.whiteList.isStableCoinWhiteListed(assetAddress)
-                && vaultStorage.stableCoins.contains(assetAddress)
-        ) {
+    function checkAsset(VaultStorage storage logicStorage, address assetAddress) external view {
+        if (logicStorage.assets.contains(assetAddress) || logicStorage.stableCoins.contains(assetAddress)) {
             return;
         }
         revert NotWhiteListed();

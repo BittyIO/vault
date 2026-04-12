@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {IIntentProvider, ApprovalNotFound, OrderNotExpired} from "../interfaces/IIntentProvider.sol";
+import {
+    IIntentProvider,
+    ApprovalNotFound,
+    OrderNotExpired,
+    TwapNotFound,
+    TwapCompleted,
+    TwapIntervalNotElapsed,
+    TwapInvalidParams
+} from "../interfaces/IIntentProvider.sol";
 import {IGPv2Settlement} from "../libs/cow/GPv2Settlement.sol";
 import {GPv2Order} from "../libs/cow/GPv2Order.sol";
 import {IERC1271} from "../libs/cow/IERC1271.sol";
@@ -12,12 +20,12 @@ import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initia
 
 /**
  * @title CoW Swap Provider
- * @notice IIntentProvider implementation for CoW Protocol using EIP-1271 and PreSign
- * @dev CoW Protocol uses an off-chain order book. Orders are signed (PreSign or EIP-1271),
- *      submitted to the CoW API, and settled asynchronously by solvers.
- *      For use with AssetManager ammRebalance: an off-chain service must submit the order
- *      to the CoW API after swap() sets the PreSignature. Settlement occurs when
- *      a solver includes the order in a batch.
+ * @notice IIntentProvider implementation for CoW Protocol using EIP-1271 and PreSign.
+ * @dev Single orders use PreSign + EIP-1271 (`trade`).
+ *      TWAP orders slice the total sell amount into N equal parts (`twapTrade`).
+ *      Each part is a full GPv2 order: the provider approves the digest and sets a PreSignature,
+ *      then an off-chain keeper calls twapTrade again after each interval elapses.
+ *      Settlement of each slice is handled asynchronously by CoW solvers.
  */
 contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     using SafeERC20 for IERC20;
@@ -31,10 +39,12 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     IGPv2Settlement public immutable settlement;
     address public immutable vaultRelayer;
 
+    // ─────────────── single-order state ───────────────
+
     // @dev Approved order digests for EIP-1271 signing (owner => digest => approved)
     mapping(address => mapping(bytes32 => bool)) public approvedOrderDigests;
 
-    /// @dev Sell token used for a given order digest (set in trade) so cancelTrade can revoke vault relayer allowance
+    /// @dev Sell token used for a given order digest so cancelTrade can revoke vault relayer allowance
     mapping(bytes32 => address) private _digestToSellToken;
 
     /// @dev validTo for a given order digest, used by cleanExpiredOrders
@@ -43,6 +53,54 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     /// @dev Sell amount for a given order digest, used by cleanExpiredOrders to decrease allowance precisely
     mapping(bytes32 => uint256) private _digestToSellAmount;
 
+    // ─────────────── TWAP state ───────────────
+
+    /**
+     * @dev On-chain state for an active TWAP schedule.
+     *      Tokens are transferred in full on creation; vaultRelayer allowance is
+     *      increased by `sliceAmount` (or the final remainder) on every slice.
+     */
+    struct TwapOrder {
+        address sellToken;
+        address buyToken;
+        uint256 sliceAmount; // base amount per slice (totalSellAmount / numSlices)
+        uint256 remainingAmount; // tokens not yet allocated to any slice
+        uint256 minBuyAmountPerSlice; // minimum acceptable output per slice
+        uint32 interval; // minimum seconds between slice executions
+        uint32 sliceDuration; // validity window for each individual slice order
+        uint32 lastExecutedAt; // timestamp when the most recent slice was initiated
+        uint16 numSlices; // total number of slices
+        uint16 executedSlices; // slices initiated so far (1-indexed after creation)
+    }
+
+    mapping(bytes32 => TwapOrder) public twapOrders;
+
+    // ─────────────── events ───────────────
+
+    /**
+     * @notice Emitted when a new TWAP schedule is created (first slice included).
+     */
+    event TwapCreated(
+        bytes32 indexed twapId,
+        address sellToken,
+        address buyToken,
+        uint256 totalSellAmount,
+        uint16 numSlices,
+        uint32 interval
+    );
+
+    /**
+     * @notice Emitted each time a TWAP slice is initiated.
+     * @param sliceIndex 1-based index of the slice that was just initiated.
+     * @param sliceDigest The GPv2 order digest approved for this slice.
+     * @param validTo     The slice order expiry timestamp.
+     */
+    event TwapSliceInitiated(bytes32 indexed twapId, uint16 sliceIndex, bytes32 sliceDigest, uint32 validTo);
+
+    /**
+     * @param settlement_   GPv2Settlement contract address.
+     * @param vaultRelayer_ CoW vault relayer address (approved for ERC-20 pulls during settlement).
+     */
     constructor(address settlement_, address vaultRelayer_) {
         settlement = IGPv2Settlement(settlement_);
         vaultRelayer = vaultRelayer_;
@@ -55,16 +113,14 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     receive() external payable {}
 
     /**
-     * @notice Swap via CoW Protocol using PreSign (sign to sell) and EIP-1271 (sign to buy)
-     * @dev Sets PreSignature for the order and approves digest for EIP-1271.
-     *      Tokens are transferred to this contract. Order must be submitted to CoW API
-     *      by an off-chain service. Settlement is asynchronous (solver fills the order).
-     *      NOTE: Cannot be used with AssetManager.ammRebalance() as-is - settlement is async.
-     *      Use with a custom flow or keeper that submits orders to CoW API.
+     * @notice Submit a single CoW Protocol order using PreSign + EIP-1271.
+     * @dev Tokens are transferred to this contract and the vault relayer allowance is increased.
+     *      The order must be submitted to the CoW API by an off-chain service.
+     *      Settlement is asynchronous (solver fills the order in a batch).
+     *
      * @param data Encoded: (sellToken, sellAmount, buyToken, buyAmountMin) or
      *             (sellToken, sellAmount, buyToken, buyAmountMin, validTo) or
      *             (sellToken, sellAmount, buyToken, buyAmountMin, validTo, isSellOrder)
-     *             isSellOrder: true = sell order (default), false = buy order
      */
     function trade(bytes memory data) external override onlyOwner {
         (
@@ -112,25 +168,169 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     }
 
     /**
-     * @notice Approve an order digest for EIP-1271 signing
-     * @dev Allows the owner to pre-approve orders that can be submitted to CoW API
-     *      with EIP-1271 scheme. When CoW settlement verifies, it calls isValidSignature.
-     * @param orderDigest The EIP-712 order digest to approve
+     * @notice Execute one slice of a TWAP order via CoW Protocol.
+     * @dev Two call shapes:
+     *   Create (224 bytes): abi.encode(sellToken, totalSellAmount, buyToken,
+     *       minBuyAmountPerSlice, interval, sliceDuration, numSlices)
+     *     – Transfers totalSellAmount from caller, initialises TWAP state, computes and
+     *       approves the first slice's GPv2 order digest, increases vaultRelayer allowance
+     *       by sliceAmount.  Returns the twapId via TwapCreated event.
+     *   Continue (32 bytes): abi.encode(twapId)
+     *     – Validates that the inter-slice interval has elapsed, computes and approves
+     *       the next slice's GPv2 order digest, increases vaultRelayer allowance.
+     *
+     *   The off-chain keeper must:
+     *   1. Call twapTrade with the Create shape to start the schedule.
+     *   2. After each interval elapses, call twapTrade with the Continue shape.
+     *   3. Submit each slice order to the CoW API; a solver will settle it.
+     */
+    function twapTrade(bytes memory data) external override onlyOwner {
+        if (data.length == 32) {
+            bytes32 twapId = abi.decode(data, (bytes32));
+            _continueTwap(twapId);
+        } else {
+            _createTwap(data);
+        }
+        emit Trade(data, msg.sender, address(this));
+    }
+
+    function _createTwap(bytes memory data) internal {
+        (
+            address sellToken,
+            uint256 totalSellAmount,
+            address buyToken,
+            uint256 minBuyAmountPerSlice,
+            uint32 interval,
+            uint32 sliceDuration,
+            uint16 numSlices
+        ) = abi.decode(data, (address, uint256, address, uint256, uint32, uint32, uint16));
+
+        if (numSlices < 2 || totalSellAmount == 0 || interval == 0 || sliceDuration == 0) {
+            revert TwapInvalidParams();
+        }
+
+        IERC20(sellToken).safeTransferFrom(msg.sender, address(this), totalSellAmount);
+
+        uint256 sliceAmount = totalSellAmount / numSlices;
+
+        bytes32 twapId =
+            keccak256(abi.encode(owner(), sellToken, buyToken, totalSellAmount, numSlices, interval, block.timestamp));
+
+        twapOrders[twapId] = TwapOrder({
+            sellToken: sellToken,
+            buyToken: buyToken,
+            sliceAmount: sliceAmount,
+            remainingAmount: totalSellAmount - sliceAmount,
+            minBuyAmountPerSlice: minBuyAmountPerSlice,
+            interval: interval,
+            sliceDuration: sliceDuration,
+            lastExecutedAt: uint32(block.timestamp),
+            numSlices: numSlices,
+            executedSlices: 1
+        });
+
+        (bytes32 sliceDigest, uint32 validTo) =
+            _approveSlice(sellToken, buyToken, sliceAmount, minBuyAmountPerSlice, sliceDuration);
+
+        emit TwapCreated(twapId, sellToken, buyToken, totalSellAmount, numSlices, interval);
+        emit TwapSliceInitiated(twapId, 1, sliceDigest, validTo);
+    }
+
+    function _continueTwap(bytes32 twapId) internal {
+        TwapOrder storage order = twapOrders[twapId];
+        if (order.numSlices == 0) revert TwapNotFound();
+        if (order.executedSlices >= order.numSlices) revert TwapCompleted();
+        if (block.timestamp < order.lastExecutedAt + order.interval) revert TwapIntervalNotElapsed();
+
+        uint16 nextSlice = order.executedSlices + 1;
+        bool isLastSlice = nextSlice == order.numSlices;
+        uint256 thisSliceAmount = isLastSlice ? order.remainingAmount : order.sliceAmount;
+
+        (bytes32 sliceDigest, uint32 validTo) = _approveSlice(
+            order.sellToken, order.buyToken, thisSliceAmount, order.minBuyAmountPerSlice, order.sliceDuration
+        );
+
+        order.remainingAmount -= thisSliceAmount;
+        order.lastExecutedAt = uint32(block.timestamp);
+        order.executedSlices = nextSlice;
+
+        emit TwapSliceInitiated(twapId, nextSlice, sliceDigest, validTo);
+    }
+
+    /// @dev Builds a GPv2 sell order for one slice, approves its digest, sets PreSignature,
+    ///      and increases vaultRelayer allowance.  Returns the digest and validTo.
+    function _approveSlice(
+        address sellToken,
+        address buyToken,
+        uint256 sliceAmount,
+        uint256 minBuyAmount,
+        uint32 sliceDuration
+    ) internal returns (bytes32 sliceDigest, uint32 validTo) {
+        validTo = uint32(block.timestamp + sliceDuration);
+
+        GPv2Order.Data memory order = GPv2Order.Data({
+            sellToken: IERC20(sellToken),
+            buyToken: IERC20(buyToken),
+            receiver: owner(),
+            sellAmount: sliceAmount,
+            buyAmount: minBuyAmount,
+            validTo: validTo,
+            appData: bytes32(0),
+            feeAmount: 0,
+            kind: GPv2Order.KIND_SELL,
+            partiallyFillable: false,
+            sellTokenBalance: GPv2Order.BALANCE_ERC20,
+            buyTokenBalance: GPv2Order.BALANCE_ERC20
+        });
+
+        sliceDigest = GPv2Order.hash(order, settlement.domainSeparator());
+        bytes memory orderUid = GPv2Order.packOrderUid(sliceDigest, address(this), validTo);
+
+        IERC20(sellToken).safeIncreaseAllowance(vaultRelayer, sliceAmount);
+        approvedOrderDigests[owner()][sliceDigest] = true;
+        settlement.setPreSignature(orderUid, true);
+
+        _digestToSellToken[sliceDigest] = sellToken;
+        _digestToSellAmount[sliceDigest] = sliceAmount;
+        _digestToValidTo[sliceDigest] = validTo;
+    }
+
+    /**
+     * @notice Cancel an active TWAP schedule and recover unallocated tokens.
+     * @dev Only transfers back tokens not yet allocated to any slice (remainingAmount).
+     *      The current active slice (if any) must be cancelled separately via cancelTrade,
+     *      using the sliceDigest emitted in the most recent TwapSliceInitiated event.
+     * @param twapId The TWAP schedule identifier from the TwapCreated event.
+     */
+    function cancelTwap(bytes32 twapId) external onlyOwner {
+        TwapOrder storage order = twapOrders[twapId];
+        if (order.numSlices == 0) revert TwapNotFound();
+
+        address sellToken = order.sellToken;
+        uint256 remaining = order.remainingAmount;
+        delete twapOrders[twapId];
+
+        if (remaining > 0) IERC20(sellToken).safeTransfer(msg.sender, remaining);
+    }
+
+    /**
+     * @notice Approve an order digest for EIP-1271 signing (single orders).
+     * @param orderDigest The EIP-712 order digest to approve.
      */
     function approveOrderDigest(bytes32 orderDigest) external onlyOwner {
         approvedOrderDigests[owner()][orderDigest] = true;
     }
 
     /**
-     * @notice Revoke an approved order digest
-     * @param orderDigest The order digest to revoke
+     * @notice Revoke an approved order digest.
+     * @param orderDigest The EIP-712 order digest to revoke.
      */
     function revokeOrderDigest(bytes32 orderDigest) external onlyOwner {
         approvedOrderDigests[owner()][orderDigest] = false;
     }
 
     /**
-     * @notice Cancel a trade by revoking order digest and PreSignature
+     * @notice Cancel a single trade by revoking its order digest and PreSignature.
      * @param data abi.encode(bytes32 orderDigest, uint32 validTo)
      */
     function cancelTrade(bytes memory data) external override onlyOwner {
@@ -157,9 +357,7 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
     }
 
     /**
-     * @notice EIP-1271: Verify signature for CoW Protocol orders
-     * @dev Returns MAGICVALUE if the order digest is approved by the owner
-     * @param hash The order digest (EIP-712 hash of the order)
+     * @notice EIP-1271 signature verification for GPv2Settlement.
      */
     function isValidSignature(
         bytes32 hash,
@@ -170,15 +368,12 @@ contract CoWSwapProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         override(IERC1271, IIntentProvider)
         returns (bytes4)
     {
-        if (approvedOrderDigests[owner()][hash]) {
-            return MAGICVALUE;
-        }
+        if (approvedOrderDigests[owner()][hash]) return MAGICVALUE;
         return 0xffffffff;
     }
 
     /**
-     * @notice Compute order digest for a given order (for off-chain order submission)
-     * @param order The CoW Protocol order
+     * @notice Compute order digest for a given order (for off-chain order submission).
      */
     function getOrderDigest(GPv2Order.Data memory order) external view returns (bytes32) {
         return GPv2Order.hash(order, settlement.domainSeparator());

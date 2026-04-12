@@ -25,7 +25,8 @@ library mainnet {
 
     address public constant STETH = 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84;
     address public constant UNSTETH = 0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1;
-    address public constant WHITE_LIST = 0x00000000D03B5064d79fC6E01835bBF6ee41dc54;
+    address public constant WHITE_LIST = 0x00000000F79c187e28a5d84Eac48C475CBB574a5;
+    address public constant SUBSCRIPTION = 0x0000000099e7d10b6169A893C037a4c4e237B853;
     address public constant VAULT_IMPL = 0x8D1a105Bbd2818A8D5915f726259aFE0ff0680b6;
 }
 
@@ -53,6 +54,7 @@ library sepolia {
 
     address public constant STETH = 0x3e3FE7dBc6B4C189E7128855dD526361c49b40Af;
     address public constant UNSTETH = 0x1583C7b3f4C3B008720E6BcE5726336b0aB25fdd;
-    address public constant WHITE_LIST = 0x00000000D03B5064d79fC6E01835bBF6ee41dc54;
+    address public constant WHITE_LIST = 0x00000000F79c187e28a5d84Eac48C475CBB574a5;
+    address public constant SUBSCRIPTION = 0x0000000099e7d10b6169A893C037a4c4e237B853;
     address public constant VAULT_IMPL = 0x8D1a105Bbd2818A8D5915f726259aFE0ff0680b6;
 }
