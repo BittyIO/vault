@@ -14,7 +14,8 @@ import {IFactory, VaultAlreadyDeployed} from "./interfaces/IFactory.sol";
  * @dev Each owner address will generate a unique, deterministic Vault address
  */
 contract Factory is IFactory, Initializable {
-    IWhiteList public whiteList;
+    address public whiteListAddress;
+    address public subscriptionAddress;
     address public vaultImplementation;
     address public wethAddress;
     /**
@@ -24,11 +25,12 @@ contract Factory is IFactory, Initializable {
      */
     event VaultDeployed(address indexed vault, address indexed owner);
 
-    function initialize(address vaultImplementation_, address whiteListAddress_, address wethAddress_)
-        external
-        override
-        initializer
-    {
+    function initialize(
+        address vaultImplementation_,
+        address whiteListAddress_,
+        address subscriptionAddress_,
+        address wethAddress_
+    ) external override initializer {
         if (vaultImplementation_ == address(0)) {
             revert AddressZero();
         }
@@ -36,11 +38,15 @@ contract Factory is IFactory, Initializable {
         if (whiteListAddress_ == address(0)) {
             revert AddressZero();
         }
-        whiteList = IWhiteList(whiteListAddress_);
+        whiteListAddress = whiteListAddress_;
         if (wethAddress_ == address(0)) {
             revert AddressZero();
         }
         wethAddress = wethAddress_;
+        if (subscriptionAddress_ == address(0)) {
+            revert AddressZero();
+        }
+        subscriptionAddress = subscriptionAddress_;
     }
 
     function deployVault(
@@ -64,7 +70,8 @@ contract Factory is IFactory, Initializable {
 
         Vault(payable(vault))
             .initialize(
-                address(whiteList),
+                whiteListAddress,
+                subscriptionAddress,
                 wethAddress,
                 assetAddresses,
                 stableCoinAddresses,
@@ -94,6 +101,7 @@ contract Factory is IFactory, Initializable {
         address[] memory ammProviders,
         address[] memory intentProviders
     ) internal view {
+        IWhiteList whiteList = IWhiteList(whiteListAddress);
         for (uint256 i = 0; i < assetAddresses.length; i++) {
             if (!whiteList.isAssetWhiteListed(assetAddresses[i])) revert NotWhiteListed();
         }

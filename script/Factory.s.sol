@@ -16,8 +16,9 @@ contract FactoryScript is DeployScript {
         console2.log("Factory deployed at", address(factory));
 
         address whiteList = getAddress("WHITE_LIST");
+        address subscription = getAddress("SUBSCRIPTION");
         address weth = getAddress("WETH");
-        factory.initialize(address(vaultImplementation), whiteList, weth);
+        factory.initialize(address(vaultImplementation), whiteList, subscription, weth);
 
         saveAddress("VAULT_FACTORY", address(factory));
     }

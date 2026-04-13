@@ -35,6 +35,7 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
 
     function initialize(
         address whiteListAddress,
+        address subscriptionAddress,
         address wethAddress_,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
@@ -44,7 +45,7 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         address[] memory intentProviders_
     ) public initializer {
         _transferOwnership(tx.origin);
-        _vault.initialize(wethAddress_, whiteListAddress);
+        _vault.initialize(wethAddress_, whiteListAddress, subscriptionAddress);
         _vault.addAssets(assetAddresses);
         _vault.addStableCoins(stableCoinAddresses);
         _assetManager.initialize(whiteListAddress);

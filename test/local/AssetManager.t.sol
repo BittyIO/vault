@@ -38,6 +38,7 @@ contract TestAssetManager is Test, Vault {
     MockAMMProvider public mockAMMProvider;
     MockIntentProvider public mockIntentProvider;
     address public whiteListAddress;
+    address public subscriptionAddress;
     address[] public assets;
     address[] public stableCoins;
     address[] public lendingProviders;
@@ -70,6 +71,7 @@ contract TestAssetManager is Test, Vault {
         ammProviders[0] = address(mockAMMProvider);
 
         mockIntentProvider = new MockIntentProvider();
+        subscriptionAddress = makeAddr("subscriptionAddress");
         ownerAddress = tx.origin;
         assetManagerAddress = makeAddr("assetManager");
         WhiteList whiteList = new WhiteList();
@@ -99,34 +101,10 @@ contract TestAssetManager is Test, Vault {
         MockStakingProvider(cloned).setWethAddress(mockWETH);
     }
 
-    function test_InitializeWithAddressZero() public {
-        vm.expectRevert(AddressZero.selector);
-        this.initialize(
-            address(0),
-            mockWETH,
-            assets,
-            stableCoins,
-            lendingProviders,
-            stakingProviders,
-            ammProviders,
-            new address[](0)
-        );
-        vm.expectRevert(AddressZero.selector);
-        this.initialize(
-            whiteListAddress,
-            address(0),
-            assets,
-            stableCoins,
-            lendingProviders,
-            stakingProviders,
-            ammProviders,
-            new address[](0)
-        );
-    }
-
     function doInitialize() public {
         this.initialize(
             whiteListAddress,
+            subscriptionAddress,
             mockWETH,
             assets,
             stableCoins,

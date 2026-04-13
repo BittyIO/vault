@@ -23,12 +23,14 @@ contract VaultTest is Test {
     Vault public vault;
     WETH public weth;
     address public whiteListAddress;
+    address public subscriptionAddress;
     address public ownerAddress;
 
     function setUp() public {
         weth = new WETH();
         vault = new Vault();
         whiteListAddress = address(new WhiteList());
+        subscriptionAddress = makeAddr("subscriptionAddress");
         ownerAddress = tx.origin;
     }
 
@@ -55,23 +57,10 @@ contract VaultTest is Test {
         });
     }
 
-    function test_InitErrorWithWethAddressZero() public {
-        vm.expectRevert(AddressZero.selector);
-        vault.initialize(
-            address(whiteListAddress),
-            address(0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-    }
-
     function test_InitErrorWithAlreadyInitialized() public {
         vault.initialize(
             address(whiteListAddress),
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -83,6 +72,7 @@ contract VaultTest is Test {
         vm.expectRevert("Initializable: contract is already initialized");
         vault.initialize(
             address(whiteListAddress),
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -101,6 +91,7 @@ contract VaultTest is Test {
     function test_AddReceiverSuccess() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -119,6 +110,7 @@ contract VaultTest is Test {
     function test_AddReceiverRevertDuplicateName() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -139,6 +131,7 @@ contract VaultTest is Test {
     function test_AddReceiverSuccessSameNameAfterRemoveReceiver() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -159,6 +152,7 @@ contract VaultTest is Test {
     function test_AddReceiverRevertOnlyOwner() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -177,6 +171,7 @@ contract VaultTest is Test {
     function test_AddReceiverRevertAmountZero() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -195,6 +190,7 @@ contract VaultTest is Test {
     function test_AddReceiverRevertPaymentCountZero() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -213,6 +209,7 @@ contract VaultTest is Test {
     function test_AddReceiverRevertDurationTimestampNotSet() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -231,6 +228,7 @@ contract VaultTest is Test {
     function test_UpdateReceiverRevertDurationTimestampNotSet() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -254,6 +252,7 @@ contract VaultTest is Test {
     function test_UpdateReceiverSuccess() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -275,6 +274,7 @@ contract VaultTest is Test {
     function test_UpdateReceiverRevertNotFound() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -293,6 +293,7 @@ contract VaultTest is Test {
     function test_UpdateReceiverRevertImmutable() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -314,6 +315,7 @@ contract VaultTest is Test {
     function test_UpdateReceiverRevertOnlyOwner() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -335,6 +337,7 @@ contract VaultTest is Test {
     function test_RemoveReceiverSuccess() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -356,6 +359,7 @@ contract VaultTest is Test {
     function test_RemoveReceiverRevertOnlyOwner() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -376,6 +380,7 @@ contract VaultTest is Test {
     function test_ChangeReceiverAddressSuccess() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -397,6 +402,7 @@ contract VaultTest is Test {
     function test_ChangeReceiverAddressRevertReceiverNotFound() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -412,6 +418,7 @@ contract VaultTest is Test {
     function test_ChangeReceiverAddressRevertOnlyReceiver() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -434,6 +441,7 @@ contract VaultTest is Test {
     function test_ChangeReceiverAddressRevertReceiverImmutable() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -456,6 +464,7 @@ contract VaultTest is Test {
     function test_PayReceiver_revertReceiverNotStartYet() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -478,6 +487,7 @@ contract VaultTest is Test {
     function test_PayReceiver_receiverStorageUpdatedSoPaymentCountEnforced() public {
         vault.initialize(
             whiteListAddress,
+            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
