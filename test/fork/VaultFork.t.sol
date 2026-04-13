@@ -68,7 +68,7 @@ contract TestVaultFork is Test {
 
         vaultImpl = new Vault();
         factory = new Factory();
-        factory.initialize(address(vaultImpl), address(whiteList), mainnet.WETH);
+        factory.initialize(address(vaultImpl), address(whiteList), makeAddr("subscription"), mainnet.WETH);
 
         address vaultAddr = factory.deployVault(
             assets, stableCoins, lendingProviders, stakingProviders, ammProviders, new address[](0)

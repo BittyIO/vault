@@ -13,10 +13,16 @@ interface IFactory {
      * @notice Initialize the factory.
      * @param vaultImplementation_ The address of the vault implementation.
      * @param whiteListAddress_ The address of the white list.
+     * @param subscriptionAddress_ The address of the subscription.
      * @param wethAddress_ The address of the weth.
      * @dev Initialize the factory.
      */
-    function initialize(address vaultImplementation_, address whiteListAddress_, address wethAddress_) external;
+    function initialize(
+        address vaultImplementation_,
+        address whiteListAddress_,
+        address subscriptionAddress_,
+        address wethAddress_
+    ) external;
 
     /**
      * @notice Deploy the vault.

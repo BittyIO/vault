@@ -10,6 +10,7 @@ import {
     InsufficientBalance
 } from "../interfaces/IVault.sol";
 import {IWhiteList, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
+import {ISubscription} from "subscription-contracts/src/interfaces/ISubscription.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {VaultStorage} from "./Storages.sol";
@@ -33,63 +34,60 @@ library VaultLogic {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
 
-    modifier onlyInitialized(VaultStorage storage logicStorage) {
-        _onlyInitialized(logicStorage);
+    modifier onlyInitialized(VaultStorage storage vaultStorage) {
+        _onlyInitialized(vaultStorage);
         _;
     }
 
-    function _onlyInitialized(VaultStorage storage logicStorage) private view {
-        if (!logicStorage.isInitialized) {
+    function _onlyInitialized(VaultStorage storage vaultStorage) private view {
+        if (!vaultStorage.isInitialized) {
             revert NotInitialized();
         }
     }
 
-    modifier onlyNotInitialized(VaultStorage storage logicStorage) {
-        _onlyNotInitialized(logicStorage);
+    modifier onlyNotInitialized(VaultStorage storage vaultStorage) {
+        _onlyNotInitialized(vaultStorage);
         _;
     }
 
-    function _onlyNotInitialized(VaultStorage storage logicStorage) private view {
-        if (logicStorage.isInitialized) {
+    function _onlyNotInitialized(VaultStorage storage vaultStorage) private view {
+        if (vaultStorage.isInitialized) {
             revert AlreadyInitialized();
         }
     }
 
-    function initialize(VaultStorage storage logicStorage, address weth, address whiteListAddress)
-        external
-        onlyNotInitialized(logicStorage)
-    {
-        if (weth == address(0)) {
-            revert AddressZero();
-        }
-        logicStorage.weth = weth;
-        if (whiteListAddress == address(0)) {
-            revert AddressZero();
-        }
-        logicStorage.whiteList = IWhiteList(whiteListAddress);
-        logicStorage.isInitialized = true;
+    function initialize(
+        VaultStorage storage vaultStorage,
+        address weth,
+        address whiteListAddress,
+        address subscriptionAddress
+    ) external onlyNotInitialized(vaultStorage) {
+        vaultStorage.weth = weth;
+        vaultStorage.whiteList = IWhiteList(whiteListAddress);
+        vaultStorage.subscription = ISubscription(subscriptionAddress);
+        vaultStorage.isInitialized = true;
     }
 
-    function addReceiver(VaultStorage storage logicStorage, string memory name, IVault.Receiver memory receiver)
+    function addReceiver(VaultStorage storage vaultStorage, string memory name, IVault.Receiver memory receiver)
         external
-        onlyInitialized(logicStorage)
+        onlyInitialized(vaultStorage)
     {
-        if (logicStorage.receivers[name].amount != 0) {
+        if (vaultStorage.receivers[name].amount != 0) {
             revert ReceiverNameAlreadyExists();
         }
         _checkReceiver(receiver);
-        logicStorage.receivers[name] = receiver;
+        vaultStorage.receivers[name] = receiver;
     }
 
-    function getReceiverAddress(VaultStorage storage logicStorage, string memory name) external view returns (address) {
-        return logicStorage.receivers[name].receiverAddress;
+    function getReceiverAddress(VaultStorage storage vaultStorage, string memory name) external view returns (address) {
+        return vaultStorage.receivers[name].receiverAddress;
     }
 
-    function changeReceiverAddress(VaultStorage storage logicStorage, string memory name, address newReceiverAddress)
+    function changeReceiverAddress(VaultStorage storage vaultStorage, string memory name, address newReceiverAddress)
         external
-        onlyInitialized(logicStorage)
+        onlyInitialized(vaultStorage)
     {
-        IVault.Receiver storage receiver = logicStorage.receivers[name];
+        IVault.Receiver storage receiver = vaultStorage.receivers[name];
         if (receiver.isImmutable) {
             revert ReceiverImmutable();
         }
@@ -99,11 +97,11 @@ library VaultLogic {
         receiver.receiverAddress = newReceiverAddress;
     }
 
-    function updateReceiver(VaultStorage storage logicStorage, string memory name, IVault.Receiver memory receiver)
+    function updateReceiver(VaultStorage storage vaultStorage, string memory name, IVault.Receiver memory receiver)
         external
-        onlyInitialized(logicStorage)
+        onlyInitialized(vaultStorage)
     {
-        IVault.Receiver memory existing = logicStorage.receivers[name];
+        IVault.Receiver memory existing = vaultStorage.receivers[name];
         if (existing.receiverAddress == address(0)) {
             revert ReceiverNotFound();
         }
@@ -111,7 +109,7 @@ library VaultLogic {
             revert ReceiverImmutable();
         }
         _checkReceiver(receiver);
-        logicStorage.receivers[name] = receiver;
+        vaultStorage.receivers[name] = receiver;
     }
 
     function _checkReceiver(IVault.Receiver memory receiver) internal pure {
@@ -129,27 +127,27 @@ library VaultLogic {
         }
     }
 
-    function removeReceiver(VaultStorage storage logicStorage, string memory name)
+    function removeReceiver(VaultStorage storage vaultStorage, string memory name)
         external
-        onlyInitialized(logicStorage)
+        onlyInitialized(vaultStorage)
     {
-        delete logicStorage.receivers[name];
+        delete vaultStorage.receivers[name];
     }
 
-    function ETHToWETH(VaultStorage storage logicStorage, uint256 amount) external onlyInitialized(logicStorage) {
+    function ETHToWETH(VaultStorage storage vaultStorage, uint256 amount) external onlyInitialized(vaultStorage) {
         uint256 ethBalance = address(this).balance;
         if (ethBalance < amount) {
             revert ETHBalanceNotEnough();
         }
-        WETH(payable(logicStorage.weth)).deposit{value: amount}();
+        WETH(payable(vaultStorage.weth)).deposit{value: amount}();
     }
 
-    function WETHToETH(VaultStorage storage logicStorage, uint256 amount) external onlyInitialized(logicStorage) {
-        uint256 wethBalance = IERC20(logicStorage.weth).balanceOf(address(this));
+    function WETHToETH(VaultStorage storage vaultStorage, uint256 amount) external onlyInitialized(vaultStorage) {
+        uint256 wethBalance = IERC20(vaultStorage.weth).balanceOf(address(this));
         if (wethBalance < amount) {
             revert WETHBalanceNotEnough();
         }
-        WETH(payable(logicStorage.weth)).withdraw(amount);
+        WETH(payable(vaultStorage.weth)).withdraw(amount);
     }
 
     function payReceiver(VaultStorage storage vaultStorage, string memory name) external {
@@ -186,70 +184,70 @@ library VaultLogic {
         asset.safeTransfer(receiverAddress, amount);
     }
 
-    function addAssets(VaultStorage storage logicStorage, address[] memory assetAddresses)
+    function addAssets(VaultStorage storage vaultStorage, address[] memory assetAddresses)
         external
-        onlyInitialized(logicStorage)
+        onlyInitialized(vaultStorage)
     {
-        if (logicStorage.addingAssetsDisabled) {
+        if (vaultStorage.addingAssetsDisabled) {
             revert AddingAssetsDisabled();
         }
         for (uint256 i = 0; i < assetAddresses.length; i++) {
-            if (!logicStorage.whiteList.isAssetWhiteListed(assetAddresses[i])) {
+            if (!vaultStorage.whiteList.isAssetWhiteListed(assetAddresses[i])) {
                 revert NotWhiteListed();
             }
-            logicStorage.assets.add(assetAddresses[i]);
+            vaultStorage.assets.add(assetAddresses[i]);
         }
     }
 
-    function disableAddingAssets(VaultStorage storage logicStorage) external onlyInitialized(logicStorage) {
-        logicStorage.addingAssetsDisabled = true;
+    function disableAddingAssets(VaultStorage storage vaultStorage) external onlyInitialized(vaultStorage) {
+        vaultStorage.addingAssetsDisabled = true;
     }
 
-    function removeAssets(VaultStorage storage logicStorage, address[] memory assetAddresses)
+    function removeAssets(VaultStorage storage vaultStorage, address[] memory assetAddresses)
         external
-        onlyInitialized(logicStorage)
+        onlyInitialized(vaultStorage)
     {
         for (uint256 i = 0; i < assetAddresses.length; i++) {
-            logicStorage.assets.remove(assetAddresses[i]);
+            vaultStorage.assets.remove(assetAddresses[i]);
         }
     }
 
-    function addStableCoins(VaultStorage storage logicStorage, address[] memory stableCoinAddresses)
+    function addStableCoins(VaultStorage storage vaultStorage, address[] memory stableCoinAddresses)
         external
-        onlyInitialized(logicStorage)
+        onlyInitialized(vaultStorage)
     {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            if (!logicStorage.whiteList.isStableCoinWhiteListed(stableCoinAddresses[i])) {
+            if (!vaultStorage.whiteList.isStableCoinWhiteListed(stableCoinAddresses[i])) {
                 revert NotWhiteListed();
             }
-            logicStorage.stableCoins.add(stableCoinAddresses[i]);
+            vaultStorage.stableCoins.add(stableCoinAddresses[i]);
         }
     }
 
-    function removeStableCoins(VaultStorage storage logicStorage, address[] memory stableCoinAddresses)
+    function removeStableCoins(VaultStorage storage vaultStorage, address[] memory stableCoinAddresses)
         external
-        onlyInitialized(logicStorage)
+        onlyInitialized(vaultStorage)
     {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            logicStorage.stableCoins.remove(stableCoinAddresses[i]);
+            vaultStorage.stableCoins.remove(stableCoinAddresses[i]);
         }
     }
 
-    function getAssets(VaultStorage storage logicStorage) external view returns (address[] memory) {
-        return logicStorage.assets.values();
+    function getAssets(VaultStorage storage vaultStorage) external view returns (address[] memory) {
+        return vaultStorage.assets.values();
     }
 
-    function getStableCoins(VaultStorage storage logicStorage) external view returns (address[] memory) {
-        return logicStorage.stableCoins.values();
+    function getStableCoins(VaultStorage storage vaultStorage) external view returns (address[] memory) {
+        return vaultStorage.stableCoins.values();
     }
 
-    function checkAsset(VaultStorage storage logicStorage, address assetAddress) external view {
-        if (logicStorage.whiteList.isAssetWhiteListed(assetAddress) && logicStorage.assets.contains(assetAddress)) {
+    function checkAsset(VaultStorage storage vaultStorage, address assetAddress) external view {
+        if (vaultStorage.whiteList.isAssetWhiteListed(assetAddress) && vaultStorage.assets.contains(assetAddress)) {
             return;
         }
         if (
-            logicStorage.whiteList.isStableCoinWhiteListed(assetAddress)
-                && logicStorage.stableCoins.contains(assetAddress)
+            vaultStorage.whiteList.isStableCoinWhiteListed(assetAddress)
+                && vaultStorage.stableCoins.contains(assetAddress)
         ) {
             return;
         }
