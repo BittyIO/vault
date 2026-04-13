@@ -6,7 +6,7 @@
     }
   },
   "lib/openzeppelin-contracts": {
-    "rev": "0457042"
+    "rev": "dc44c9f1a4c3b10af99492eed84f83ed244203f6"
   },
   "lib/solmate": {
     "rev": "89365b880c4f3c786bdd453d4b8e8fe410344a69"
@@ -15,6 +15,6 @@
     "rev": "f8bd6639e1d82b934592cd62bdaa291457b1ca43"
   },
   "lib/whitelist-contracts": {
-    "rev": "e750256dc6c4621acbfe9e407ce63e472b4ed960"
+    "rev": "d67095f53acd34335e56774add841465127e1f03"
   }
 }
