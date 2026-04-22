@@ -5,6 +5,11 @@ import {IProvider} from "./IProvider.sol";
 
 error ApprovalNotFound();
 error OrderNotExpired();
+error TwapNotFound();
+error TwapCompleted();
+error TwapIntervalNotElapsed();
+error TwapInvalidParams();
+error TwapNotSupported();
 
 /**
  * @title IIntentProvider
@@ -34,6 +39,13 @@ interface IIntentProvider is IProvider {
      * @param data The data of the trade.
      */
     function trade(bytes memory data) external;
+
+    /**
+     * @notice Trade the asset with TWAP.
+     * @dev Trade the asset with TWAP.
+     * @param data The data of the trade.
+     */
+    function twapTrade(bytes memory data) external;
 
     /**
      * @notice Check if the signature is valid.

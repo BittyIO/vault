@@ -56,6 +56,13 @@ contract FactoryTest is Test {
         intentProviders = new address[](1);
         intentProviders[0] = makeAddr("intentProvider");
         vm.startPrank(tx.origin);
+        WhiteList wl = WhiteList(whiteListAddress);
+        wl.grantRole(wl.ASSET_MANAGER_ROLE(), tx.origin);
+        wl.grantRole(wl.STABLE_COIN_MANAGER_ROLE(), tx.origin);
+        wl.grantRole(wl.LENDING_MANAGER_ROLE(), tx.origin);
+        wl.grantRole(wl.STAKING_MANAGER_ROLE(), tx.origin);
+        wl.grantRole(wl.AMM_MANAGER_ROLE(), tx.origin);
+        wl.grantRole(wl.INTENT_MANAGER_ROLE(), tx.origin);
         IWhiteList(whiteListAddress).addAssets(assetAddresses);
         IWhiteList(whiteListAddress).addStableCoins(stableCoinAddresses);
         IWhiteList(whiteListAddress).addLendingProviders(lendingProviders);

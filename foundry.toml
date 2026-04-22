@@ -13,6 +13,10 @@ optimizer_runs = 10000
 # Use IR compilation to support struct array copying from interfaces
 via_ir = true
 
+remappings = [
+    "subscription-contracts/=lib/subscription-contracts/",
+]
+
 fs_permissions = [{ access = "read-write", path = "./deployments" }]
 
 [rpc_endpoints]

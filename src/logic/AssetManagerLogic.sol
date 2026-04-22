@@ -8,7 +8,7 @@ import {
     DisableRebalanceUntilTimestampTooEarly,
     RebalanceDisabled,
     RebalanceInMinimalTime,
-    RebalanceMaxPercentage,
+    RebalanceMaxAmount,
     SellAmountMismatch,
     BuyAmountNotEnough,
     MinimalBalanceNotMet,
@@ -35,7 +35,7 @@ import {
     NotInitialized,
     AlreadyInitialized
 } from "../interfaces/IVault.sol";
-import {AssetManagerStorage, VaultStorage, PendingIntentOrder} from "./Storages.sol";
+import {AssetManagerStorage, VaultStorage} from "./Storages.sol";
 import {VaultLogic} from "./VaultLogic.sol";
 
 library AssetManagerLogic {
@@ -119,16 +119,15 @@ library AssetManagerLogic {
         return _cloneProvider(logicStorage, ammProvider);
     }
 
-    function setAssetConfig(
+    function setRebalanceConfig(
         AssetManagerStorage storage logicStorage,
         address assetAddress,
-        IAssetManager.AssetConfig memory assetConfig
+        IAssetManager.RebalanceConfig memory assetConfig
     ) external onlyInitialized(logicStorage) {
         if (assetAddress == address(0)) {
             revert AddressZero();
         }
-        logicStorage.assetConfigs[assetAddress] = assetConfig;
-        logicStorage.assetConfigKeys.add(assetAddress);
+        logicStorage.rebalanceConfigs[assetAddress] = assetConfig;
     }
 
     function supply(
@@ -343,36 +342,37 @@ library AssetManagerLogic {
     )
         private
         view
-        returns (IAssetManager.AssetConfig memory assetConfigFrom, IAssetManager.AssetConfig memory assetConfigTo)
+        returns (IAssetManager.RebalanceConfig memory configFrom, IAssetManager.RebalanceConfig memory configTo)
     {
         if (from == address(0)) {
             revert AddressZero();
         }
         VaultLogic.checkAsset(vaultStorage, to);
         _checkRebalanceDisabledUntilTimestamp(logicStorage);
-        assetConfigFrom = logicStorage.assetConfigs[from];
-        assetConfigTo = logicStorage.assetConfigs[to];
+        configFrom = logicStorage.rebalanceConfigs[from];
+        configTo = logicStorage.rebalanceConfigs[to];
+
+        if (configFrom.minimalDuration == 0 && configTo.minimalDuration == 0) {
+            return (configFrom, configTo);
+        }
+
         uint256 fromBalance = _addressBalance(from);
 
-        if (assetConfigFrom.maxRebalancePercentage > 0) {
-            if (sellAmount * 10000 > fromBalance * assetConfigFrom.maxRebalancePercentage) {
-                revert RebalanceMaxPercentage();
-            }
+        if (configFrom.maxAmount > 0 && configFrom.maxAmount < sellAmount) {
+            revert RebalanceMaxAmount();
         }
         if (
-            (assetConfigFrom.minimalDurationBetweenRebalances > 0
+            (configFrom.minimalDuration > 0
                     && logicStorage.lastRebalanceTimestamps[from] > 0
-                    && block.timestamp - logicStorage.lastRebalanceTimestamps[from]
-                        < assetConfigFrom.minimalDurationBetweenRebalances)
-                || (assetConfigTo.minimalDurationBetweenRebalances > 0
+                    && block.timestamp - logicStorage.lastRebalanceTimestamps[from] < configFrom.minimalDuration)
+                || (configTo.minimalDuration > 0
                     && logicStorage.lastRebalanceTimestamps[to] > 0
-                    && block.timestamp - logicStorage.lastRebalanceTimestamps[to]
-                        < assetConfigTo.minimalDurationBetweenRebalances)
+                    && block.timestamp - logicStorage.lastRebalanceTimestamps[to] < configTo.minimalDuration)
         ) {
             revert RebalanceInMinimalTime();
         }
-        if (assetConfigFrom.minimalBalance > 0) {
-            if (fromBalance < sellAmount || fromBalance - sellAmount < assetConfigFrom.minimalBalance) {
+        if (configFrom.minimalBalance > 0) {
+            if (fromBalance < sellAmount || fromBalance - sellAmount < configFrom.minimalBalance) {
                 revert MinimalBalanceNotMet();
             }
         }
@@ -380,18 +380,16 @@ library AssetManagerLogic {
 
     function _updateRebalanceTimestamps(
         AssetManagerStorage storage logicStorage,
-        IAssetManager.AssetConfig memory assetConfigFrom,
-        IAssetManager.AssetConfig memory assetConfigTo,
+        IAssetManager.RebalanceConfig memory assetConfigFrom,
+        IAssetManager.RebalanceConfig memory assetConfigTo,
         address from,
         address to
     ) private {
-        if (assetConfigFrom.minimalDurationBetweenRebalances > 0) {
+        if (assetConfigFrom.minimalDuration > 0) {
             logicStorage.lastRebalanceTimestamps[from] = block.timestamp;
-            logicStorage.lastRebalanceTimestampKeys.add(from);
         }
-        if (assetConfigTo.minimalDurationBetweenRebalances > 0) {
+        if (assetConfigTo.minimalDuration > 0) {
             logicStorage.lastRebalanceTimestamps[to] = block.timestamp;
-            logicStorage.lastRebalanceTimestampKeys.add(to);
         }
     }
 
@@ -406,7 +404,7 @@ library AssetManagerLogic {
         bytes memory data
     ) external onlyInitialized(logicStorage) {
         _checkAMMProvider(logicStorage, ammProvider);
-        (IAssetManager.AssetConfig memory assetConfigFrom, IAssetManager.AssetConfig memory assetConfigTo) =
+        (IAssetManager.RebalanceConfig memory assetConfigFrom, IAssetManager.RebalanceConfig memory assetConfigTo) =
             _validateRebalance(logicStorage, vaultStorage, from, to, sellAmount);
         _swap(logicStorage, ammProvider, from, sellAmount, to, buyAmountMin, data);
         _updateRebalanceTimestamps(logicStorage, assetConfigFrom, assetConfigTo, from, to);
@@ -469,7 +467,7 @@ library AssetManagerLogic {
         bool isSellOrder
     ) external onlyInitialized(logicStorage) {
         _checkIntentProvider(logicStorage, intentProvider);
-        (IAssetManager.AssetConfig memory assetConfigFrom, IAssetManager.AssetConfig memory assetConfigTo) =
+        (IAssetManager.RebalanceConfig memory assetConfigFrom, IAssetManager.RebalanceConfig memory assetConfigTo) =
             _validateRebalance(logicStorage, vaultStorage, from, to, sellAmount);
         _trade(logicStorage, intentProvider, from, sellAmount, to, buyAmountMin, validTo, isSellOrder);
         _updateRebalanceTimestamps(logicStorage, assetConfigFrom, assetConfigTo, from, to);
@@ -497,14 +495,15 @@ library AssetManagerLogic {
         }
 
         intentProvider = _cloneProvider(logicStorage, intentProvider);
-
-        logicStorage.pendingIntentOrders[intentProvider] = PendingIntentOrder({
-            from: sellAssetAddress,
-            to: toAssetAddress,
-            prevFromTimestamp: logicStorage.lastRebalanceTimestamps[sellAssetAddress],
-            prevToTimestamp: logicStorage.lastRebalanceTimestamps[toAssetAddress]
-        });
-
+        IAssetManager.RebalanceConfig memory configTo = logicStorage.rebalanceConfigs[toAssetAddress];
+        if (configTo.minimalDuration > 0) {
+            if (block.timestamp - logicStorage.lastRebalanceTimestamps[toAssetAddress] < configTo.minimalDuration) {
+                revert RebalanceInMinimalTime();
+            }
+            if (validTo < configTo.minimalDuration + logicStorage.lastRebalanceTimestamps[toAssetAddress]) {
+                revert InvalidValidTo();
+            }
+        }
         bytes memory data = abi.encode(sellAssetAddress, sellAmount, toAssetAddress, buyAmountMin, validTo, isSellOrder);
         IERC20(sellAssetAddress).safeIncreaseAllowance(intentProvider, sellAmount);
         IIntentProvider(intentProvider).trade(data);
@@ -607,18 +606,6 @@ library AssetManagerLogic {
         return logicStorage.ammProviders.values();
     }
 
-    function getAllAssetConfigKeys(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
-        return logicStorage.assetConfigKeys.values();
-    }
-
-    function getAllLastRebalanceTimestampKeys(AssetManagerStorage storage logicStorage)
-        external
-        view
-        returns (address[] memory)
-    {
-        return logicStorage.lastRebalanceTimestampKeys.values();
-    }
-
     function getLiquidity(AssetManagerStorage storage logicStorage, address ammProvider, bytes memory data)
         external
         view
@@ -664,13 +651,6 @@ library AssetManagerLogic {
             revert InvalidIntentProvider();
         }
         IIntentProvider(clone).cancelTrade(data);
-
-        PendingIntentOrder memory pending = logicStorage.pendingIntentOrders[clone];
-        if (pending.from != address(0)) {
-            logicStorage.lastRebalanceTimestamps[pending.from] = pending.prevFromTimestamp;
-            logicStorage.lastRebalanceTimestamps[pending.to] = pending.prevToTimestamp;
-            delete logicStorage.pendingIntentOrders[clone];
-        }
     }
 
     function revokeIntentProviderApprovals(
@@ -695,12 +675,5 @@ library AssetManagerLogic {
             revert InvalidIntentProvider();
         }
         IIntentProvider(clone).cleanExpiredOrders(orderDigests);
-
-        PendingIntentOrder memory pending = logicStorage.pendingIntentOrders[clone];
-        if (pending.from != address(0)) {
-            logicStorage.lastRebalanceTimestamps[pending.from] = pending.prevFromTimestamp;
-            logicStorage.lastRebalanceTimestamps[pending.to] = pending.prevToTimestamp;
-            delete logicStorage.pendingIntentOrders[clone];
-        }
     }
 }

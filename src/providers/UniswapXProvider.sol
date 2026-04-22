@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {IIntentProvider, ApprovalNotFound, OrderNotExpired} from "../interfaces/IIntentProvider.sol";
+import {IIntentProvider, ApprovalNotFound, OrderNotExpired, TwapNotSupported} from "../interfaces/IIntentProvider.sol";
 import {IERC1271} from "../libs/cow/IERC1271.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -54,6 +54,10 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         permit2 = permit2_;
     }
 
+    /**
+     * @notice Initialize the provider and set the owner.
+     * @param newOwner The address to set as the owner.
+     */
     function initialize(address newOwner) external override initializer {
         _transferOwnership(newOwner);
     }
@@ -92,6 +96,14 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         }
 
         emit Trade(data, msg.sender, address(this));
+    }
+
+    /**
+     * @notice Twap trade is not supported cos it need a lot of off-chain work, it's not fully on-chain supported by UniswapX.
+     * @dev Revert if twap trade is called.
+     */
+    function twapTrade(bytes memory) external view override onlyOwner {
+        revert TwapNotSupported();
     }
 
     /// @notice Cancel a trade/order and revoke Permit2 allowance for the sell token when known.
@@ -167,6 +179,10 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         return 0xffffffff;
     }
 
+    /**
+     * @notice Revoke token approvals to Permit2 for multiple tokens.
+     * @param tokens The sell tokens whose Permit2 approvals should be revoked.
+     */
     function revokeApprovals(address[] calldata tokens) external override onlyOwner {
         for (uint256 i = 0; i < tokens.length; i++) {
             if (IERC20(tokens[i]).allowance(address(this), permit2) == 0) continue;
@@ -174,6 +190,11 @@ contract UniswapXProvider is IIntentProvider, IERC1271, Ownable, Initializable {
         }
     }
 
+    /**
+     * @notice Permissionlessly clean up multiple expired orders: revokes approvals, transfers
+     *         any remaining sell token balances back to the owner.
+     * @param hashes The Permit2 witness hashes to clean up.
+     */
     function cleanExpiredOrders(bytes32[] calldata hashes) external override {
         for (uint256 i = 0; i < hashes.length; i++) {
             bytes32 hash = hashes[i];

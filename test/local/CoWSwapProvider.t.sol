@@ -6,7 +6,13 @@ import {CoWSwapProvider} from "../../src/providers/CoWSwapProvider.sol";
 import {GPv2Order} from "../../src/libs/cow/GPv2Order.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {OrderNotExpired} from "../../src/interfaces/IIntentProvider.sol";
+import {
+    OrderNotExpired,
+    TwapNotFound,
+    TwapCompleted,
+    TwapIntervalNotElapsed,
+    TwapInvalidParams
+} from "../../src/interfaces/IIntentProvider.sol";
 
 contract MockSettlement {
     bytes32 public constant DOMAIN_SEP = keccak256("mock-cow-domain");
@@ -228,7 +234,7 @@ contract CoWSwapProviderTest is Test {
         uint32 validTo1 = uint32(block.timestamp + 3600);
         uint32 validTo2 = uint32(block.timestamp + 7200);
         bytes32 digest1 = _tradeDigest(validTo1);
-        bytes32 digest2 = _tradeDigest(validTo2);
+        _tradeDigest(validTo2);
 
         assertEq(IERC20(address(usdc)).allowance(address(provider), relayer), 2000e6);
 
@@ -252,5 +258,365 @@ contract CoWSwapProviderTest is Test {
 
         assertEq(usdc.balanceOf(owner), 1000e6, "only first order's sell amount returned");
         assertEq(usdc.balanceOf(address(provider)), 1000e6, "second order's funds stay on provider");
+    }
+
+    function _createData(
+        uint256 totalSellAmount,
+        uint256 minBuyAmountPerSlice,
+        uint32 interval,
+        uint32 sliceDuration,
+        uint16 numSlices
+    ) internal view returns (bytes memory) {
+        return abi.encode(
+            address(usdc), totalSellAmount, address(dai), minBuyAmountPerSlice, interval, sliceDuration, numSlices
+        );
+    }
+
+    function _twapId(uint256 total, uint16 numSlices, uint32 interval, uint256 ts) internal view returns (bytes32) {
+        return keccak256(abi.encode(owner, address(usdc), address(dai), total, numSlices, interval, ts));
+    }
+
+    function _sliceDigest(uint256 sliceAmount, uint256 minBuy, uint32 validTo) internal view returns (bytes32) {
+        return GPv2Order.hash(
+            GPv2Order.Data({
+                sellToken: IERC20(address(usdc)),
+                buyToken: IERC20(address(dai)),
+                receiver: owner,
+                sellAmount: sliceAmount,
+                buyAmount: minBuy,
+                validTo: validTo,
+                appData: bytes32(0),
+                feeAmount: 0,
+                kind: GPv2Order.KIND_SELL,
+                partiallyFillable: false,
+                sellTokenBalance: GPv2Order.BALANCE_ERC20,
+                buyTokenBalance: GPv2Order.BALANCE_ERC20
+            }),
+            settlement.domainSeparator()
+        );
+    }
+
+    function test_twapTrade_CreatesNewTwap() public {
+        uint256 total = 1000e6;
+        uint16 numSlices = 4;
+        uint32 interval = 3600;
+        uint32 sliceDuration = 1800;
+        uint256 ts = block.timestamp;
+
+        usdc.mint(owner, total);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), total);
+        provider.twapTrade(_createData(total, 0, interval, sliceDuration, numSlices));
+        vm.stopPrank();
+
+        bytes32 id = _twapId(total, numSlices, interval, ts);
+        (
+            address sellToken,
+            address buyToken,
+            uint256 sliceAmount,
+            uint256 remainingAmount,
+            uint256 minBuy,
+            uint32 storedInterval,
+            uint32 storedDuration,
+            uint32 lastExec,
+            uint16 storedNumSlices,
+            uint16 executedSlices
+        ) = provider.twapOrders(id);
+
+        assertEq(sellToken, address(usdc));
+        assertEq(buyToken, address(dai));
+        assertEq(sliceAmount, total / numSlices);
+        assertEq(remainingAmount, total - total / numSlices);
+        assertEq(storedInterval, interval);
+        assertEq(storedNumSlices, numSlices);
+        assertEq(executedSlices, 1);
+        assertEq(lastExec, uint32(ts));
+    }
+
+    function test_twapTrade_TransfersTokensAndGrantsSliceAllowance() public {
+        uint256 total = 1000e6;
+        uint16 numSlices = 4;
+        uint256 sliceAmount = total / numSlices;
+
+        usdc.mint(owner, total);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), total);
+        provider.twapTrade(_createData(total, 0, 3600, 1800, numSlices));
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(address(provider)), total, "all tokens on provider");
+        assertEq(IERC20(address(usdc)).allowance(address(provider), relayer), sliceAmount, "only slice 1 approved");
+    }
+
+    function test_twapTrade_ApprovesFirstSliceDigest() public {
+        uint256 total = 1000e6;
+        uint16 numSlices = 4;
+        uint32 sliceDuration = 1800;
+        uint32 validTo = uint32(block.timestamp + sliceDuration);
+        uint256 sliceAmount = total / numSlices;
+
+        usdc.mint(owner, total);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), total);
+        provider.twapTrade(_createData(total, 0, 3600, sliceDuration, numSlices));
+        vm.stopPrank();
+
+        bytes32 digest = _sliceDigest(sliceAmount, 0, validTo);
+        assertEq(provider.isValidSignature(digest, ""), MAGICVALUE, "first slice digest approved");
+    }
+
+    function test_twapTrade_EmitsTwapCreatedEvent() public {
+        uint256 total = 1000e6;
+        uint16 numSlices = 4;
+        uint32 interval = 3600;
+        uint256 ts = block.timestamp;
+
+        usdc.mint(owner, total);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), total);
+
+        bytes32 id = _twapId(total, numSlices, interval, ts);
+        vm.expectEmit(true, false, false, true);
+        emit CoWSwapProvider.TwapCreated(id, address(usdc), address(dai), total, numSlices, interval);
+        provider.twapTrade(_createData(total, 0, interval, 1800, numSlices));
+        vm.stopPrank();
+    }
+
+    function test_twapTrade_ExecutesNextSlice() public {
+        uint256 total = 1000e6;
+        uint16 numSlices = 4;
+        uint32 interval = 3600;
+        uint32 sliceDuration = 1800;
+        uint256 ts = block.timestamp;
+        uint256 sliceAmount = total / numSlices;
+
+        usdc.mint(owner, total);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), total);
+        provider.twapTrade(_createData(total, 0, interval, sliceDuration, numSlices));
+        vm.stopPrank();
+
+        bytes32 id = _twapId(total, numSlices, interval, ts);
+
+        vm.warp(block.timestamp + interval);
+
+        vm.prank(owner);
+        provider.twapTrade(abi.encode(id));
+
+        (,,, uint256 remainingAmount,,,,, uint16 storedNumSlices, uint16 executedSlices) = provider.twapOrders(id);
+        assertEq(executedSlices, 2);
+        assertEq(remainingAmount, total - 2 * sliceAmount);
+        assertEq(IERC20(address(usdc)).allowance(address(provider), relayer), 2 * sliceAmount, "two slices approved");
+    }
+
+    function test_twapTrade_LastSliceGetsRemainder() public {
+        uint256 total = 1000e6 + 1;
+        uint16 numSlices = 4;
+        uint32 interval = 3600;
+        uint32 sliceDuration = 1800;
+        uint256 ts = block.timestamp;
+        uint256 sliceAmount = total / numSlices;
+        uint256 remainder = total - sliceAmount * (numSlices - 1);
+
+        usdc.mint(owner, total);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), total);
+        provider.twapTrade(_createData(total, 0, interval, sliceDuration, numSlices));
+        vm.stopPrank();
+
+        bytes32 id = _twapId(total, numSlices, interval, ts);
+
+        for (uint256 i = 0; i < 2; i++) {
+            vm.warp(block.timestamp + interval);
+            vm.prank(owner);
+            provider.twapTrade(abi.encode(id));
+        }
+
+        uint32 lastSliceValidTo = uint32(block.timestamp + interval + sliceDuration);
+        vm.warp(block.timestamp + interval);
+        vm.prank(owner);
+        provider.twapTrade(abi.encode(id));
+
+        bytes32 lastDigest = _sliceDigest(remainder, 0, lastSliceValidTo);
+        assertEq(provider.isValidSignature(lastDigest, ""), MAGICVALUE, "last slice digest approved");
+
+        (,,, uint256 remainingAfter,,,,, uint16 storedNumSlices, uint16 executedSlices) = provider.twapOrders(id);
+        assertEq(executedSlices, numSlices);
+        assertEq(remainingAfter, 0);
+    }
+
+    function test_twapTrade_RevertsIfIntervalNotElapsed() public {
+        uint256 total = 1000e6;
+        uint16 numSlices = 4;
+        uint32 interval = 3600;
+        uint256 ts = block.timestamp;
+
+        usdc.mint(owner, total);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), total);
+        provider.twapTrade(_createData(total, 0, interval, 1800, numSlices));
+        vm.stopPrank();
+
+        bytes32 id = _twapId(total, numSlices, interval, ts);
+
+        vm.prank(owner);
+        vm.expectRevert(TwapIntervalNotElapsed.selector);
+        provider.twapTrade(abi.encode(id));
+    }
+
+    function test_twapTrade_RevertsIfCompleted() public {
+        uint256 total = 600e6;
+        uint16 numSlices = 2;
+        uint32 interval = 3600;
+        uint32 sliceDuration = 1800;
+        uint256 ts = block.timestamp;
+
+        usdc.mint(owner, total);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), total);
+        provider.twapTrade(_createData(total, 0, interval, sliceDuration, numSlices));
+        vm.stopPrank();
+
+        bytes32 id = _twapId(total, numSlices, interval, ts);
+
+        vm.warp(block.timestamp + interval);
+        vm.prank(owner);
+        provider.twapTrade(abi.encode(id));
+
+        vm.warp(block.timestamp + interval);
+        vm.prank(owner);
+        vm.expectRevert(TwapCompleted.selector);
+        provider.twapTrade(abi.encode(id));
+    }
+
+    function test_twapTrade_RevertsIfTwapNotFound() public {
+        bytes32 badId = keccak256("nonexistent");
+        vm.prank(owner);
+        vm.expectRevert(TwapNotFound.selector);
+        provider.twapTrade(abi.encode(badId));
+    }
+
+    function test_twapTrade_RevertsInvalidParams_TooFewSlices() public {
+        usdc.mint(owner, 1000e6);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), 1000e6);
+        vm.expectRevert(TwapInvalidParams.selector);
+        provider.twapTrade(_createData(1000e6, 0, 3600, 1800, 1));
+        vm.stopPrank();
+    }
+
+    function test_twapTrade_RevertsInvalidParams_ZeroInterval() public {
+        usdc.mint(owner, 1000e6);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), 1000e6);
+        vm.expectRevert(TwapInvalidParams.selector);
+        provider.twapTrade(_createData(1000e6, 0, 0, 1800, 4));
+        vm.stopPrank();
+    }
+
+    function test_twapTrade_RevertsInvalidParams_ZeroAmount() public {
+        vm.prank(owner);
+        vm.expectRevert(TwapInvalidParams.selector);
+        provider.twapTrade(_createData(0, 0, 3600, 1800, 4));
+    }
+
+    function test_cancelTwap_ReturnsRemainingAmount() public {
+        uint256 total = 1000e6;
+        uint16 numSlices = 4;
+        uint32 interval = 3600;
+        uint256 ts = block.timestamp;
+        uint256 sliceAmount = total / numSlices;
+
+        usdc.mint(owner, total);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), total);
+        provider.twapTrade(_createData(total, 0, interval, 1800, numSlices));
+        vm.stopPrank();
+
+        bytes32 id = _twapId(total, numSlices, interval, ts);
+
+        vm.warp(block.timestamp + interval);
+        vm.prank(owner);
+        provider.twapTrade(abi.encode(id));
+
+        uint256 expectedRemaining = total - 2 * sliceAmount;
+
+        vm.prank(owner);
+        provider.cancelTwap(id);
+
+        assertEq(usdc.balanceOf(owner), expectedRemaining, "unallocated tokens returned");
+    }
+
+    function test_cancelTwap_DeletesTwapState() public {
+        uint256 total = 1000e6;
+        uint16 numSlices = 4;
+        uint32 interval = 3600;
+        uint256 ts = block.timestamp;
+
+        usdc.mint(owner, total);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), total);
+        provider.twapTrade(_createData(total, 0, interval, 1800, numSlices));
+        vm.stopPrank();
+
+        bytes32 id = _twapId(total, numSlices, interval, ts);
+
+        vm.prank(owner);
+        provider.cancelTwap(id);
+
+        (,,,,,,,, uint16 storedNumSlices,) = provider.twapOrders(id);
+        assertEq(storedNumSlices, 0, "twap state deleted");
+    }
+
+    function test_cancelTwap_RevertsIfNotFound() public {
+        bytes32 badId = keccak256("no twap here");
+        vm.prank(owner);
+        vm.expectRevert(TwapNotFound.selector);
+        provider.cancelTwap(badId);
+    }
+
+    function test_cancelTwap_RevertsIfCalledTwice() public {
+        uint256 total = 1000e6;
+        uint16 numSlices = 4;
+        uint256 ts = block.timestamp;
+
+        usdc.mint(owner, total);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), total);
+        provider.twapTrade(_createData(total, 0, 3600, 1800, numSlices));
+        vm.stopPrank();
+
+        bytes32 id = _twapId(total, numSlices, 3600, ts);
+
+        vm.prank(owner);
+        provider.cancelTwap(id);
+
+        vm.prank(owner);
+        vm.expectRevert(TwapNotFound.selector);
+        provider.cancelTwap(id);
+    }
+
+    function test_twapSlice_CanBeCancelledViaCancelTrade() public {
+        uint256 total = 1000e6;
+        uint16 numSlices = 4;
+        uint32 sliceDuration = 1800;
+        uint32 validTo = uint32(block.timestamp + sliceDuration);
+        uint256 sliceAmount = total / numSlices;
+
+        usdc.mint(owner, total);
+        vm.startPrank(owner);
+        usdc.approve(address(provider), total);
+        provider.twapTrade(_createData(total, 0, 3600, sliceDuration, numSlices));
+        vm.stopPrank();
+
+        bytes32 digest = _sliceDigest(sliceAmount, 0, validTo);
+        assertEq(provider.isValidSignature(digest, ""), MAGICVALUE, "slice active before cancel");
+
+        vm.prank(owner);
+        provider.cancelTrade(abi.encode(digest, validTo));
+
+        assertEq(provider.isValidSignature(digest, ""), bytes4(0xffffffff), "slice revoked after cancel");
+        assertEq(usdc.balanceOf(owner), sliceAmount, "slice tokens returned");
+        assertEq(IERC20(address(usdc)).allowance(address(provider), relayer), 0, "relayer allowance cleared");
     }
 }

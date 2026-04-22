@@ -39,26 +39,29 @@ contract TestVaultFork is Test {
         vm.createSelectFork("mainnet");
 
         whiteList = new WhiteList();
-        vm.prank(tx.origin);
+        vm.startPrank(tx.origin);
+        whiteList.grantRole(whiteList.ASSET_MANAGER_ROLE(), tx.origin);
+        whiteList.grantRole(whiteList.STABLE_COIN_MANAGER_ROLE(), tx.origin);
+        whiteList.grantRole(whiteList.LENDING_MANAGER_ROLE(), tx.origin);
+        whiteList.grantRole(whiteList.STAKING_MANAGER_ROLE(), tx.origin);
+        whiteList.grantRole(whiteList.AMM_MANAGER_ROLE(), tx.origin);
+        whiteList.grantRole(whiteList.INTENT_MANAGER_ROLE(), tx.origin);
         whiteList.addAssets(_arr(mainnet.WETH, mainnet.WBTC));
-        vm.prank(tx.origin);
         whiteList.addStableCoins(_arr(mainnet.USDC, mainnet.USDT));
 
         aaveProvider = new AaveV3Provider(mainnet.AAVE_V3, mainnet.POOL_DATA_PROVIDER);
         aaveProvider.initialize(address(this));
-        vm.prank(tx.origin);
         whiteList.addLendingProviders(_arr(address(aaveProvider)));
 
         lidoProvider = new LidoV2Provider(mainnet.STETH, mainnet.UNSTETH, mainnet.WETH);
         lidoProvider.initialize(address(this));
-        vm.prank(tx.origin);
         whiteList.addStakingProviders(_arr(address(lidoProvider)));
 
         uniswapV3Provider =
             new UniswapV3Provider(mainnet.UNISWAP_V3_ROUTER, mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
         uniswapV3Provider.initialize(address(this));
-        vm.prank(tx.origin);
         whiteList.addAMMProviders(_arr(address(uniswapV3Provider)));
+        vm.stopPrank();
 
         assets = _arr(mainnet.WETH, mainnet.WBTC);
         stableCoins = _arr(mainnet.USDC, mainnet.USDT);
@@ -237,11 +240,10 @@ contract TestVaultFork is Test {
         uint256 sellAmount = 0.01 ether;
         deal(mainnet.WETH, address(vault), sellAmount);
 
-        IAssetManager.AssetConfig memory config = IAssetManager.AssetConfig({
-            minimalBalance: 0, minimalDurationBetweenRebalances: 0, maxRebalancePercentage: 10000
-        });
+        IAssetManager.RebalanceConfig memory config =
+            IAssetManager.RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
         vm.prank(tx.origin);
-        vault.setAssetConfig(mainnet.WETH, config);
+        vault.setRebalanceConfig(mainnet.WETH, config);
 
         address[] memory path = new address[](2);
         path[0] = mainnet.WETH;

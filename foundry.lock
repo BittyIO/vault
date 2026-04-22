@@ -12,9 +12,9 @@
     "rev": "89365b880c4f3c786bdd453d4b8e8fe410344a69"
   },
   "lib/subscription-contracts": {
-    "rev": "f8bd6639e1d82b934592cd62bdaa291457b1ca43"
+    "rev": "49646e34603a405bf1d2b490031eb9f0aff7dce3"
   },
   "lib/whitelist-contracts": {
-    "rev": "d67095f53acd34335e56774add841465127e1f03"
+    "rev": "5a6db1169df42c044a26d9f1cd2c660618c952ce"
   }
 }
