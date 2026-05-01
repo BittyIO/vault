@@ -2,13 +2,13 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
-import {CoWSwapProvider} from "../../src/providers/CoWSwapProvider.sol";
-import {GPv2Order} from "../../src/libs/cow/GPv2Order.sol";
-import {mainnet} from "../../script/addresses.sol";
+import {CoWSwapProvider} from "provider-contracts/src/providers/CoWSwapProvider.sol";
+import {GPv2Order} from "provider-contracts/src/libs/cow/GPv2Order.sol";
+import {mainnet} from "provider-contracts/script/addresses.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IGPv2Settlement} from "../../src/libs/cow/GPv2Settlement.sol";
-import {OrderNotExpired} from "../../src/interfaces/IIntentProvider.sol";
+import {IGPv2Settlement} from "provider-contracts/src/libs/cow/GPv2Settlement.sol";
+import {OrderNotExpired} from "provider-contracts/src/interfaces/IIntentProvider.sol";
 
 contract TestCoWAMMProviderFork is Test {
     using SafeERC20 for IERC20;

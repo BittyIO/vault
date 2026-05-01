@@ -3,8 +3,8 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {UniswapV3Provider} from "../../src/providers/UniswapV3Provider.sol";
-import {mainnet} from "../../script/addresses.sol";
+import {UniswapV3Provider} from "provider-contracts/src/providers/UniswapV3Provider.sol";
+import {mainnet} from "provider-contracts/script/addresses.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
@@ -16,9 +16,9 @@ import {
     PoolStateLibrary,
     PoolId,
     PoolIdLibrary
-} from "../../src/libs/uniswap/v4/Uniswap.sol";
-import {Path, IUniswapV3Factory, IUniswapV3Pool, IUniswapV3Router} from "../../src/libs/uniswap/v3/Uniswap.sol";
-import {INonfungiblePositionManager} from "../../src/libs/uniswap/v3/Uniswap.sol";
+} from "provider-contracts/src/libs/uniswap/v4/Uniswap.sol";
+import {Path, IUniswapV3Factory, IUniswapV3Pool, IUniswapV3Router} from "provider-contracts/src/libs/uniswap/v3/Uniswap.sol";
+import {INonfungiblePositionManager} from "provider-contracts/src/libs/uniswap/v3/Uniswap.sol";
 
 contract TestUniswapProviderFork is Test {
     using SafeERC20 for IERC20;
@@ -185,7 +185,7 @@ contract TestUniswapProviderFork is Test {
         assertGe(usdtBalanceAfter - usdtBalanceBefore, buyAmountMin);
     }
 
-    // ============ Uniswap V3 AMM (addLiquidity / removeLiquidity / claimFees / getLiquidity) ============
+    // ============ Uniswap V3 AMM (addLiquidity / removeLiquidity / claimAMMFees / getLiquidity) ============
 
     bytes32 constant ERC721_TRANSFER_TOPIC = keccak256("Transfer(address,address,uint256)");
 
@@ -261,7 +261,7 @@ contract TestUniswapProviderFork is Test {
         INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams({
             tokenId: tokenId, recipient: address(this), amount0Max: type(uint128).max, amount1Max: type(uint128).max
         });
-        v3Provider.claimFees(abi.encode(collectParams));
+        v3Provider.claimAMMFees(abi.encode(collectParams));
     }
 
     /// @notice `CollectParams.recipient` in calldata must be ignored; fees go to the provider owner only.
@@ -279,7 +279,7 @@ contract TestUniswapProviderFork is Test {
         INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams({
             tokenId: tokenId, recipient: encodedRecipient, amount0Max: type(uint128).max, amount1Max: type(uint128).max
         });
-        v3Provider.claimFees(abi.encode(collectParams));
+        v3Provider.claimAMMFees(abi.encode(collectParams));
 
         assertEq(IERC20(token0).balanceOf(encodedRecipient), bal0Before, "token0 must not go to encoded recipient");
         assertEq(IERC20(token1).balanceOf(encodedRecipient), bal1Before, "token1 must not go to encoded recipient");
@@ -309,7 +309,7 @@ contract TestUniswapProviderFork is Test {
         INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams({
             tokenId: tokenId, recipient: address(this), amount0Max: type(uint128).max, amount1Max: type(uint128).max
         });
-        v3Provider.claimFees(abi.encode(collectParams));
+        v3Provider.claimAMMFees(abi.encode(collectParams));
 
         address token0 = mainnet.WETH < mainnet.USDC ? mainnet.WETH : mainnet.USDC;
         address token1 = mainnet.WETH < mainnet.USDC ? mainnet.USDC : mainnet.WETH;
@@ -341,7 +341,7 @@ contract TestUniswapProviderFork is Test {
         uint256 balance1After = IERC20(token1).balanceOf(address(this));
 
         assertTrue(
-            balance0After > balance0Before || balance1After > balance1Before, "tokens must arrive without claimFees"
+            balance0After > balance0Before || balance1After > balance1Before, "tokens must arrive without claimAMMFees"
         );
         assertEq(IERC20(token0).balanceOf(address(v3Provider)), 0, "provider must hold no token0");
         assertEq(IERC20(token1).balanceOf(address(v3Provider)), 0, "provider must hold no token1");

@@ -2,12 +2,12 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
-import {AaveV3Provider} from "../../src/providers/AaveV3Provider.sol";
-import {mainnet} from "../../script/addresses.sol";
+import {AaveV3Provider} from "provider-contracts/src/providers/AaveV3Provider.sol";
+import {mainnet} from "provider-contracts/script/addresses.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
-import {IAaveV3, IAavePool, IPoolDataProvider} from "../../src/libs/aave/v3/Aave.sol";
+import {IAaveV3, IAavePool, IPoolDataProvider} from "provider-contracts/src/libs/aave/v3/Aave.sol";
 
 contract TestAaveProviderFork is Test {
     using SafeERC20 for IERC20;
@@ -87,14 +87,14 @@ contract TestAaveProviderFork is Test {
     }
 
     function test_GetBalance() public {
-        uint256 balanceBefore = aaveProvider.getLendingBalance(address(mainnet.WETH));
+        uint256 balanceBefore = aaveProvider.getSuppliedBalance(address(mainnet.WETH));
         assertEq(balanceBefore, 0);
 
         IERC20(address(mainnet.WETH)).safeApprove(address(aaveProvider), 1 ether);
         deal(address(mainnet.WETH), address(this), 1 ether);
         aaveProvider.supply(address(mainnet.WETH), 1 ether);
 
-        uint256 balanceAfter = aaveProvider.getLendingBalance(address(mainnet.WETH));
+        uint256 balanceAfter = aaveProvider.getSuppliedBalance(address(mainnet.WETH));
         assertApproxEqAbs(balanceAfter, 1 ether, 10);
 
         (uint256 currentATokenBalance,,,,,,,,) =
@@ -118,14 +118,14 @@ contract TestAaveProviderFork is Test {
         deal(address(mainnet.WETH), address(this), 1 ether);
         aaveProvider.supply(address(mainnet.WETH), 1 ether);
 
-        uint256 wethBalance = aaveProvider.getLendingBalance(address(mainnet.WETH));
+        uint256 wethBalance = aaveProvider.getSuppliedBalance(address(mainnet.WETH));
         assertApproxEqAbs(wethBalance, 1 ether, 10);
 
         deal(address(mainnet.USDC), address(this), 1000e6);
         IERC20(address(mainnet.USDC)).safeApprove(address(aaveProvider), 1000e6);
         aaveProvider.supply(address(mainnet.USDC), 1000e6);
 
-        uint256 usdcBalance = aaveProvider.getLendingBalance(address(mainnet.USDC));
+        uint256 usdcBalance = aaveProvider.getSuppliedBalance(address(mainnet.USDC));
         assertApproxEqAbs(usdcBalance, 1000e6, 10);
     }
 }

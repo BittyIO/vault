@@ -2,11 +2,11 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
-import {UniswapXProvider} from "../../src/providers/UniswapXProvider.sol";
-import {mainnet} from "../../script/addresses.sol";
+import {UniswapXProvider} from "provider-contracts/src/providers/UniswapXProvider.sol";
+import {mainnet} from "provider-contracts/script/addresses.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {OrderNotExpired} from "../../src/interfaces/IIntentProvider.sol";
+import {OrderNotExpired} from "provider-contracts/src/interfaces/IIntentProvider.sol";
 
 contract TestUniswapXProviderFork is Test {
     using SafeERC20 for IERC20;

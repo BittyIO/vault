@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {IAMMProvider} from "../../src/interfaces/IAMMProvider.sol";
+import {IAMMProvider} from "provider-contracts/src/interfaces/IAMMProvider.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 contract MockAMMProvider is IAMMProvider {
@@ -26,11 +26,11 @@ contract MockAMMProvider is IAMMProvider {
         }
     }
 
-    function addLiquidity(bytes memory) external payable override {}
+    function addLiquidity(bytes memory) external override {}
 
-    function removeLiquidity(bytes memory) external payable override {}
+    function removeLiquidity(bytes memory) external override {}
 
-    function claimFees(bytes memory) external payable override {}
+    function claimAMMFees(bytes memory) external override {}
 
     function getLiquidity(bytes memory) external pure override returns (uint256) {
         return 0;

@@ -117,7 +117,7 @@ interface IAssetManager {
      * @param assetAddress The address of the asset.
      * @return The balance of the asset.
      */
-    function getLendingBalance(address lendingProvider, address assetAddress) external view returns (uint256);
+    function getSuppliedBalance(address lendingProvider, address assetAddress) external view returns (uint256);
 
     /**
      * @notice Stake the asset to the staking provider.
@@ -135,7 +135,7 @@ interface IAssetManager {
      * @param asset The address of the asset.
      * @return The staking balance.
      */
-    function getStakingBalance(address stakingProvider, address asset) external view returns (uint256);
+    function getStakedBalance(address stakingProvider, address asset) external view returns (uint256);
 
     /**
      * @notice Unstake the asset from the staking provider.
@@ -160,7 +160,7 @@ interface IAssetManager {
      * @param stakingProvider The address of the staking provider.
      * @param requestIds The request ids to claim.
      */
-    function claim(address stakingProvider, uint256[] memory requestIds) external;
+    function claimUnstaked(address stakingProvider, uint256[] memory requestIds) external;
 
     /**
      *
@@ -211,7 +211,7 @@ interface IAssetManager {
      * @param data The data for the add liquidity.
      * @dev Only the asset manager can execute it.
      */
-    function addLiquidity(address ammProvider, bytes memory data) external payable;
+    function addLiquidity(address ammProvider, bytes memory data) external;
 
     /**
      * @notice Remove liquidity from the AMM provider.
@@ -220,7 +220,7 @@ interface IAssetManager {
      * @param data The data for the remove liquidity.
      * @dev Only the asset manager can execute it.
      */
-    function removeLiquidity(address ammProvider, bytes memory data) external payable;
+    function removeLiquidity(address ammProvider, bytes memory data) external;
 
     /**
      * @notice Claim fees from the AMM provider.
@@ -229,7 +229,7 @@ interface IAssetManager {
      * @param data The data for the claim fees.
      * @dev Only the asset manager can execute it.
      */
-    function claimFees(address ammProvider, bytes memory data) external payable;
+    function claimAMMFees(address ammProvider, bytes memory data) external;
 
     /**
      * @notice Get the liquidity of the AMM provider.

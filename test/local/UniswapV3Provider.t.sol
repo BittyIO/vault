@@ -2,8 +2,8 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
-import {UniswapV3Provider} from "../../src/providers/UniswapV3Provider.sol";
-import {INonfungiblePositionManager} from "../../src/libs/uniswap/v3/Uniswap.sol";
+import {UniswapV3Provider} from "provider-contracts/src/providers/UniswapV3Provider.sol";
+import {INonfungiblePositionManager} from "provider-contracts/src/libs/uniswap/v3/Uniswap.sol";
 
 /// @notice Minimal NPM stub: records the recipient passed into `collect`.
 contract MockNonfungiblePositionManagerCollect {
@@ -30,7 +30,7 @@ contract UniswapV3ProviderTest is Test {
             tokenId: 7, recipient: decoy, amount0Max: type(uint128).max, amount1Max: type(uint128).max
         });
 
-        provider.claimFees(abi.encode(params));
+        provider.claimAMMFees(abi.encode(params));
 
         assertEq(npm.lastCollectRecipient(), address(this), "collect recipient must be owner, not calldata");
     }
@@ -44,7 +44,7 @@ contract UniswapV3ProviderTest is Test {
             tokenId: 1, recipient: address(0), amount0Max: 100, amount1Max: 100
         });
 
-        provider.claimFees(abi.encode(params));
+        provider.claimAMMFees(abi.encode(params));
 
         assertEq(npm.lastCollectRecipient(), address(this));
     }

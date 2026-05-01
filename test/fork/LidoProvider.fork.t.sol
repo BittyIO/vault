@@ -3,9 +3,9 @@ pragma solidity ^0.8.34;
 
 import "forge-std/console.sol";
 import {Test} from "forge-std/Test.sol";
-import {LidoV2Provider} from "../../src/providers/LidoV2Provider.sol";
-import {mainnet} from "../../script/addresses.sol";
-import {IStETH, IUnstETH} from "../../src/libs/lido/v2/Lido.sol";
+import {LidoV2Provider} from "provider-contracts/src/providers/LidoV2Provider.sol";
+import {mainnet} from "provider-contracts/script/addresses.sol";
+import {IStETH, IUnstETH} from "provider-contracts/src/libs/lido/v2/Lido.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
@@ -116,7 +116,7 @@ contract TestLidoProviderFork is Test {
 
         uint256[] memory requestIds = new uint256[](1);
         requestIds[0] = 1;
-        provider.claim(requestIds);
+        provider.claimUnstaked(requestIds);
 
         assertEq(address(provider).balance, 0, "provider should have 0 ETH after claim");
         assertEq(IERC20(mainnet.WETH).balanceOf(address(provider)), 0, "provider should have 0 WETH after claim");
@@ -141,7 +141,7 @@ contract TestLidoProviderFork is Test {
         for (uint256 i = 0; i < numRequests; i++) {
             requestIds[i] = i + 1;
         }
-        provider.claim(requestIds);
+        provider.claimUnstaked(requestIds);
 
         assertEq(address(provider).balance, 0, "provider should have 0 ETH after claim");
         assertEq(IERC20(mainnet.WETH).balanceOf(address(provider)), 0, "provider should have 0 WETH after claim");
@@ -153,7 +153,7 @@ contract TestLidoProviderFork is Test {
     }
 
     function test_Claim_emptyUnstakeRequests_doesNotRevert() public {
-        lidoProvider.claim(new uint256[](0));
+        lidoProvider.claimUnstaked(new uint256[](0));
     }
 
     function test_Claim_multipleRequests_allClaimedAndRemoved() public {
@@ -199,7 +199,7 @@ contract TestLidoProviderFork is Test {
             vm.mockCall(address(unstETH), abi.encodeWithSelector(IUnstETH.claimWithdrawal.selector, id), "");
         }
         uint256[] memory requestIds = lidoProvider.getUnstakeRequestIds();
-        lidoProvider.claim(requestIds);
+        lidoProvider.claimUnstaked(requestIds);
 
         uint256[] memory remaining = lidoProvider.getUnstakeRequestIds();
         assertEq(remaining.length, 0, "all claimable requests must be removed");

@@ -205,7 +205,7 @@ contract TestAssetManager is Test, Vault {
         address clonedProvider = this.getClonedProvider(address(mockLendingProvider));
         require(clonedProvider != address(0), "Provider should be cloned");
 
-        uint256 balanceAfter = MockLendingProvider(clonedProvider).getLendingBalance(address(mockToken));
+        uint256 balanceAfter = MockLendingProvider(clonedProvider).getSuppliedBalance(address(mockToken));
         assertEq(balanceAfter, supplyAmount);
 
         assertEq(mockToken.balanceOf(address(this)), 0);
@@ -233,7 +233,7 @@ contract TestAssetManager is Test, Vault {
         assertEq(balanceAfter - balanceBefore, withdrawAmount);
 
         assertEq(
-            MockLendingProvider(clonedProvider).getLendingBalance(address(mockToken)), supplyAmount - withdrawAmount
+            MockLendingProvider(clonedProvider).getSuppliedBalance(address(mockToken)), supplyAmount - withdrawAmount
         );
     }
 
@@ -278,7 +278,7 @@ contract TestAssetManager is Test, Vault {
         this.doInitialize();
         uint256 depositAmount = 5 ether;
 
-        uint256 balance = this.getLendingBalance(address(mockLendingProvider), address(mockWETH));
+        uint256 balance = this.getSuppliedBalance(address(mockLendingProvider), address(mockWETH));
         assertEq(balance, 0);
 
         deal(address(mockWETH), address(this), depositAmount);
@@ -287,7 +287,7 @@ contract TestAssetManager is Test, Vault {
         vm.prank(assetManagerAddress);
         this.supply(address(mockLendingProvider), address(mockWETH), depositAmount);
 
-        balance = this.getLendingBalance(address(mockLendingProvider), address(mockWETH));
+        balance = this.getSuppliedBalance(address(mockLendingProvider), address(mockWETH));
         assertEq(balance, depositAmount);
     }
 
@@ -297,14 +297,14 @@ contract TestAssetManager is Test, Vault {
 
         vm.prank(assetManagerAddress);
         vm.expectRevert(InvalidLendingProvider.selector);
-        this.getLendingBalance(invalidLendingProvider, address(mockWETH));
+        this.getSuppliedBalance(invalidLendingProvider, address(mockWETH));
     }
 
     function test_GetBalanceFromDeprecatedLendingProvider() public {
         this.doInitialize();
         vm.prank(tx.origin);
         WhiteList(whiteListAddress).deprecateLendingProviders(lendingProviders);
-        uint256 balance = this.getLendingBalance(address(mockLendingProvider), address(mockWETH));
+        uint256 balance = this.getSuppliedBalance(address(mockLendingProvider), address(mockWETH));
         assertEq(balance, 0);
     }
 
@@ -525,35 +525,35 @@ contract TestAssetManager is Test, Vault {
         uint256 stakeAmount = 1 ether;
         deal(mockWETH, address(this), stakeAmount);
 
-        assertEq(this.getStakingBalance(address(mockStakingProvider), mockWETH), 0);
+        assertEq(this.getStakedBalance(address(mockStakingProvider), mockWETH), 0);
 
         vm.prank(assetManagerAddress);
         this.stake(address(mockStakingProvider), mockWETH, stakeAmount);
 
         address clonedProvider = this.getClonedProvider(address(mockStakingProvider));
         assertTrue(clonedProvider != address(0));
-        assertEq(MockStakingProvider(clonedProvider).getStakingBalance(mockWETH), stakeAmount);
-        assertEq(this.getStakingBalance(address(mockStakingProvider), mockWETH), stakeAmount);
+        assertEq(MockStakingProvider(clonedProvider).getStakedBalance(mockWETH), stakeAmount);
+        assertEq(this.getStakedBalance(address(mockStakingProvider), mockWETH), stakeAmount);
         assertEq(WETH(payable(mockWETH)).balanceOf(address(this)), 0);
     }
 
     function test_GetStakingBalance() public {
         this.doInitialize();
         this.prepareStakingProvider();
-        assertEq(this.getStakingBalance(address(mockStakingProvider), mockWETH), 0);
+        assertEq(this.getStakedBalance(address(mockStakingProvider), mockWETH), 0);
 
         uint256 stakeAmount = 2 ether;
         deal(mockWETH, address(this), stakeAmount);
         vm.prank(assetManagerAddress);
         this.stake(address(mockStakingProvider), mockWETH, stakeAmount);
 
-        assertEq(this.getStakingBalance(address(mockStakingProvider), mockWETH), stakeAmount);
+        assertEq(this.getStakedBalance(address(mockStakingProvider), mockWETH), stakeAmount);
     }
 
     function test_GetStakingBalance_InvalidStakingProvider() public {
         this.doInitialize();
         vm.expectRevert(InvalidStakingProvider.selector);
-        this.getStakingBalance(makeAddr("InvalidStakingProvider"), mockWETH);
+        this.getStakedBalance(makeAddr("InvalidStakingProvider"), mockWETH);
     }
 
     function test_UnstakeSuccess() public {
@@ -565,18 +565,18 @@ contract TestAssetManager is Test, Vault {
 
         vm.prank(assetManagerAddress);
         this.stake(address(mockStakingProvider), mockWETH, stakeAmount);
-        assertEq(this.getStakingBalance(address(mockStakingProvider), mockWETH), stakeAmount);
+        assertEq(this.getStakedBalance(address(mockStakingProvider), mockWETH), stakeAmount);
 
         vm.prank(assetManagerAddress);
         this.unstake(address(mockStakingProvider), mockWETH, unstakeAmount);
-        assertEq(this.getStakingBalance(address(mockStakingProvider), mockWETH), stakeAmount - unstakeAmount);
+        assertEq(this.getStakedBalance(address(mockStakingProvider), mockWETH), stakeAmount - unstakeAmount);
 
         uint256[] memory requestIds = this.getUnstakeRequestIds(address(mockStakingProvider));
         assertEq(requestIds.length, 1);
 
         uint256 vaultBalanceBefore = WETH(payable(mockWETH)).balanceOf(address(this));
         vm.prank(assetManagerAddress);
-        this.claim(address(mockStakingProvider), requestIds);
+        this.claimUnstaked(address(mockStakingProvider), requestIds);
         uint256 vaultBalanceAfter = WETH(payable(mockWETH)).balanceOf(address(this));
         assertEq(vaultBalanceAfter - vaultBalanceBefore, unstakeAmount);
     }
@@ -598,7 +598,7 @@ contract TestAssetManager is Test, Vault {
 
         uint256 vaultBalanceBefore = WETH(payable(mockWETH)).balanceOf(address(this));
         vm.prank(assetManagerAddress);
-        this.claim(address(mockStakingProvider), requestIds);
+        this.claimUnstaked(address(mockStakingProvider), requestIds);
         uint256 vaultBalanceAfter = WETH(payable(mockWETH)).balanceOf(address(this));
         assertEq(vaultBalanceAfter - vaultBalanceBefore, unstakeAmount);
 
@@ -611,7 +611,7 @@ contract TestAssetManager is Test, Vault {
         this.prepareStakingProvider();
         uint256[] memory requestIds = new uint256[](0);
         vm.expectRevert(OnlyAssetManager.selector);
-        this.claim(address(mockStakingProvider), requestIds);
+        this.claimUnstaked(address(mockStakingProvider), requestIds);
     }
 
     function test_ClaimRevertInvalidStakingProvider() public {
@@ -620,7 +620,7 @@ contract TestAssetManager is Test, Vault {
         requestIds[0] = 1;
         vm.expectRevert(InvalidStakingProvider.selector);
         vm.prank(assetManagerAddress);
-        this.claim(makeAddr("InvalidStakingProvider"), requestIds);
+        this.claimUnstaked(makeAddr("InvalidStakingProvider"), requestIds);
     }
 
     function test_ClaimEmptyRequestIds_doesNotRevert() public {
@@ -628,7 +628,7 @@ contract TestAssetManager is Test, Vault {
         this.prepareStakingProvider();
         uint256[] memory requestIds = new uint256[](0);
         vm.prank(assetManagerAddress);
-        this.claim(address(mockStakingProvider), requestIds);
+        this.claimUnstaked(address(mockStakingProvider), requestIds);
     }
 
     function test_UnstakeRevertAmountIsZero() public {
@@ -698,7 +698,7 @@ contract TestAssetManager is Test, Vault {
         this.supply(address(mockLendingProvider), address(mockToken), supplyAmount);
 
         assertEq(mockToken.allowance(address(this), clonedProvider), 0, "Allowance should be 0 after successful supply");
-        assertEq(MockLendingProvider(clonedProvider).getLendingBalance(address(mockToken)), supplyAmount);
+        assertEq(MockLendingProvider(clonedProvider).getSuppliedBalance(address(mockToken)), supplyAmount);
     }
 
     function test_StakeSucceedsWithPreExistingResidualAllowance() public {
@@ -726,7 +726,7 @@ contract TestAssetManager is Test, Vault {
             0,
             "Allowance should be 0 after successful stake"
         );
-        assertEq(MockStakingProvider(clonedProvider).getStakingBalance(mockWETH), stakeAmount);
+        assertEq(MockStakingProvider(clonedProvider).getStakedBalance(mockWETH), stakeAmount);
     }
 
     function test_AddIntentProviders_Success() public {

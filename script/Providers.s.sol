@@ -3,11 +3,11 @@ pragma solidity ^0.8.34;
 
 import {DeployScript} from "./BaseDeploy.sol";
 import {console2} from "forge-std/console2.sol";
-import {AaveV3Provider} from "../src/providers/AaveV3Provider.sol";
-import {UniswapV3Provider} from "../src/providers/UniswapV3Provider.sol";
-import {CoWSwapProvider} from "../src/providers/CoWSwapProvider.sol";
-import {UniswapXProvider} from "../src/providers/UniswapXProvider.sol";
-import {LidoV2Provider} from "../src/providers/LidoV2Provider.sol";
+import {AaveV3Provider} from "provider-contracts/src/providers/AaveV3Provider.sol";
+import {UniswapV3Provider} from "provider-contracts/src/providers/UniswapV3Provider.sol";
+import {CoWSwapProvider} from "provider-contracts/src/providers/CoWSwapProvider.sol";
+import {UniswapXProvider} from "provider-contracts/src/providers/UniswapXProvider.sol";
+import {LidoV2Provider} from "provider-contracts/src/providers/LidoV2Provider.sol";
 
 contract ProvidersScript is DeployScript {
     function deploy() public override {

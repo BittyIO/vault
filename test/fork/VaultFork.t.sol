@@ -5,14 +5,14 @@ import {Test} from "forge-std/Test.sol";
 import {Vault} from "../../src/Vault.sol";
 import {Factory} from "../../src/Factory.sol";
 import {WhiteList} from "whitelist-contracts/src/WhiteList.sol";
-import {AaveV3Provider} from "../../src/providers/AaveV3Provider.sol";
-import {LidoV2Provider} from "../../src/providers/LidoV2Provider.sol";
-import {mainnet} from "../../script/addresses.sol";
+import {AaveV3Provider} from "provider-contracts/src/providers/AaveV3Provider.sol";
+import {LidoV2Provider} from "provider-contracts/src/providers/LidoV2Provider.sol";
+import {mainnet} from "provider-contracts/script/addresses.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
-import {UniswapV3Provider} from "../../src/providers/UniswapV3Provider.sol";
-import {Path} from "../../src/libs/uniswap/v3/Uniswap.sol";
+import {UniswapV3Provider} from "provider-contracts/src/providers/UniswapV3Provider.sol";
+import {Path} from "provider-contracts/src/libs/uniswap/v3/Uniswap.sol";
 import {IAssetManager} from "../../src/interfaces/IAssetManager.sol";
 
 /// @notice Mainnet fork integration tests for Vault with real Aave and Lido providers.
@@ -114,13 +114,13 @@ contract TestVaultFork is Test {
         uint256 amount = 1 ether;
         deal(mainnet.WETH, address(vault), amount);
 
-        uint256 balanceBefore = vault.getLendingBalance(address(aaveProvider), mainnet.WETH);
+        uint256 balanceBefore = vault.getSuppliedBalance(address(aaveProvider), mainnet.WETH);
         assertEq(balanceBefore, 0);
 
         vm.prank(assetManager);
         vault.supply(address(aaveProvider), mainnet.WETH, amount);
 
-        uint256 balanceAfter = vault.getLendingBalance(address(aaveProvider), mainnet.WETH);
+        uint256 balanceAfter = vault.getSuppliedBalance(address(aaveProvider), mainnet.WETH);
         assertApproxEqAbs(balanceAfter, amount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
     }
@@ -140,7 +140,7 @@ contract TestVaultFork is Test {
         uint256 vaultBalanceAfter = IERC20(mainnet.WETH).balanceOf(address(vault));
         assertApproxEqAbs(vaultBalanceAfter - vaultBalanceBefore, withdrawAmount, 5);
 
-        uint256 remaining = vault.getLendingBalance(address(aaveProvider), mainnet.WETH);
+        uint256 remaining = vault.getSuppliedBalance(address(aaveProvider), mainnet.WETH);
         assertApproxEqAbs(remaining, supplyAmount - withdrawAmount, 10);
     }
 
@@ -148,12 +148,12 @@ contract TestVaultFork is Test {
         uint256 stakeAmount = 0.1 ether;
         deal(mainnet.WETH, address(vault), stakeAmount);
 
-        uint256 stakingBalanceBefore = vault.getStakingBalance(address(lidoProvider), mainnet.WETH);
+        uint256 stakingBalanceBefore = vault.getStakedBalance(address(lidoProvider), mainnet.WETH);
 
         vm.prank(assetManager);
         vault.stake(address(lidoProvider), mainnet.WETH, stakeAmount);
 
-        uint256 stakingBalanceAfter = vault.getStakingBalance(address(lidoProvider), mainnet.WETH);
+        uint256 stakingBalanceAfter = vault.getStakedBalance(address(lidoProvider), mainnet.WETH);
         assertGt(stakingBalanceAfter, stakingBalanceBefore);
         assertApproxEqAbs(stakingBalanceAfter - stakingBalanceBefore, stakeAmount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
@@ -187,7 +187,7 @@ contract TestVaultFork is Test {
         assertEq(ids.length, 1);
 
         vm.prank(assetManager);
-        vault.claim(address(lidoProvider), ids);
+        vault.claimUnstaked(address(lidoProvider), ids);
         // On mainnet fork, Lido withdrawals are not finalized immediately, so request ids remain
         uint256[] memory remaining = vault.getUnstakeRequestIds(address(lidoProvider));
         assertEq(remaining.length, 1);
@@ -200,12 +200,12 @@ contract TestVaultFork is Test {
         vm.prank(assetManager);
         vault.supply(address(aaveProvider), mainnet.WETH, amount);
 
-        uint256 lendingBalance = vault.getLendingBalance(address(aaveProvider), mainnet.WETH);
+        uint256 lendingBalance = vault.getSuppliedBalance(address(aaveProvider), mainnet.WETH);
         vm.prank(assetManager);
         vault.withdraw(address(aaveProvider), mainnet.WETH, lendingBalance);
 
         assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(vault)), amount, 5);
-        assertEq(vault.getLendingBalance(address(aaveProvider), mainnet.WETH), 0);
+        assertEq(vault.getSuppliedBalance(address(aaveProvider), mainnet.WETH), 0);
     }
 
     function test_ETHToWETH() public {

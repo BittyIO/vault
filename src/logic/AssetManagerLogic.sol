@@ -19,11 +19,15 @@ import {
     InvalidSwapData,
     InvalidValidTo
 } from "../interfaces/IAssetManager.sol";
-import {IProvider} from "../interfaces/IProvider.sol";
-import {ILendingProvider} from "../interfaces/ILendingProvider.sol";
-import {IStakingProvider} from "../interfaces/IStakingProvider.sol";
-import {IAMMProvider} from "../interfaces/IAMMProvider.sol";
-import {IIntentProvider, ApprovalNotFound, OrderNotExpired} from "../interfaces/IIntentProvider.sol";
+import {IProvider} from "provider-contracts/src/interfaces/IProvider.sol";
+import {ILendingProvider} from "provider-contracts/src/interfaces/ILendingProvider.sol";
+import {IStakingProvider} from "provider-contracts/src/interfaces/IStakingProvider.sol";
+import {IAMMProvider} from "provider-contracts/src/interfaces/IAMMProvider.sol";
+import {
+    IIntentProvider,
+    ApprovalNotFound,
+    OrderNotExpired
+} from "provider-contracts/src/interfaces/IIntentProvider.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
@@ -110,15 +114,6 @@ library AssetManagerLogic {
         return _cloneProvider(logicStorage, provider);
     }
 
-    function getOrCloneAMMProvider(AssetManagerStorage storage logicStorage, address ammProvider)
-        external
-        onlyInitialized(logicStorage)
-        returns (address clone)
-    {
-        _checkAMMProvider(logicStorage, ammProvider);
-        return _cloneProvider(logicStorage, ammProvider);
-    }
-
     function setRebalanceConfig(
         AssetManagerStorage storage logicStorage,
         address assetAddress,
@@ -173,14 +168,14 @@ library AssetManagerLogic {
             revert AmountIsZero();
         }
         lendingProvider = _cloneProvider(logicStorage, lendingProvider);
-        uint256 supplyAmount = ILendingProvider(lendingProvider).getLendingBalance(assetAddress);
+        uint256 supplyAmount = ILendingProvider(lendingProvider).getSuppliedBalance(assetAddress);
         if (supplyAmount < amount) {
             revert InsufficientBalance();
         }
         ILendingProvider(lendingProvider).withdraw(assetAddress, amount);
     }
 
-    function getLendingBalance(AssetManagerStorage storage logicStorage, address lendingProvider, address assetAddress)
+    function getSuppliedBalance(AssetManagerStorage storage logicStorage, address lendingProvider, address assetAddress)
         external
         view
         onlyInitialized(logicStorage)
@@ -193,7 +188,7 @@ library AssetManagerLogic {
         if (_clonedProvider == address(0)) {
             return 0;
         }
-        return ILendingProvider(_clonedProvider).getLendingBalance(assetAddress);
+        return ILendingProvider(_clonedProvider).getSuppliedBalance(assetAddress);
     }
 
     function stake(
@@ -239,14 +234,14 @@ library AssetManagerLogic {
             revert AmountIsZero();
         }
         stakingProvider = _cloneProvider(logicStorage, stakingProvider);
-        uint256 stakingBalance = IStakingProvider(stakingProvider).getStakingBalance(assetAddress);
+        uint256 stakingBalance = IStakingProvider(stakingProvider).getStakedBalance(assetAddress);
         if (stakingBalance < amount) {
             revert InsufficientBalance();
         }
         IStakingProvider(stakingProvider).unstake(assetAddress, amount);
     }
 
-    function getStakingBalance(AssetManagerStorage storage logicStorage, address stakingProvider, address assetAddress)
+    function getStakedBalance(AssetManagerStorage storage logicStorage, address stakingProvider, address assetAddress)
         external
         view
         onlyInitialized(logicStorage)
@@ -262,7 +257,7 @@ library AssetManagerLogic {
         if (_clonedProvider == address(0)) {
             return 0;
         }
-        return IStakingProvider(_clonedProvider).getStakingBalance(assetAddress);
+        return IStakingProvider(_clonedProvider).getStakedBalance(assetAddress);
     }
 
     function getUnstakeRequestIds(AssetManagerStorage storage logicStorage, address stakingProvider)
@@ -282,7 +277,7 @@ library AssetManagerLogic {
         return IStakingProvider(_clonedProvider).getUnstakeRequestIds();
     }
 
-    function claim(AssetManagerStorage storage logicStorage, address stakingProvider, uint256[] memory requestIds)
+    function claimUnstaked(AssetManagerStorage storage logicStorage, address stakingProvider, uint256[] memory requestIds)
         external
         onlyInitialized(logicStorage)
     {
@@ -293,7 +288,7 @@ library AssetManagerLogic {
             return;
         }
         stakingProvider = _cloneProvider(logicStorage, stakingProvider);
-        IStakingProvider(stakingProvider).claim(requestIds);
+        IStakingProvider(stakingProvider).claimUnstaked(requestIds);
     }
 
     function _addressBalance(address assetAddress) private view returns (uint256) {
@@ -391,6 +386,42 @@ library AssetManagerLogic {
         if (assetConfigTo.minimalDuration > 0) {
             logicStorage.lastRebalanceTimestamps[to] = block.timestamp;
         }
+    }
+
+    function addLiquidity(AssetManagerStorage storage logicStorage, address ammProvider, bytes memory data)
+        external
+        onlyInitialized(logicStorage)
+    {
+        _checkAMMProvider(logicStorage, ammProvider);
+        address clone = logicStorage.clonedProviders[ammProvider];
+        if (clone == address(0)) {
+            revert InvalidAMMProvider();
+        }
+        IAMMProvider(clone).addLiquidity(data);
+    }
+
+    function removeLiquidity(AssetManagerStorage storage logicStorage, address ammProvider, bytes memory data)
+        external
+        onlyInitialized(logicStorage)
+    {
+        _checkAMMProvider(logicStorage, ammProvider);
+        address clone = logicStorage.clonedProviders[ammProvider];
+        if (clone == address(0)) {
+            revert InvalidAMMProvider();
+        }
+        IAMMProvider(clone).removeLiquidity(data);
+    }
+
+    function claimAMMFees(AssetManagerStorage storage logicStorage, address ammProvider, bytes memory data)
+        external
+        onlyInitialized(logicStorage)
+    {
+        _checkAMMProvider(logicStorage, ammProvider);
+        address clone = logicStorage.clonedProviders[ammProvider];
+        if (clone == address(0)) {
+            revert InvalidAMMProvider();
+        }
+        IAMMProvider(clone).claimAMMFees(data);
     }
 
     function ammRebalance(
