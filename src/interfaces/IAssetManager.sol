@@ -10,9 +10,7 @@ error MinimalBalanceNotMet();
 error InvalidLendingProvider();
 error InvalidStakingProvider();
 error InvalidAMMProvider();
-error InvalidIntentProvider();
 error InvalidSwapData();
-error InvalidValidTo();
 error DisableRebalanceUntilTimestampTooEarly();
 error RebalanceDisabled();
 
@@ -71,13 +69,6 @@ interface IAssetManager {
     function getAMMProviders() external view returns (address[] memory);
 
     /**
-     * @notice Get the intent providers.
-     * @dev Get the intent providers.
-     * @return intentProviderAddresses The addresses of the intent providers.
-     */
-    function getIntentProviders() external view returns (address[] memory);
-
-    /**
      * @notice Set the asset config.
      * @dev Set the asset config.
      * @param assetAddress The address of the asset.
@@ -117,7 +108,7 @@ interface IAssetManager {
      * @param assetAddress The address of the asset.
      * @return The balance of the asset.
      */
-    function getLendingBalance(address lendingProvider, address assetAddress) external view returns (uint256);
+    function getSuppliedBalance(address lendingProvider, address assetAddress) external view returns (uint256);
 
     /**
      * @notice Stake the asset to the staking provider.
@@ -135,7 +126,7 @@ interface IAssetManager {
      * @param asset The address of the asset.
      * @return The staking balance.
      */
-    function getStakingBalance(address stakingProvider, address asset) external view returns (uint256);
+    function getStakedBalance(address stakingProvider, address asset) external view returns (uint256);
 
     /**
      * @notice Unstake the asset from the staking provider.
@@ -160,7 +151,7 @@ interface IAssetManager {
      * @param stakingProvider The address of the staking provider.
      * @param requestIds The request ids to claim.
      */
-    function claim(address stakingProvider, uint256[] memory requestIds) external;
+    function claimUnstaked(address stakingProvider, uint256[] memory requestIds) external;
 
     /**
      *
@@ -172,7 +163,7 @@ interface IAssetManager {
      * @param data The data for the swap.
      * @dev Rebalance the assets.
      */
-    function ammRebalance(
+    function rebalance(
         address ammProvider,
         address from,
         address to,
@@ -182,36 +173,13 @@ interface IAssetManager {
     ) external;
 
     /**
-     * @notice Rebalance assets using an intent-based provider (CoW, UniswapX).
-     * @dev Creates an intent order for async settlement. The sell tokens are transferred
-     *      to the intent provider immediately; buy tokens arrive when the order settles.
-     *      Same ammRebalance constraints apply (maxPercentage, minimalDuration, minimalBalance).
-     * @param intentProvider The address of the intent provider.
-     * @param from The address of the from asset.
-     * @param to The address of the to asset, asset should be in the added whitelist.
-     * @param sellAmount The amount of the from asset to sell.
-     * @param buyAmountMin The minimum amount of the to asset to buy.
-     * @param validTo The expiry timestamp of the order (unix seconds).
-     * @param isSellOrder True for a sell order (exact sell), false for a buy order (exact buy).
-     */
-    function intentRebalance(
-        address intentProvider,
-        address from,
-        address to,
-        uint256 sellAmount,
-        uint256 buyAmountMin,
-        uint32 validTo,
-        bool isSellOrder
-    ) external;
-
-    /**
      * @notice Add liquidity to the AMM provider.
      * @dev Add liquidity to the AMM provider.
      * @param ammProvider The address of the AMM provider.
      * @param data The data for the add liquidity.
      * @dev Only the asset manager can execute it.
      */
-    function addLiquidity(address ammProvider, bytes memory data) external payable;
+    function addLiquidity(address ammProvider, bytes memory data) external;
 
     /**
      * @notice Remove liquidity from the AMM provider.
@@ -220,7 +188,7 @@ interface IAssetManager {
      * @param data The data for the remove liquidity.
      * @dev Only the asset manager can execute it.
      */
-    function removeLiquidity(address ammProvider, bytes memory data) external payable;
+    function removeLiquidity(address ammProvider, bytes memory data) external;
 
     /**
      * @notice Claim fees from the AMM provider.
@@ -229,7 +197,7 @@ interface IAssetManager {
      * @param data The data for the claim fees.
      * @dev Only the asset manager can execute it.
      */
-    function claimFees(address ammProvider, bytes memory data) external payable;
+    function claimAMMFees(address ammProvider, bytes memory data) external;
 
     /**
      * @notice Get the liquidity of the AMM provider.
@@ -241,9 +209,9 @@ interface IAssetManager {
     function getLiquidity(address ammProvider, bytes memory data) external view returns (uint256);
 
     /**
-     * @notice Disable the ammRebalance until the timestamp.
-     * @dev Disable the ammRebalance until the timestamp.
-     * @param timestamp The timestamp to disable the ammRebalance until.
+     * @notice Disable the rebalance until the timestamp.
+     * @dev Disable the rebalance until the timestamp.
+     * @param timestamp The timestamp to disable the rebalance until.
      */
     function disableRebalanceUntilTimestamp(uint256 timestamp) external;
 
@@ -293,44 +261,4 @@ interface IAssetManager {
      * @dev Remove the swap providers.
      */
     function removeAMMProviders(address[] memory ammProviderAddresses) external;
-
-    /**
-     * @notice Add the intent providers.
-     * @dev Add the intent providers.
-     * @param intentProviderAddresses The addresses of the intent providers.
-     */
-    function addIntentProviders(address[] memory intentProviderAddresses) external;
-
-    /**
-     * @notice Remove the intent providers.
-     * @dev Remove the intent providers.
-     * @param intentProviderAddresses The addresses of the intent providers.
-     */
-    function removeIntentProviders(address[] memory intentProviderAddresses) external;
-
-    /**
-     * @notice Cancel a pending intent order previously submitted via intentRebalance.
-     * @dev Calls cancelTrade on the cloned intent provider. Provider-specific data encoding:
-     *      CoW: abi.encode(bytes32 orderDigest, uint32 validTo).
-     *      UniswapX: abi.encode(bytes32 hash), or abi.encode(bytes32(0), address sellToken) if canceling approval-only flow.
-     * @param intentProvider The address of the intent provider.
-     * @param data Encoded cancellation data.
-     */
-    function cancelIntentRebalance(address intentProvider, bytes memory data) external;
-
-    /**
-     * @notice Revoke sell token approvals on an intent provider clone for multiple tokens.
-     * @dev Reverts with ApprovalNotFound if the clone has no approval for any token.
-     * @param intentProvider The address of the intent provider.
-     * @param tokens The sell tokens whose approvals should be revoked.
-     */
-    function revokeIntentProviderApprovals(address intentProvider, address[] calldata tokens) external;
-
-    /**
-     * @notice Permissionlessly clean up multiple expired intent orders on the provider clone.
-     * @dev Reverts with OrderNotExpired if validTo has not passed yet for any order.
-     * @param intentProvider The address of the intent provider.
-     * @param orderDigests The order digests (CoW) or Permit2 hashes (UniswapX).
-     */
-    function cleanExpiredIntentOrders(address intentProvider, bytes32[] calldata orderDigests) external;
 }

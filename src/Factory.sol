@@ -54,12 +54,9 @@ contract Factory is IFactory, Initializable {
         address[] memory stableCoinAddresses,
         address[] memory lendingProviders,
         address[] memory stakingProviders,
-        address[] memory ammProviders,
-        address[] memory intentProviders
+        address[] memory ammProviders
     ) external override returns (address vault) {
-        _checkWhiteList(
-            assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders, intentProviders
-        );
+        _checkWhiteList(assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders);
 
         bytes32 salt = keccak256(abi.encodePacked(msg.sender));
         address computedAddress = Clones.predictDeterministicAddress(vaultImplementation, salt, address(this));
@@ -77,8 +74,7 @@ contract Factory is IFactory, Initializable {
                 stableCoinAddresses,
                 lendingProviders,
                 stakingProviders,
-                ammProviders,
-                intentProviders
+                ammProviders
             );
 
         emit VaultDeployed(vault, msg.sender);
@@ -98,8 +94,7 @@ contract Factory is IFactory, Initializable {
         address[] memory stableCoinAddresses,
         address[] memory lendingProviders,
         address[] memory stakingProviders,
-        address[] memory ammProviders,
-        address[] memory intentProviders
+        address[] memory ammProviders
     ) internal view {
         IWhiteList whiteList = IWhiteList(whiteListAddress);
         for (uint256 i = 0; i < assetAddresses.length; i++) {
@@ -116,9 +111,6 @@ contract Factory is IFactory, Initializable {
         }
         for (uint256 i = 0; i < ammProviders.length; i++) {
             if (!whiteList.isAMMProviderWhiteListed(ammProviders[i])) revert NotWhiteListed();
-        }
-        for (uint256 i = 0; i < intentProviders.length; i++) {
-            if (!whiteList.isIntentProviderWhiteListed(intentProviders[i])) revert NotWhiteListed();
         }
     }
 }

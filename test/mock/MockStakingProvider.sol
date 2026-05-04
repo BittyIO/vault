@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {IStakingProvider, InvalidAsset} from "../../src/interfaces/IStakingProvider.sol";
+import {IStakingProvider, InvalidAsset} from "provider-contracts/src/interfaces/IStakingProvider.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
@@ -27,7 +27,7 @@ contract MockStakingProvider is IStakingProvider {
         balances[weth] += amount;
     }
 
-    function getStakingBalance(address asset) external view override returns (uint256) {
+    function getStakedBalance(address asset) external view override returns (uint256) {
         if (asset != weth) revert InvalidAsset();
         return balances[weth];
     }
@@ -46,7 +46,7 @@ contract MockStakingProvider is IStakingProvider {
         _unstakeRequests.add(requestId);
     }
 
-    function claim(uint256[] memory requestIds) external override {
+    function claimUnstaked(uint256[] memory requestIds) external override {
         for (uint256 i = 0; i < requestIds.length; i++) {
             uint256 requestId = requestIds[i];
             if (_requestAmounts[requestId] == 0) continue;

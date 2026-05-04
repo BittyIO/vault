@@ -15,6 +15,9 @@
     "rev": "49646e34603a405bf1d2b490031eb9f0aff7dce3"
   },
   "lib/whitelist-contracts": {
-    "rev": "5a6db1169df42c044a26d9f1cd2c660618c952ce"
+    "rev": "c810326b0b97e138feb4280e38c632c6698748c2"
+  },
+  "lib/provider-contracts": {
+    "rev": "8cbb9eef532e658b1b7e0b475b3a113b74657214"
   }
 }

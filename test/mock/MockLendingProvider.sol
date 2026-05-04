@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {ILendingProvider} from "../../src/interfaces/ILendingProvider.sol";
+import {ILendingProvider} from "provider-contracts/src/interfaces/ILendingProvider.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 contract MockLendingProvider is ILendingProvider {
@@ -21,7 +21,7 @@ contract MockLendingProvider is ILendingProvider {
         IERC20(asset).transfer(msg.sender, amount);
     }
 
-    function getLendingBalance(address asset) external view override returns (uint256) {
+    function getSuppliedBalance(address asset) external view override returns (uint256) {
         return balances[asset];
     }
 }
