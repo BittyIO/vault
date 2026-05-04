@@ -20,6 +20,8 @@ contract TestVaultFork is Test {
     using SafeERC20 for IERC20;
     using Path for bytes;
 
+    address internal constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
+
     Vault public vaultImpl;
     Vault public vault;
     Factory public factory;
@@ -45,8 +47,7 @@ contract TestVaultFork is Test {
         whiteList.grantRole(whiteList.LENDING_MANAGER_ROLE(), tx.origin);
         whiteList.grantRole(whiteList.STAKING_MANAGER_ROLE(), tx.origin);
         whiteList.grantRole(whiteList.AMM_MANAGER_ROLE(), tx.origin);
-        whiteList.grantRole(whiteList.INTENT_MANAGER_ROLE(), tx.origin);
-        whiteList.addAssets(_arr(mainnet.WETH, mainnet.WBTC));
+        whiteList.addAssets(_arr(mainnet.WETH, WBTC));
         whiteList.addStableCoins(_arr(mainnet.USDC, mainnet.USDT));
 
         aaveProvider = new AaveV3Provider(mainnet.AAVE_V3, mainnet.POOL_DATA_PROVIDER);
@@ -63,7 +64,7 @@ contract TestVaultFork is Test {
         whiteList.addAMMProviders(_arr(address(uniswapV3Provider)));
         vm.stopPrank();
 
-        assets = _arr(mainnet.WETH, mainnet.WBTC);
+        assets = _arr(mainnet.WETH, WBTC);
         stableCoins = _arr(mainnet.USDC, mainnet.USDT);
         lendingProviders = _arr(address(aaveProvider));
         stakingProviders = _arr(address(lidoProvider));
@@ -73,9 +74,7 @@ contract TestVaultFork is Test {
         factory = new Factory();
         factory.initialize(address(vaultImpl), address(whiteList), makeAddr("subscription"), mainnet.WETH);
 
-        address vaultAddr = factory.deployVault(
-            assets, stableCoins, lendingProviders, stakingProviders, ammProviders, new address[](0)
-        );
+        address vaultAddr = factory.deployVault(assets, stableCoins, lendingProviders, stakingProviders, ammProviders);
         vault = Vault(payable(vaultAddr));
 
         assetManager = address(this);
@@ -233,7 +232,7 @@ contract TestVaultFork is Test {
 
     function test_FactoryRevertWhenVaultAlreadyDeployed() public {
         vm.expectRevert();
-        factory.deployVault(assets, stableCoins, lendingProviders, stakingProviders, ammProviders, new address[](0));
+        factory.deployVault(assets, stableCoins, lendingProviders, stakingProviders, ammProviders);
     }
 
     function test_RebalanceWETHToUSDT() public {
@@ -257,7 +256,7 @@ contract TestVaultFork is Test {
 
         uint256 usdtBefore = IERC20(mainnet.USDT).balanceOf(address(vault));
         vm.prank(assetManager);
-        vault.ammRebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        vault.rebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
         uint256 usdtAfter = IERC20(mainnet.USDT).balanceOf(address(vault));
         assertGt(usdtAfter, usdtBefore);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);

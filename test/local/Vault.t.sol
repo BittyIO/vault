@@ -66,7 +66,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0),
             new address[](0)
         );
         vm.expectRevert("Initializable: contract is already initialized");
@@ -74,7 +73,6 @@ contract VaultTest is Test {
             address(whiteListAddress),
             subscriptionAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -97,7 +95,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0),
             new address[](0)
         );
         address receiverAddr = makeAddr("receiver");
@@ -112,7 +109,6 @@ contract VaultTest is Test {
             whiteListAddress,
             subscriptionAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -137,7 +133,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r =
@@ -154,7 +149,6 @@ contract VaultTest is Test {
             whiteListAddress,
             subscriptionAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -177,7 +171,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r =
@@ -192,7 +185,6 @@ contract VaultTest is Test {
             whiteListAddress,
             subscriptionAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -215,7 +207,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r =
@@ -230,7 +221,6 @@ contract VaultTest is Test {
             whiteListAddress,
             subscriptionAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -258,7 +248,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0),
             new address[](0)
         );
         address receiverAddr = makeAddr("receiver");
@@ -280,7 +269,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r =
@@ -295,7 +283,6 @@ contract VaultTest is Test {
             whiteListAddress,
             subscriptionAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -321,7 +308,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r =
@@ -339,7 +325,6 @@ contract VaultTest is Test {
             whiteListAddress,
             subscriptionAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -365,7 +350,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r =
@@ -382,7 +366,6 @@ contract VaultTest is Test {
             whiteListAddress,
             subscriptionAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -408,7 +391,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0),
             new address[](0)
         );
         vm.expectRevert(ReceiverNotFound.selector);
@@ -420,7 +402,6 @@ contract VaultTest is Test {
             whiteListAddress,
             subscriptionAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -447,7 +428,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0),
             new address[](0)
         );
         address alice = makeAddr("alice");
@@ -470,7 +450,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0),
             new address[](0)
         );
         uint256 futureStartTimestamp = block.timestamp + 100;
@@ -489,7 +468,6 @@ contract VaultTest is Test {
             whiteListAddress,
             subscriptionAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),

@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
-import {IAssetManager, OnlyAssetManager, InvalidIntentProvider} from "./interfaces/IAssetManager.sol";
+import {IAssetManager, OnlyAssetManager} from "./interfaces/IAssetManager.sol";
 import {IAMMProvider} from "provider-contracts/src/interfaces/IAMMProvider.sol";
 import {IWhiteList} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
 import {IVault, ReceiverNotFound} from "./interfaces/IVault.sol";
@@ -41,8 +41,7 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         address[] memory stableCoinAddresses,
         address[] memory lendingProviders,
         address[] memory stakingProviders,
-        address[] memory ammProviders,
-        address[] memory intentProviders_
+        address[] memory ammProviders
     ) public initializer {
         _transferOwnership(tx.origin);
         _vault.initialize(wethAddress_, whiteListAddress, subscriptionAddress);
@@ -52,12 +51,11 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _assetManager.addLendingProviders(lendingProviders);
         _assetManager.addStakingProviders(stakingProviders);
         _assetManager.addAMMProviders(ammProviders);
-        _assetManager.addIntentProviders(intentProviders_);
     }
 
     // AMM functions
 
-    function ammRebalance(
+    function rebalance(
         address ammProvider,
         address from,
         address to,
@@ -65,7 +63,7 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         uint256 buyAmountMin,
         bytes memory data
     ) external override onlyAssetManager onlyValidAsset(to) {
-        _assetManager.ammRebalance(_vault, ammProvider, from, to, sellAmount, buyAmountMin, data);
+        _assetManager.rebalance(_vault, ammProvider, from, to, sellAmount, buyAmountMin, data);
     }
 
     function addLiquidity(address ammProvider, bytes memory data) external override onlyAssetManager {
@@ -129,36 +127,6 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _assetManager.claimUnstaked(stakingProvider, requestIds);
     }
 
-    // Intent functions
-
-    function intentRebalance(
-        address intentProvider,
-        address from,
-        address to,
-        uint256 sellAmount,
-        uint256 buyAmountMin,
-        uint32 validTo,
-        bool isSellOrder
-    ) external override onlyAssetManager onlyValidAsset(to) {
-        _assetManager.intentRebalance(_vault, intentProvider, from, to, sellAmount, buyAmountMin, validTo, isSellOrder);
-    }
-
-    function cancelIntentRebalance(address intentProvider, bytes memory data) external override onlyAssetManager {
-        _assetManager.cancelIntentRebalance(intentProvider, data);
-    }
-
-    function revokeIntentProviderApprovals(address intentProvider, address[] calldata tokens)
-        external
-        override
-        onlyAssetManager
-    {
-        _assetManager.revokeIntentProviderApprovals(intentProvider, tokens);
-    }
-
-    function cleanExpiredIntentOrders(address intentProvider, bytes32[] calldata orderDigests) external override {
-        _assetManager.cleanExpiredIntentOrders(intentProvider, orderDigests);
-    }
-
     // IAssetManager interface
 
     function changeAssetManagerAddress(address newAssetManager) external override onlyAssetManager {
@@ -199,14 +167,6 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
 
     function removeAMMProviders(address[] memory ammProviderAddresses) external override onlyOwner {
         _assetManager.removeAMMProviders(ammProviderAddresses);
-    }
-
-    function addIntentProviders(address[] memory intentProviderAddresses) external override onlyOwner {
-        _assetManager.addIntentProviders(intentProviderAddresses);
-    }
-
-    function removeIntentProviders(address[] memory intentProviderAddresses) external override onlyOwner {
-        _assetManager.removeIntentProviders(intentProviderAddresses);
     }
 
     function ETHToWETH(uint256 amount) external override onlyAssetManager {
@@ -309,10 +269,6 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
 
     function getAMMProviders() external view override returns (address[] memory) {
         return _assetManager.getAMMProviders();
-    }
-
-    function getIntentProviders() external view override returns (address[] memory) {
-        return _assetManager.getIntentProviders();
     }
 
     function lastRebalanceTimestamps(address assetAddress) external view returns (uint256) {
