@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IAssetManager, OnlyAssetManager} from "./interfaces/IAssetManager.sol";
 import {IAMMProvider} from "provider-contracts/src/interfaces/IAMMProvider.sol";
 import {IWhiteList} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
@@ -11,11 +10,15 @@ import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
 import {OnlyReceiver} from "./interfaces/IVault.sol";
+import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 
 /**
  * @title Vault
  * @notice
  * @dev
+ *
+ * 1. ADMIN ROLE from hardware wallet, multi-sig would be better.
+ * 2. ASSET MANAGER ROLE from hot wallet, browser extension wallet to be more convinient for use without losing any money.
  */
 contract Vault is IAssetManager, IVault, Initializable, Ownable {
     using AssetManagerLogic for AssetManagerStorage;
