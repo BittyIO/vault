@@ -6,26 +6,12 @@ import {Config} from "forge-std/Config.sol";
 import {console2} from "forge-std/console2.sol";
 
 abstract contract DeployScript is Script, Config {
-    function __toUpper(string memory str) private pure returns (string memory) {
-        bytes memory strb = bytes(str);
-        bytes memory copy = new bytes(strb.length);
-        for (uint256 i = 0; i < strb.length; i++) {
-            bytes1 b = strb[i];
-            if (b >= 0x61 && b <= 0x7A) {
-                copy[i] = bytes1(uint8(b) - 32);
-            } else {
-                copy[i] = b;
-            }
-        }
-        return string(copy);
-    }
-
     function deploy(string memory chainName) public {
         console2.log("Forking chain", chainName);
         vm.createSelectFork(chainName);
         string memory configPath = string.concat("./deployments/", chainName, ".toml");
         _loadConfig(configPath, true);
-        vm.startBroadcast(vm.envUint(string.concat(__toUpper(chainName), "_PRIVATE_KEY")));
+        vm.startBroadcast();
         deploy();
         vm.stopBroadcast();
     }
