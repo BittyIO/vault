@@ -8,10 +8,12 @@ import {
     InvalidStakingProvider,
     RebalanceMaxAmount,
     RebalanceDisabled,
+    RebalanceInMinimalTime,
+    MinimalBalanceNotMet,
     DisableRebalanceUntilTimestampTooEarly,
     OnlyAssetManager
 } from "../../src/interfaces/IAssetManager.sol";
-import {Deprecated} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
+import {Deprecated, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockLendingProvider} from "../mock/MockLendingProvider.sol";
@@ -363,6 +365,161 @@ contract TestAssetManager is Test, Vault {
 
         vm.prank(assetManagerAddress);
         this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+    }
+
+    function test_RebalanceFromCheck_RevertsWhenFromNotVaultAsset() public {
+        this.doInitialize();
+
+        RebalanceConfig memory rebalanceConfig = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
+        vm.prank(ownerAddress);
+        this.setRebalanceConfig(address(mockUSDT), rebalanceConfig);
+
+        address invalidFrom = makeAddr("invalidFromAsset");
+        uint256 sellAmount = 1 ether;
+        uint256 buyAmount = 10 * 1e6;
+        bytes memory swapData = abi.encode(invalidFrom, sellAmount, address(mockUSDT), buyAmount);
+
+        vm.expectRevert(NotWhiteListed.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(mockAMMProvider), invalidFrom, address(mockUSDT), sellAmount, buyAmount, swapData);
+    }
+
+    function test_RebalanceFromCheck_MinimalBalanceNotMet_WhenRemainingBelowMinimal() public {
+        this.doInitialize();
+
+        uint256 minimalBalance = 100 ether;
+        RebalanceConfig memory rebalanceConfig =
+            RebalanceConfig({minimalBalance: minimalBalance, minimalDuration: 1, maxAmount: 0});
+        vm.prank(ownerAddress);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
+
+        uint256 fromBalance = 1000 ether;
+        uint256 sellAmount = 950 ether;
+
+        deal(address(mockWETH), address(this), fromBalance);
+        MockERC20(mockWETH).approve(address(this), fromBalance);
+
+        uint256 buyAmount = 10 * 1e6;
+        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
+
+        vm.expectRevert(MinimalBalanceNotMet.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+    }
+
+    function test_RebalanceFromCheck_MinimalBalanceNotMet_WhenSellExceedsBalance() public {
+        this.doInitialize();
+
+        uint256 minimalBalance = 100 ether;
+        RebalanceConfig memory rebalanceConfig =
+            RebalanceConfig({minimalBalance: minimalBalance, minimalDuration: 1, maxAmount: 0});
+        vm.prank(ownerAddress);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
+
+        uint256 fromBalance = 50 ether;
+        uint256 sellAmount = 100 ether;
+
+        deal(address(mockWETH), address(this), fromBalance);
+        MockERC20(mockWETH).approve(address(this), fromBalance);
+
+        uint256 buyAmount = 10 * 1e6;
+        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
+
+        vm.expectRevert(MinimalBalanceNotMet.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+    }
+
+    function test_RebalanceFromCheck_MinimalBalance_SucceedsWhenRemainingAtLeastMinimal() public {
+        this.doInitialize();
+
+        uint256 minimalBalance = 100 ether;
+        RebalanceConfig memory rebalanceConfig =
+            RebalanceConfig({minimalBalance: minimalBalance, minimalDuration: 1, maxAmount: 0});
+        vm.prank(ownerAddress);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
+
+        uint256 fromBalance = 1000 ether;
+        uint256 sellAmount = 900 ether;
+
+        deal(address(mockWETH), address(this), fromBalance);
+        MockERC20(mockWETH).approve(address(this), fromBalance);
+
+        address clonedAMMProvider = this.cloneProviderForTesting(address(mockAMMProvider));
+
+        uint256 buyAmount = 10 * 1e6;
+        deal(address(mockUSDT), clonedAMMProvider, buyAmount);
+        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
+
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+
+        assertEq(MockERC20(mockWETH).balanceOf(address(this)), minimalBalance);
+        assertEq(MockERC20(mockUSDT).balanceOf(address(this)), buyAmount);
+    }
+
+    function test_RebalanceFromCheck_RebalanceInMinimalTime_RevertsWhenFromDurationNotElapsed() public {
+        this.doInitialize();
+
+        uint256 minimalDuration = 7 days;
+        RebalanceConfig memory rebalanceConfig =
+            RebalanceConfig({minimalBalance: 0, minimalDuration: minimalDuration, maxAmount: 0});
+        vm.prank(ownerAddress);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
+
+        uint256 fromBalance = 10 ether;
+        uint256 sellAmount = 1 ether;
+        uint256 buyAmount = 10 * 1e6;
+
+        deal(address(mockWETH), address(this), fromBalance);
+        MockERC20(mockWETH).approve(address(this), fromBalance);
+
+        address clonedAMMProvider = this.cloneProviderForTesting(address(mockAMMProvider));
+        deal(address(mockUSDT), clonedAMMProvider, buyAmount * 2);
+        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
+
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+
+        vm.expectRevert(RebalanceInMinimalTime.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+    }
+
+    function test_RebalanceFromCheck_RebalanceInMinimalTime_SucceedsAfterFromDurationElapsed() public {
+        this.doInitialize();
+
+        uint256 minimalDuration = 7 days;
+        RebalanceConfig memory rebalanceConfig =
+            RebalanceConfig({minimalBalance: 0, minimalDuration: minimalDuration, maxAmount: 0});
+        vm.prank(ownerAddress);
+        this.setRebalanceConfig(address(mockWETH), rebalanceConfig);
+
+        uint256 fromBalance = 10 ether;
+        uint256 sellAmount = 1 ether;
+        uint256 buyAmount = 10 * 1e6;
+
+        deal(address(mockWETH), address(this), fromBalance);
+        MockERC20(mockWETH).approve(address(this), fromBalance);
+
+        address clonedAMMProvider = this.cloneProviderForTesting(address(mockAMMProvider));
+        deal(address(mockUSDT), clonedAMMProvider, buyAmount * 2);
+        bytes memory swapData = abi.encode(address(mockWETH), sellAmount, address(mockUSDT), buyAmount);
+
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+
+        vm.warp(block.timestamp + minimalDuration + 1);
+
+        deal(address(mockWETH), address(this), fromBalance);
+        MockERC20(mockWETH).approve(address(this), fromBalance);
+        deal(address(mockUSDT), clonedAMMProvider, buyAmount);
+
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(mockAMMProvider), address(mockWETH), address(mockUSDT), sellAmount, buyAmount, swapData);
+
+        assertEq(MockERC20(mockWETH).balanceOf(address(this)), fromBalance - sellAmount);
+        assertEq(MockERC20(mockUSDT).balanceOf(address(this)), buyAmount * 2);
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_RevertsWhenBeforeTimestamp() public {
