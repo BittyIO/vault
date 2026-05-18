@@ -16,29 +16,34 @@ ALCHEMY_KEY=your_key
 
 ```
 
-### Deploy
-
-#### seploia
-
-update `.env`, add `SEPOLIA_PRIVATE_KEY`
-
-```shell
-forge script ${deploy_script}  --broadcast --slow --verify --rpc-url ${sepolia_rpc_url} 
-```
-
-### mainnet
-
-update `.env`, add `MAINNET_PRIVATE_KEY`
-
-```shell
-forge script ${deploy_script}  --broadcast --slow --verify --rpc-url ${mainnet_rpc_url} 
-```
+or just export this in shell PATH
 
 ### Test
 
 ```shell
-$ forge test
+$ forge test -vvv
+```
+
+### Deploy
+
+```shell
+forge script --broadcast -vvvv \
+    --rpc-url {rpc} \
+    --private-key {private-key} \
+    --etherscan-api-key {etherscan-api-key} \
+    script/Factory.s.sol:Deploy
+```
+
+### Verify
+
+```shell
+forge verify-contract \
+    --chain-id {chain-id} \
+    {contract-address} \
+    --etherscan-api-key {etherscan-api-key} \
+    src/Factory.sol:Factory
 ```
 
 ### License
+
 ```AGPL-3.0-only```

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import "forge-std/console.sol";
 import {Test} from "forge-std/Test.sol";
 import {Vault} from "../../src/Vault.sol";
 import {
@@ -79,11 +78,6 @@ contract VaultTest is Test {
             new address[](0),
             new address[](0)
         );
-    }
-
-    function test_GetVaultInitCode() public pure {
-        bytes memory bytecode = type(Vault).creationCode;
-        console.logBytes32(keccak256(bytecode));
     }
 
     function test_AddReceiverSuccess() public {

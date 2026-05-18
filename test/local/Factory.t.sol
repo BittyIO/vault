@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import "forge-std/console.sol";
 import {Test} from "forge-std/Test.sol";
 import {Factory} from "../../src/Factory.sol";
 import {Vault} from "../../src/Vault.sol";
@@ -448,6 +449,11 @@ contract FactoryTest is Test {
 
         Vault vaultInstance = Vault(payable(vault));
         assertEq(vaultInstance.owner(), tx.origin, "Owner should match event");
+    }
+
+    function test_Factory_initCode() public {
+        bytes memory bytecode = type(Factory).creationCode;
+        console.logBytes32(keccak256(bytecode));
     }
 }
 
