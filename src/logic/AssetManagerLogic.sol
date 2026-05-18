@@ -321,9 +321,7 @@ library AssetManagerLogic {
         view
         returns (IAssetManager.RebalanceConfig memory configFrom, IAssetManager.RebalanceConfig memory configTo)
     {
-        if (from == address(0)) {
-            revert AddressZero();
-        }
+        VaultLogic.checkAsset(vaultStorage, from);
         VaultLogic.checkAsset(vaultStorage, to);
         _checkRebalanceDisabledUntilTimestamp(logicStorage);
         configFrom = logicStorage.rebalanceConfigs[from];
