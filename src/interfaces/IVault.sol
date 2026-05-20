@@ -49,7 +49,6 @@ interface IVault {
         uint8 paymentCount;
         uint256 startTimestamp;
         uint256 durationTimestamp;
-        uint256 lastReceiveTimestamp;
         bool isImmutable;
     }
 

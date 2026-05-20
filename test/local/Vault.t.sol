@@ -51,7 +51,6 @@ contract VaultTest is Test {
             paymentCount: paymentCount_,
             startTimestamp: startTimestamp_,
             durationTimestamp: durationTimestamp_,
-            lastReceiveTimestamp: 0,
             isImmutable: isImmutable_
         });
     }
