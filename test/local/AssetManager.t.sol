@@ -2,7 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
-import {AmountIsZero, AddressZero} from "../../src/interfaces/IVault.sol";
+import {AmountIsZero, AddressZero, ETHBalanceNotEnough} from "../../src/interfaces/IVault.sol";
 import {
     InvalidLendingProvider,
     InvalidStakingProvider,
@@ -170,6 +170,41 @@ contract TestAssetManager is Test, Vault {
         vm.prank(assetManagerAddress);
         this.ETHToWETH(1 ether);
         assertEq(WETH(payable(mockWETH)).balanceOf(address(this)), 1 ether);
+    }
+
+    /// @dev Regression: plain ETH sends must not revert (Vault.receive). Matches wallet "Send ETH" (empty calldata).
+    function test_ethDeposit_viaReceive_thenETHToWETH() public {
+        this.doInitialize();
+
+        uint256 amount = 0.1 ether;
+        address depositor = makeAddr("ethDepositor");
+        uint256 ethBefore = address(this).balance;
+        uint256 wethBefore = WETH(payable(mockWETH)).balanceOf(address(this));
+
+        vm.deal(depositor, amount);
+        vm.prank(depositor);
+        (bool success, bytes memory returnData) = address(this).call{value: amount}("");
+
+        assertTrue(success, string(returnData));
+        assertEq(address(this).balance - ethBefore, amount);
+        assertEq(WETH(payable(mockWETH)).balanceOf(address(this)), wethBefore);
+
+        uint256 ethAfterDeposit = address(this).balance;
+        vm.prank(assetManagerAddress);
+        this.ETHToWETH(amount);
+
+        assertEq(address(this).balance, ethAfterDeposit - amount);
+        assertEq(WETH(payable(mockWETH)).balanceOf(address(this)), wethBefore + amount);
+    }
+
+    function test_ETHToWETH_revertsWhenEthBalanceInsufficient() public {
+        this.doInitialize();
+
+        vm.deal(address(this), 0.5 ether);
+
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(ETHBalanceNotEnough.selector);
+        this.ETHToWETH(1 ether);
     }
 
     function test_SupplyRevertInvalidLendingProvider() public {
