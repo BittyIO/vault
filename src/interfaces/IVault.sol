@@ -14,7 +14,6 @@ error ReceiverNotFound();
 error ReceiverNameAlreadyExists();
 error ReceiverImmutable();
 error ReceiverPaymentCountZero();
-error ReceiverDurationTimestampNotSet();
 error ReceiverTriggerError();
 error ReceiverNotStartYet();
 error ReceiverInDuration();

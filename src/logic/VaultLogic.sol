@@ -21,7 +21,6 @@ import {
     ReceiverNameAlreadyExists,
     ReceiverImmutable,
     ReceiverPaymentCountZero,
-    ReceiverDurationTimestampNotSet,
     ReceiverTriggerError,
     ReceiverNotStartYet,
     ReceiverInDuration,
@@ -122,9 +121,6 @@ library VaultLogic {
         if (receiver.paymentCount == 0) {
             revert ReceiverPaymentCountZero();
         }
-        if (receiver.paymentCount > 0 && receiver.durationTimestamp == 0) {
-            revert ReceiverDurationTimestampNotSet();
-        }
     }
 
     function removeReceiver(VaultStorage storage vaultStorage, string memory name)
@@ -171,7 +167,9 @@ library VaultLogic {
             revert ReceiverInDuration();
         }
         _transferMoney(receiver.assetAddress, receiver.amount, receiver.receiverAddress);
-        vaultStorage.lastReceiveTimestamps[name] = block.timestamp;
+        if (receiver.durationTimestamp != 0) {
+            vaultStorage.lastReceiveTimestamps[name] = block.timestamp;
+        }
         receiver.paymentCount = receiver.paymentCount - 1;
     }
 
