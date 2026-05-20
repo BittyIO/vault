@@ -165,13 +165,13 @@ library VaultLogic {
             revert ReceiverNotStartYet();
         }
         if (
-            receiver.durationTimestamp != 0
-                && block.timestamp - receiver.lastReceiveTimestamp < receiver.durationTimestamp
+            receiver.durationTimestamp != 0 && vaultStorage.lastReceiveTimestamps[name] > 0
+                && block.timestamp - vaultStorage.lastReceiveTimestamps[name] < receiver.durationTimestamp
         ) {
             revert ReceiverInDuration();
         }
         _transferMoney(receiver.assetAddress, receiver.amount, receiver.receiverAddress);
-        receiver.lastReceiveTimestamp = block.timestamp;
+        vaultStorage.lastReceiveTimestamps[name] = block.timestamp;
         receiver.paymentCount = receiver.paymentCount - 1;
     }
 

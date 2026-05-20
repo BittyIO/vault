@@ -27,6 +27,7 @@ struct AssetManagerStorage {
 struct VaultStorage {
     bool isInitialized;
     mapping(string => IVault.Receiver) receivers;
+    mapping(string => uint256) lastReceiveTimestamps;
     address weth;
     IWhiteList whiteList;
     ISubscription subscription;
