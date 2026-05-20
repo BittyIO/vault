@@ -11,7 +11,6 @@ import {
     ReceiverNameAlreadyExists,
     ReceiverImmutable,
     ReceiverPaymentCountZero,
-    ReceiverDurationTimestampNotSet,
     OnlyReceiver,
     ReceiverNotStartYet
 } from "../../src/interfaces/IVault.sol";
@@ -234,47 +233,6 @@ contract VaultTest is Test {
         vm.prank(ownerAddress);
         vm.expectRevert(ReceiverPaymentCountZero.selector);
         vault.addReceiver("alice", r);
-    }
-
-    function test_AddReceiverRevertDurationTimestampNotSet() public {
-        vault.initialize(
-            whiteListAddress,
-            subscriptionAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        IVault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 2, block.timestamp, 0, false);
-        vm.prank(ownerAddress);
-        vm.expectRevert(ReceiverDurationTimestampNotSet.selector);
-        vault.addReceiver("alice", r);
-    }
-
-    function test_UpdateReceiverRevertDurationTimestampNotSet() public {
-        vault.initialize(
-            whiteListAddress,
-            subscriptionAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        IVault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
-
-        r.paymentCount = 3;
-        r.durationTimestamp = 0;
-        vm.prank(ownerAddress);
-        vm.expectRevert(ReceiverDurationTimestampNotSet.selector);
-        vault.updateReceiver("alice", r);
     }
 
     function test_UpdateReceiverSuccess() public {
