@@ -36,6 +36,8 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _;
     }
 
+    receive() external payable {}
+
     function initialize(
         address whiteListAddress,
         address subscriptionAddress,

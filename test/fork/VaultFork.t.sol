@@ -207,6 +207,18 @@ contract TestVaultFork is Test {
         assertEq(vault.getSuppliedBalance(address(aaveProvider), mainnet.WETH), 0);
     }
 
+    function test_Receive_acceptsPlainEthTransfer() public {
+        uint256 amount = 0.1 ether;
+        address depositor = makeAddr("ethDepositor");
+
+        vm.deal(depositor, amount);
+        vm.prank(depositor);
+        (bool success, bytes memory returnData) = address(vault).call{value: amount}("");
+
+        assertTrue(success, string(returnData));
+        assertEq(address(vault).balance, amount);
+    }
+
     function test_ETHToWETH() public {
         uint256 amount = 1 ether;
         vm.deal(address(vault), amount);
@@ -216,6 +228,23 @@ contract TestVaultFork is Test {
 
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), amount);
         assertEq(address(vault).balance, 0);
+    }
+
+    function test_ethDeposit_viaReceive_thenETHToWETH() public {
+        uint256 amount = 0.1 ether;
+        address depositor = makeAddr("ethDepositor");
+
+        vm.deal(depositor, amount);
+        vm.prank(depositor);
+        (bool success,) = address(vault).call{value: amount}("");
+        assertTrue(success);
+        assertEq(address(vault).balance, amount);
+
+        vm.prank(assetManager);
+        vault.ETHToWETH(amount);
+
+        assertEq(address(vault).balance, 0);
+        assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), amount);
     }
 
     function test_RevertSupplyWhenNotAssetManager() public {

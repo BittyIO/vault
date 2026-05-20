@@ -56,6 +56,51 @@ contract VaultTest is Test {
         });
     }
 
+    function test_Receive_acceptsPlainEthTransfer() public {
+        address depositor = makeAddr("ethDepositor");
+        uint256 amount = 0.1 ether;
+
+        vm.deal(depositor, amount);
+        vm.prank(depositor);
+        (bool success, bytes memory returnData) = address(vault).call{value: amount}("");
+
+        assertTrue(success, string(returnData));
+        assertEq(address(vault).balance, amount);
+    }
+
+    function test_Receive_acceptsEthBeforeInitialize() public {
+        uint256 amount = 1 ether;
+
+        vm.deal(address(this), amount);
+        (bool success,) = address(vault).call{value: amount}("");
+
+        assertTrue(success);
+        assertEq(address(vault).balance, amount);
+    }
+
+    function test_Receive_acceptsEthAfterInitialize() public {
+        vault.initialize(
+            whiteListAddress,
+            subscriptionAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+
+        address depositor = makeAddr("ethDepositor");
+        uint256 amount = 0.05 ether;
+
+        vm.deal(depositor, amount);
+        vm.prank(depositor);
+        (bool success,) = address(vault).call{value: amount}("");
+
+        assertTrue(success);
+        assertEq(address(vault).balance, amount);
+    }
+
     function test_InitErrorWithAlreadyInitialized() public {
         vault.initialize(
             address(whiteListAddress),
