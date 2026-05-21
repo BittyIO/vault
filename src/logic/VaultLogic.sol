@@ -26,10 +26,17 @@ import {
     ReceiverInDuration,
     ETHBalanceNotEnough,
     WETHBalanceNotEnough,
-    AddingAssetsDisabled
+    AddingAssetsDisabled,
+    ReceiverDurationTooShort
 } from "../interfaces/IVault.sol";
 
 library VaultLogic {
+    /**
+     * The vault will be drained by one attack in a very short time if no this protection.
+     * @dev this is a protection for the vault.
+     */
+    uint256 constant RECEIVER_MINIMAL_DURATION = 1 days;
+
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
 
@@ -121,6 +128,9 @@ library VaultLogic {
         if (receiver.paymentCount == 0) {
             revert ReceiverPaymentCountZero();
         }
+        if (receiver.paymentCount > 1 && receiver.durationTimestamp < RECEIVER_MINIMAL_DURATION) {
+            revert ReceiverDurationTooShort();
+        }
     }
 
     function removeReceiver(VaultStorage storage vaultStorage, string memory name)
@@ -166,11 +176,9 @@ library VaultLogic {
         ) {
             revert ReceiverInDuration();
         }
-        _transferMoney(receiver.assetAddress, receiver.amount, receiver.receiverAddress);
-        if (receiver.durationTimestamp != 0) {
-            vaultStorage.lastReceiveTimestamps[name] = block.timestamp;
-        }
+        vaultStorage.lastReceiveTimestamps[name] = block.timestamp;
         receiver.paymentCount = receiver.paymentCount - 1;
+        _transferMoney(receiver.assetAddress, receiver.amount, receiver.receiverAddress);
     }
 
     function _transferMoney(address erc20Address, uint256 amount, address receiverAddress) internal {

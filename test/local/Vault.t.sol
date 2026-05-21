@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {Vault} from "../../src/Vault.sol";
+import {VaultLogic} from "../../src/logic/VaultLogic.sol";
 import {
     IVault,
     AddressZero,
@@ -11,6 +12,7 @@ import {
     ReceiverNameAlreadyExists,
     ReceiverImmutable,
     ReceiverPaymentCountZero,
+    ReceiverDurationTooShort,
     OnlyReceiver,
     ReceiverNotStartYet
 } from "../../src/interfaces/IVault.sol";
@@ -233,6 +235,109 @@ contract VaultTest is Test {
         vm.prank(ownerAddress);
         vm.expectRevert(ReceiverPaymentCountZero.selector);
         vault.addReceiver("alice", r);
+    }
+
+    function test_AddReceiverRevertDurationTooShortWhenPaymentCountGreaterThanOne() public {
+        vault.initialize(
+            whiteListAddress,
+            subscriptionAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        IVault.Receiver memory r = _makeReceiver(
+            makeAddr("receiver"),
+            address(0),
+            address(weth),
+            1 ether,
+            2,
+            block.timestamp,
+            VaultLogic.RECEIVER_MINIMAL_DURATION - 1,
+            false
+        );
+        vm.prank(ownerAddress);
+        vm.expectRevert(ReceiverDurationTooShort.selector);
+        vault.addReceiver("alice", r);
+    }
+
+    function test_AddReceiverSuccessWithShortDurationWhenPaymentCountIsOne() public {
+        vault.initialize(
+            whiteListAddress,
+            subscriptionAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        IVault.Receiver memory r =
+            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+    }
+
+    function test_UpdateReceiverRevertDurationTooShortWhenPaymentCountGreaterThanOne() public {
+        vault.initialize(
+            whiteListAddress,
+            subscriptionAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        IVault.Receiver memory r = _makeReceiver(
+            makeAddr("receiver"),
+            address(0),
+            address(weth),
+            1 ether,
+            2,
+            block.timestamp,
+            VaultLogic.RECEIVER_MINIMAL_DURATION,
+            false
+        );
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        r.durationTimestamp = VaultLogic.RECEIVER_MINIMAL_DURATION - 1;
+        vm.prank(ownerAddress);
+        vm.expectRevert(ReceiverDurationTooShort.selector);
+        vault.updateReceiver("alice", r);
+    }
+
+    function test_UpdateReceiverSuccessWithShortDurationWhenPaymentCountIsOne() public {
+        vault.initialize(
+            whiteListAddress,
+            subscriptionAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        IVault.Receiver memory r = _makeReceiver(
+            makeAddr("receiver"),
+            address(0),
+            address(weth),
+            1 ether,
+            2,
+            block.timestamp,
+            VaultLogic.RECEIVER_MINIMAL_DURATION,
+            false
+        );
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        r.paymentCount = 1;
+        r.durationTimestamp = 0;
+        vm.prank(ownerAddress);
+        vault.updateReceiver("alice", r);
     }
 
     function test_UpdateReceiverSuccess() public {
@@ -459,6 +564,32 @@ contract VaultTest is Test {
         vault.payReceiver("alice");
     }
 
+    function test_PayReceiver_singlePaymentWithZeroDuration() public {
+        vault.initialize(
+            whiteListAddress,
+            subscriptionAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        address receiverAddr = makeAddr("receiver");
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vault.payReceiver("alice");
+        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+
+        vm.expectRevert(ReceiverPaymentCountZero.selector);
+        vault.payReceiver("alice");
+    }
+
     function test_PayReceiver_receiverStorageUpdatedSoPaymentCountEnforced() public {
         vault.initialize(
             whiteListAddress,
@@ -472,16 +603,23 @@ contract VaultTest is Test {
         );
         address receiverAddr = makeAddr("receiver");
         vm.warp(1000);
-        uint256 duration = 100;
-        IVault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 2, block.timestamp, duration, false);
+        IVault.Receiver memory r = _makeReceiver(
+            receiverAddr,
+            address(0),
+            address(weth),
+            1 ether,
+            2,
+            block.timestamp,
+            VaultLogic.RECEIVER_MINIMAL_DURATION,
+            false
+        );
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         deal(address(weth), address(vault), 2 ether);
 
         vault.payReceiver("alice");
-        vm.warp(block.timestamp + duration);
+        vm.warp(block.timestamp + VaultLogic.RECEIVER_MINIMAL_DURATION);
         vault.payReceiver("alice");
 
         assertEq(weth.balanceOf(receiverAddr), 2 ether, "receiver should have received 2 payments");

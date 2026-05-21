@@ -17,6 +17,7 @@ error ReceiverPaymentCountZero();
 error ReceiverTriggerError();
 error ReceiverNotStartYet();
 error ReceiverInDuration();
+error ReceiverDurationTooShort();
 error OnlyReceiver();
 
 error ETHBalanceNotEnough();
