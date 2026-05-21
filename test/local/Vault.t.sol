@@ -13,8 +13,11 @@ import {
     ReceiverImmutable,
     ReceiverPaymentCountZero,
     ReceiverDurationTooShort,
+    NewReceiverProtectionOutOfRange,
+    ReceiverProtectionNotEnded,
     OnlyReceiver,
-    ReceiverNotStartYet
+    ReceiverNotStartYet,
+    NotInitialized
 } from "../../src/interfaces/IVault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {WhiteList} from "whitelist-contracts/src/WhiteList.sol";
@@ -626,5 +629,151 @@ contract VaultTest is Test {
 
         vm.expectRevert(ReceiverPaymentCountZero.selector);
         vault.payReceiver("alice");
+    }
+
+    function test_SetNewReceiverProtectionRevertNotInitialized() public {
+        vm.expectRevert(NotInitialized.selector);
+        vault.setNewReceiverProtection(1 days);
+    }
+
+    function test_SetNewReceiverProtectionRevertOnlyOwner() public {
+        _initializeVault();
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert("Ownable: caller is not the owner");
+        vault.setNewReceiverProtection(1 days);
+    }
+
+    function test_SetNewReceiverProtectionRevertOutOfRange() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(NewReceiverProtectionOutOfRange.selector);
+        vault.setNewReceiverProtection(VaultLogic.RECEIVER_NEW_PROTECTION_MAX + 1);
+    }
+
+    function test_SetNewReceiverProtectionSuccessAtMax() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vault.setNewReceiverProtection(VaultLogic.RECEIVER_NEW_PROTECTION_MAX);
+    }
+
+    function test_PayReceiver_revertReceiverProtectionNotEnded() public {
+        _initializeVault();
+        uint256 protection = 3 days;
+        vm.prank(ownerAddress);
+        vault.setNewReceiverProtection(protection);
+
+        address receiverAddr = makeAddr("receiver");
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.expectRevert(ReceiverProtectionNotEnded.selector);
+        vault.payReceiver("alice");
+    }
+
+    function test_PayReceiver_successAfterReceiverProtectionEnds() public {
+        _initializeVault();
+        uint256 protection = 3 days;
+        vm.prank(ownerAddress);
+        vault.setNewReceiverProtection(protection);
+
+        address receiverAddr = makeAddr("receiver");
+        uint256 addedAt = block.timestamp;
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.warp(addedAt + protection);
+        vault.payReceiver("alice");
+        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+    }
+
+    function test_PayReceiver_noProtectionWhenProtectionIsZero() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vault.payReceiver("alice");
+        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+    }
+
+    function test_PayReceiver_protectionOnlyAppliesToReceiversAddedWhileEnabled() public {
+        _initializeVault();
+        address aliceReceiver = makeAddr("aliceReceiver");
+        address bobReceiver = makeAddr("bobReceiver");
+
+        vm.prank(ownerAddress);
+        vault.setNewReceiverProtection(2 days);
+
+        IVault.Receiver memory alice =
+            _makeReceiver(aliceReceiver, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", alice);
+
+        vm.prank(ownerAddress);
+        vault.setNewReceiverProtection(0);
+
+        IVault.Receiver memory bob =
+            _makeReceiver(bobReceiver, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("bob", bob);
+
+        deal(address(weth), address(vault), 2 ether);
+
+        vm.expectRevert(ReceiverProtectionNotEnded.selector);
+        vault.payReceiver("alice");
+
+        vault.payReceiver("bob");
+        assertEq(weth.balanceOf(bobReceiver), 1 ether);
+    }
+
+    function test_RemoveReceiver_clearsProtectionSoReAddCanPayAfterProtection() public {
+        _initializeVault();
+        uint256 protection = 1 days;
+        address receiverAddr = makeAddr("receiver");
+
+        vm.prank(ownerAddress);
+        vault.setNewReceiverProtection(protection);
+
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.startPrank(ownerAddress);
+        vault.addReceiver("alice", r);
+        vault.removeReceiver("alice");
+        vault.addReceiver("alice", r);
+        vm.stopPrank();
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.expectRevert(ReceiverProtectionNotEnded.selector);
+        vault.payReceiver("alice");
+
+        vm.warp(block.timestamp + protection);
+        vault.payReceiver("alice");
+        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+    }
+
+    function _initializeVault() internal {
+        vault.initialize(
+            whiteListAddress,
+            subscriptionAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
     }
 }

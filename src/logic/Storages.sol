@@ -28,10 +28,12 @@ struct VaultStorage {
     bool isInitialized;
     mapping(string => IVault.Receiver) receivers;
     mapping(string => uint256) lastReceiveTimestamps;
+    mapping(string => uint256) newReceiverProtectionTimestamps;
     address weth;
     IWhiteList whiteList;
     ISubscription subscription;
     EnumerableSet.AddressSet assets;
     EnumerableSet.AddressSet stableCoins;
     bool addingAssetsDisabled;
+    uint256 newReceiverProtection;
 }

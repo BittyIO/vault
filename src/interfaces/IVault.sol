@@ -18,6 +18,8 @@ error ReceiverTriggerError();
 error ReceiverNotStartYet();
 error ReceiverInDuration();
 error ReceiverDurationTooShort();
+error NewReceiverProtectionOutOfRange();
+error ReceiverProtectionNotEnded();
 error OnlyReceiver();
 
 error ETHBalanceNotEnough();
@@ -79,6 +81,12 @@ interface IVault {
      * @param name the name of the recipient.
      */
     function removeReceiver(string memory name) external;
+
+    /**
+     * @notice set the new receiver protection.
+     * @param newReceiverProtection the new receiver protection.
+     */
+    function setNewReceiverProtection(uint256 newReceiverProtection) external;
 
     /**
      * @notice set the asset manager of this vault.

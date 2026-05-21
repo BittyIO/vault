@@ -207,6 +207,10 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _vault.removeReceiver(name);
     }
 
+    function setNewReceiverProtection(uint256 newReceiverProtection) external override onlyOwner {
+        _vault.setNewReceiverProtection(newReceiverProtection);
+    }
+
     /**
      * @notice Pay the receiver, would be triggered by anyone including AI agents.
      * @param name the name of the receiver.
