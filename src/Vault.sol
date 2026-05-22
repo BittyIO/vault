@@ -211,13 +211,18 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _vault.setNewReceiverProtection(newReceiverProtection);
     }
 
+    function payReceiver(string memory name) external override {
+        _vault.payReceiver(name);
+    }
+
     /**
      * @notice Pay the receiver, would be triggered by anyone including AI agents.
      * @param name the name of the receiver.
+     * @param amount the amount of the payment.
      * @dev Trigger or anyone can execute it.
      */
-    function payReceiver(string memory name) external override {
-        _vault.payReceiver(name);
+    function payReceiverAmount(string memory name, uint256 amount) external override {
+        _vault.payReceiverAmount(name, amount);
     }
 
     // IVault Owner interface

@@ -29,7 +29,8 @@ import {
     AddingAssetsDisabled,
     ReceiverDurationTooShort,
     NewReceiverProtectionOutOfRange,
-    ReceiverProtectionNotEnded
+    ReceiverProtectionNotEnded,
+    PayMoreThanReceiverAmount
 } from "../interfaces/IVault.sol";
 
 library VaultLogic {
@@ -181,6 +182,20 @@ library VaultLogic {
 
     function payReceiver(VaultStorage storage vaultStorage, string memory name) external {
         IVault.Receiver storage receiver = vaultStorage.receivers[name];
+        _payReceiver(vaultStorage, receiver, name);
+    }
+
+    function payReceiverAmount(VaultStorage storage vaultStorage, string memory name, uint256 amount) external {
+        IVault.Receiver storage receiver = vaultStorage.receivers[name];
+        if (receiver.amount < amount) {
+            revert PayMoreThanReceiverAmount();
+        }
+        _payReceiver(vaultStorage, receiver, name);
+    }
+
+    function _payReceiver(VaultStorage storage vaultStorage, IVault.Receiver storage receiver, string memory name)
+        internal
+    {
         if (receiver.amount == 0) {
             revert ReceiverNotFound();
         }
