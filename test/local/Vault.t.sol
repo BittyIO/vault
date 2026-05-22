@@ -17,6 +17,8 @@ import {
     ReceiverProtectionNotEnded,
     OnlyReceiver,
     ReceiverNotStartYet,
+    PayMoreThanReceiverAmount,
+    InsufficientBalance,
     NotInitialized
 } from "../../src/interfaces/IVault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
@@ -762,6 +764,96 @@ contract VaultTest is Test {
         vm.warp(block.timestamp + protection);
         vault.payReceiver("alice");
         assertEq(weth.balanceOf(receiverAddr), 1 ether);
+    }
+
+    function test_PayReceiverAmount_successWhenAmountEqualsReceiverAmount() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        _addReceiver("alice", receiverAddr, 1 ether, 1, 0);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vault.payReceiverAmount("alice", 1 ether);
+        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+
+        vm.expectRevert(ReceiverPaymentCountZero.selector);
+        vault.payReceiverAmount("alice", 1 ether);
+    }
+
+    function test_PayReceiverAmount_successWhenAmountLessThanReceiverAmount() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        _addReceiver("alice", receiverAddr, 1 ether, 1, 0);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vault.payReceiverAmount("alice", 0.5 ether);
+        assertEq(weth.balanceOf(receiverAddr), 1 ether, "transfers full configured receiver amount");
+    }
+
+    function test_PayReceiverAmount_revertPayMoreThanReceiverAmount() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        _addReceiver("alice", receiverAddr, 1 ether, 1, 0);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.expectRevert(PayMoreThanReceiverAmount.selector);
+        vault.payReceiverAmount("alice", 1 ether + 1);
+    }
+
+    function test_PayReceiverAmount_revertReceiverNotStartYet() public {
+        _initializeVault();
+        uint256 futureStart = block.timestamp + 100;
+        address receiverAddr = makeAddr("receiver");
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, futureStart, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.expectRevert(ReceiverNotStartYet.selector);
+        vault.payReceiverAmount("alice", 1 ether);
+    }
+
+    function test_PayReceiverAmount_revertReceiverProtectionNotEnded() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vault.setNewReceiverProtection(2 days);
+
+        address receiverAddr = makeAddr("receiver");
+        _addReceiver("alice", receiverAddr, 1 ether, 1, 0);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.expectRevert(ReceiverProtectionNotEnded.selector);
+        vault.payReceiverAmount("alice", 1 ether);
+    }
+
+    function test_PayReceiverAmount_revertInsufficientBalance() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        _addReceiver("alice", receiverAddr, 1 ether, 1, 0);
+
+        deal(address(weth), address(vault), 0.5 ether);
+
+        vm.expectRevert(InsufficientBalance.selector);
+        vault.payReceiverAmount("alice", 1 ether);
+    }
+
+    function _addReceiver(
+        string memory name,
+        address receiverAddr,
+        uint256 amount,
+        uint8 paymentCount,
+        uint256 durationTimestamp
+    ) internal {
+        IVault.Receiver memory r = _makeReceiver(
+            receiverAddr, address(0), address(weth), amount, paymentCount, block.timestamp, durationTimestamp, false
+        );
+        vm.prank(ownerAddress);
+        vault.addReceiver(name, r);
     }
 
     function _initializeVault() internal {

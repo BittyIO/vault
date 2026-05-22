@@ -20,6 +20,7 @@ error ReceiverInDuration();
 error ReceiverDurationTooShort();
 error NewReceiverProtectionOutOfRange();
 error ReceiverProtectionNotEnded();
+error PayMoreThanReceiverAmount();
 error OnlyReceiver();
 
 error ETHBalanceNotEnough();
@@ -160,10 +161,18 @@ interface IVault {
     function getStableCoins() external view returns (address[] memory);
 
     /**
-     *
+     * @notice Pay the receiver with the full amount.
+     * @dev Pay the receiver.
      * @param name the name of the recipient.
-     * @dev Trigger or anyone can execute it.
      */
     function payReceiver(string memory name) external;
+
+    /**
+     *
+     * @param name the name of the recipient.
+     * @param amount the amount of the payment.
+     * @dev Trigger or anyone can execute it.
+     */
+    function payReceiverAmount(string memory name, uint256 amount) external;
 }
 
