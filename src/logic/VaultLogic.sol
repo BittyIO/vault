@@ -27,7 +27,9 @@ import {
     ETHBalanceNotEnough,
     WETHBalanceNotEnough,
     AddingAssetsDisabled,
-    ReceiverDurationTooShort
+    ReceiverDurationTooShort,
+    NewReceiverProtectionOutOfRange,
+    ReceiverProtectionNotEnded
 } from "../interfaces/IVault.sol";
 
 library VaultLogic {
@@ -36,6 +38,13 @@ library VaultLogic {
      * @dev this is a protection for the vault.
      */
     uint256 constant RECEIVER_MINIMAL_DURATION = 1 days;
+
+    /**
+     * To protect the vault owner, the longer it is, the harder to attack the owner.
+     * The RECEIVER_NEW_PROTECTION_MIN is actually RECEIVER_MINIMAL_DURATION.
+     * @dev this is a protection for the vault.
+     */
+    uint256 constant RECEIVER_NEW_PROTECTION_MAX = 30 days;
 
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
@@ -83,6 +92,9 @@ library VaultLogic {
         }
         _checkReceiver(receiver);
         vaultStorage.receivers[name] = receiver;
+        if (vaultStorage.newReceiverProtection != 0) {
+            vaultStorage.newReceiverProtectionTimestamps[name] = block.timestamp + vaultStorage.newReceiverProtection;
+        }
     }
 
     function getReceiverAddress(VaultStorage storage vaultStorage, string memory name) external view returns (address) {
@@ -138,6 +150,17 @@ library VaultLogic {
         onlyInitialized(vaultStorage)
     {
         delete vaultStorage.receivers[name];
+        delete vaultStorage.newReceiverProtectionTimestamps[name];
+    }
+
+    function setNewReceiverProtection(VaultStorage storage vaultStorage, uint256 newReceiverProtection)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        if (newReceiverProtection > RECEIVER_NEW_PROTECTION_MAX) {
+            revert NewReceiverProtectionOutOfRange();
+        }
+        vaultStorage.newReceiverProtection = newReceiverProtection;
     }
 
     function ETHToWETH(VaultStorage storage vaultStorage, uint256 amount) external onlyInitialized(vaultStorage) {
@@ -175,6 +198,13 @@ library VaultLogic {
                 && block.timestamp - vaultStorage.lastReceiveTimestamps[name] < receiver.durationTimestamp
         ) {
             revert ReceiverInDuration();
+        }
+        if (vaultStorage.newReceiverProtectionTimestamps[name] > 0) {
+            if (block.timestamp < vaultStorage.newReceiverProtectionTimestamps[name]) {
+                revert ReceiverProtectionNotEnded();
+            } else {
+                delete vaultStorage.newReceiverProtectionTimestamps[name];
+            }
         }
         vaultStorage.lastReceiveTimestamps[name] = block.timestamp;
         receiver.paymentCount = receiver.paymentCount - 1;
