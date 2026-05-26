@@ -21,6 +21,7 @@ error ReceiverDurationTooShort();
 error NewReceiverProtectionOutOfRange();
 error ReceiverProtectionNotEnded();
 error PayMoreThanReceiverAmount();
+error PayReceiverAmountTriggerEmpty();
 error OnlyReceiver();
 
 error ETHBalanceNotEnough();
@@ -171,7 +172,7 @@ interface IVault {
      *
      * @param name the name of the recipient.
      * @param amount the amount of the payment.
-     * @dev Trigger or anyone can execute it.
+     * @dev Trigger must be set to execute it, otherwise it may cause some unexpected issues.
      */
     function payReceiverAmount(string memory name, uint256 amount) external;
 }
