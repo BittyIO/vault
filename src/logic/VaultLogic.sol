@@ -30,7 +30,8 @@ import {
     ReceiverDurationTooShort,
     NewReceiverProtectionOutOfRange,
     ReceiverProtectionNotEnded,
-    PayMoreThanReceiverAmount
+    PayMoreThanReceiverAmount,
+    PayReceiverAmountTriggerEmpty
 } from "../interfaces/IVault.sol";
 
 library VaultLogic {
@@ -182,6 +183,9 @@ library VaultLogic {
 
     function payReceiver(VaultStorage storage vaultStorage, string memory name) external {
         IVault.Receiver storage receiver = vaultStorage.receivers[name];
+        if (receiver.trigger != address(0) && msg.sender != receiver.trigger) {
+            revert ReceiverTriggerError();
+        }
         _payReceiver(vaultStorage, receiver, name);
     }
 
@@ -189,6 +193,9 @@ library VaultLogic {
         IVault.Receiver storage receiver = vaultStorage.receivers[name];
         if (receiver.amount < amount) {
             revert PayMoreThanReceiverAmount();
+        }
+        if (receiver.trigger == address(0)) {
+            revert PayReceiverAmountTriggerEmpty();
         }
         _payReceiver(vaultStorage, receiver, name);
     }
@@ -201,9 +208,6 @@ library VaultLogic {
         }
         if (receiver.paymentCount == 0) {
             revert ReceiverPaymentCountZero();
-        }
-        if (receiver.trigger != address(0) && msg.sender != receiver.trigger) {
-            revert ReceiverTriggerError();
         }
         if (receiver.startTimestamp > block.timestamp) {
             revert ReceiverNotStartYet();

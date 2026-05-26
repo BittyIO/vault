@@ -18,6 +18,7 @@ import {
     OnlyReceiver,
     ReceiverNotStartYet,
     PayMoreThanReceiverAmount,
+    PayReceiverAmountTriggerEmpty,
     InsufficientBalance,
     NotInitialized
 } from "../../src/interfaces/IVault.sol";
@@ -766,16 +767,30 @@ contract VaultTest is Test {
         assertEq(weth.balanceOf(receiverAddr), 1 ether);
     }
 
-    function test_PayReceiverAmount_successWhenAmountEqualsReceiverAmount() public {
+    function test_PayReceiverAmount_revertTriggerEmpty() public {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
         _addReceiver("alice", receiverAddr, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
+        vm.expectRevert(PayReceiverAmountTriggerEmpty.selector);
+        vault.payReceiverAmount("alice", 1 ether);
+    }
+
+    function test_PayReceiverAmount_successWhenAmountEqualsReceiverAmount() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        address trigger = makeAddr("trigger");
+        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.prank(trigger);
         vault.payReceiverAmount("alice", 1 ether);
         assertEq(weth.balanceOf(receiverAddr), 1 ether);
 
+        vm.prank(trigger);
         vm.expectRevert(ReceiverPaymentCountZero.selector);
         vault.payReceiverAmount("alice", 1 ether);
     }
@@ -783,10 +798,12 @@ contract VaultTest is Test {
     function test_PayReceiverAmount_successWhenAmountLessThanReceiverAmount() public {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
-        _addReceiver("alice", receiverAddr, 1 ether, 1, 0);
+        address trigger = makeAddr("trigger");
+        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
+        vm.prank(trigger);
         vault.payReceiverAmount("alice", 0.5 ether);
         assertEq(weth.balanceOf(receiverAddr), 1 ether, "transfers full configured receiver amount");
     }
@@ -794,10 +811,12 @@ contract VaultTest is Test {
     function test_PayReceiverAmount_revertPayMoreThanReceiverAmount() public {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
-        _addReceiver("alice", receiverAddr, 1 ether, 1, 0);
+        address trigger = makeAddr("trigger");
+        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
+        vm.prank(trigger);
         vm.expectRevert(PayMoreThanReceiverAmount.selector);
         vault.payReceiverAmount("alice", 1 ether + 1);
     }
@@ -806,13 +825,15 @@ contract VaultTest is Test {
         _initializeVault();
         uint256 futureStart = block.timestamp + 100;
         address receiverAddr = makeAddr("receiver");
+        address trigger = makeAddr("trigger");
         IVault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, futureStart, 0, false);
+            _makeReceiver(receiverAddr, trigger, address(weth), 1 ether, 1, futureStart, 0, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         deal(address(weth), address(vault), 1 ether);
 
+        vm.prank(trigger);
         vm.expectRevert(ReceiverNotStartYet.selector);
         vault.payReceiverAmount("alice", 1 ether);
     }
@@ -823,10 +844,12 @@ contract VaultTest is Test {
         vault.setNewReceiverProtection(2 days);
 
         address receiverAddr = makeAddr("receiver");
-        _addReceiver("alice", receiverAddr, 1 ether, 1, 0);
+        address trigger = makeAddr("trigger");
+        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
+        vm.prank(trigger);
         vm.expectRevert(ReceiverProtectionNotEnded.selector);
         vault.payReceiverAmount("alice", 1 ether);
     }
@@ -834,10 +857,12 @@ contract VaultTest is Test {
     function test_PayReceiverAmount_revertInsufficientBalance() public {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
-        _addReceiver("alice", receiverAddr, 1 ether, 1, 0);
+        address trigger = makeAddr("trigger");
+        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 0.5 ether);
 
+        vm.prank(trigger);
         vm.expectRevert(InsufficientBalance.selector);
         vault.payReceiverAmount("alice", 1 ether);
     }
@@ -851,6 +876,21 @@ contract VaultTest is Test {
     ) internal {
         IVault.Receiver memory r = _makeReceiver(
             receiverAddr, address(0), address(weth), amount, paymentCount, block.timestamp, durationTimestamp, false
+        );
+        vm.prank(ownerAddress);
+        vault.addReceiver(name, r);
+    }
+
+    function _addReceiverWithTrigger(
+        string memory name,
+        address receiverAddr,
+        address trigger,
+        uint256 amount,
+        uint8 paymentCount,
+        uint256 durationTimestamp
+    ) internal {
+        IVault.Receiver memory r = _makeReceiver(
+            receiverAddr, trigger, address(weth), amount, paymentCount, block.timestamp, durationTimestamp, false
         );
         vm.prank(ownerAddress);
         vault.addReceiver(name, r);
