@@ -315,4 +315,40 @@ contract TestVaultFork is Test {
         uint256 balanceAfter = IERC20(mainnet.USDC).balanceOf(address(this));
         assertEq(balanceAfter - balanceBefore, 100e6);
     }
+
+    function test_AssetManagerWithdrawFromAaveAndPayReceiverInOneBlock() public {
+        uint256 supplyAmount = 1 ether;
+        uint256 payAmount = 0.5 ether;
+        address receiverAddr = makeAddr("receiverBeneficiary");
+
+        deal(mainnet.WETH, address(vault), supplyAmount);
+        vm.prank(assetManager);
+        vault.supply(address(aaveProvider), mainnet.WETH, supplyAmount);
+        assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
+
+        IVault.Receiver memory receiver = IVault.Receiver({
+            receiverAddress: receiverAddr,
+            trigger: address(0),
+            assetAddress: mainnet.WETH,
+            amount: payAmount,
+            paymentCount: 1,
+            startTimestamp: block.timestamp,
+            durationTimestamp: 1 days,
+            isImmutable: false
+        });
+        vm.prank(tx.origin);
+        vault.addReceiver("salary", receiver);
+        vm.warp(block.timestamp + 1 days);
+
+        uint256 receiverBefore = IERC20(mainnet.WETH).balanceOf(receiverAddr);
+
+        vault.withdraw(address(aaveProvider), mainnet.WETH, payAmount);
+        vault.payReceiver("salary");
+
+        uint256 receiverAfter = IERC20(mainnet.WETH).balanceOf(receiverAddr);
+        assertEq(receiverAfter - receiverBefore, payAmount);
+
+        uint256 remaining = vault.getSuppliedBalance(address(aaveProvider), mainnet.WETH);
+        assertGe(remaining, supplyAmount - payAmount);
+    }
 }
