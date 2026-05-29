@@ -10,7 +10,6 @@ import {
     InsufficientBalance
 } from "../interfaces/IVault.sol";
 import {IWhiteList, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
-import {ISubscription} from "subscription-contracts/src/interfaces/ISubscription.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {VaultStorage} from "./Storages.sol";
@@ -24,8 +23,6 @@ import {
     ReceiverTriggerError,
     ReceiverNotStartYet,
     ReceiverInDuration,
-    ETHBalanceNotEnough,
-    WETHBalanceNotEnough,
     AddingAssetsDisabled,
     ReceiverDurationTooShort,
     NewReceiverProtectionOutOfRange,
@@ -73,15 +70,11 @@ library VaultLogic {
         }
     }
 
-    function initialize(
-        VaultStorage storage vaultStorage,
-        address weth,
-        address whiteListAddress,
-        address subscriptionAddress
-    ) external onlyNotInitialized(vaultStorage) {
-        vaultStorage.weth = weth;
+    function initialize(VaultStorage storage vaultStorage, address whiteListAddress)
+        external
+        onlyNotInitialized(vaultStorage)
+    {
         vaultStorage.whiteList = IWhiteList(whiteListAddress);
-        vaultStorage.subscription = ISubscription(subscriptionAddress);
         vaultStorage.isInitialized = true;
     }
 
@@ -163,22 +156,6 @@ library VaultLogic {
             revert NewReceiverProtectionOutOfRange();
         }
         vaultStorage.newReceiverProtection = newReceiverProtection;
-    }
-
-    function ETHToWETH(VaultStorage storage vaultStorage, uint256 amount) external onlyInitialized(vaultStorage) {
-        uint256 ethBalance = address(this).balance;
-        if (ethBalance < amount) {
-            revert ETHBalanceNotEnough();
-        }
-        WETH(payable(vaultStorage.weth)).deposit{value: amount}();
-    }
-
-    function WETHToETH(VaultStorage storage vaultStorage, uint256 amount) external onlyInitialized(vaultStorage) {
-        uint256 wethBalance = IERC20(vaultStorage.weth).balanceOf(address(this));
-        if (wethBalance < amount) {
-            revert WETHBalanceNotEnough();
-        }
-        WETH(payable(vaultStorage.weth)).withdraw(amount);
     }
 
     function payReceiver(VaultStorage storage vaultStorage, string memory name) external {

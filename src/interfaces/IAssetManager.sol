@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 error OnlyAssetManager();
+error OnlyOwnerOrAssetManager();
 error RebalanceInMinimalTime();
 error RebalanceMaxAmount();
 error SellAmountMismatch();
@@ -13,6 +14,8 @@ error InvalidAMMProvider();
 error InvalidSwapData();
 error DisableRebalanceUntilTimestampTooEarly();
 error RebalanceDisabled();
+error ETHBalanceNotEnough();
+error WETHBalanceNotEnough();
 
 interface IAssetManager {
     /**
@@ -46,6 +49,20 @@ interface IAssetManager {
          */
         uint256 maxAmount;
     }
+
+    /**
+     * @notice Turn the ETH to WETH.
+     * @dev Turn the ETH to WETH.
+     * @param amount The amount of ETH to turn.
+     */
+    function ETHToWETH(uint256 amount) external;
+
+    /**
+     * @notice Turn the WETH to ETH.
+     * @dev Turn the WETH to ETH.
+     * @param amount The amount of WETH to turn.
+     */
+    function WETHToETH(uint256 amount) external;
 
     /**
      * @notice Get the yield providers.

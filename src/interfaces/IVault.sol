@@ -24,9 +24,10 @@ error PayMoreThanReceiverAmount();
 error PayReceiverAmountTriggerEmpty();
 error OnlyReceiver();
 
-error ETHBalanceNotEnough();
-error WETHBalanceNotEnough();
 error AddingAssetsDisabled();
+
+error SubscriptionNotFound();
+error SubscriptionExpired();
 
 /**
  * @title Turtum Vault
@@ -95,20 +96,6 @@ interface IVault {
      * @param assetManager the address of asset manager.
      */
     function setAssetManager(address assetManager) external;
-
-    /**
-     * @notice Turn the ETH to WETH.
-     * @dev Turn the ETH to WETH.
-     * @param amount The amount of ETH to turn.
-     */
-    function ETHToWETH(uint256 amount) external;
-
-    /**
-     * @notice Turn the WETH to ETH.
-     * @dev Turn the WETH to ETH.
-     * @param amount The amount of WETH to turn.
-     */
-    function WETHToETH(uint256 amount) external;
 
     /**
      * @notice Add the assets to the vault.

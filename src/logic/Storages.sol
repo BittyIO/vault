@@ -10,6 +10,7 @@ import {IVault} from "../interfaces/IVault.sol";
 struct AssetManagerStorage {
     bool isInitialized;
     address assetManager;
+    address weth;
 
     mapping(address => address) clonedProviders;
     mapping(address => IAssetManager.RebalanceConfig) rebalanceConfigs;
@@ -29,9 +30,7 @@ struct VaultStorage {
     mapping(string => IVault.Receiver) receivers;
     mapping(string => uint256) lastReceiveTimestamps;
     mapping(string => uint256) newReceiverProtectionTimestamps;
-    address weth;
     IWhiteList whiteList;
-    ISubscription subscription;
     EnumerableSet.AddressSet assets;
     EnumerableSet.AddressSet stableCoins;
     bool addingAssetsDisabled;
