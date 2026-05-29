@@ -19,7 +19,7 @@ interface ImmutableCreate2Factory {
 contract Deploy is DeployScript {
     ImmutableCreate2Factory immutable factory = ImmutableCreate2Factory(0x0000000000FFe8B47B3e2130213B802212439497);
 
-    bytes32 salt = 0x000000000000000000000000000000000000000065d2745e82e2c00001c7128c;
+    bytes32 salt = 0x00000000000000000000000000000000000000006d642ba284d270000722ac8d;
 
     function deploy() public override {
         vm.startBroadcast();

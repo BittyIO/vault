@@ -87,7 +87,7 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
         uint256 sellAmount,
         uint256 buyAmountMin,
         bytes memory data
-    ) external override onlySubscribed onlyAssetManager {
+    ) external override onlyAssetManager onlySubscribed {
         _vault.checkAsset(from);
         _vault.checkAsset(to);
         _assetManager.rebalance(_vault, ammProvider, from, to, sellAmount, buyAmountMin, data);
