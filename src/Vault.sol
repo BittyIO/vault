@@ -5,7 +5,7 @@ import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initia
 import {IAssetManager, OnlyAssetManager, OnlyOwnerOrAssetManager} from "./interfaces/IAssetManager.sol";
 import {IAMMProvider} from "provider-contracts/src/interfaces/IAMMProvider.sol";
 import {IWhiteList} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
-import {IVault, ReceiverNotFound} from "./interfaces/IVault.sol";
+import {IVault, ReceiverNotFound, AddressZero} from "./interfaces/IVault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
@@ -56,6 +56,7 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
     receive() external payable {}
 
     function initialize(
+        address owner_,
         address whiteListAddress,
         address subscriptionAddress,
         address wethAddress_,
@@ -65,7 +66,8 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
         address[] memory stakingProviders,
         address[] memory ammProviders
     ) public initializer {
-        _transferOwnership(tx.origin);
+        if (owner_ == address(0)) revert AddressZero();
+        _transferOwnership(owner_);
         _subscription = ISubscription(subscriptionAddress);
         _vault.initialize(whiteListAddress);
         _vault.addAssets(assetAddresses);

@@ -16,9 +16,11 @@ import {Path} from "provider-contracts/src/libs/uniswap/v3/Uniswap.sol";
 import {IAssetManager} from "../../src/interfaces/IAssetManager.sol";
 import {Subscription} from "subscription-contracts/src/Subscription.sol";
 import {SubscriptionTestSetup} from "../helpers/SubscriptionTestSetup.sol";
+import {mainnet as VaultMainnet} from "../../script/addresses.sol";
+import {GnosisSafeTestUtils} from "../helpers/GnosisSafeTestUtils.sol";
 
 /// @notice Mainnet fork integration tests for Vault with real Aave and Lido providers.
-contract TestVaultFork is SubscriptionTestSetup {
+contract TestVaultFork is SubscriptionTestSetup, GnosisSafeTestUtils {
     using SafeERC20 for IERC20;
     using Path for bytes;
 
@@ -76,7 +78,14 @@ contract TestVaultFork is SubscriptionTestSetup {
         vaultImpl = new Vault();
         factory = new Factory();
         subscription = deploySubscription(address(whiteList));
-        factory.initialize(address(vaultImpl), address(whiteList), address(subscription), mainnet.WETH);
+        factory.initialize(
+            address(vaultImpl),
+            address(whiteList),
+            address(subscription),
+            mainnet.WETH,
+            VaultMainnet.SAFE_PROXY_FACTORY,
+            VaultMainnet.SAFE_SINGLETON
+        );
 
         address vaultAddr = factory.deployVault(assets, stableCoins, lendingProviders, stakingProviders, ammProviders);
         vault = Vault(payable(vaultAddr));
@@ -357,5 +366,94 @@ contract TestVaultFork is SubscriptionTestSetup {
 
         uint256 remaining = vault.getSuppliedBalance(address(aaveProvider), mainnet.WETH);
         assertGe(remaining, supplyAmount - payAmount);
+    }
+
+    function test_DeployVaultMultiSig_realGnosisSafe() public {
+        address ownerA = makeAddr("multisigOwnerA");
+        address ownerB = makeAddr("multisigOwnerB");
+        address[] memory owners = new address[](2);
+        owners[0] = ownerA;
+        owners[1] = ownerB;
+        uint256 saltNonce = uint256(keccak256("VaultFork.multisig"));
+
+        (address safe, address vaultAddr) = factory.deployVaultMultiSig(
+            owners, 2, saltNonce, assets, stableCoins, lendingProviders, stakingProviders, ammProviders
+        );
+
+        Vault multiVault = Vault(payable(vaultAddr));
+        assertEq(multiVault.owner(), safe);
+        assertEq(factory.computeVaultAddressMultiSig(safe), vaultAddr);
+
+        (bool ok, bytes memory data) = safe.staticcall(abi.encodeWithSignature("getThreshold()"));
+        assertTrue(ok);
+        assertEq(abi.decode(data, (uint256)), 2);
+
+        (ok, data) = safe.staticcall(abi.encodeWithSignature("getOwners()"));
+        assertTrue(ok);
+        address[] memory safeOwners = abi.decode(data, (address[]));
+        assertEq(safeOwners.length, 2);
+        assertEq(safeOwners[0], ownerA);
+        assertEq(safeOwners[1], ownerB);
+    }
+
+    /// @notice Mainnet fork: configure vault via real Gnosis Safe `execTransaction` (1-of-1 owner).
+    /// @dev Off-chain flow: propose tx in Safe UI → sign → execute. Here we sign with `vm.sign` on the tx hash.
+    function test_safeExecTransaction_setAssetManager_onMainnetSafe() public {
+        uint256 ownerPrivateKey = 0xA11CE;
+        address safeOwner = vm.addr(ownerPrivateKey);
+
+        address[] memory owners = new address[](1);
+        owners[0] = safeOwner;
+        uint256 saltNonce = uint256(keccak256("VaultFork.safeExec.setAssetManager"));
+
+        (address safe, address vaultAddr) = factory.deployVaultMultiSig(
+            owners, 1, saltNonce, assets, stableCoins, lendingProviders, stakingProviders, ammProviders
+        );
+        Vault multiVault = Vault(payable(vaultAddr));
+        assertEq(multiVault.owner(), safe);
+
+        address newAssetManager = makeAddr("safeManagedAssetManager");
+        bytes memory callData = abi.encodeCall(Vault.setAssetManager, (newAssetManager));
+
+        vm.prank(safeOwner);
+        vm.expectRevert("Ownable: caller is not the owner");
+        multiVault.setAssetManager(newAssetManager);
+
+        _gnosisSafeExecTransaction(safe, ownerPrivateKey, vaultAddr, callData);
+        assertEq(multiVault.assetManager(), newAssetManager);
+    }
+
+    /// @notice Mainnet fork: Safe adds a receiver via `execTransaction`.
+    function test_safeExecTransaction_addReceiver_onMainnetSafe() public {
+        uint256 ownerPrivateKey = 0xBEEF;
+        address safeOwner = vm.addr(ownerPrivateKey);
+
+        address[] memory owners = new address[](1);
+        owners[0] = safeOwner;
+        uint256 saltNonce = uint256(keccak256("VaultFork.safeExec.addReceiver"));
+
+        (address safe, address vaultAddr) = factory.deployVaultMultiSig(
+            owners, 1, saltNonce, assets, stableCoins, lendingProviders, stakingProviders, ammProviders
+        );
+        Vault multiVault = Vault(payable(vaultAddr));
+
+        address beneficiary = makeAddr("forkBeneficiary");
+        IVault.Receiver memory receiver = IVault.Receiver({
+            receiverAddress: beneficiary,
+            trigger: address(0),
+            assetAddress: mainnet.WETH,
+            amount: 0.01 ether,
+            paymentCount: 1,
+            startTimestamp: block.timestamp,
+            durationTimestamp: 1 days,
+            isImmutable: false
+        });
+
+        bytes memory callData = abi.encodeCall(Vault.addReceiver, ("safePayroll", receiver));
+        _gnosisSafeExecTransaction(safe, ownerPrivateKey, vaultAddr, callData);
+
+        address updatedBeneficiary = makeAddr("updatedBeneficiary");
+        vm.prank(beneficiary);
+        multiVault.changeReceiverAddress("safePayroll", updatedBeneficiary);
     }
 }

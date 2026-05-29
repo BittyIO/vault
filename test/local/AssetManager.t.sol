@@ -83,6 +83,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
 
     function doInitialize() public {
         this.initialize(
+            ownerAddress,
             whiteListAddress,
             subscriptionAddress,
             mainnet.WETH,
@@ -109,6 +110,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
 
     function doInitializeWithoutSubscription() public {
         this.initialize(
+            ownerAddress,
             whiteListAddress,
             subscriptionAddress,
             mainnet.WETH,

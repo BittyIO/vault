@@ -6,49 +6,48 @@ import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {AddressZero} from "./interfaces/IVault.sol";
 import {IWhiteList, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
 import {Vault} from "./Vault.sol";
-import {IFactory, VaultAlreadyDeployed} from "./interfaces/IFactory.sol";
+import {IFactory, VaultAlreadyDeployed, InvalidThreshold, OwnersRequired} from "./interfaces/IFactory.sol";
+import {GnosisSafe} from "safe-smart-account/contracts/GnosisSafe.sol";
+import {GnosisSafeProxyFactory} from "safe-smart-account/contracts/proxies/GnosisSafeProxyFactory.sol";
 
 /**
  * @title Factory
- * @notice Factory contract for deploying Vault instances using CREATE2
- * @dev Each owner address will generate a unique, deterministic Vault address
+ * @notice Deploys Vault instances. Supports single-EOA ownership and Gnosis Safe multi-sig ownership.
  */
 contract Factory is IFactory, Initializable {
     address public whiteListAddress;
     address public subscriptionAddress;
     address public vaultImplementation;
     address public wethAddress;
-    /**
-     * @notice Emitted when a new Vault is deployed
-     * @param vault The address of the deployed vault
-     * @param owner The owner address that will own this vault
-     */
+    address public safeProxyFactory;
+    address public safeSingleton;
+
     event VaultDeployed(address indexed vault, address indexed owner);
+    event VaultDeployedMultiSig(address indexed vault, address indexed safe, uint256 threshold, uint256 ownerCount);
 
     function initialize(
         address vaultImplementation_,
         address whiteListAddress_,
         address subscriptionAddress_,
-        address wethAddress_
+        address wethAddress_,
+        address safeProxyFactory_,
+        address safeSingleton_
     ) external override initializer {
-        if (vaultImplementation_ == address(0)) {
-            revert AddressZero();
-        }
+        if (vaultImplementation_ == address(0)) revert AddressZero();
+        if (whiteListAddress_ == address(0)) revert AddressZero();
+        if (subscriptionAddress_ == address(0)) revert AddressZero();
+        if (wethAddress_ == address(0)) revert AddressZero();
+        if (safeProxyFactory_ == address(0)) revert AddressZero();
+        if (safeSingleton_ == address(0)) revert AddressZero();
         vaultImplementation = vaultImplementation_;
-        if (whiteListAddress_ == address(0)) {
-            revert AddressZero();
-        }
         whiteListAddress = whiteListAddress_;
-        if (wethAddress_ == address(0)) {
-            revert AddressZero();
-        }
-        wethAddress = wethAddress_;
-        if (subscriptionAddress_ == address(0)) {
-            revert AddressZero();
-        }
         subscriptionAddress = subscriptionAddress_;
+        wethAddress = wethAddress_;
+        safeProxyFactory = safeProxyFactory_;
+        safeSingleton = safeSingleton_;
     }
 
+    /// @inheritdoc IFactory
     function deployVault(
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
@@ -59,14 +58,74 @@ contract Factory is IFactory, Initializable {
         _checkWhiteList(assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders);
 
         bytes32 salt = keccak256(abi.encodePacked(msg.sender));
-        address computedAddress = Clones.predictDeterministicAddress(vaultImplementation, salt, address(this));
-
-        if (computedAddress.code.length > 0) revert VaultAlreadyDeployed();
+        if (Clones.predictDeterministicAddress(vaultImplementation, salt, address(this)).code.length > 0) {
+            revert VaultAlreadyDeployed();
+        }
 
         vault = Clones.cloneDeterministic(vaultImplementation, salt);
+        _initVault(
+            vault, tx.origin, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders
+        );
 
+        emit VaultDeployed(vault, tx.origin);
+    }
+
+    /// @inheritdoc IFactory
+    function deployVaultMultiSig(
+        address[] memory owners,
+        uint256 threshold,
+        uint256 saltNonce,
+        address[] memory assetAddresses,
+        address[] memory stableCoinAddresses,
+        address[] memory lendingProviders,
+        address[] memory stakingProviders,
+        address[] memory ammProviders
+    ) external override returns (address safe, address vault) {
+        if (owners.length == 0) revert OwnersRequired();
+        if (threshold == 0 || threshold > owners.length) revert InvalidThreshold();
+        _checkWhiteList(assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders);
+
+        bytes memory setupCalldata = abi.encodeCall(
+            GnosisSafe.setup, (owners, threshold, address(0), "", address(0), address(0), 0, payable(address(0)))
+        );
+        safe = address(
+            GnosisSafeProxyFactory(safeProxyFactory).createProxyWithNonce(safeSingleton, setupCalldata, saltNonce)
+        );
+
+        bytes32 salt = keccak256(abi.encodePacked(safe));
+        if (Clones.predictDeterministicAddress(vaultImplementation, salt, address(this)).code.length > 0) {
+            revert VaultAlreadyDeployed();
+        }
+
+        vault = Clones.cloneDeterministic(vaultImplementation, salt);
+        _initVault(vault, safe, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders);
+
+        emit VaultDeployedMultiSig(vault, safe, threshold, owners.length);
+    }
+
+    /// @inheritdoc IFactory
+    function computeVaultAddress(address owner) external view override returns (address) {
+        return
+            Clones.predictDeterministicAddress(vaultImplementation, keccak256(abi.encodePacked(owner)), address(this));
+    }
+
+    /// @inheritdoc IFactory
+    function computeVaultAddressMultiSig(address safe) external view override returns (address) {
+        return Clones.predictDeterministicAddress(vaultImplementation, keccak256(abi.encodePacked(safe)), address(this));
+    }
+
+    function _initVault(
+        address vault,
+        address owner_,
+        address[] memory assetAddresses,
+        address[] memory stableCoinAddresses,
+        address[] memory lendingProviders,
+        address[] memory stakingProviders,
+        address[] memory ammProviders
+    ) internal {
         Vault(payable(vault))
             .initialize(
+                owner_,
                 whiteListAddress,
                 subscriptionAddress,
                 wethAddress,
@@ -76,19 +135,8 @@ contract Factory is IFactory, Initializable {
                 stakingProviders,
                 ammProviders
             );
-
-        emit VaultDeployed(vault, msg.sender);
     }
 
-    function computeVaultAddress(address owner) external view override returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(owner));
-        return Clones.predictDeterministicAddress(vaultImplementation, salt, address(this));
-    }
-
-    /**
-     * @notice Check if all addresses are whitelisted
-     * @dev Validates assets, stablecoins, yield providers, and swap providers
-     */
     function _checkWhiteList(
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
@@ -114,4 +162,3 @@ contract Factory is IFactory, Initializable {
         }
     }
 }
-

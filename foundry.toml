@@ -16,6 +16,7 @@ via_ir = true
 remappings = [
     "subscription-contracts/=lib/subscription-contracts/",
     "provider-contracts/=lib/provider-contracts/",
+    "safe-smart-account/=lib/safe-smart-account/",
 ]
 
 fs_permissions = [{ access = "read-write", path = "./deployments" }]
