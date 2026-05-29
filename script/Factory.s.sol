@@ -30,10 +30,13 @@ contract Deploy is DeployScript {
         address whiteList = getAddress("WHITE_LIST");
         address subscription = getAddress("SUBSCRIPTION");
         address weth = getAddress("WETH");
+        address safeProxyFactory = getAddress("SAFE_PROXY_FACTORY");
+        address safeSingleton = getAddress("SAFE_SINGLETON");
 
         Vault vaultImplementation = new Vault();
 
-        Factory(factoryAddress).initialize(address(vaultImplementation), whiteList, subscription, weth);
+        Factory(factoryAddress)
+            .initialize(address(vaultImplementation), whiteList, subscription, weth, safeProxyFactory, safeSingleton);
 
         console2.log(factoryAddress);
 

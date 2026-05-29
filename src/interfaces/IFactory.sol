@@ -2,12 +2,9 @@
 pragma solidity ^0.8.34;
 
 error VaultAlreadyDeployed();
+error InvalidThreshold();
+error OwnersRequired();
 
-/**
- * @title IFactory
- * @notice Interface for the factory.
- * @dev This interface is used to initialize the factory and deploy the vault.
- */
 interface IFactory {
     /**
      * @notice Initialize the factory.
@@ -15,22 +12,20 @@ interface IFactory {
      * @param whiteListAddress_ The address of the white list.
      * @param subscriptionAddress_ The address of the subscription.
      * @param wethAddress_ The address of the weth.
-     * @dev Initialize the factory.
+     * @param safeProxyFactory_ The address of the Gnosis SafeProxyFactory.
+     * @param safeSingleton_ The address of the Gnosis Safe singleton (implementation).
      */
     function initialize(
         address vaultImplementation_,
         address whiteListAddress_,
         address subscriptionAddress_,
-        address wethAddress_
+        address wethAddress_,
+        address safeProxyFactory_,
+        address safeSingleton_
     ) external;
 
     /**
-     * @notice Deploy the vault.
-     * @param assetAddresses The addresses of the assets.
-     * @param stableCoinAddresses The addresses of the stable coins.
-     * @param lendingProviders The addresses of the lending providers.
-     * @param stakingProviders The addresses of the staking providers.
-     * @param ammProviders The addresses of the swap providers.
+     * @notice Deploy a vault owned by tx.origin (single EOA owner).
      */
     function deployVault(
         address[] memory assetAddresses,
@@ -41,9 +36,25 @@ interface IFactory {
     ) external returns (address vault);
 
     /**
-     * @notice Compute the vault address.
-     * @param owner The owner of the vault.
-     * @return The address of the vault.
+     * @notice Create a Gnosis Safe multi-sig and deploy a vault owned by it.
+     * @param owners Safe owner addresses (e.g. 3 addresses for a 2/3 Safe).
+     * @param threshold Number of signatures required (e.g. 2 for a 2/3 Safe).
+     * @param saltNonce Nonce for deterministic Safe address — caller chooses it.
      */
+    function deployVaultMultiSig(
+        address[] memory owners,
+        uint256 threshold,
+        uint256 saltNonce,
+        address[] memory assetAddresses,
+        address[] memory stableCoinAddresses,
+        address[] memory lendingProviders,
+        address[] memory stakingProviders,
+        address[] memory ammProviders
+    ) external returns (address safe, address vault);
+
+    /// @notice Predict the vault address for a single-owner deployment (salt = msg.sender).
     function computeVaultAddress(address owner) external view returns (address);
+
+    /// @notice Predict the vault address for a multi-sig deployment (salt = safeAddress).
+    function computeVaultAddressMultiSig(address safe) external view returns (address);
 }
