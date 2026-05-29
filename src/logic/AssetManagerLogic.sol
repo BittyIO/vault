@@ -32,6 +32,8 @@ import {
     NotInitialized,
     AlreadyInitialized
 } from "../interfaces/IVault.sol";
+import {WETH} from "solmate/tokens/WETH.sol";
+import {ETHBalanceNotEnough, WETHBalanceNotEnough} from "../interfaces/IAssetManager.sol";
 import {AssetManagerStorage, VaultStorage} from "./Storages.sol";
 import {VaultLogic} from "./VaultLogic.sol";
 
@@ -63,7 +65,7 @@ library AssetManagerLogic {
         }
     }
 
-    function initialize(AssetManagerStorage storage logicStorage, address whiteListAddress)
+    function initialize(AssetManagerStorage storage logicStorage, address whiteListAddress, address wethAddress)
         external
         onlyNotInitialized(logicStorage)
     {
@@ -71,6 +73,7 @@ library AssetManagerLogic {
             revert AddressZero();
         }
         logicStorage.whiteList = IWhiteList(whiteListAddress);
+        logicStorage.weth = wethAddress;
         logicStorage.isInitialized = true;
     }
 
@@ -105,6 +108,28 @@ library AssetManagerLogic {
         returns (address)
     {
         return _cloneProvider(logicStorage, provider);
+    }
+
+    function ETHToWETH(AssetManagerStorage storage logicStorage, uint256 amount)
+        external
+        onlyInitialized(logicStorage)
+    {
+        uint256 ethBalance = address(this).balance;
+        if (ethBalance < amount) {
+            revert ETHBalanceNotEnough();
+        }
+        WETH(payable(logicStorage.weth)).deposit{value: amount}();
+    }
+
+    function WETHToETH(AssetManagerStorage storage logicStorage, uint256 amount)
+        external
+        onlyInitialized(logicStorage)
+    {
+        uint256 wethBalance = IERC20(logicStorage.weth).balanceOf(address(this));
+        if (wethBalance < amount) {
+            revert WETHBalanceNotEnough();
+        }
+        WETH(payable(logicStorage.weth)).withdraw(amount);
     }
 
     function setRebalanceConfig(

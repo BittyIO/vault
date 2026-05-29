@@ -2,15 +2,16 @@
 pragma solidity ^0.8.34;
 
 import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {IAssetManager, OnlyAssetManager} from "./interfaces/IAssetManager.sol";
+import {IAssetManager, OnlyAssetManager, OnlyOwnerOrAssetManager} from "./interfaces/IAssetManager.sol";
 import {IAMMProvider} from "provider-contracts/src/interfaces/IAMMProvider.sol";
 import {IWhiteList} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
 import {IVault, ReceiverNotFound} from "./interfaces/IVault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
-import {OnlyReceiver} from "./interfaces/IVault.sol";
+import {OnlyReceiver, SubscriptionNotFound, SubscriptionExpired} from "./interfaces/IVault.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {ISubscription} from "subscription-contracts/src/interfaces/ISubscription.sol";
 
 /**
  * @title Vault
@@ -20,19 +21,35 @@ import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
  * 1. ADMIN ROLE from hardware wallet, multi-sig would be better.
  * 2. ASSET MANAGER ROLE from hot wallet, browser extension wallet to be more convinient for use without losing any money.
  */
-contract Vault is IAssetManager, IVault, Initializable, Ownable {
+contract Vault is IVault, IAssetManager, Initializable, Ownable {
     using AssetManagerLogic for AssetManagerStorage;
     using VaultLogic for VaultStorage;
     AssetManagerStorage internal _assetManager;
     VaultStorage internal _vault;
+    ISubscription internal _subscription;
+    uint256 internal subscriptionValidTo;
 
     modifier onlyAssetManager() {
         if (msg.sender != _assetManager.assetManager) revert OnlyAssetManager();
         _;
     }
 
-    modifier onlyValidAsset(address assetAddress) {
-        _vault.checkAsset(assetAddress);
+    modifier onlySubscribed() {
+        if (subscriptionValidTo == 0 || subscriptionValidTo < block.timestamp) {
+            uint256 subscriptionValidTo_ = _subscription.getExpirationTime(msg.sender);
+            if (subscriptionValidTo_ == 0) {
+                revert SubscriptionNotFound();
+            }
+            if (block.timestamp > subscriptionValidTo_) {
+                revert SubscriptionExpired();
+            }
+            subscriptionValidTo = subscriptionValidTo_;
+        }
+        _;
+    }
+
+    modifier onlyOwnerOrAssetManager() {
+        if (msg.sender != _assetManager.assetManager && msg.sender != owner()) revert OnlyOwnerOrAssetManager();
         _;
     }
 
@@ -49,10 +66,11 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         address[] memory ammProviders
     ) public initializer {
         _transferOwnership(tx.origin);
-        _vault.initialize(wethAddress_, whiteListAddress, subscriptionAddress);
+        _subscription = ISubscription(subscriptionAddress);
+        _vault.initialize(whiteListAddress);
         _vault.addAssets(assetAddresses);
         _vault.addStableCoins(stableCoinAddresses);
-        _assetManager.initialize(whiteListAddress);
+        _assetManager.initialize(whiteListAddress, wethAddress_);
         _assetManager.addLendingProviders(lendingProviders);
         _assetManager.addStakingProviders(stakingProviders);
         _assetManager.addAMMProviders(ammProviders);
@@ -67,19 +85,21 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         uint256 sellAmount,
         uint256 buyAmountMin,
         bytes memory data
-    ) external override onlyAssetManager onlyValidAsset(to) {
+    ) external override onlySubscribed onlyAssetManager {
+        _vault.checkAsset(from);
+        _vault.checkAsset(to);
         _assetManager.rebalance(_vault, ammProvider, from, to, sellAmount, buyAmountMin, data);
     }
 
-    function addLiquidity(address ammProvider, bytes memory data) external override onlyAssetManager {
+    function addLiquidity(address ammProvider, bytes memory data) external override onlyAssetManager onlySubscribed {
         _assetManager.addLiquidity(ammProvider, data);
     }
 
-    function removeLiquidity(address ammProvider, bytes memory data) external override onlyAssetManager {
+    function removeLiquidity(address ammProvider, bytes memory data) external override onlyAssetManager onlySubscribed {
         _assetManager.removeLiquidity(ammProvider, data);
     }
 
-    function claimAMMFees(address ammProvider, bytes memory data) external override onlyAssetManager {
+    function claimAMMFees(address ammProvider, bytes memory data) external override onlyAssetManager onlySubscribed {
         _assetManager.claimAMMFees(ammProvider, data);
     }
 
@@ -89,13 +109,19 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
 
     // Lending functions
 
-    function supply(address lendingProvider, address assetAddress, uint256 amount) external override onlyAssetManager {
+    function supply(address lendingProvider, address assetAddress, uint256 amount)
+        external
+        override
+        onlySubscribed
+        onlyAssetManager
+    {
         _assetManager.supply(lendingProvider, assetAddress, amount);
     }
 
     function withdraw(address lendingProvider, address assetAddress, uint256 amount)
         external
         override
+        onlySubscribed
         onlyAssetManager
     {
         _assetManager.withdraw(lendingProvider, assetAddress, amount);
@@ -112,11 +138,21 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
 
     // Staking functions
 
-    function stake(address stakingProvider, address asset, uint256 amount) external override onlyAssetManager {
+    function stake(address stakingProvider, address asset, uint256 amount)
+        external
+        override
+        onlySubscribed
+        onlyAssetManager
+    {
         _assetManager.stake(stakingProvider, asset, amount);
     }
 
-    function unstake(address stakingProvider, address asset, uint256 amount) external override onlyAssetManager {
+    function unstake(address stakingProvider, address asset, uint256 amount)
+        external
+        override
+        onlySubscribed
+        onlyAssetManager
+    {
         _assetManager.unstake(stakingProvider, asset, amount);
     }
 
@@ -128,7 +164,12 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         return _assetManager.getUnstakeRequestIds(stakingProvider);
     }
 
-    function claimUnstaked(address stakingProvider, uint256[] memory requestIds) external override onlyAssetManager {
+    function claimUnstaked(address stakingProvider, uint256[] memory requestIds)
+        external
+        override
+        onlySubscribed
+        onlyAssetManager
+    {
         _assetManager.claimUnstaked(stakingProvider, requestIds);
     }
 
@@ -141,12 +182,13 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
     function setRebalanceConfig(address assetAddress, IAssetManager.RebalanceConfig memory _assetConfig)
         external
         override
-        onlyOwner
+        onlyOwnerOrAssetManager
+        onlySubscribed
     {
         _assetManager.setRebalanceConfig(assetAddress, _assetConfig);
     }
 
-    function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyAssetManager {
+    function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyAssetManager onlySubscribed {
         _assetManager.disableRebalanceUntilTimestamp(timestamp);
     }
 
@@ -174,12 +216,12 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _assetManager.removeAMMProviders(ammProviderAddresses);
     }
 
-    function ETHToWETH(uint256 amount) external override onlyAssetManager {
-        _vault.ETHToWETH(amount);
+    function ETHToWETH(uint256 amount) external override onlyOwnerOrAssetManager {
+        _assetManager.ETHToWETH(amount);
     }
 
-    function WETHToETH(uint256 amount) external override onlyAssetManager {
-        _vault.WETHToETH(amount);
+    function WETHToETH(uint256 amount) external override onlyOwnerOrAssetManager {
+        _assetManager.WETHToETH(amount);
     }
 
     // IVault Receiver interface
@@ -235,7 +277,7 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
         _vault.addAssets(assetAddresses);
     }
 
-    function disableAddingAssets() external override onlyOwner {
+    function disableAddingAssets() external override onlyOwnerOrAssetManager {
         _vault.disableAddingAssets();
     }
 
@@ -266,7 +308,7 @@ contract Vault is IAssetManager, IVault, Initializable, Ownable {
     }
 
     function wethAddress() external view returns (address) {
-        return _vault.weth;
+        return _assetManager.weth;
     }
 
     function whiteList() external view returns (IWhiteList) {

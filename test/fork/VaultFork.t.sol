@@ -14,9 +14,11 @@ import {IVault} from "../../src/interfaces/IVault.sol";
 import {UniswapV3Provider} from "provider-contracts/src/providers/UniswapV3Provider.sol";
 import {Path} from "provider-contracts/src/libs/uniswap/v3/Uniswap.sol";
 import {IAssetManager} from "../../src/interfaces/IAssetManager.sol";
+import {Subscription} from "subscription-contracts/src/Subscription.sol";
+import {SubscriptionTestSetup} from "../helpers/SubscriptionTestSetup.sol";
 
 /// @notice Mainnet fork integration tests for Vault with real Aave and Lido providers.
-contract TestVaultFork is Test {
+contract TestVaultFork is SubscriptionTestSetup {
     using SafeERC20 for IERC20;
     using Path for bytes;
 
@@ -29,6 +31,7 @@ contract TestVaultFork is Test {
     AaveV3Provider public aaveProvider;
     LidoV2Provider public lidoProvider;
     UniswapV3Provider public uniswapV3Provider;
+    Subscription public subscription;
     address public assetManager;
 
     address[] public assets;
@@ -72,7 +75,8 @@ contract TestVaultFork is Test {
 
         vaultImpl = new Vault();
         factory = new Factory();
-        factory.initialize(address(vaultImpl), address(whiteList), makeAddr("subscription"), mainnet.WETH);
+        subscription = deploySubscription(address(whiteList));
+        factory.initialize(address(vaultImpl), address(whiteList), address(subscription), mainnet.WETH);
 
         address vaultAddr = factory.deployVault(assets, stableCoins, lendingProviders, stakingProviders, ammProviders);
         vault = Vault(payable(vaultAddr));
@@ -80,6 +84,9 @@ contract TestVaultFork is Test {
         assetManager = address(this);
         vm.prank(tx.origin);
         vault.setAssetManager(assetManager);
+
+        subscribeUser(subscription, assetManager, mainnet.USDC, 1);
+        subscribeUser(subscription, tx.origin, mainnet.USDC, 1);
     }
 
     function _arr(address a, address b) internal pure returns (address[] memory) {
