@@ -2,8 +2,6 @@
 pragma solidity ^0.8.34;
 
 error VaultAlreadyDeployed();
-error InvalidThreshold();
-error OwnersRequired();
 
 interface IFactory {
     /**
@@ -12,20 +10,16 @@ interface IFactory {
      * @param whiteListAddress_ The address of the white list.
      * @param subscriptionAddress_ The address of the subscription.
      * @param wethAddress_ The address of the weth.
-     * @param safeProxyFactory_ The address of the Gnosis SafeProxyFactory.
-     * @param safeSingleton_ The address of the Gnosis Safe singleton (implementation).
      */
     function initialize(
         address vaultImplementation_,
         address whiteListAddress_,
         address subscriptionAddress_,
-        address wethAddress_,
-        address safeProxyFactory_,
-        address safeSingleton_
+        address wethAddress_
     ) external;
 
     /**
-     * @notice Deploy a vault owned by tx.origin (single EOA owner).
+     * @notice Deploy a vault owned by `tx.origin` (convenience for single EOA deployers).
      */
     function deployVault(
         address[] memory assetAddresses,
@@ -36,25 +30,18 @@ interface IFactory {
     ) external returns (address vault);
 
     /**
-     * @notice Create a Gnosis Safe multi-sig and deploy a vault owned by it.
-     * @param owners Safe owner addresses (e.g. 3 addresses for a 2/3 Safe).
-     * @param threshold Number of signatures required (e.g. 2 for a 2/3 Safe).
-     * @param saltNonce Nonce for deterministic Safe address — caller chooses it.
+     * @notice Deploy a vault with a specific owner (e.g. an existing Gnosis Safe).
+     * @param owner Vault owner; also used as the CREATE2 salt (`keccak256(owner)`).
      */
-    function deployVaultMultiSig(
-        address[] memory owners,
-        uint256 threshold,
-        uint256 saltNonce,
+    function deployVaultFor(
+        address owner,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory lendingProviders,
         address[] memory stakingProviders,
         address[] memory ammProviders
-    ) external returns (address safe, address vault);
+    ) external returns (address vault);
 
-    /// @notice Predict the vault address for a single-owner deployment (salt = msg.sender).
+    /// @notice Predict the vault address for a given owner (salt = `keccak256(owner)`).
     function computeVaultAddress(address owner) external view returns (address);
-
-    /// @notice Predict the vault address for a multi-sig deployment (salt = safeAddress).
-    function computeVaultAddressMultiSig(address safe) external view returns (address);
 }
