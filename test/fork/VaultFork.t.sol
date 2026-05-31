@@ -85,8 +85,7 @@ contract TestVaultFork is SubscriptionTestSetup {
         vm.prank(tx.origin);
         vault.setAssetManager(assetManager);
 
-        subscribeUser(subscription, assetManager, mainnet.USDC, 1);
-        subscribeUser(subscription, tx.origin, mainnet.USDC, 1);
+        subscribeVault(subscription, address(vault), tx.origin, mainnet.USDC, 1);
     }
 
     function _arr(address a, address b) internal pure returns (address[] memory) {

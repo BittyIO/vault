@@ -36,7 +36,7 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
 
     modifier onlySubscribed() {
         if (subscriptionValidTo == 0 || subscriptionValidTo < block.timestamp) {
-            uint256 subscriptionValidTo_ = _subscription.getExpirationTime(msg.sender);
+            uint256 subscriptionValidTo_ = _subscription.getExpirationTime(address(this));
             if (subscriptionValidTo_ == 0) {
                 revert SubscriptionNotFound();
             }
