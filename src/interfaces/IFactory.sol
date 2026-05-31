@@ -16,6 +16,8 @@ interface IFactory {
      * @notice Deploy a vault owned by `tx.origin` (convenience for single EOA deployers).
      */
     function deployVault(
+        address owner,
+        address assetManager,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory lendingProviders,
@@ -24,18 +26,9 @@ interface IFactory {
     ) external returns (address vault);
 
     /**
-     * @notice Deploy a vault with a specific owner (e.g. an existing Gnosis Safe).
-     * @param owner Vault owner; also used as the CREATE2 salt (`keccak256(owner)`).
+     * @notice Predict the vault address for a given owner (salt = `keccak256(owner)`).
+     * @param owner The owner of the vault.
+     * @return The vault address.
      */
-    function deployVaultFor(
-        address owner,
-        address[] memory assetAddresses,
-        address[] memory stableCoinAddresses,
-        address[] memory lendingProviders,
-        address[] memory stakingProviders,
-        address[] memory ammProviders
-    ) external returns (address vault);
-
-    /// @notice Predict the vault address for a given owner (salt = `keccak256(owner)`).
     function computeVaultAddress(address owner) external view returns (address);
 }

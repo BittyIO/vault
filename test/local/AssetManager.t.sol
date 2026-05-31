@@ -80,6 +80,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
     function doInitialize() public {
         this.initialize(
             ownerAddress,
+            assetManagerAddress,
             whiteListAddress,
             mainnet.WETH,
             assets,
@@ -88,8 +89,6 @@ contract TestAssetManager is ProviderTestSetup, Vault {
             stakingProviders,
             ammProviders
         );
-        vm.prank(ownerAddress);
-        this.setAssetManager(assetManagerAddress);
     }
 
     function test_SetRebalanceConfig() public {

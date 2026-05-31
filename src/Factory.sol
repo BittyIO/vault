@@ -32,28 +32,15 @@ contract Factory is IFactory, Initializable {
         wethAddress = wethAddress_;
     }
 
-    /// @inheritdoc IFactory
     function deployVault(
+        address owner,
+        address assetManager,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory lendingProviders,
         address[] memory stakingProviders,
         address[] memory ammProviders
     ) external override returns (address vault) {
-        return deployVaultFor(
-            tx.origin, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders
-        );
-    }
-
-    /// @inheritdoc IFactory
-    function deployVaultFor(
-        address owner,
-        address[] memory assetAddresses,
-        address[] memory stableCoinAddresses,
-        address[] memory lendingProviders,
-        address[] memory stakingProviders,
-        address[] memory ammProviders
-    ) public override returns (address vault) {
         if (owner == address(0)) revert AddressZero();
         _checkWhiteList(assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders);
 
@@ -63,12 +50,20 @@ contract Factory is IFactory, Initializable {
         }
 
         vault = Clones.cloneDeterministic(vaultImplementation, salt);
-        _initVault(vault, owner, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders);
+        _initVault(
+            vault,
+            owner,
+            assetManager,
+            assetAddresses,
+            stableCoinAddresses,
+            lendingProviders,
+            stakingProviders,
+            ammProviders
+        );
 
         emit VaultDeployed(vault, owner);
     }
 
-    /// @inheritdoc IFactory
     function computeVaultAddress(address owner) external view override returns (address) {
         return
             Clones.predictDeterministicAddress(vaultImplementation, keccak256(abi.encodePacked(owner)), address(this));
@@ -77,6 +72,7 @@ contract Factory is IFactory, Initializable {
     function _initVault(
         address vault,
         address owner_,
+        address assetManager,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory lendingProviders,
@@ -86,6 +82,7 @@ contract Factory is IFactory, Initializable {
         Vault(payable(vault))
             .initialize(
                 owner_,
+                assetManager,
                 whiteListAddress,
                 wethAddress,
                 assetAddresses,

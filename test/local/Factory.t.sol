@@ -28,6 +28,7 @@ contract FactoryTest is Test {
     address[] public stakingProviders;
     address[] public ammProviders;
     address public whiteListAddress;
+    address public assetManagerAddress;
 
     function setUp() public {
         wethAddress = makeAddr("wethAddress");
@@ -36,6 +37,7 @@ contract FactoryTest is Test {
         factory = new Factory();
         owner1 = makeAddr("owner1");
         owner2 = makeAddr("owner2");
+        assetManagerAddress = makeAddr("assetManager");
         wbtcAddress = makeAddr("wbtcAddress");
         usdtAddress = makeAddr("usdtAddress");
         usdcAddress = makeAddr("usdcAddress");
@@ -66,15 +68,18 @@ contract FactoryTest is Test {
         vm.stopPrank();
     }
 
+    function _deployVault(address owner, address assetManager) internal returns (address) {
+        return factory.deployVault(
+            owner, assetManager, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders
+        );
+    }
+
     function _newVault() internal returns (address) {
-        return
-            factory.deployVault(assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders);
+        return _deployVault(tx.origin, assetManagerAddress);
     }
 
     function _newVaultFor(address owner) internal returns (address) {
-        return factory.deployVaultFor(
-            owner, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders
-        );
+        return _deployVault(owner, assetManagerAddress);
     }
 
     function _initFactory() internal {
@@ -97,8 +102,14 @@ contract FactoryTest is Test {
         address[] memory invalidAddressArray = new address[](1);
         invalidAddressArray[0] = makeAddr("invalidAddress");
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVaultFor(
-            owner1, invalidAddressArray, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders
+        factory.deployVault(
+            owner1,
+            assetManagerAddress,
+            invalidAddressArray,
+            stableCoinAddresses,
+            lendingProviders,
+            stakingProviders,
+            ammProviders
         );
     }
 
@@ -183,8 +194,14 @@ contract FactoryTest is Test {
         address[] memory invalidStableCoinArray = new address[](1);
         invalidStableCoinArray[0] = makeAddr("invalidStableCoin");
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVaultFor(
-            owner1, assetAddresses, stableCoinAddresses, invalidStableCoinArray, stakingProviders, ammProviders
+        factory.deployVault(
+            owner1,
+            assetManagerAddress,
+            assetAddresses,
+            stableCoinAddresses,
+            invalidStableCoinArray,
+            stakingProviders,
+            ammProviders
         );
     }
 
@@ -193,8 +210,14 @@ contract FactoryTest is Test {
         address[] memory invalidLendingProviderArray = new address[](1);
         invalidLendingProviderArray[0] = makeAddr("invalidLendingProvider");
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVaultFor(
-            owner1, assetAddresses, stableCoinAddresses, invalidLendingProviderArray, stakingProviders, ammProviders
+        factory.deployVault(
+            owner1,
+            assetManagerAddress,
+            assetAddresses,
+            stableCoinAddresses,
+            invalidLendingProviderArray,
+            stakingProviders,
+            ammProviders
         );
     }
 
@@ -203,8 +226,14 @@ contract FactoryTest is Test {
         address[] memory invalidAMMProviderArray = new address[](1);
         invalidAMMProviderArray[0] = makeAddr("invalidAMMProvider");
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVaultFor(
-            owner1, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, invalidAMMProviderArray
+        factory.deployVault(
+            owner1,
+            assetManagerAddress,
+            assetAddresses,
+            stableCoinAddresses,
+            lendingProviders,
+            stakingProviders,
+            invalidAMMProviderArray
         );
     }
 
@@ -215,8 +244,14 @@ contract FactoryTest is Test {
         address[] memory emptyLendingProviders = new address[](0);
         address[] memory emptyAMMProviders = new address[](0);
 
-        address vault = factory.deployVaultFor(
-            owner1, emptyAssets, emptyStableCoins, emptyLendingProviders, stakingProviders, emptyAMMProviders
+        address vault = factory.deployVault(
+            owner1,
+            assetManagerAddress,
+            emptyAssets,
+            emptyStableCoins,
+            emptyLendingProviders,
+            stakingProviders,
+            emptyAMMProviders
         );
 
         assertTrue(vault != address(0), "Vault should be deployed");
@@ -255,8 +290,14 @@ contract FactoryTest is Test {
         vm.prank(tx.origin);
         IWhiteList(whiteListAddress).addAssets(newAsset);
 
-        address vault = factory.deployVaultFor(
-            owner1, multipleAssets, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders
+        address vault = factory.deployVault(
+            owner1,
+            assetManagerAddress,
+            multipleAssets,
+            stableCoinAddresses,
+            lendingProviders,
+            stakingProviders,
+            ammProviders
         );
 
         assertTrue(vault != address(0), "Vault should be deployed");
@@ -274,8 +315,14 @@ contract FactoryTest is Test {
         vm.prank(tx.origin);
         IWhiteList(whiteListAddress).addStableCoins(newStableCoin);
 
-        address vault = factory.deployVaultFor(
-            owner1, assetAddresses, multipleStableCoins, lendingProviders, stakingProviders, ammProviders
+        address vault = factory.deployVault(
+            owner1,
+            assetManagerAddress,
+            assetAddresses,
+            multipleStableCoins,
+            lendingProviders,
+            stakingProviders,
+            ammProviders
         );
 
         assertTrue(vault != address(0), "Vault should be deployed");
@@ -308,8 +355,14 @@ contract FactoryTest is Test {
         vm.prank(tx.origin);
         IWhiteList(whiteListAddress).addAMMProviders(multipleAMMProviders);
 
-        address vault = factory.deployVaultFor(
-            owner1, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, multipleAMMProviders
+        address vault = factory.deployVault(
+            owner1,
+            assetManagerAddress,
+            assetAddresses,
+            stableCoinAddresses,
+            lendingProviders,
+            stakingProviders,
+            multipleAMMProviders
         );
 
         assertTrue(vault != address(0), "Vault should be deployed");
@@ -323,8 +376,14 @@ contract FactoryTest is Test {
         mixedAssets[2] = makeAddr("invalidAsset");
 
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVaultFor(
-            owner1, mixedAssets, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders
+        factory.deployVault(
+            owner1,
+            assetManagerAddress,
+            mixedAssets,
+            stableCoinAddresses,
+            lendingProviders,
+            stakingProviders,
+            ammProviders
         );
     }
 
@@ -336,8 +395,14 @@ contract FactoryTest is Test {
         mixedStableCoins[2] = makeAddr("invalidStableCoin");
 
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVaultFor(
-            owner1, assetAddresses, mixedStableCoins, lendingProviders, stakingProviders, ammProviders
+        factory.deployVault(
+            owner1,
+            assetManagerAddress,
+            assetAddresses,
+            mixedStableCoins,
+            lendingProviders,
+            stakingProviders,
+            ammProviders
         );
     }
 
@@ -354,8 +419,14 @@ contract FactoryTest is Test {
         IWhiteList(whiteListAddress).addLendingProviders(validProvider);
 
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVaultFor(
-            owner1, assetAddresses, stableCoinAddresses, mixedLendingProviders, stakingProviders, ammProviders
+        factory.deployVault(
+            owner1,
+            assetManagerAddress,
+            assetAddresses,
+            stableCoinAddresses,
+            mixedLendingProviders,
+            stakingProviders,
+            ammProviders
         );
     }
 
@@ -372,8 +443,14 @@ contract FactoryTest is Test {
         IWhiteList(whiteListAddress).addAMMProviders(validProvider);
 
         vm.expectRevert(NotWhiteListed.selector);
-        factory.deployVaultFor(
-            owner1, assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, mixedAMMProviders
+        factory.deployVault(
+            owner1,
+            assetManagerAddress,
+            assetAddresses,
+            stableCoinAddresses,
+            lendingProviders,
+            stakingProviders,
+            mixedAMMProviders
         );
     }
 
@@ -457,8 +534,14 @@ contract FactoryTest is Test {
     function test_DeployVaultFor_revertOwnerZero() public {
         _initFactory();
         vm.expectRevert(AddressZero.selector);
-        factory.deployVaultFor(
-            address(0), assetAddresses, stableCoinAddresses, lendingProviders, stakingProviders, ammProviders
+        factory.deployVault(
+            address(0),
+            assetManagerAddress,
+            assetAddresses,
+            stableCoinAddresses,
+            lendingProviders,
+            stakingProviders,
+            ammProviders
         );
     }
 
@@ -491,14 +574,10 @@ contract FactoryTest is Test {
         assertEq(vault.getStableCoins()[1], usdcAddress);
     }
 
-    function test_DeployVaultFor_ownerCanCallAdminFunctions() public {
+    function test_DeployVault_setsAssetManagerAtInit() public {
         _initFactory();
         Vault vault = Vault(payable(_newVaultFor(owner1)));
-        address assetManager = makeAddr("assetManager");
-
-        vm.prank(owner1);
-        vault.setAssetManager(assetManager);
-        assertEq(vault.assetManager(), assetManager);
+        assertEq(vault.assetManager(), assetManagerAddress);
     }
 
     function test_DeployVaultFor_nonOwnerCannotCallAdminFunctions() public {
@@ -511,30 +590,28 @@ contract FactoryTest is Test {
         vault.setAssetManager(assetManager);
     }
 
-    function test_DeployVaultFor_matchesDeployVaultForTxOrigin() public {
+    function test_DeployVault_withTxOriginOwner() public {
         _initFactory();
         address expected = factory.computeVaultAddress(tx.origin);
         address vault = _newVault();
         assertEq(vault, expected);
         assertEq(Vault(payable(vault)).owner(), tx.origin);
+        assertEq(Vault(payable(vault)).assetManager(), assetManagerAddress);
     }
 
-    function test_DeployVaultFor_multisigOwnerAddress() public {
+    function test_DeployVault_multisigOwnerAddress() public {
         _initFactory();
         address multisigOwner = makeAddr("gnosisSafe");
-        address vault = _newVaultFor(multisigOwner);
+        address hotWallet = makeAddr("hotWallet");
+        address vault = _deployVault(multisigOwner, hotWallet);
 
         assertEq(factory.computeVaultAddress(multisigOwner), vault);
         assertEq(Vault(payable(vault)).owner(), multisigOwner);
+        assertEq(Vault(payable(vault)).assetManager(), hotWallet);
 
         vm.prank(owner1);
         vm.expectRevert("Ownable: caller is not the owner");
-        Vault(payable(vault)).setAssetManager(makeAddr("hotWallet"));
-
-        address assetManager = makeAddr("hotWallet");
-        vm.prank(multisigOwner);
-        Vault(payable(vault)).setAssetManager(assetManager);
-        assertEq(Vault(payable(vault)).assetManager(), assetManager);
+        Vault(payable(vault)).setAssetManager(makeAddr("otherHotWallet"));
     }
 }
 
