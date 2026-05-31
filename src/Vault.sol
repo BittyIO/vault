@@ -40,6 +40,7 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
 
     function initialize(
         address owner_,
+        address assetManager_,
         address whiteListAddress,
         address wethAddress_,
         address[] memory assetAddresses,
@@ -54,6 +55,9 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
         _vault.addAssets(assetAddresses);
         _vault.addStableCoins(stableCoinAddresses);
         _assetManager.initialize(whiteListAddress, wethAddress_);
+        if (assetManager_ != address(0)) {
+            _assetManager.setAssetManager(assetManager_);
+        }
         _assetManager.addLendingProviders(lendingProviders);
         _assetManager.addStakingProviders(stakingProviders);
         _assetManager.addAMMProviders(ammProviders);

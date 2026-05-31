@@ -74,12 +74,11 @@ contract TestVaultFork is Test {
         factory = new Factory();
         factory.initialize(address(vaultImpl), address(whiteList), mainnet.WETH);
 
-        address vaultAddr = factory.deployVault(assets, stableCoins, lendingProviders, stakingProviders, ammProviders);
-        vault = Vault(payable(vaultAddr));
-
         assetManager = address(this);
-        vm.prank(tx.origin);
-        vault.setAssetManager(assetManager);
+        address vaultAddr = factory.deployVault(
+            tx.origin, assetManager, assets, stableCoins, lendingProviders, stakingProviders, ammProviders
+        );
+        vault = Vault(payable(vaultAddr));
     }
 
     function _arr(address a, address b) internal pure returns (address[] memory) {
@@ -261,7 +260,9 @@ contract TestVaultFork is Test {
 
     function test_FactoryRevertWhenVaultAlreadyDeployed() public {
         vm.expectRevert();
-        factory.deployVault(assets, stableCoins, lendingProviders, stakingProviders, ammProviders);
+        factory.deployVault(
+            tx.origin, assetManager, assets, stableCoins, lendingProviders, stakingProviders, ammProviders
+        );
     }
 
     function test_RebalanceWETHToUSDT() public {
@@ -352,13 +353,16 @@ contract TestVaultFork is Test {
         assertGe(remaining, supplyAmount - payAmount);
     }
 
-    function test_DeployVaultFor_customOwner() public {
+    function test_DeployVault_customOwnerAndAssetManager() public {
         address customOwner = makeAddr("customVaultOwner");
-        address vaultAddr =
-            factory.deployVaultFor(customOwner, assets, stableCoins, lendingProviders, stakingProviders, ammProviders);
+        address customAssetManager = makeAddr("customAssetManager");
+        address vaultAddr = factory.deployVault(
+            customOwner, customAssetManager, assets, stableCoins, lendingProviders, stakingProviders, ammProviders
+        );
 
         Vault customVault = Vault(payable(vaultAddr));
         assertEq(customVault.owner(), customOwner);
+        assertEq(customVault.assetManager(), customAssetManager);
         assertEq(factory.computeVaultAddress(customOwner), vaultAddr);
     }
 }
