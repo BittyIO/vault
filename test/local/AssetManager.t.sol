@@ -99,13 +99,11 @@ contract TestAssetManager is ProviderTestSetup, Vault {
     }
 
     function _subscribeForAssetManagerOps() internal {
-        Subscription subscription = Subscription(subscriptionAddress);
-        subscribeUser(subscription, assetManagerAddress, mainnet.USDC, 1);
-        subscribeUser(subscription, ownerAddress, mainnet.USDC, 1);
+        subscribeVault(Subscription(subscriptionAddress), address(this), ownerAddress, mainnet.USDC, 1);
     }
 
-    function _subscribeUser(address user) internal {
-        subscribeUser(Subscription(subscriptionAddress), user, mainnet.USDC, 1);
+    function _subscribeVault(address payer) internal {
+        subscribeVault(Subscription(subscriptionAddress), address(this), payer, mainnet.USDC, 1);
     }
 
     function doInitializeWithoutSubscription() public {
@@ -140,18 +138,26 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         this.supply(address(aaveProvider), address(mainnet.WETH), 1 ether);
     }
 
+    function test_Supply_revertWhenPayerSubscribedButVaultNot() public {
+        this.doInitializeWithoutSubscription();
+        subscribeVault(Subscription(subscriptionAddress), makeAddr("otherVault"), ownerAddress, mainnet.USDC, 1);
+
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(SubscriptionNotFound.selector);
+        this.supply(address(aaveProvider), address(mainnet.WETH), 1 ether);
+    }
+
     function test_RevertOnlyAssetManager() public {
         this.doInitialize();
-        address subscribedStranger = makeAddr("subscribedStranger");
-        _subscribeUser(subscribedStranger);
+        address stranger = makeAddr("subscribedStranger");
 
-        vm.prank(subscribedStranger);
+        vm.prank(stranger);
         vm.expectRevert(OnlyAssetManager.selector);
         this.supply(address(aaveProvider), address(mainnet.WETH), 1 ether);
-        vm.prank(subscribedStranger);
+        vm.prank(stranger);
         vm.expectRevert(OnlyAssetManager.selector);
         this.withdraw(address(aaveProvider), address(mainnet.WETH), 1 ether);
-        vm.prank(subscribedStranger);
+        vm.prank(stranger);
         vm.expectRevert(OnlyAssetManager.selector);
         this.rebalance(address(uniswapV3Provider), address(WBTC), address(mainnet.USDT), 1 ether, 1 ether, "");
     }
@@ -648,9 +654,8 @@ contract TestAssetManager is ProviderTestSetup, Vault {
     function test_StakeRevertOnlyAssetManager() public {
         this.doInitialize();
         deal(mainnet.WETH, address(this), 1 ether);
-        address subscribedStranger = makeAddr("subscribedStranger");
-        _subscribeUser(subscribedStranger);
-        vm.prank(subscribedStranger);
+        address stranger = makeAddr("subscribedStranger");
+        vm.prank(stranger);
         vm.expectRevert(OnlyAssetManager.selector);
         this.stake(address(lidoProvider), mainnet.WETH, 1 ether);
     }
@@ -749,9 +754,8 @@ contract TestAssetManager is ProviderTestSetup, Vault {
     function test_ClaimRevertOnlyAssetManager() public {
         this.doInitialize();
         uint256[] memory requestIds = new uint256[](0);
-        address subscribedStranger = makeAddr("subscribedStranger");
-        _subscribeUser(subscribedStranger);
-        vm.prank(subscribedStranger);
+        address stranger = makeAddr("subscribedStranger");
+        vm.prank(stranger);
         vm.expectRevert(OnlyAssetManager.selector);
         this.claimUnstaked(address(lidoProvider), requestIds);
     }
