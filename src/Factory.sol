@@ -14,25 +14,21 @@ import {IFactory, VaultAlreadyDeployed} from "./interfaces/IFactory.sol";
  */
 contract Factory is IFactory, Initializable {
     address public whiteListAddress;
-    address public subscriptionAddress;
     address public vaultImplementation;
     address public wethAddress;
 
     event VaultDeployed(address indexed vault, address indexed owner);
 
-    function initialize(
-        address vaultImplementation_,
-        address whiteListAddress_,
-        address subscriptionAddress_,
-        address wethAddress_
-    ) external override initializer {
+    function initialize(address vaultImplementation_, address whiteListAddress_, address wethAddress_)
+        external
+        override
+        initializer
+    {
         if (vaultImplementation_ == address(0)) revert AddressZero();
         if (whiteListAddress_ == address(0)) revert AddressZero();
-        if (subscriptionAddress_ == address(0)) revert AddressZero();
         if (wethAddress_ == address(0)) revert AddressZero();
         vaultImplementation = vaultImplementation_;
         whiteListAddress = whiteListAddress_;
-        subscriptionAddress = subscriptionAddress_;
         wethAddress = wethAddress_;
     }
 
@@ -91,7 +87,6 @@ contract Factory is IFactory, Initializable {
             .initialize(
                 owner_,
                 whiteListAddress,
-                subscriptionAddress,
                 wethAddress,
                 assetAddresses,
                 stableCoinAddresses,

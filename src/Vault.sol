@@ -9,9 +9,8 @@ import {IVault, ReceiverNotFound, AddressZero} from "./interfaces/IVault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
-import {OnlyReceiver, SubscriptionNotFound, SubscriptionExpired} from "./interfaces/IVault.sol";
+import {OnlyReceiver} from "./interfaces/IVault.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
-import {ISubscription} from "subscription-contracts/src/interfaces/ISubscription.sol";
 
 /**
  * @title Vault
@@ -26,25 +25,9 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
     using VaultLogic for VaultStorage;
     AssetManagerStorage internal _assetManager;
     VaultStorage internal _vault;
-    ISubscription internal _subscription;
-    uint256 internal subscriptionValidTo;
 
     modifier onlyAssetManager() {
         if (msg.sender != _assetManager.assetManager) revert OnlyAssetManager();
-        _;
-    }
-
-    modifier onlySubscribed() {
-        if (subscriptionValidTo == 0 || subscriptionValidTo < block.timestamp) {
-            uint256 subscriptionValidTo_ = _subscription.getExpirationTime(address(this));
-            if (subscriptionValidTo_ == 0) {
-                revert SubscriptionNotFound();
-            }
-            if (block.timestamp > subscriptionValidTo_) {
-                revert SubscriptionExpired();
-            }
-            subscriptionValidTo = subscriptionValidTo_;
-        }
         _;
     }
 
@@ -58,7 +41,6 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
     function initialize(
         address owner_,
         address whiteListAddress,
-        address subscriptionAddress,
         address wethAddress_,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
@@ -68,7 +50,6 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
     ) public initializer {
         if (owner_ == address(0)) revert AddressZero();
         _transferOwnership(owner_);
-        _subscription = ISubscription(subscriptionAddress);
         _vault.initialize(whiteListAddress);
         _vault.addAssets(assetAddresses);
         _vault.addStableCoins(stableCoinAddresses);
@@ -87,21 +68,21 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
         uint256 sellAmount,
         uint256 buyAmountMin,
         bytes memory data
-    ) external override onlyAssetManager onlySubscribed {
+    ) external override onlyAssetManager {
         _vault.checkAsset(from);
         _vault.checkAsset(to);
         _assetManager.rebalance(_vault, ammProvider, from, to, sellAmount, buyAmountMin, data);
     }
 
-    function addLiquidity(address ammProvider, bytes memory data) external override onlyAssetManager onlySubscribed {
+    function addLiquidity(address ammProvider, bytes memory data) external override onlyAssetManager {
         _assetManager.addLiquidity(ammProvider, data);
     }
 
-    function removeLiquidity(address ammProvider, bytes memory data) external override onlyAssetManager onlySubscribed {
+    function removeLiquidity(address ammProvider, bytes memory data) external override onlyAssetManager {
         _assetManager.removeLiquidity(ammProvider, data);
     }
 
-    function claimAMMFees(address ammProvider, bytes memory data) external override onlyAssetManager onlySubscribed {
+    function claimAMMFees(address ammProvider, bytes memory data) external override onlyAssetManager {
         _assetManager.claimAMMFees(ammProvider, data);
     }
 
@@ -111,19 +92,13 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
 
     // Lending functions
 
-    function supply(address lendingProvider, address assetAddress, uint256 amount)
-        external
-        override
-        onlySubscribed
-        onlyAssetManager
-    {
+    function supply(address lendingProvider, address assetAddress, uint256 amount) external override onlyAssetManager {
         _assetManager.supply(lendingProvider, assetAddress, amount);
     }
 
     function withdraw(address lendingProvider, address assetAddress, uint256 amount)
         external
         override
-        onlySubscribed
         onlyAssetManager
     {
         _assetManager.withdraw(lendingProvider, assetAddress, amount);
@@ -140,21 +115,11 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
 
     // Staking functions
 
-    function stake(address stakingProvider, address asset, uint256 amount)
-        external
-        override
-        onlySubscribed
-        onlyAssetManager
-    {
+    function stake(address stakingProvider, address asset, uint256 amount) external override onlyAssetManager {
         _assetManager.stake(stakingProvider, asset, amount);
     }
 
-    function unstake(address stakingProvider, address asset, uint256 amount)
-        external
-        override
-        onlySubscribed
-        onlyAssetManager
-    {
+    function unstake(address stakingProvider, address asset, uint256 amount) external override onlyAssetManager {
         _assetManager.unstake(stakingProvider, asset, amount);
     }
 
@@ -166,12 +131,7 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
         return _assetManager.getUnstakeRequestIds(stakingProvider);
     }
 
-    function claimUnstaked(address stakingProvider, uint256[] memory requestIds)
-        external
-        override
-        onlySubscribed
-        onlyAssetManager
-    {
+    function claimUnstaked(address stakingProvider, uint256[] memory requestIds) external override onlyAssetManager {
         _assetManager.claimUnstaked(stakingProvider, requestIds);
     }
 
@@ -185,12 +145,11 @@ contract Vault is IVault, IAssetManager, Initializable, Ownable {
         external
         override
         onlyOwnerOrAssetManager
-        onlySubscribed
     {
         _assetManager.setRebalanceConfig(assetAddress, _assetConfig);
     }
 
-    function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyAssetManager onlySubscribed {
+    function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyAssetManager {
         _assetManager.disableRebalanceUntilTimestamp(timestamp);
     }
 

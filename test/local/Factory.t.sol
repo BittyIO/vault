@@ -28,11 +28,9 @@ contract FactoryTest is Test {
     address[] public stakingProviders;
     address[] public ammProviders;
     address public whiteListAddress;
-    address public subscriptionAddress;
 
     function setUp() public {
         wethAddress = makeAddr("wethAddress");
-        subscriptionAddress = makeAddr("subscriptionAddress");
         whiteListAddress = address(new WhiteList());
         vaultImplementation = address(new Vault());
         factory = new Factory();
@@ -80,25 +78,22 @@ contract FactoryTest is Test {
     }
 
     function _initFactory() internal {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
     }
 
     function test_factoryRevertsIfAddressZero() public {
         vm.expectRevert(AddressZero.selector);
-        factory.initialize(address(0), whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(address(0), whiteListAddress, wethAddress);
 
         vm.expectRevert(AddressZero.selector);
-        factory.initialize(vaultImplementation, address(0), subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, address(0), wethAddress);
 
         vm.expectRevert(AddressZero.selector);
-        factory.initialize(vaultImplementation, whiteListAddress, address(0), wethAddress);
-
-        vm.expectRevert(AddressZero.selector);
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, address(0));
+        factory.initialize(vaultImplementation, whiteListAddress, address(0));
     }
 
     function test_DeployVaultRevertsIfAddressNotWhiteListed() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address[] memory invalidAddressArray = new address[](1);
         invalidAddressArray[0] = makeAddr("invalidAddress");
         vm.expectRevert(NotWhiteListed.selector);
@@ -145,7 +140,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployedVaultCanBeInitialized() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address vaultAddress = _newVault();
         Vault vault = Vault(payable(vaultAddress));
 
@@ -160,7 +155,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfVaultAlreadyExistsAtComputedAddress() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
 
         bytes32 salt = keccak256(abi.encodePacked(owner1));
         address computedAddr = Clones.predictDeterministicAddress(vaultImplementation, salt, address(factory));
@@ -179,12 +174,12 @@ contract FactoryTest is Test {
     }
 
     function test_InitializeSuccess() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         assertEq(factory.whiteListAddress(), whiteListAddress, "WhiteList address should be set");
     }
 
     function test_DeployVaultRevertsIfStableCoinNotWhiteListed() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address[] memory invalidStableCoinArray = new address[](1);
         invalidStableCoinArray[0] = makeAddr("invalidStableCoin");
         vm.expectRevert(NotWhiteListed.selector);
@@ -194,7 +189,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfLendingProviderNotWhiteListed() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address[] memory invalidLendingProviderArray = new address[](1);
         invalidLendingProviderArray[0] = makeAddr("invalidLendingProvider");
         vm.expectRevert(NotWhiteListed.selector);
@@ -204,7 +199,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfAMMProviderNotWhiteListed() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address[] memory invalidAMMProviderArray = new address[](1);
         invalidAMMProviderArray[0] = makeAddr("invalidAMMProvider");
         vm.expectRevert(NotWhiteListed.selector);
@@ -214,7 +209,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultWithEmptyArrays() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address[] memory emptyAssets = new address[](0);
         address[] memory emptyStableCoins = new address[](0);
         address[] memory emptyLendingProviders = new address[](0);
@@ -228,7 +223,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultEmitsEvent() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
 
         address vault = _newVault();
 
@@ -239,7 +234,7 @@ contract FactoryTest is Test {
     }
 
     function test_ComputeVaultAddressForDifferentowners() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address computed1 = factory.computeVaultAddress(owner1);
         address computed2 = factory.computeVaultAddress(owner2);
 
@@ -249,7 +244,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultWithMultipleAssets() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address[] memory multipleAssets = new address[](3);
         multipleAssets[0] = wbtcAddress;
         multipleAssets[1] = wethAddress;
@@ -268,7 +263,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultWithMultipleStableCoins() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address[] memory multipleStableCoins = new address[](3);
         multipleStableCoins[0] = usdtAddress;
         multipleStableCoins[1] = usdcAddress;
@@ -287,7 +282,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultWithMultipleLendingProviders() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address LendingProvider1 = makeAddr("LendingProvider1");
         address LendingProvider2 = makeAddr("LendingProvider2");
         address[] memory multipleLendingProviders = new address[](2);
@@ -303,7 +298,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultWithMultipleAMMProviders() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address swapProvider1 = makeAddr("swapProvider1");
         address swapProvider2 = makeAddr("swapProvider2");
         address[] memory multipleAMMProviders = new address[](2);
@@ -321,7 +316,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfMultipleAssetsOneNotWhiteListed() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address[] memory mixedAssets = new address[](3);
         mixedAssets[0] = wbtcAddress;
         mixedAssets[1] = wethAddress;
@@ -334,7 +329,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfMultipleStableCoinsOneNotWhiteListed() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address[] memory mixedStableCoins = new address[](3);
         mixedStableCoins[0] = usdtAddress;
         mixedStableCoins[1] = usdcAddress;
@@ -347,7 +342,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfMultipleLendingProvidersOneNotWhiteListed() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address LendingProvider1 = makeAddr("LendingProvider1");
         address[] memory mixedLendingProviders = new address[](2);
         mixedLendingProviders[0] = LendingProvider1;
@@ -365,7 +360,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfMultipleAMMProvidersOneNotWhiteListed() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         address swapProvider1 = makeAddr("swapProvider1");
         address[] memory mixedAMMProviders = new address[](2);
         mixedAMMProviders[0] = swapProvider1;
@@ -383,7 +378,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfVaultAlreadyExistsAtComputedAddressForced() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
 
         bytes32 salt = keccak256(abi.encodePacked(owner1));
         address computedAddr = Clones.predictDeterministicAddress(vaultImplementation, salt, address(factory));
@@ -409,7 +404,7 @@ contract FactoryTest is Test {
     }
 
     function test_ComputeAddressInternalFunction() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
 
         address addr1 = factory.computeVaultAddress(owner1);
         address addr2 = factory.computeVaultAddress(owner2);
@@ -423,7 +418,7 @@ contract FactoryTest is Test {
     }
 
     function test_DeployVaultSuccessWithAllValidParameters() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
 
         address vault = _newVault();
 
@@ -433,12 +428,12 @@ contract FactoryTest is Test {
     }
 
     function test_InitializeSetsStateVariables() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
         assertEq(factory.whiteListAddress(), whiteListAddress, "WhiteList address should be set");
     }
 
     function test_DeployVaultEmitsVaultDeployedEvent() public {
-        factory.initialize(vaultImplementation, whiteListAddress, subscriptionAddress, wethAddress);
+        factory.initialize(vaultImplementation, whiteListAddress, wethAddress);
 
         address vault = _newVault();
 

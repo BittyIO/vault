@@ -8,15 +8,9 @@ interface IFactory {
      * @notice Initialize the factory.
      * @param vaultImplementation_ The address of the vault implementation.
      * @param whiteListAddress_ The address of the white list.
-     * @param subscriptionAddress_ The address of the subscription.
      * @param wethAddress_ The address of the weth.
      */
-    function initialize(
-        address vaultImplementation_,
-        address whiteListAddress_,
-        address subscriptionAddress_,
-        address wethAddress_
-    ) external;
+    function initialize(address vaultImplementation_, address whiteListAddress_, address wethAddress_) external;
 
     /**
      * @notice Deploy a vault owned by `tx.origin` (convenience for single EOA deployers).

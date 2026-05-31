@@ -4,7 +4,6 @@ pragma solidity ^0.8.34;
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IAssetManager} from "../interfaces/IAssetManager.sol";
 import {IWhiteList} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
-import {ISubscription} from "subscription-contracts/src/interfaces/ISubscription.sol";
 import {IVault} from "../interfaces/IVault.sol";
 
 struct AssetManagerStorage {

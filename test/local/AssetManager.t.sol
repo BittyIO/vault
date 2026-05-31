@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {AmountIsZero, AddressZero, SubscriptionNotFound} from "../../src/interfaces/IVault.sol";
+import {AmountIsZero, AddressZero} from "../../src/interfaces/IVault.sol";
 import {
     InvalidLendingProvider,
     InvalidStakingProvider,
@@ -14,8 +14,6 @@ import {
     OnlyOwnerOrAssetManager,
     ETHBalanceNotEnough
 } from "../../src/interfaces/IAssetManager.sol";
-import {Subscription} from "subscription-contracts/src/Subscription.sol";
-import {SubscriptionTestSetup} from "../helpers/SubscriptionTestSetup.sol";
 import {Deprecated, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
 import {ILendingProvider} from "provider-contracts/src/interfaces/ILendingProvider.sol";
 import {IStakingProvider} from "provider-contracts/src/interfaces/IStakingProvider.sol";
@@ -31,7 +29,6 @@ import {AaveV3Provider} from "provider-contracts/src/providers/AaveV3Provider.so
 
 contract TestAssetManager is ProviderTestSetup, Vault {
     address public whiteListAddress;
-    address public subscriptionAddress;
     address[] public assets;
     address[] public stableCoins;
     address[] public lendingProviders;
@@ -46,7 +43,6 @@ contract TestAssetManager is ProviderTestSetup, Vault {
 
         WhiteList whiteList = new WhiteList();
         whiteListAddress = address(whiteList);
-        subscriptionAddress = address(deploySubscription(whiteListAddress));
 
         vm.startPrank(tx.origin);
         whiteList.grantRole(whiteList.ASSET_MANAGER_ROLE(), tx.origin);
@@ -85,32 +81,6 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         this.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
-            mainnet.WETH,
-            assets,
-            stableCoins,
-            lendingProviders,
-            stakingProviders,
-            ammProviders
-        );
-        vm.prank(ownerAddress);
-        this.setAssetManager(assetManagerAddress);
-        _subscribeForAssetManagerOps();
-    }
-
-    function _subscribeForAssetManagerOps() internal {
-        subscribeVault(Subscription(subscriptionAddress), address(this), ownerAddress, mainnet.USDC, 1);
-    }
-
-    function _subscribeVault(address payer) internal {
-        subscribeVault(Subscription(subscriptionAddress), address(this), payer, mainnet.USDC, 1);
-    }
-
-    function doInitializeWithoutSubscription() public {
-        this.initialize(
-            ownerAddress,
-            whiteListAddress,
-            subscriptionAddress,
             mainnet.WETH,
             assets,
             stableCoins,
@@ -128,23 +98,6 @@ contract TestAssetManager is ProviderTestSetup, Vault {
             RebalanceConfig({minimalBalance: 100 * 1e6, minimalDuration: 30, maxAmount: 0});
         vm.prank(ownerAddress);
         this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
-    }
-
-    function test_Supply_revertSubscriptionNotFound() public {
-        this.doInitializeWithoutSubscription();
-
-        vm.prank(assetManagerAddress);
-        vm.expectRevert(SubscriptionNotFound.selector);
-        this.supply(address(aaveProvider), address(mainnet.WETH), 1 ether);
-    }
-
-    function test_Supply_revertWhenPayerSubscribedButVaultNot() public {
-        this.doInitializeWithoutSubscription();
-        subscribeVault(Subscription(subscriptionAddress), makeAddr("otherVault"), ownerAddress, mainnet.USDC, 1);
-
-        vm.prank(assetManagerAddress);
-        vm.expectRevert(SubscriptionNotFound.selector);
-        this.supply(address(aaveProvider), address(mainnet.WETH), 1 ether);
     }
 
     function test_RevertOnlyAssetManager() public {
