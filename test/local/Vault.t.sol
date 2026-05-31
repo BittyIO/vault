@@ -29,14 +29,12 @@ contract VaultTest is Test {
     Vault public vault;
     WETH public weth;
     address public whiteListAddress;
-    address public subscriptionAddress;
     address public ownerAddress;
 
     function setUp() public {
         weth = new WETH();
         vault = new Vault();
         whiteListAddress = address(new WhiteList());
-        subscriptionAddress = makeAddr("subscriptionAddress");
         ownerAddress = tx.origin;
     }
 
@@ -88,7 +86,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -112,7 +109,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -124,7 +120,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -138,7 +133,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -157,7 +151,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -178,7 +171,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -199,7 +191,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -218,7 +209,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -237,7 +227,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -256,7 +245,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -283,7 +271,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -301,7 +288,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -332,7 +318,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -363,7 +348,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -385,7 +369,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -404,7 +387,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -426,7 +408,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -448,7 +429,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -470,7 +450,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -491,7 +470,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -513,7 +491,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -529,7 +506,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -552,7 +528,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -575,7 +550,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -598,7 +572,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -625,7 +598,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -926,7 +898,6 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             whiteListAddress,
-            subscriptionAddress,
             address(weth),
             new address[](0),
             new address[](0),

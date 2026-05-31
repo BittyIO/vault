@@ -14,9 +14,6 @@
   "lib/solmate": {
     "rev": "89365b880c4f3c786bdd453d4b8e8fe410344a69"
   },
-  "lib/subscription-contracts": {
-    "rev": "0cedfae0670744bc3b8bc3c95eac4598d25c296d"
-  },
   "lib/whitelist-contracts": {
     "rev": "c810326b0b97e138feb4280e38c632c6698748c2"
   }

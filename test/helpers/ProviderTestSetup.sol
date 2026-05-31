@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {SubscriptionTestSetup} from "./SubscriptionTestSetup.sol";
+import {Test} from "forge-std/Test.sol";
 import {AaveV3Provider} from "provider-contracts/src/providers/AaveV3Provider.sol";
 import {LidoV2Provider} from "provider-contracts/src/providers/LidoV2Provider.sol";
 import {UniswapV3Provider} from "provider-contracts/src/providers/UniswapV3Provider.sol";
@@ -10,7 +10,7 @@ import {Path} from "provider-contracts/src/libs/uniswap/v3/Uniswap.sol";
 import {WhiteList} from "whitelist-contracts/src/WhiteList.sol";
 
 /// @dev Mainnet fork setup with real Aave, Lido, and Uniswap V3 provider templates.
-abstract contract ProviderTestSetup is SubscriptionTestSetup {
+abstract contract ProviderTestSetup is Test {
     using Path for bytes;
 
     address internal constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;

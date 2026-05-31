@@ -27,12 +27,11 @@ contract Deploy is DeployScript {
         address factoryAddress = factory.safeCreate2(salt, initCode);
 
         address whiteList = getAddress("WHITE_LIST");
-        address subscription = getAddress("SUBSCRIPTION");
         address weth = getAddress("WETH");
 
         Vault vaultImplementation = new Vault();
 
-        Factory(factoryAddress).initialize(address(vaultImplementation), whiteList, subscription, weth);
+        Factory(factoryAddress).initialize(address(vaultImplementation), whiteList, weth);
 
         console2.log(factoryAddress);
 

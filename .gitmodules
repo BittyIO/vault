@@ -10,9 +10,6 @@
 [submodule "lib/whitelist-contracts"]
 	path = lib/whitelist-contracts
     url = https://github.com/Turtum/WhiteList
-[submodule "lib/subscription-contracts"]
-	path = lib/subscription-contracts
-	url = https://github.com/Turtum/Subscription
 [submodule "lib/provider-contracts"]
 	path = lib/provider-contracts
 	url = https://github.com/Turtum/Providers

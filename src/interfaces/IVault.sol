@@ -26,9 +26,6 @@ error OnlyReceiver();
 
 error AddingAssetsDisabled();
 
-error SubscriptionNotFound();
-error SubscriptionExpired();
-
 /**
  * @title Turtum Vault
  * @notice Multi-sigs + Turtum Vault ensure your safe.
