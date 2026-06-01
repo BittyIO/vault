@@ -6,14 +6,33 @@ solc_version = "0.8.34"
 memory_limit = 43554432
 gas_limit = 9223372036854775807
 gas_price = 0
-# optimizer
 optimizer = true
-# optimizer runs - increased to reduce contract size (may slightly increase gas costs)
 optimizer_runs = 10000
-# Use IR compilation to support struct array copying from interfaces
 via_ir = true
 
 remappings = [
+    "forge-std/=lib/forge-std/src/",
+    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+    "whitelist-contracts/=lib/whitelist-contracts/",
+    "provider-contracts/=lib/provider-contracts/",
+    "solmate/=lib/solmate/src/",
+]
+
+fs_permissions = [{ access = "read-write", path = "./deployments" }]
+
+[profile.ci]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.34"
+optimizer = true
+optimizer_runs = 10000
+via_ir = true
+
+remappings = [
+    "forge-std/=lib/forge-std/src/",
+    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+    "whitelist-contracts/=lib/whitelist-contracts/",
     "provider-contracts/=lib/provider-contracts/",
     "solmate/=lib/solmate/src/",
 ]
