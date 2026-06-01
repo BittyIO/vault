@@ -22,12 +22,15 @@ import {mainnet} from "provider-contracts/script/addresses.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {WhiteList} from "whitelist-contracts/src/WhiteList.sol";
 import {Vault} from "../../src/Vault.sol";
-import {AssetManagerLogic} from "../../src/logic/AssetManagerLogic.sol";
 import {AddingAssetsDisabled} from "../../src/interfaces/IVault.sol";
+import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
+import {IProvider} from "provider-contracts/src/interfaces/IProvider.sol";
 import {ProviderTestSetup} from "../helpers/ProviderTestSetup.sol";
 import {AaveV3Provider} from "provider-contracts/src/providers/AaveV3Provider.sol";
 
 contract TestAssetManager is ProviderTestSetup, Vault {
+    using Clones for address;
+
     address public whiteListAddress;
     address[] public assets;
     address[] public stableCoins;
@@ -73,8 +76,14 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         return _assetManager.clonedProviders[provider];
     }
 
-    function cloneProviderForTesting(address provider) external returns (address) {
-        return AssetManagerLogic.cloneProvider(_assetManager, provider);
+    function _cloneProviderForTest(address provider) private returns (address clonedProvider) {
+        clonedProvider = _assetManager.clonedProviders[provider];
+        if (clonedProvider != address(0)) {
+            return clonedProvider;
+        }
+        clonedProvider = provider.clone();
+        IProvider(clonedProvider).initialize(address(this));
+        _assetManager.clonedProviders[provider] = clonedProvider;
     }
 
     function doInitialize() public {
@@ -782,7 +791,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         uint256 supplyAmount = 1 ether;
         deal(mainnet.WETH, address(this), supplyAmount);
 
-        address clonedProvider = this.cloneProviderForTesting(address(aaveProvider));
+        address clonedProvider = _cloneProviderForTest(address(aaveProvider));
 
         IERC20(mainnet.WETH).approve(clonedProvider, 1);
         assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProvider), 1);
@@ -800,7 +809,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         uint256 stakeAmount = 0.1 ether;
         deal(mainnet.WETH, address(this), stakeAmount);
 
-        address clonedProvider = this.cloneProviderForTesting(address(lidoProvider));
+        address clonedProvider = _cloneProviderForTest(address(lidoProvider));
 
         IERC20(mainnet.WETH).approve(clonedProvider, 1);
         assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProvider), 1);

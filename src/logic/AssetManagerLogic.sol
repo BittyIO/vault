@@ -44,25 +44,17 @@ library AssetManagerLogic {
     using Clones for address;
 
     modifier onlyInitialized(AssetManagerStorage storage logicStorage) {
-        _onlyInitialized(logicStorage);
-        _;
-    }
-
-    function _onlyInitialized(AssetManagerStorage storage logicStorage) private view {
         if (!logicStorage.isInitialized) {
             revert NotInitialized();
         }
-    }
-
-    modifier onlyNotInitialized(AssetManagerStorage storage logicStorage) {
-        _onlyNotInitialized(logicStorage);
         _;
     }
 
-    function _onlyNotInitialized(AssetManagerStorage storage logicStorage) private view {
+    modifier onlyNotInitialized(AssetManagerStorage storage logicStorage) {
         if (logicStorage.isInitialized) {
             revert AlreadyInitialized();
         }
+        _;
     }
 
     function initialize(AssetManagerStorage storage logicStorage, address whiteListAddress, address wethAddress)
@@ -100,14 +92,6 @@ library AssetManagerLogic {
         IProvider(clonedProvider).initialize(address(this));
         logicStorage.clonedProviders[provider] = clonedProvider;
         return clonedProvider;
-    }
-
-    function cloneProvider(AssetManagerStorage storage logicStorage, address provider)
-        external
-        onlyInitialized(logicStorage)
-        returns (address)
-    {
-        return _cloneProvider(logicStorage, provider);
     }
 
     function ETHToWETH(AssetManagerStorage storage logicStorage, uint256 amount)
