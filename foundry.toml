@@ -15,6 +15,7 @@ via_ir = true
 
 remappings = [
     "provider-contracts/=lib/provider-contracts/",
+    "solmate/=lib/solmate/src/",
 ]
 
 fs_permissions = [{ access = "read-write", path = "./deployments" }]

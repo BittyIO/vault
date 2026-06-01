@@ -9,7 +9,9 @@
   "solidity.formatter": "forge",
   "solidity.remappings": [
     "forge-std/=lib/forge-std/src/",
-    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "solmate/=lib/solmate/src/",
+    "provider-contracts/=lib/provider-contracts/"
   ],
   "solidity.enabledAsYouTypeCompilationErrorCheck": true,
   "solidity.validationDelay": 1500
