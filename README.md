@@ -1,6 +1,6 @@
 # Bitty Vault Contracts
 
-Solidity contracts for Bitty vaults: a factory deploys minimal proxy vaults per owner, each vault manages assets through registry-approved lending, staking, and AMM protocols.
+Solidity contracts for Bitty Vault: a factory deploys minimal proxy vaults per owner, each vault manages assets through registry-approved lending, staking, and AMM protocols.
 
 ## Prerequisites
 
@@ -44,8 +44,8 @@ All third-party code lives under `lib/` as pinned git submodules. Do not run `fo
 | `lib/forge-std` | [foundry-rs/forge-std](https://github.com/foundry-rs/forge-std) | Scripts and tests |
 | `lib/openzeppelin-contracts` | [OpenZeppelin/openzeppelin-contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) | Proxies, ERC20, access control |
 | `lib/solmate` | [transmissions11/solmate](https://github.com/transmissions11/solmate) | WETH and test mocks |
-| `lib/registry-contracts` | [BittyIO/BittyRegistry](https://github.com/BittyIO/BittyRegistry) | Asset and protocol registry |
-| `lib/protocol-contracts` | [BittyIO/Protocols](https://github.com/BittyIO/Protocols) | Aave, Lido, Uniswap V3 protocol integrations |
+| `lib/registry-contracts` | [BittyIO/BittyRegistry](https://github.com/BittyIO/BittyRegistry) | Asset and protocols registry |
+| `lib/protocol-contracts` | [BittyIO/Protocols](https://github.com/BittyIO/Protocols) | AMM, Lending, Staking protocols integrations |
 
 Import remappings are declared in `foundry.toml`:
 
@@ -81,18 +81,10 @@ Run all tests:
 forge test -vvv
 ```
 
-Local tests only (Factory and Vault; no RPC required):
+Local tests only (BittyVaultFactory and Vault; no RPC required):
 
 ```shell
-forge test --match-path 'test/local/Factory.t.sol' --match-path 'test/local/Vault.t.sol' -vvv
-```
-
-Some suites under `test/local/` (for example `AssetManager.t.sol`) fork mainnet via `ProtocolTestSetup` and need `ALCHEMY_KEY` in `.env`.
-
-Fork tests against mainnet state (requires `ALCHEMY_KEY`):
-
-```shell
-forge test --match-path 'test/fork/*' -vvv
+forge test -vvv
 ```
 
 Coverage report:
@@ -107,7 +99,7 @@ Deployment scripts read chain-specific addresses from `deployments/<chain>.toml`
 
 ```shell
 source .env
-forge script script/Factory.s.sol:Deploy \
+forge script script/BittyVaultFactory.s.sol:Deploy \
   --rpc-url sepolia \
   --broadcast \
   --private-key $SEPOLIA_PRIVATE_KEY \
@@ -122,7 +114,7 @@ The factory script uses CREATE2 via the immutable factory at `0x0000000000FFe8B4
 forge verify-contract \
   --chain sepolia \
   <factory-address> \
-  src/Factory.sol:Factory \
+  src/BittyVaultFactory.sol:Factory \
   --etherscan-api-key $ETHERSCAN_API_KEY
 ```
 
