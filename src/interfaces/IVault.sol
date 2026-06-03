@@ -25,22 +25,27 @@ error PayReceiverAmountTriggerEmpty();
 error OnlyReceiver();
 
 error AddingAssetsDisabled();
+error AddingProtocolsDisabled();
+error OwnerAndAssetManagerMustDiffer();
 
 /**
- * @title Turtum Vault
- * @notice Multi-sigs + Turtum Vault ensure your safe.
+ * @title Bitty Vault
+ * @notice Multi-sigs + Bitty Vault ensure your safe.
  *
  * Vault is not going to fix the safety of private key management, the best practise of private key management is multi-sigs.
  *
  * Vault is going to implement:
  * 1. Familly/Company weekly/monthly spending.
  * 2. Money for kids get in the future.
- * 3. Investment avoiding scams assets by Turtum whitelist.
- * 4. Yielding avoid high risk lending/staking protocols by Turtum whitelist.
- * 5. Trading avoid scam protocols by Turtum whitelist.
+ * 3. Investment avoiding scams assets by Bitty Registry.
+ * 4. Yielding avoid high risk lending/staking protocols by Bitty Registry.
+ * 5. Trading avoid scam protocols by Bitty Registry.
  * 6. Stay away from frontend supply chain attacks(which is the biggest security issue in DeFi) when interating with trading/lending/staking protocols.
  */
 interface IVault {
+    event AssetsLocked();
+    event ProtocolsLocked();
+
     struct Receiver {
         // a more complex receiver contract can be implemented for advanced users out of this repo
         address receiverAddress;
@@ -53,6 +58,13 @@ interface IVault {
         uint256 durationTimestamp;
         bool isImmutable;
     }
+
+    /**
+     * @notice set the name of the vault.
+     * @param name the name of the vault.
+     * @dev Only the owner can set the name of the vault.
+     */
+    function setName(string memory name) external;
 
     /**
      * @notice add a receiver.
@@ -89,10 +101,9 @@ interface IVault {
     function setNewReceiverProtection(uint256 newReceiverProtection) external;
 
     /**
-     * @notice set the asset manager of this vault.
-     * @param assetManager the address of asset manager.
+     * @notice Human-readable name set at deploy time to distinguish vaults with the same owner.
      */
-    function setAssetManager(address assetManager) external;
+    function vaultName() external view returns (string memory);
 
     /**
      * @notice Add the assets to the vault.
@@ -105,10 +116,33 @@ interface IVault {
      * @notice Disable the adding assets.
      * @dev Disable the adding assets.
      *
-     * After disabling, the assets can not be added, but can be removed or reset.
-     * It would be useful when someone try to limit the asset manager to just buy limited assets like wbtc, weth.
+     * After disabling, the assets can not be added, but can be removed.
+     * It would be useful when owner try to limit the fund to just buy limited assets like wbtc, weth.
      */
     function disableAddingAssets() external;
+
+    /**
+     * @notice Check if the adding assets is disabled.
+     * @dev Check if the adding assets is disabled.
+     * @return bool True if the adding assets is disabled, false otherwise.
+     */
+    function isAddingAssetsDisabled() external view returns (bool);
+
+    /**
+     * @notice Disable the adding protocols.
+     * @dev Disable the adding protocols.
+     *
+     * After disabling, the protocols can not be added, but can be removed.
+     * It would be useful when owner try to limit the fund to just buy limited protocols like aave, curve.
+     */
+    function disableAddingProtocols() external;
+
+    /**
+     * @notice Check if the adding protocols is disabled.
+     * @dev Check if the adding protocols is disabled.
+     * @return bool True if the adding protocols is disabled, false otherwise.
+     */
+    function isAddingProtocolsDisabled() external view returns (bool);
 
     /**
      * @notice Remove the assets from the vault.

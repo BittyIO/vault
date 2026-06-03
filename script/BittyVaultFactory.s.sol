@@ -2,7 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {Script} from "forge-std/Script.sol";
-import {Factory} from "../src/Factory.sol";
+import {BittyVaultFactory} from "../src/BittyVaultFactory.sol";
 import {DeployScript} from "./BaseDeploy.sol";
 import {Vault} from "../src/Vault.sol";
 import {console2} from "forge-std/console2.sol";
@@ -19,22 +19,24 @@ interface ImmutableCreate2Factory {
 contract Deploy is DeployScript {
     ImmutableCreate2Factory immutable factory = ImmutableCreate2Factory(0x0000000000FFe8B47B3e2130213B802212439497);
 
-    bytes32 salt = 0x00000000000000000000000000000000000000007b98440a45c2600026e0dee1;
+    bytes32 salt = 0x00000000000000000000000000000000000000003528593a5ede1000109783a8;
 
     function deploy() public override {
-        bytes memory initCode = type(Factory).creationCode;
+        bytes memory initCode = type(BittyVaultFactory).creationCode;
 
         address factoryAddress = factory.safeCreate2(salt, initCode);
 
-        address whiteList = getAddress("WHITE_LIST");
+        address registry = getAddress("REGISTRY");
         address weth = getAddress("WETH");
 
         Vault vaultImplementation = new Vault();
 
-        Factory(factoryAddress).initialize(address(vaultImplementation), whiteList, weth);
+        saveAddress("VAULT_IMPLEMENTATION", address(vaultImplementation));
+
+        BittyVaultFactory(factoryAddress).initialize(address(vaultImplementation), registry, weth);
 
         console2.log(factoryAddress);
 
-        saveAddress("FACTORY", factoryAddress);
+        saveAddress("BITTY_VAULT_FACTORY", factoryAddress);
     }
 }

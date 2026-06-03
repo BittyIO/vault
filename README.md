@@ -1,6 +1,6 @@
 # Bitty Vault Contracts
 
-Solidity contracts for Bitty vaults: a factory deploys minimal proxy vaults per owner, each vault manages assets through whitelisted lending, staking, and AMM providers.
+Solidity contracts for Bitty vaults: a factory deploys minimal proxy vaults per owner, each vault manages assets through registry-approved lending, staking, and AMM protocols.
 
 ## Prerequisites
 
@@ -44,16 +44,16 @@ All third-party code lives under `lib/` as pinned git submodules. Do not run `fo
 | `lib/forge-std` | [foundry-rs/forge-std](https://github.com/foundry-rs/forge-std) | Scripts and tests |
 | `lib/openzeppelin-contracts` | [OpenZeppelin/openzeppelin-contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) | Proxies, ERC20, access control |
 | `lib/solmate` | [transmissions11/solmate](https://github.com/transmissions11/solmate) | WETH and test mocks |
-| `lib/whitelist-contracts` | [Turtum/WhiteList](https://github.com/Turtum/WhiteList) | Asset and provider allowlists |
-| `lib/provider-contracts` | [Turtum/Providers](https://github.com/Turtum/Providers) | Aave, Lido, Uniswap V3 integrations |
+| `lib/registry-contracts` | [BittyIO/BittyRegistry](https://github.com/BittyIO/BittyRegistry) | Asset and protocol registry |
+| `lib/protocol-contracts` | [BittyIO/Protocols](https://github.com/BittyIO/Protocols) | Aave, Lido, Uniswap V3 protocol integrations |
 
 Import remappings are declared in `foundry.toml`:
 
 ```toml
 forge-std/=lib/forge-std/src/
 openzeppelin-contracts/=lib/openzeppelin-contracts/
-whitelist-contracts/=lib/whitelist-contracts/
-provider-contracts/=lib/provider-contracts/
+registry-contracts/=lib/registry-contracts/
+protocol-contracts/=lib/protocol-contracts/
 solmate/=lib/solmate/src/
 ```
 
@@ -87,7 +87,7 @@ Local tests only (Factory and Vault; no RPC required):
 forge test --match-path 'test/local/Factory.t.sol' --match-path 'test/local/Vault.t.sol' -vvv
 ```
 
-Some suites under `test/local/` (for example `AssetManager.t.sol`) fork mainnet via `ProviderTestSetup` and need `ALCHEMY_KEY` in `.env`.
+Some suites under `test/local/` (for example `AssetManager.t.sol`) fork mainnet via `ProtocolTestSetup` and need `ALCHEMY_KEY` in `.env`.
 
 Fork tests against mainnet state (requires `ALCHEMY_KEY`):
 

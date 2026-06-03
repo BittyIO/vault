@@ -2,7 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {IWhiteList, NotWhiteListed, Deprecated} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
+import {IRegistry, NotRegistered, Deprecated} from "registry-contracts/src/interfaces/IRegistry.sol";
 import {
     IAssetManager,
     DisableRebalanceUntilTimestampTooEarly,
@@ -12,15 +12,15 @@ import {
     SellAmountMismatch,
     BuyAmountNotEnough,
     MinimalBalanceNotMet,
-    InvalidLendingProvider,
-    InvalidStakingProvider,
-    InvalidAMMProvider,
+    InvalidLendingProtocol,
+    InvalidStakingProtocol,
+    InvalidAMMProtocol,
     InvalidSwapData
 } from "../interfaces/IAssetManager.sol";
-import {IProvider} from "provider-contracts/src/interfaces/IProvider.sol";
-import {ILendingProvider} from "provider-contracts/src/interfaces/ILendingProvider.sol";
-import {IStakingProvider} from "provider-contracts/src/interfaces/IStakingProvider.sol";
-import {IAMMProvider} from "provider-contracts/src/interfaces/IAMMProvider.sol";
+import {IProtocol} from "protocol-contracts/src/interfaces/IProtocol.sol";
+import {ILendingProtocol} from "protocol-contracts/src/interfaces/ILendingProtocol.sol";
+import {IStakingProtocol} from "protocol-contracts/src/interfaces/IStakingProtocol.sol";
+import {IAMMProtocol} from "protocol-contracts/src/interfaces/IAMMProtocol.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
@@ -30,7 +30,8 @@ import {
     AmountIsZero,
     InsufficientBalance,
     NotInitialized,
-    AlreadyInitialized
+    AlreadyInitialized,
+    AddingProtocolsDisabled
 } from "../interfaces/IVault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {ETHBalanceNotEnough, WETHBalanceNotEnough} from "../interfaces/IAssetManager.sol";
@@ -57,41 +58,38 @@ library AssetManagerLogic {
         _;
     }
 
-    function initialize(AssetManagerStorage storage logicStorage, address whiteListAddress, address wethAddress)
+    modifier onlyAddingProtocolsEnabled(AssetManagerStorage storage logicStorage) {
+        if (logicStorage.addingProtocolsDisabled) {
+            revert AddingProtocolsDisabled();
+        }
+        _;
+    }
+
+    function initialize(AssetManagerStorage storage logicStorage, address registryAddress, address wethAddress)
         external
         onlyNotInitialized(logicStorage)
     {
-        if (whiteListAddress == address(0)) {
+        if (registryAddress == address(0)) {
             revert AddressZero();
         }
-        logicStorage.whiteList = IWhiteList(whiteListAddress);
+        logicStorage.registry = IRegistry(registryAddress);
         logicStorage.weth = wethAddress;
         logicStorage.isInitialized = true;
     }
 
-    function setAssetManager(AssetManagerStorage storage logicStorage, address assetManagerAddress)
-        external
-        onlyInitialized(logicStorage)
-    {
-        if (assetManagerAddress == address(0)) {
-            revert AddressZero();
-        }
-        logicStorage.assetManager = assetManagerAddress;
-    }
-
-    function _cloneProvider(AssetManagerStorage storage logicStorage, address provider)
+    function _cloneProtocol(AssetManagerStorage storage logicStorage, address protocol)
         private
         onlyInitialized(logicStorage)
-        returns (address clonedProvider)
+        returns (address clonedProtocol)
     {
-        clonedProvider = logicStorage.clonedProviders[provider];
-        if (clonedProvider != address(0)) {
-            return clonedProvider;
+        clonedProtocol = logicStorage.clonedProtocols[protocol];
+        if (clonedProtocol != address(0)) {
+            return clonedProtocol;
         }
-        clonedProvider = provider.clone();
-        IProvider(clonedProvider).initialize(address(this));
-        logicStorage.clonedProviders[provider] = clonedProvider;
-        return clonedProvider;
+        clonedProtocol = protocol.clone();
+        IProtocol(clonedProtocol).initialize(address(this));
+        logicStorage.clonedProtocols[protocol] = clonedProtocol;
+        return clonedProtocol;
     }
 
     function ETHToWETH(AssetManagerStorage storage logicStorage, uint256 amount)
@@ -129,14 +127,14 @@ library AssetManagerLogic {
 
     function supply(
         AssetManagerStorage storage logicStorage,
-        address lendingProvider,
+        address lendingProtocol,
         address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
-        if (!logicStorage.lendingProviders.contains(lendingProvider)) {
-            revert InvalidLendingProvider();
+        if (!logicStorage.lendingProtocols.contains(lendingProtocol)) {
+            revert InvalidLendingProtocol();
         }
-        if (logicStorage.whiteList.isLendingProviderDeprecated(lendingProvider)) {
+        if (logicStorage.registry.isLendingProtocolDeprecated(lendingProtocol)) {
             revert Deprecated();
         }
         if (assetAddress == address(0)) {
@@ -145,23 +143,23 @@ library AssetManagerLogic {
         if (amount == 0) {
             revert AmountIsZero();
         }
-        lendingProvider = _cloneProvider(logicStorage, lendingProvider);
-        IERC20(assetAddress).safeIncreaseAllowance(lendingProvider, amount);
-        ILendingProvider(lendingProvider).supply(assetAddress, amount);
-        uint256 remaining = IERC20(assetAddress).allowance(address(this), lendingProvider);
+        lendingProtocol = _cloneProtocol(logicStorage, lendingProtocol);
+        IERC20(assetAddress).safeIncreaseAllowance(lendingProtocol, amount);
+        ILendingProtocol(lendingProtocol).supply(assetAddress, amount);
+        uint256 remaining = IERC20(assetAddress).allowance(address(this), lendingProtocol);
         if (remaining > 0) {
-            IERC20(assetAddress).safeDecreaseAllowance(lendingProvider, remaining);
+            IERC20(assetAddress).safeDecreaseAllowance(lendingProtocol, remaining);
         }
     }
 
     function withdraw(
         AssetManagerStorage storage logicStorage,
-        address lendingProvider,
+        address lendingProtocol,
         address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
-        if (!logicStorage.lendingProviders.contains(lendingProvider)) {
-            revert InvalidLendingProvider();
+        if (!logicStorage.lendingProtocols.contains(lendingProtocol)) {
+            revert InvalidLendingProtocol();
         }
         if (assetAddress == address(0)) {
             revert AddressZero();
@@ -169,40 +167,40 @@ library AssetManagerLogic {
         if (amount == 0) {
             revert AmountIsZero();
         }
-        lendingProvider = _cloneProvider(logicStorage, lendingProvider);
-        uint256 supplyAmount = ILendingProvider(lendingProvider).getSuppliedBalance(assetAddress);
+        lendingProtocol = _cloneProtocol(logicStorage, lendingProtocol);
+        uint256 supplyAmount = ILendingProtocol(lendingProtocol).getSuppliedBalance(assetAddress);
         if (supplyAmount < amount) {
             revert InsufficientBalance();
         }
-        ILendingProvider(lendingProvider).withdraw(assetAddress, amount);
+        ILendingProtocol(lendingProtocol).withdraw(assetAddress, amount);
     }
 
-    function getSuppliedBalance(AssetManagerStorage storage logicStorage, address lendingProvider, address assetAddress)
+    function getSuppliedBalance(AssetManagerStorage storage logicStorage, address lendingProtocol, address assetAddress)
         external
         view
         onlyInitialized(logicStorage)
         returns (uint256)
     {
-        if (!logicStorage.lendingProviders.contains(lendingProvider)) {
-            revert InvalidLendingProvider();
+        if (!logicStorage.lendingProtocols.contains(lendingProtocol)) {
+            revert InvalidLendingProtocol();
         }
-        address _clonedProvider = logicStorage.clonedProviders[lendingProvider];
-        if (_clonedProvider == address(0)) {
+        address _clonedProtocol = logicStorage.clonedProtocols[lendingProtocol];
+        if (_clonedProtocol == address(0)) {
             return 0;
         }
-        return ILendingProvider(_clonedProvider).getSuppliedBalance(assetAddress);
+        return ILendingProtocol(_clonedProtocol).getSuppliedBalance(assetAddress);
     }
 
     function stake(
         AssetManagerStorage storage logicStorage,
-        address stakingProvider,
+        address stakingProtocol,
         address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
-        if (!logicStorage.stakingProviders.contains(stakingProvider)) {
-            revert InvalidStakingProvider();
+        if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
+            revert InvalidStakingProtocol();
         }
-        if (logicStorage.whiteList.isStakingProviderDeprecated(stakingProvider)) {
+        if (logicStorage.registry.isStakingProtocolDeprecated(stakingProtocol)) {
             revert Deprecated();
         }
         if (assetAddress == address(0)) {
@@ -211,23 +209,23 @@ library AssetManagerLogic {
         if (amount == 0) {
             revert AmountIsZero();
         }
-        stakingProvider = _cloneProvider(logicStorage, stakingProvider);
-        IERC20(assetAddress).safeIncreaseAllowance(stakingProvider, amount);
-        IStakingProvider(stakingProvider).stake(assetAddress, amount);
-        uint256 remaining = IERC20(assetAddress).allowance(address(this), stakingProvider);
+        stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
+        IERC20(assetAddress).safeIncreaseAllowance(stakingProtocol, amount);
+        IStakingProtocol(stakingProtocol).stake(assetAddress, amount);
+        uint256 remaining = IERC20(assetAddress).allowance(address(this), stakingProtocol);
         if (remaining > 0) {
-            IERC20(assetAddress).safeDecreaseAllowance(stakingProvider, remaining);
+            IERC20(assetAddress).safeDecreaseAllowance(stakingProtocol, remaining);
         }
     }
 
     function unstake(
         AssetManagerStorage storage logicStorage,
-        address stakingProvider,
+        address stakingProtocol,
         address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
-        if (!logicStorage.stakingProviders.contains(stakingProvider)) {
-            revert InvalidStakingProvider();
+        if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
+            revert InvalidStakingProtocol();
         }
         if (assetAddress == address(0)) {
             revert AddressZero();
@@ -235,63 +233,63 @@ library AssetManagerLogic {
         if (amount == 0) {
             revert AmountIsZero();
         }
-        stakingProvider = _cloneProvider(logicStorage, stakingProvider);
-        uint256 stakingBalance = IStakingProvider(stakingProvider).getStakedBalance(assetAddress);
+        stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
+        uint256 stakingBalance = IStakingProtocol(stakingProtocol).getStakedBalance(assetAddress);
         if (stakingBalance < amount) {
             revert InsufficientBalance();
         }
-        IStakingProvider(stakingProvider).unstake(assetAddress, amount);
+        IStakingProtocol(stakingProtocol).unstake(assetAddress, amount);
     }
 
-    function getStakedBalance(AssetManagerStorage storage logicStorage, address stakingProvider, address assetAddress)
+    function getStakedBalance(AssetManagerStorage storage logicStorage, address stakingProtocol, address assetAddress)
         external
         view
         onlyInitialized(logicStorage)
         returns (uint256)
     {
-        if (!logicStorage.stakingProviders.contains(stakingProvider)) {
-            revert InvalidStakingProvider();
+        if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
+            revert InvalidStakingProtocol();
         }
         if (assetAddress == address(0)) {
             revert AddressZero();
         }
-        address _clonedProvider = logicStorage.clonedProviders[stakingProvider];
-        if (_clonedProvider == address(0)) {
+        address _clonedProtocol = logicStorage.clonedProtocols[stakingProtocol];
+        if (_clonedProtocol == address(0)) {
             return 0;
         }
-        return IStakingProvider(_clonedProvider).getStakedBalance(assetAddress);
+        return IStakingProtocol(_clonedProtocol).getStakedBalance(assetAddress);
     }
 
-    function getUnstakeRequestIds(AssetManagerStorage storage logicStorage, address stakingProvider)
+    function getUnstakeRequestIds(AssetManagerStorage storage logicStorage, address stakingProtocol)
         external
         view
         onlyInitialized(logicStorage)
         returns (uint256[] memory)
     {
-        if (!logicStorage.stakingProviders.contains(stakingProvider)) {
-            revert InvalidStakingProvider();
+        if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
+            revert InvalidStakingProtocol();
         }
 
-        address _clonedProvider = logicStorage.clonedProviders[stakingProvider];
-        if (_clonedProvider == address(0)) {
+        address _clonedProtocol = logicStorage.clonedProtocols[stakingProtocol];
+        if (_clonedProtocol == address(0)) {
             return new uint256[](0);
         }
-        return IStakingProvider(_clonedProvider).getUnstakeRequestIds();
+        return IStakingProtocol(_clonedProtocol).getUnstakeRequestIds();
     }
 
     function claimUnstaked(
         AssetManagerStorage storage logicStorage,
-        address stakingProvider,
+        address stakingProtocol,
         uint256[] memory requestIds
     ) external onlyInitialized(logicStorage) {
-        if (!logicStorage.stakingProviders.contains(stakingProvider)) {
-            revert InvalidStakingProvider();
+        if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
+            revert InvalidStakingProtocol();
         }
         if (requestIds.length == 0) {
             return;
         }
-        stakingProvider = _cloneProvider(logicStorage, stakingProvider);
-        IStakingProvider(stakingProvider).claimUnstaked(requestIds);
+        stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
+        IStakingProtocol(stakingProtocol).claimUnstaked(requestIds);
     }
 
     function _addressBalance(address assetAddress) private view returns (uint256) {
@@ -301,12 +299,12 @@ library AssetManagerLogic {
         return IERC20(assetAddress).balanceOf(address(this));
     }
 
-    function _checkAMMProvider(AssetManagerStorage storage logicStorage, address ammProvider) private view {
-        if (!logicStorage.ammProviders.contains(ammProvider)) {
-            revert InvalidAMMProvider();
+    function _checkAMMProtocol(AssetManagerStorage storage logicStorage, address ammProtocol) private view {
+        if (!logicStorage.ammProtocols.contains(ammProtocol)) {
+            revert InvalidAMMProtocol();
         }
-        if (!logicStorage.whiteList.isAMMProviderWhiteListed(ammProvider)) {
-            revert NotWhiteListed();
+        if (!logicStorage.registry.isAMMProtocolRegistered(ammProtocol)) {
+            revert NotRegistered();
         }
     }
 
@@ -377,62 +375,62 @@ library AssetManagerLogic {
         }
     }
 
-    function addLiquidity(AssetManagerStorage storage logicStorage, address ammProvider, bytes memory data)
+    function addLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
         external
         onlyInitialized(logicStorage)
     {
-        _checkAMMProvider(logicStorage, ammProvider);
-        address clone = logicStorage.clonedProviders[ammProvider];
+        _checkAMMProtocol(logicStorage, ammProtocol);
+        address clone = logicStorage.clonedProtocols[ammProtocol];
         if (clone == address(0)) {
-            revert InvalidAMMProvider();
+            revert InvalidAMMProtocol();
         }
-        IAMMProvider(clone).addLiquidity(data);
+        IAMMProtocol(clone).addLiquidity(data);
     }
 
-    function removeLiquidity(AssetManagerStorage storage logicStorage, address ammProvider, bytes memory data)
+    function removeLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
         external
         onlyInitialized(logicStorage)
     {
-        _checkAMMProvider(logicStorage, ammProvider);
-        address clone = logicStorage.clonedProviders[ammProvider];
+        _checkAMMProtocol(logicStorage, ammProtocol);
+        address clone = logicStorage.clonedProtocols[ammProtocol];
         if (clone == address(0)) {
-            revert InvalidAMMProvider();
+            revert InvalidAMMProtocol();
         }
-        IAMMProvider(clone).removeLiquidity(data);
+        IAMMProtocol(clone).removeLiquidity(data);
     }
 
-    function claimAMMFees(AssetManagerStorage storage logicStorage, address ammProvider, bytes memory data)
+    function claimAMMFees(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
         external
         onlyInitialized(logicStorage)
     {
-        _checkAMMProvider(logicStorage, ammProvider);
-        address clone = logicStorage.clonedProviders[ammProvider];
+        _checkAMMProtocol(logicStorage, ammProtocol);
+        address clone = logicStorage.clonedProtocols[ammProtocol];
         if (clone == address(0)) {
-            revert InvalidAMMProvider();
+            revert InvalidAMMProtocol();
         }
-        IAMMProvider(clone).claimAMMFees(data);
+        IAMMProtocol(clone).claimAMMFees(data);
     }
 
     function rebalance(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
-        address ammProvider,
+        address ammProtocol,
         address from,
         address to,
         uint256 sellAmount,
         uint256 buyAmountMin,
         bytes memory data
     ) external onlyInitialized(logicStorage) {
-        _checkAMMProvider(logicStorage, ammProvider);
+        _checkAMMProtocol(logicStorage, ammProtocol);
         (IAssetManager.RebalanceConfig memory assetConfigFrom, IAssetManager.RebalanceConfig memory assetConfigTo) =
             _validateRebalance(logicStorage, vaultStorage, from, to, sellAmount);
-        _swap(logicStorage, ammProvider, from, sellAmount, to, buyAmountMin, data);
+        _swap(logicStorage, ammProtocol, from, sellAmount, to, buyAmountMin, data);
         _updateRebalanceTimestamps(logicStorage, assetConfigFrom, assetConfigTo, from, to);
     }
 
     function _swap(
         AssetManagerStorage storage logicStorage,
-        address ammProvider,
+        address ammProtocol,
         address sellAssetAddress,
         uint256 sellAmount,
         address toAssetAddress,
@@ -456,13 +454,13 @@ library AssetManagerLogic {
         }
         uint256 buyAssetBalanceBefore = _addressBalance(toAssetAddress);
 
-        ammProvider = _cloneProvider(logicStorage, ammProvider);
+        ammProtocol = _cloneProtocol(logicStorage, ammProtocol);
 
-        IERC20(sellAssetAddress).safeIncreaseAllowance(ammProvider, sellAmount);
-        IAMMProvider(ammProvider).swap(data);
-        uint256 remaining = IERC20(sellAssetAddress).allowance(address(this), ammProvider);
+        IERC20(sellAssetAddress).safeIncreaseAllowance(ammProtocol, sellAmount);
+        IAMMProtocol(ammProtocol).swap(data);
+        uint256 remaining = IERC20(sellAssetAddress).allowance(address(this), ammProtocol);
         if (remaining > 0) {
-            IERC20(sellAssetAddress).safeDecreaseAllowance(ammProvider, remaining);
+            IERC20(sellAssetAddress).safeDecreaseAllowance(ammProtocol, remaining);
         }
 
         uint256 sellAssetBalanceAfter = _addressBalance(sellAssetAddress);
@@ -488,89 +486,96 @@ library AssetManagerLogic {
         logicStorage.rebalanceDisabledUntilTimestamp = timestamp;
     }
 
-    function addLendingProviders(AssetManagerStorage storage logicStorage, address[] memory lendingProviderAddresses)
+    function disableAddingProtocols(AssetManagerStorage storage logicStorage) external onlyInitialized(logicStorage) {
+        logicStorage.addingProtocolsDisabled = true;
+    }
+
+    function addLendingProtocols(AssetManagerStorage storage logicStorage, address[] memory lendingProtocolAddresses)
         external
+        onlyAddingProtocolsEnabled(logicStorage)
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < lendingProviderAddresses.length; i++) {
-            if (!logicStorage.whiteList.isLendingProviderWhiteListed(lendingProviderAddresses[i])) {
-                revert NotWhiteListed();
+        for (uint256 i = 0; i < lendingProtocolAddresses.length; i++) {
+            if (!logicStorage.registry.isLendingProtocolRegistered(lendingProtocolAddresses[i])) {
+                revert NotRegistered();
             }
-            logicStorage.lendingProviders.add(lendingProviderAddresses[i]);
+            logicStorage.lendingProtocols.add(lendingProtocolAddresses[i]);
         }
     }
 
-    function addStakingProviders(AssetManagerStorage storage logicStorage, address[] memory stakingProviderAddresses)
+    function addStakingProtocols(AssetManagerStorage storage logicStorage, address[] memory stakingProtocolAddresses)
         external
+        onlyAddingProtocolsEnabled(logicStorage)
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < stakingProviderAddresses.length; i++) {
-            if (!logicStorage.whiteList.isStakingProviderWhiteListed(stakingProviderAddresses[i])) {
-                revert NotWhiteListed();
+        for (uint256 i = 0; i < stakingProtocolAddresses.length; i++) {
+            if (!logicStorage.registry.isStakingProtocolRegistered(stakingProtocolAddresses[i])) {
+                revert NotRegistered();
             }
-            logicStorage.stakingProviders.add(stakingProviderAddresses[i]);
+            logicStorage.stakingProtocols.add(stakingProtocolAddresses[i]);
         }
     }
 
-    function removeLendingProviders(AssetManagerStorage storage logicStorage, address[] memory lendingProviderAddresses)
+    function removeLendingProtocols(AssetManagerStorage storage logicStorage, address[] memory lendingProtocolAddresses)
         external
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < lendingProviderAddresses.length; i++) {
-            logicStorage.lendingProviders.remove(lendingProviderAddresses[i]);
+        for (uint256 i = 0; i < lendingProtocolAddresses.length; i++) {
+            logicStorage.lendingProtocols.remove(lendingProtocolAddresses[i]);
         }
     }
 
-    function removeStakingProviders(AssetManagerStorage storage logicStorage, address[] memory stakingProviderAddresses)
+    function removeStakingProtocols(AssetManagerStorage storage logicStorage, address[] memory stakingProtocolAddresses)
         external
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < stakingProviderAddresses.length; i++) {
-            logicStorage.stakingProviders.remove(stakingProviderAddresses[i]);
+        for (uint256 i = 0; i < stakingProtocolAddresses.length; i++) {
+            logicStorage.stakingProtocols.remove(stakingProtocolAddresses[i]);
         }
     }
 
-    function addAMMProviders(AssetManagerStorage storage logicStorage, address[] memory ammProviderAddresses)
+    function addAMMProtocols(AssetManagerStorage storage logicStorage, address[] memory ammProtocolAddresses)
         external
+        onlyAddingProtocolsEnabled(logicStorage)
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < ammProviderAddresses.length; i++) {
-            if (!logicStorage.whiteList.isAMMProviderWhiteListed(ammProviderAddresses[i])) {
-                revert NotWhiteListed();
+        for (uint256 i = 0; i < ammProtocolAddresses.length; i++) {
+            if (!logicStorage.registry.isAMMProtocolRegistered(ammProtocolAddresses[i])) {
+                revert NotRegistered();
             }
-            logicStorage.ammProviders.add(ammProviderAddresses[i]);
+            logicStorage.ammProtocols.add(ammProtocolAddresses[i]);
         }
     }
 
-    function removeAMMProviders(AssetManagerStorage storage logicStorage, address[] memory ammProviderAddresses)
+    function removeAMMProtocols(AssetManagerStorage storage logicStorage, address[] memory ammProtocolAddresses)
         external
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < ammProviderAddresses.length; i++) {
-            logicStorage.ammProviders.remove(ammProviderAddresses[i]);
+        for (uint256 i = 0; i < ammProtocolAddresses.length; i++) {
+            logicStorage.ammProtocols.remove(ammProtocolAddresses[i]);
         }
     }
 
-    function getLendingProviders(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
-        return logicStorage.lendingProviders.values();
+    function getLendingProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+        return logicStorage.lendingProtocols.values();
     }
 
-    function getStakingProviders(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
-        return logicStorage.stakingProviders.values();
+    function getStakingProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+        return logicStorage.stakingProtocols.values();
     }
 
-    function getAMMProviders(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
-        return logicStorage.ammProviders.values();
+    function getAMMProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+        return logicStorage.ammProtocols.values();
     }
 
-    function getLiquidity(AssetManagerStorage storage logicStorage, address ammProvider, bytes memory data)
+    function getLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
         external
         view
         returns (uint256)
     {
-        _checkAMMProvider(logicStorage, ammProvider);
-        address clone = logicStorage.clonedProviders[ammProvider];
+        _checkAMMProtocol(logicStorage, ammProtocol);
+        address clone = logicStorage.clonedProtocols[ammProtocol];
         if (clone == address(0)) return 0;
-        return IAMMProvider(clone).getLiquidity(data);
+        return IAMMProtocol(clone).getLiquidity(data);
     }
 }

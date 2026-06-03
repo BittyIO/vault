@@ -13,8 +13,8 @@ via_ir = true
 remappings = [
     "forge-std/=lib/forge-std/src/",
     "openzeppelin-contracts/=lib/openzeppelin-contracts/",
-    "whitelist-contracts/=lib/whitelist-contracts/",
-    "provider-contracts/=lib/provider-contracts/",
+    "registry-contracts/=lib/registry-contracts/",
+    "protocol-contracts/=lib/protocol-contracts/",
     "solmate/=lib/solmate/src/",
 ]
 
@@ -32,8 +32,8 @@ via_ir = true
 remappings = [
     "forge-std/=lib/forge-std/src/",
     "openzeppelin-contracts/=lib/openzeppelin-contracts/",
-    "whitelist-contracts/=lib/whitelist-contracts/",
-    "provider-contracts/=lib/provider-contracts/",
+    "registry-contracts/=lib/registry-contracts/",
+    "protocol-contracts/=lib/protocol-contracts/",
     "solmate/=lib/solmate/src/",
 ]
 

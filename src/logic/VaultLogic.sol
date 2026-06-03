@@ -9,7 +9,7 @@ import {
     NotInitialized,
     InsufficientBalance
 } from "../interfaces/IVault.sol";
-import {IWhiteList, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
+import {IRegistry, NotRegistered} from "registry-contracts/src/interfaces/IRegistry.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {VaultStorage} from "./Storages.sol";
@@ -24,6 +24,7 @@ import {
     ReceiverNotStartYet,
     ReceiverInDuration,
     AddingAssetsDisabled,
+    AddingProtocolsDisabled,
     ReceiverDurationTooShort,
     NewReceiverProtectionOutOfRange,
     ReceiverProtectionNotEnded,
@@ -70,11 +71,11 @@ library VaultLogic {
         }
     }
 
-    function initialize(VaultStorage storage vaultStorage, address whiteListAddress)
+    function initialize(VaultStorage storage vaultStorage, address registryAddress)
         external
         onlyNotInitialized(vaultStorage)
     {
-        vaultStorage.whiteList = IWhiteList(whiteListAddress);
+        vaultStorage.registry = IRegistry(registryAddress);
         vaultStorage.isInitialized = true;
     }
 
@@ -224,8 +225,8 @@ library VaultLogic {
             revert AddingAssetsDisabled();
         }
         for (uint256 i = 0; i < assetAddresses.length; i++) {
-            if (!vaultStorage.whiteList.isAssetWhiteListed(assetAddresses[i])) {
-                revert NotWhiteListed();
+            if (!vaultStorage.registry.isAssetRegistered(assetAddresses[i])) {
+                revert NotRegistered();
             }
             vaultStorage.assets.add(assetAddresses[i]);
         }
@@ -249,8 +250,8 @@ library VaultLogic {
         onlyInitialized(vaultStorage)
     {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            if (!vaultStorage.whiteList.isStableCoinWhiteListed(stableCoinAddresses[i])) {
-                revert NotWhiteListed();
+            if (!vaultStorage.registry.isStableCoinRegistered(stableCoinAddresses[i])) {
+                revert NotRegistered();
             }
             vaultStorage.stableCoins.add(stableCoinAddresses[i]);
         }
@@ -277,6 +278,6 @@ library VaultLogic {
         if (logicStorage.assets.contains(assetAddress) || logicStorage.stableCoins.contains(assetAddress)) {
             return;
         }
-        revert NotWhiteListed();
+        revert NotRegistered();
     }
 }
