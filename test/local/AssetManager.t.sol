@@ -2,41 +2,40 @@
 pragma solidity ^0.8.34;
 
 import {AmountIsZero, AddressZero} from "../../src/interfaces/IVault.sol";
+import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 import {
-    InvalidLendingProvider,
-    InvalidStakingProvider,
+    InvalidLendingProtocol,
+    InvalidStakingProtocol,
     RebalanceMaxAmount,
     RebalanceDisabled,
     RebalanceInMinimalTime,
     MinimalBalanceNotMet,
     DisableRebalanceUntilTimestampTooEarly,
-    OnlyAssetManager,
-    OnlyOwnerOrAssetManager,
     ETHBalanceNotEnough
 } from "../../src/interfaces/IAssetManager.sol";
-import {Deprecated, NotWhiteListed} from "whitelist-contracts/src/interfaces/IWhiteList.sol";
-import {ILendingProvider} from "provider-contracts/src/interfaces/ILendingProvider.sol";
-import {IStakingProvider} from "provider-contracts/src/interfaces/IStakingProvider.sol";
+import {Deprecated, NotRegistered} from "registry-contracts/src/interfaces/IRegistry.sol";
+import {ILendingProtocol} from "protocol-contracts/src/interfaces/ILendingProtocol.sol";
+import {IStakingProtocol} from "protocol-contracts/src/interfaces/IStakingProtocol.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {mainnet} from "provider-contracts/script/addresses.sol";
+import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {WhiteList} from "whitelist-contracts/src/WhiteList.sol";
+import {BittyRegistry} from "registry-contracts/src/BittyRegistry.sol";
 import {Vault} from "../../src/Vault.sol";
 import {AddingAssetsDisabled} from "../../src/interfaces/IVault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
-import {IProvider} from "provider-contracts/src/interfaces/IProvider.sol";
-import {ProviderTestSetup} from "../helpers/ProviderTestSetup.sol";
-import {AaveV3Provider} from "provider-contracts/src/providers/AaveV3Provider.sol";
+import {IProtocol} from "protocol-contracts/src/interfaces/IProtocol.sol";
+import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
+import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 
-contract TestAssetManager is ProviderTestSetup, Vault {
+contract TestAssetManager is ProtocolTestSetup, Vault {
     using Clones for address;
 
-    address public whiteListAddress;
+    address public registryAddress;
     address[] public assets;
     address[] public stableCoins;
-    address[] public lendingProviders;
-    address[] public stakingProviders;
-    address[] public ammProviders;
+    address[] public lendingProtocols;
+    address[] public stakingProtocols;
+    address[] public ammProtocols;
     address public assetManagerAddress;
     address public ownerAddress;
 
@@ -44,26 +43,26 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         ownerAddress = tx.origin;
         assetManagerAddress = makeAddr("assetManager");
 
-        WhiteList whiteList = new WhiteList();
-        whiteListAddress = address(whiteList);
+        BittyRegistry registry = new BittyRegistry();
+        registryAddress = address(registry);
 
         vm.startPrank(tx.origin);
-        whiteList.grantRole(whiteList.ASSET_MANAGER_ROLE(), tx.origin);
-        whiteList.grantRole(whiteList.STABLE_COIN_MANAGER_ROLE(), tx.origin);
-        whiteList.grantRole(whiteList.LENDING_MANAGER_ROLE(), tx.origin);
-        whiteList.grantRole(whiteList.STAKING_MANAGER_ROLE(), tx.origin);
-        whiteList.grantRole(whiteList.AMM_MANAGER_ROLE(), tx.origin);
-        whiteList.addAssets(_two(mainnet.WETH, WBTC));
-        whiteList.addStableCoins(_two(mainnet.USDT, mainnet.USDC));
+        registry.grantRole(registry.ASSET_MANAGER_ROLE(), tx.origin);
+        registry.grantRole(registry.STABLE_COIN_MANAGER_ROLE(), tx.origin);
+        registry.grantRole(registry.LENDING_MANAGER_ROLE(), tx.origin);
+        registry.grantRole(registry.STAKING_MANAGER_ROLE(), tx.origin);
+        registry.grantRole(registry.AMM_MANAGER_ROLE(), tx.origin);
+        registry.addAssets(_two(mainnet.WETH, WBTC));
+        registry.addStableCoins(_two(mainnet.USDT, mainnet.USDC));
         vm.stopPrank();
 
-        setupMainnetForkProviders(whiteList);
+        setupMainnetForkProtocols(registry);
 
         assets = _two(mainnet.WETH, WBTC);
         stableCoins = _two(mainnet.USDT, mainnet.USDC);
-        lendingProviders = _single(address(aaveProvider));
-        stakingProviders = _single(address(lidoProvider));
-        ammProviders = _single(address(uniswapV3Provider));
+        lendingProtocols = _single(address(aaveProtocol));
+        stakingProtocols = _single(address(lidoProtocol));
+        ammProtocols = _single(address(uniswapV3Protocol));
     }
 
     function _two(address a, address b) private pure returns (address[] memory arr) {
@@ -72,31 +71,45 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         arr[1] = b;
     }
 
-    function getClonedProvider(address provider) external view returns (address) {
-        return _assetManager.clonedProviders[provider];
+    function getClonedProvider(address protocol) external view returns (address) {
+        return _assetManager.clonedProtocols[protocol];
     }
 
-    function _cloneProviderForTest(address provider) private returns (address clonedProvider) {
-        clonedProvider = _assetManager.clonedProviders[provider];
-        if (clonedProvider != address(0)) {
-            return clonedProvider;
+    function _cloneProtocolForTest(address protocol) private returns (address clonedProtocol) {
+        clonedProtocol = _assetManager.clonedProtocols[protocol];
+        if (clonedProtocol != address(0)) {
+            return clonedProtocol;
         }
-        clonedProvider = provider.clone();
-        IProvider(clonedProvider).initialize(address(this));
-        _assetManager.clonedProviders[provider] = clonedProvider;
+        clonedProtocol = protocol.clone();
+        IProtocol(clonedProtocol).initialize(address(this));
+        _assetManager.clonedProtocols[protocol] = clonedProtocol;
+    }
+
+    function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
+        return bytes(
+            string.concat(
+                "AccessControl: account ",
+                Strings.toHexString(uint160(account), 20),
+                " is missing role ",
+                Strings.toHexString(uint256(role), 32)
+            )
+        );
     }
 
     function doInitialize() public {
         this.initialize(
             ownerAddress,
+            "test",
             assetManagerAddress,
-            whiteListAddress,
+            ownerAddress, // configManager: owner gets CONFIG_MANAGER_ROLE for tests
+            address(0), // receiverManager
+            registryAddress,
             mainnet.WETH,
             assets,
             stableCoins,
-            lendingProviders,
-            stakingProviders,
-            ammProviders
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols
         );
     }
 
@@ -111,49 +124,51 @@ contract TestAssetManager is ProviderTestSetup, Vault {
     function test_RevertOnlyAssetManager() public {
         this.doInitialize();
         address stranger = makeAddr("subscribedStranger");
+        bytes32 role = ASSET_MANAGER_ROLE;
 
         vm.prank(stranger);
-        vm.expectRevert(OnlyAssetManager.selector);
-        this.supply(address(aaveProvider), address(mainnet.WETH), 1 ether);
+        vm.expectRevert(_roleError(stranger, role));
+        this.supply(address(aaveProtocol), address(mainnet.WETH), 1 ether);
         vm.prank(stranger);
-        vm.expectRevert(OnlyAssetManager.selector);
-        this.withdraw(address(aaveProvider), address(mainnet.WETH), 1 ether);
+        vm.expectRevert(_roleError(stranger, role));
+        this.withdraw(address(aaveProtocol), address(mainnet.WETH), 1 ether);
         vm.prank(stranger);
-        vm.expectRevert(OnlyAssetManager.selector);
-        this.rebalance(address(uniswapV3Provider), address(WBTC), address(mainnet.USDT), 1 ether, 1 ether, "");
+        vm.expectRevert(_roleError(stranger, role));
+        this.rebalance(address(uniswapV3Protocol), address(WBTC), address(mainnet.USDT), 1 ether, 1 ether, "");
     }
 
     function test_SupplyRevertAddressZero() public {
         this.doInitialize();
         vm.expectRevert(AddressZero.selector);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProvider), address(0), 1 ether);
+        this.supply(address(aaveProtocol), address(0), 1 ether);
     }
 
     function test_SupplyRevertAmountIsZero() public {
         this.doInitialize();
         vm.expectRevert(AmountIsZero.selector);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProvider), address(mainnet.WETH), 0);
+        this.supply(address(aaveProtocol), address(mainnet.WETH), 0);
     }
 
     function test_WithdrawRevertAmountIsZero() public {
         this.doInitialize();
         vm.expectRevert(AmountIsZero.selector);
         vm.prank(assetManagerAddress);
-        this.withdraw(address(aaveProvider), address(mainnet.WETH), 0);
+        this.withdraw(address(aaveProtocol), address(mainnet.WETH), 0);
     }
 
     function test_WithdrawRevertAddressZero() public {
         this.doInitialize();
         vm.expectRevert(AddressZero.selector);
         vm.prank(assetManagerAddress);
-        this.withdraw(address(aaveProvider), address(0), 1 ether);
+        this.withdraw(address(aaveProtocol), address(0), 1 ether);
     }
 
     function test_revertETHToWETH() public {
         this.doInitialize();
-        vm.expectRevert(OnlyOwnerOrAssetManager.selector);
+        address caller = address(this);
+        vm.expectRevert(_roleError(caller, ASSET_MANAGER_ROLE));
         this.ETHToWETH(1 ether);
     }
 
@@ -202,12 +217,12 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         this.ETHToWETH(1 ether);
     }
 
-    function test_SupplyRevertInvalidLendingProvider() public {
+    function test_SupplyRevertInvalidLendingProtocol() public {
         this.doInitialize();
-        address invalidLendingProvider = address(new AaveV3Provider(mainnet.AAVE_V3, mainnet.POOL_DATA_PROVIDER));
-        vm.expectRevert(InvalidLendingProvider.selector);
+        address invalidLendingProtocol = address(new AaveV3Protocol(mainnet.AAVE_V3, mainnet.POOL_DATA_PROVIDER));
+        vm.expectRevert(InvalidLendingProtocol.selector);
         vm.prank(assetManagerAddress);
-        this.supply(invalidLendingProvider, address(mainnet.WETH), 1 ether);
+        this.supply(invalidLendingProtocol, address(mainnet.WETH), 1 ether);
     }
 
     function test_SupplySuccess() public {
@@ -216,12 +231,12 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         uint256 supplyAmount = 1 ether;
         deal(mainnet.WETH, address(this), supplyAmount);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProvider), mainnet.WETH, supplyAmount);
+        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
-        address clonedProvider = this.getClonedProvider(address(aaveProvider));
-        require(clonedProvider != address(0), "Provider should be cloned");
+        address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
+        require(clonedProtocol != address(0), "Provider should be cloned");
 
-        uint256 balanceAfter = ILendingProvider(clonedProvider).getSuppliedBalance(mainnet.WETH);
+        uint256 balanceAfter = ILendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH);
         assertApproxEqAbs(balanceAfter, supplyAmount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
@@ -234,90 +249,90 @@ contract TestAssetManager is ProviderTestSetup, Vault {
 
         deal(mainnet.WETH, address(this), supplyAmount);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProvider), mainnet.WETH, supplyAmount);
+        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
-        address clonedProvider = this.getClonedProvider(address(aaveProvider));
+        address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
         uint256 balanceBefore = IERC20(mainnet.WETH).balanceOf(address(this));
 
         vm.prank(assetManagerAddress);
-        this.withdraw(address(aaveProvider), mainnet.WETH, withdrawAmount);
+        this.withdraw(address(aaveProtocol), mainnet.WETH, withdrawAmount);
 
         uint256 balanceAfter = IERC20(mainnet.WETH).balanceOf(address(this));
         assertApproxEqAbs(balanceAfter - balanceBefore, withdrawAmount, 5);
 
-        uint256 remaining = ILendingProvider(clonedProvider).getSuppliedBalance(mainnet.WETH);
+        uint256 remaining = ILendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH);
         assertApproxEqAbs(remaining, supplyAmount - withdrawAmount, 10);
     }
 
-    function test_LendingProviderRevertIfNotWhiteListed() public {
+    function test_LendingProviderRevertIfNotRegistered() public {
         this.doInitialize();
 
-        address invalidLendingProvider = makeAddr("InvalidLendingProvider");
-        vm.expectRevert(InvalidLendingProvider.selector);
+        address invalidLendingProtocol = makeAddr("InvalidLendingProtocol");
+        vm.expectRevert(InvalidLendingProtocol.selector);
         vm.prank(assetManagerAddress);
-        this.supply(invalidLendingProvider, address(mainnet.WETH), 1 ether);
+        this.supply(invalidLendingProtocol, address(mainnet.WETH), 1 ether);
     }
 
     function test_SupplyFromDeprecatedLendingProvider() public {
         this.doInitialize();
         vm.prank(tx.origin);
-        WhiteList(whiteListAddress).deprecateLendingProviders(lendingProviders);
+        BittyRegistry(registryAddress).deprecateLendingProtocols(lendingProtocols);
         vm.expectRevert(Deprecated.selector);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProvider), address(mainnet.WETH), 1 ether);
+        this.supply(address(aaveProtocol), address(mainnet.WETH), 1 ether);
     }
 
     function test_WithdrawMoneySuccessFromDeprecateLendingProvider() public {
         this.doInitialize();
         deal(address(mainnet.WETH), address(this), 1 ether);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProvider), address(mainnet.WETH), 1 ether);
+        this.supply(address(aaveProtocol), address(mainnet.WETH), 1 ether);
         vm.prank(tx.origin);
-        WhiteList(whiteListAddress).deprecateLendingProviders(lendingProviders);
-        uint256 supplied = this.getSuppliedBalance(address(aaveProvider), address(mainnet.WETH));
+        BittyRegistry(registryAddress).deprecateLendingProtocols(lendingProtocols);
+        uint256 supplied = this.getSuppliedBalance(address(aaveProtocol), address(mainnet.WETH));
         vm.prank(assetManagerAddress);
-        this.withdraw(address(aaveProvider), address(mainnet.WETH), supplied);
+        this.withdraw(address(aaveProtocol), address(mainnet.WETH), supplied);
     }
 
-    function test_WithdrawFromInvalidLendingProvider() public {
+    function test_WithdrawFromInvalidLendingProtocol() public {
         this.doInitialize();
-        address invalidLendingProvider = makeAddr("InvalidLendingProvider");
-        vm.expectRevert(InvalidLendingProvider.selector);
+        address invalidLendingProtocol = makeAddr("InvalidLendingProtocol");
+        vm.expectRevert(InvalidLendingProtocol.selector);
         vm.prank(assetManagerAddress);
-        this.withdraw(invalidLendingProvider, address(mainnet.WETH), 1 ether);
+        this.withdraw(invalidLendingProtocol, address(mainnet.WETH), 1 ether);
     }
 
     function test_GetBalance() public {
         this.doInitialize();
         uint256 depositAmount = 5 ether;
 
-        uint256 balance = this.getSuppliedBalance(address(aaveProvider), address(mainnet.WETH));
+        uint256 balance = this.getSuppliedBalance(address(aaveProtocol), address(mainnet.WETH));
         assertEq(balance, 0);
 
         deal(address(mainnet.WETH), address(this), depositAmount);
         IERC20(mainnet.WETH).approve(address(this), depositAmount);
 
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProvider), address(mainnet.WETH), depositAmount);
+        this.supply(address(aaveProtocol), address(mainnet.WETH), depositAmount);
 
-        balance = this.getSuppliedBalance(address(aaveProvider), address(mainnet.WETH));
+        balance = this.getSuppliedBalance(address(aaveProtocol), address(mainnet.WETH));
         assertApproxEqAbs(balance, depositAmount, 10);
     }
 
-    function test_GetBalance_InvalidLendingProvider() public {
+    function test_GetBalance_InvalidLendingProtocol() public {
         this.doInitialize();
-        address invalidLendingProvider = makeAddr("InvalidLendingProvider");
+        address invalidLendingProtocol = makeAddr("InvalidLendingProtocol");
 
         vm.prank(assetManagerAddress);
-        vm.expectRevert(InvalidLendingProvider.selector);
-        this.getSuppliedBalance(invalidLendingProvider, address(mainnet.WETH));
+        vm.expectRevert(InvalidLendingProtocol.selector);
+        this.getSuppliedBalance(invalidLendingProtocol, address(mainnet.WETH));
     }
 
     function test_GetBalanceFromDeprecatedLendingProvider() public {
         this.doInitialize();
         vm.prank(tx.origin);
-        WhiteList(whiteListAddress).deprecateLendingProviders(lendingProviders);
-        uint256 balance = this.getSuppliedBalance(address(aaveProvider), address(mainnet.WETH));
+        BittyRegistry(registryAddress).deprecateLendingProtocols(lendingProtocols);
+        uint256 balance = this.getSuppliedBalance(address(aaveProtocol), address(mainnet.WETH));
         assertEq(balance, 0);
     }
 
@@ -339,7 +354,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         vm.expectRevert(RebalanceMaxAmount.selector);
         vm.prank(assetManagerAddress);
         this.rebalance(
-            address(uniswapV3Provider), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, swapData
+            address(uniswapV3Protocol), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, swapData
         );
     }
 
@@ -358,7 +373,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         uint256 usdtBefore = IERC20(mainnet.USDT).balanceOf(address(this));
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
         assertGt(IERC20(mainnet.USDT).balanceOf(address(this)), usdtBefore);
@@ -377,7 +392,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
     }
 
     function test_RebalanceFromCheck_RevertsWhenFromNotVaultAsset() public {
@@ -392,9 +407,9 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         uint256 buyAmount = 10 * 1e6;
         bytes memory swapData = abi.encode(invalidFrom, sellAmount, address(mainnet.USDT), buyAmount);
 
-        vm.expectRevert(NotWhiteListed.selector);
+        vm.expectRevert(NotRegistered.selector);
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Provider), invalidFrom, address(mainnet.USDT), sellAmount, buyAmount, swapData);
+        this.rebalance(address(uniswapV3Protocol), invalidFrom, address(mainnet.USDT), sellAmount, buyAmount, swapData);
     }
 
     function test_RebalanceFromCheck_MinimalBalanceNotMet_WhenRemainingBelowMinimal() public {
@@ -418,7 +433,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         vm.expectRevert(MinimalBalanceNotMet.selector);
         vm.prank(assetManagerAddress);
         this.rebalance(
-            address(uniswapV3Provider), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, swapData
+            address(uniswapV3Protocol), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, swapData
         );
     }
 
@@ -443,7 +458,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         vm.expectRevert(MinimalBalanceNotMet.selector);
         vm.prank(assetManagerAddress);
         this.rebalance(
-            address(uniswapV3Provider), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, swapData
+            address(uniswapV3Protocol), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, swapData
         );
     }
 
@@ -464,7 +479,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
         assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), fromBalance - sellAmount, 10);
     }
@@ -484,11 +499,11 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
         vm.expectRevert(RebalanceInMinimalTime.selector);
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
     }
 
     function test_RebalanceFromCheck_RebalanceInMinimalTime_SucceedsAfterFromDurationElapsed() public {
@@ -506,13 +521,13 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
         vm.warp(block.timestamp + minimalDuration + 1);
 
         deal(mainnet.WETH, address(this), 1 ether);
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_RevertsWhenBeforeTimestamp() public {
@@ -532,7 +547,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
 
         vm.expectRevert(RebalanceDisabled.selector);
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_SucceedsAfterTimestamp() public {
@@ -553,7 +568,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
@@ -570,7 +585,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Provider), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
@@ -590,8 +605,9 @@ contract TestAssetManager is ProviderTestSetup, Vault {
 
     function test_DisableAddingAssets_RevertsWhenNotOwnerOrAssetManager() public {
         this.doInitialize();
-        vm.prank(makeAddr("stranger"));
-        vm.expectRevert(OnlyOwnerOrAssetManager.selector);
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
         this.disableAddingAssets();
     }
 
@@ -602,7 +618,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         address[] memory newAssets = new address[](1);
         newAssets[0] = address(mockDAI);
         vm.prank(ownerAddress);
-        WhiteList(whiteListAddress).addAssets(newAssets);
+        BittyRegistry(registryAddress).addAssets(newAssets);
 
         vm.prank(ownerAddress);
         this.disableAddingAssets();
@@ -617,14 +633,14 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         deal(mainnet.WETH, address(this), 1 ether);
         address stranger = makeAddr("subscribedStranger");
         vm.prank(stranger);
-        vm.expectRevert(OnlyAssetManager.selector);
-        this.stake(address(lidoProvider), mainnet.WETH, 1 ether);
+        vm.expectRevert(_roleError(stranger, ASSET_MANAGER_ROLE));
+        this.stake(address(lidoProtocol), mainnet.WETH, 1 ether);
     }
 
-    function test_StakeRevertInvalidStakingProvider() public {
+    function test_StakeRevertInvalidStakingProtocol() public {
         this.doInitialize();
-        address invalidStakingProvider = makeAddr("InvalidStakingProvider");
-        vm.expectRevert(InvalidStakingProvider.selector);
+        address invalidStakingProvider = makeAddr("InvalidStakingProtocol");
+        vm.expectRevert(InvalidStakingProtocol.selector);
         vm.prank(assetManagerAddress);
         this.stake(invalidStakingProvider, mainnet.WETH, 1 ether);
     }
@@ -633,7 +649,7 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         this.doInitialize();
         vm.expectRevert(AmountIsZero.selector);
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProvider), mainnet.WETH, 0);
+        this.stake(address(lidoProtocol), mainnet.WETH, 0);
     }
 
     function test_StakeSuccess() public {
@@ -641,34 +657,34 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         uint256 stakeAmount = 0.1 ether;
         deal(mainnet.WETH, address(this), stakeAmount);
 
-        assertEq(this.getStakedBalance(address(lidoProvider), mainnet.WETH), 0);
+        assertEq(this.getStakedBalance(address(lidoProtocol), mainnet.WETH), 0);
 
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProvider), mainnet.WETH, stakeAmount);
+        this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
-        address clonedProvider = this.getClonedProvider(address(lidoProvider));
-        assertTrue(clonedProvider != address(0));
-        assertApproxEqAbs(IStakingProvider(clonedProvider).getStakedBalance(mainnet.WETH), stakeAmount, 10);
-        assertApproxEqAbs(this.getStakedBalance(address(lidoProvider), mainnet.WETH), stakeAmount, 10);
+        address clonedProtocol = this.getClonedProvider(address(lidoProtocol));
+        assertTrue(clonedProtocol != address(0));
+        assertApproxEqAbs(IStakingProtocol(clonedProtocol).getStakedBalance(mainnet.WETH), stakeAmount, 10);
+        assertApproxEqAbs(this.getStakedBalance(address(lidoProtocol), mainnet.WETH), stakeAmount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
 
     function test_GetStakingBalance() public {
         this.doInitialize();
-        assertEq(this.getStakedBalance(address(lidoProvider), mainnet.WETH), 0);
+        assertEq(this.getStakedBalance(address(lidoProtocol), mainnet.WETH), 0);
 
         uint256 stakeAmount = 2 ether;
         deal(mainnet.WETH, address(this), stakeAmount);
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProvider), mainnet.WETH, stakeAmount);
+        this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
-        assertApproxEqAbs(this.getStakedBalance(address(lidoProvider), mainnet.WETH), stakeAmount, 10);
+        assertApproxEqAbs(this.getStakedBalance(address(lidoProtocol), mainnet.WETH), stakeAmount, 10);
     }
 
-    function test_GetStakingBalance_InvalidStakingProvider() public {
+    function test_GetStakingBalance_InvalidStakingProtocol() public {
         this.doInitialize();
-        vm.expectRevert(InvalidStakingProvider.selector);
-        this.getStakedBalance(makeAddr("InvalidStakingProvider"), mainnet.WETH);
+        vm.expectRevert(InvalidStakingProtocol.selector);
+        this.getStakedBalance(makeAddr("InvalidStakingProtocol"), mainnet.WETH);
     }
 
     function test_UnstakeSuccess() public {
@@ -678,18 +694,18 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         deal(mainnet.WETH, address(this), stakeAmount);
 
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProvider), mainnet.WETH, stakeAmount);
-        assertApproxEqAbs(this.getStakedBalance(address(lidoProvider), mainnet.WETH), stakeAmount, 10);
+        this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
+        assertApproxEqAbs(this.getStakedBalance(address(lidoProtocol), mainnet.WETH), stakeAmount, 10);
 
         vm.prank(assetManagerAddress);
-        this.unstake(address(lidoProvider), mainnet.WETH, unstakeAmount);
-        assertApproxEqAbs(this.getStakedBalance(address(lidoProvider), mainnet.WETH), stakeAmount - unstakeAmount, 10);
+        this.unstake(address(lidoProtocol), mainnet.WETH, unstakeAmount);
+        assertApproxEqAbs(this.getStakedBalance(address(lidoProtocol), mainnet.WETH), stakeAmount - unstakeAmount, 10);
 
-        uint256[] memory requestIds = this.getUnstakeRequestIds(address(lidoProvider));
+        uint256[] memory requestIds = this.getUnstakeRequestIds(address(lidoProtocol));
         assertEq(requestIds.length, 1);
 
         vm.prank(assetManagerAddress);
-        this.claimUnstaked(address(lidoProvider), requestIds);
+        this.claimUnstaked(address(lidoProtocol), requestIds);
     }
 
     function test_ClaimSuccess() public {
@@ -699,17 +715,17 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         deal(mainnet.WETH, address(this), stakeAmount);
 
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProvider), mainnet.WETH, stakeAmount);
+        this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
         vm.prank(assetManagerAddress);
-        this.unstake(address(lidoProvider), mainnet.WETH, unstakeAmount);
+        this.unstake(address(lidoProtocol), mainnet.WETH, unstakeAmount);
 
-        uint256[] memory requestIds = this.getUnstakeRequestIds(address(lidoProvider));
+        uint256[] memory requestIds = this.getUnstakeRequestIds(address(lidoProtocol));
         assertEq(requestIds.length, 1);
 
         vm.prank(assetManagerAddress);
-        this.claimUnstaked(address(lidoProvider), requestIds);
+        this.claimUnstaked(address(lidoProtocol), requestIds);
         // Lido withdrawals are not finalized immediately on a mainnet fork.
-        assertEq(this.getUnstakeRequestIds(address(lidoProvider)).length, 1);
+        assertEq(this.getUnstakeRequestIds(address(lidoProtocol)).length, 1);
     }
 
     function test_ClaimRevertOnlyAssetManager() public {
@@ -717,59 +733,59 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         uint256[] memory requestIds = new uint256[](0);
         address stranger = makeAddr("subscribedStranger");
         vm.prank(stranger);
-        vm.expectRevert(OnlyAssetManager.selector);
-        this.claimUnstaked(address(lidoProvider), requestIds);
+        vm.expectRevert(_roleError(stranger, ASSET_MANAGER_ROLE));
+        this.claimUnstaked(address(lidoProtocol), requestIds);
     }
 
-    function test_ClaimRevertInvalidStakingProvider() public {
+    function test_ClaimRevertInvalidStakingProtocol() public {
         this.doInitialize();
         uint256[] memory requestIds = new uint256[](1);
         requestIds[0] = 1;
-        vm.expectRevert(InvalidStakingProvider.selector);
+        vm.expectRevert(InvalidStakingProtocol.selector);
         vm.prank(assetManagerAddress);
-        this.claimUnstaked(makeAddr("InvalidStakingProvider"), requestIds);
+        this.claimUnstaked(makeAddr("InvalidStakingProtocol"), requestIds);
     }
 
     function test_ClaimEmptyRequestIds_doesNotRevert() public {
         this.doInitialize();
         uint256[] memory requestIds = new uint256[](0);
         vm.prank(assetManagerAddress);
-        this.claimUnstaked(address(lidoProvider), requestIds);
+        this.claimUnstaked(address(lidoProtocol), requestIds);
     }
 
     function test_UnstakeRevertAmountIsZero() public {
         this.doInitialize();
         vm.expectRevert(AmountIsZero.selector);
         vm.prank(assetManagerAddress);
-        this.unstake(address(lidoProvider), mainnet.WETH, 0);
+        this.unstake(address(lidoProtocol), mainnet.WETH, 0);
     }
 
-    function test_UnstakeRevertInvalidStakingProvider() public {
+    function test_UnstakeRevertInvalidStakingProtocol() public {
         this.doInitialize();
-        vm.expectRevert(InvalidStakingProvider.selector);
+        vm.expectRevert(InvalidStakingProtocol.selector);
         vm.prank(assetManagerAddress);
-        this.unstake(makeAddr("InvalidStakingProvider"), mainnet.WETH, 1 ether);
+        this.unstake(makeAddr("InvalidStakingProtocol"), mainnet.WETH, 1 ether);
     }
 
     function test_GetUnstakeRequestIds() public {
         this.doInitialize();
-        uint256[] memory ids = this.getUnstakeRequestIds(address(lidoProvider));
+        uint256[] memory ids = this.getUnstakeRequestIds(address(lidoProtocol));
         assertEq(ids.length, 0);
 
         deal(mainnet.WETH, address(this), 1 ether);
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProvider), mainnet.WETH, 1 ether);
+        this.stake(address(lidoProtocol), mainnet.WETH, 1 ether);
         vm.prank(assetManagerAddress);
-        this.unstake(address(lidoProvider), mainnet.WETH, 0.5 ether);
+        this.unstake(address(lidoProtocol), mainnet.WETH, 0.5 ether);
 
-        ids = this.getUnstakeRequestIds(address(lidoProvider));
+        ids = this.getUnstakeRequestIds(address(lidoProtocol));
         assertEq(ids.length, 1);
     }
 
-    function test_GetUnstakeRequestIds_InvalidStakingProvider() public {
+    function test_GetUnstakeRequestIds_InvalidStakingProtocol() public {
         this.doInitialize();
-        vm.expectRevert(InvalidStakingProvider.selector);
-        this.getUnstakeRequestIds(makeAddr("InvalidStakingProvider"));
+        vm.expectRevert(InvalidStakingProtocol.selector);
+        this.getUnstakeRequestIds(makeAddr("InvalidStakingProtocol"));
     }
 
     function test_SupplyAllowanceIsZeroAfterSuccess() public {
@@ -779,10 +795,10 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         deal(mainnet.WETH, address(this), supplyAmount);
 
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProvider), mainnet.WETH, supplyAmount);
+        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
-        address clonedProvider = this.getClonedProvider(address(aaveProvider));
-        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProvider), 0, "Allowance should be 0 after supply");
+        address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
+        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProtocol), 0, "Allowance should be 0 after supply");
     }
 
     function test_SupplySucceedsWithPreExistingResidualAllowance() public {
@@ -791,16 +807,16 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         uint256 supplyAmount = 1 ether;
         deal(mainnet.WETH, address(this), supplyAmount);
 
-        address clonedProvider = _cloneProviderForTest(address(aaveProvider));
+        address clonedProtocol = _cloneProtocolForTest(address(aaveProtocol));
 
-        IERC20(mainnet.WETH).approve(clonedProvider, 1);
-        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProvider), 1);
+        IERC20(mainnet.WETH).approve(clonedProtocol, 1);
+        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProtocol), 1);
 
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProvider), mainnet.WETH, supplyAmount);
+        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
-        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProvider), 0);
-        assertApproxEqAbs(ILendingProvider(clonedProvider).getSuppliedBalance(mainnet.WETH), supplyAmount, 10);
+        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProtocol), 0);
+        assertApproxEqAbs(ILendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH), supplyAmount, 10);
     }
 
     function test_StakeSucceedsWithPreExistingResidualAllowance() public {
@@ -809,15 +825,15 @@ contract TestAssetManager is ProviderTestSetup, Vault {
         uint256 stakeAmount = 0.1 ether;
         deal(mainnet.WETH, address(this), stakeAmount);
 
-        address clonedProvider = _cloneProviderForTest(address(lidoProvider));
+        address clonedProtocol = _cloneProtocolForTest(address(lidoProtocol));
 
-        IERC20(mainnet.WETH).approve(clonedProvider, 1);
-        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProvider), 1);
+        IERC20(mainnet.WETH).approve(clonedProtocol, 1);
+        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProtocol), 1);
 
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProvider), mainnet.WETH, stakeAmount);
+        this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
-        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProvider), 0);
-        assertApproxEqAbs(IStakingProvider(clonedProvider).getStakedBalance(mainnet.WETH), stakeAmount, 10);
+        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProtocol), 0);
+        assertApproxEqAbs(IStakingProtocol(clonedProtocol).getStakedBalance(mainnet.WETH), stakeAmount, 10);
     }
 }
