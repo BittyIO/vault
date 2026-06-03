@@ -375,14 +375,25 @@ library AssetManagerLogic {
         }
     }
 
-    function addLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
-        external
-        onlyInitialized(logicStorage)
-    {
+    function addLiquidity(
+        AssetManagerStorage storage logicStorage,
+        address ammProtocol,
+        address token0,
+        uint256 amount0,
+        address token1,
+        uint256 amount1,
+        bytes memory data
+    ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
         address clone = logicStorage.clonedProtocols[ammProtocol];
         if (clone == address(0)) {
             revert InvalidAMMProtocol();
+        }
+        if (token0 != address(0) && amount0 > 0 && IERC20(token0).allowance(address(this), clone) < amount0) {
+            IERC20(token0).safeIncreaseAllowance(clone, amount0);
+        }
+        if (token1 != address(0) && amount1 > 0 && IERC20(token1).allowance(address(this), clone) < amount1) {
+            IERC20(token1).safeIncreaseAllowance(clone, amount1);
         }
         IAMMProtocol(clone).addLiquidity(data);
     }
@@ -456,12 +467,10 @@ library AssetManagerLogic {
 
         ammProtocol = _cloneProtocol(logicStorage, ammProtocol);
 
-        IERC20(sellAssetAddress).safeIncreaseAllowance(ammProtocol, sellAmount);
-        IAMMProtocol(ammProtocol).swap(data);
-        uint256 remaining = IERC20(sellAssetAddress).allowance(address(this), ammProtocol);
-        if (remaining > 0) {
-            IERC20(sellAssetAddress).safeDecreaseAllowance(ammProtocol, remaining);
+        if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmount) {
+            IERC20(sellAssetAddress).safeIncreaseAllowance(ammProtocol, sellAmount);
         }
+        IAMMProtocol(ammProtocol).swap(data);
 
         uint256 sellAssetBalanceAfter = _addressBalance(sellAssetAddress);
         if (sellAssetBalanceBefore - sellAssetBalanceAfter != sellAmount) {

@@ -103,8 +103,15 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
         _assetManager.rebalance(_vault, ammProtocol, from, to, sellAmount, buyAmountMin, data);
     }
 
-    function addLiquidity(address ammProtocol, bytes memory data) external override onlyRole(ASSET_MANAGER_ROLE) {
-        _assetManager.addLiquidity(ammProtocol, data);
+    function addLiquidity(
+        address ammProtocol,
+        address token0,
+        uint256 amount0,
+        address token1,
+        uint256 amount1,
+        bytes memory data
+    ) external override onlyRole(ASSET_MANAGER_ROLE) {
+        _assetManager.addLiquidity(ammProtocol, token0, amount0, token1, amount1, data);
     }
 
     function removeLiquidity(address ammProtocol, bytes memory data) external override onlyRole(ASSET_MANAGER_ROLE) {
