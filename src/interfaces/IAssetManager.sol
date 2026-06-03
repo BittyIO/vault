@@ -186,7 +186,14 @@ interface IAssetManager {
      * @param data The data for the add liquidity.
      * @dev Only the asset manager can execute it.
      */
-    function addLiquidity(address ammProtocol, bytes memory data) external;
+    function addLiquidity(
+        address ammProtocol,
+        address token0,
+        uint256 amount0,
+        address token1,
+        uint256 amount1,
+        bytes memory data
+    ) external;
 
     /**
      * @notice Remove liquidity from the AMM provider.
