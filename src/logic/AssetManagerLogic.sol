@@ -2,7 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {IRegistry, NotRegistered, Deprecated} from "registry-contracts/src/interfaces/IRegistry.sol";
+import {IGuard, NotRegistered, Deprecated} from "guard-contracts/src/interfaces/IGuard.sol";
 import {
     IAssetManager,
     DisableRebalanceUntilTimestampTooEarly,
@@ -65,14 +65,14 @@ library AssetManagerLogic {
         _;
     }
 
-    function initialize(AssetManagerStorage storage logicStorage, address registryAddress, address wethAddress)
+    function initialize(AssetManagerStorage storage logicStorage, address guardAddress, address wethAddress)
         external
         onlyNotInitialized(logicStorage)
     {
-        if (registryAddress == address(0)) {
+        if (guardAddress == address(0)) {
             revert AddressZero();
         }
-        logicStorage.registry = IRegistry(registryAddress);
+        logicStorage.guard = IGuard(guardAddress);
         logicStorage.weth = wethAddress;
         logicStorage.isInitialized = true;
     }
@@ -134,7 +134,7 @@ library AssetManagerLogic {
         if (!logicStorage.lendingProtocols.contains(lendingProtocol)) {
             revert InvalidLendingProtocol();
         }
-        if (logicStorage.registry.isLendingProtocolDeprecated(lendingProtocol)) {
+        if (logicStorage.guard.isLendingProtocolDeprecated(lendingProtocol)) {
             revert Deprecated();
         }
         if (assetAddress == address(0)) {
@@ -200,7 +200,7 @@ library AssetManagerLogic {
         if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
             revert InvalidStakingProtocol();
         }
-        if (logicStorage.registry.isStakingProtocolDeprecated(stakingProtocol)) {
+        if (logicStorage.guard.isStakingProtocolDeprecated(stakingProtocol)) {
             revert Deprecated();
         }
         if (assetAddress == address(0)) {
@@ -303,7 +303,7 @@ library AssetManagerLogic {
         if (!logicStorage.ammProtocols.contains(ammProtocol)) {
             revert InvalidAMMProtocol();
         }
-        if (!logicStorage.registry.isAMMProtocolRegistered(ammProtocol)) {
+        if (!logicStorage.guard.isAMMProtocolRegistered(ammProtocol)) {
             revert NotRegistered();
         }
     }
@@ -505,7 +505,7 @@ library AssetManagerLogic {
         onlyInitialized(logicStorage)
     {
         for (uint256 i = 0; i < lendingProtocolAddresses.length; i++) {
-            if (!logicStorage.registry.isLendingProtocolRegistered(lendingProtocolAddresses[i])) {
+            if (!logicStorage.guard.isLendingProtocolRegistered(lendingProtocolAddresses[i])) {
                 revert NotRegistered();
             }
             logicStorage.lendingProtocols.add(lendingProtocolAddresses[i]);
@@ -518,7 +518,7 @@ library AssetManagerLogic {
         onlyInitialized(logicStorage)
     {
         for (uint256 i = 0; i < stakingProtocolAddresses.length; i++) {
-            if (!logicStorage.registry.isStakingProtocolRegistered(stakingProtocolAddresses[i])) {
+            if (!logicStorage.guard.isStakingProtocolRegistered(stakingProtocolAddresses[i])) {
                 revert NotRegistered();
             }
             logicStorage.stakingProtocols.add(stakingProtocolAddresses[i]);
@@ -549,7 +549,7 @@ library AssetManagerLogic {
         onlyInitialized(logicStorage)
     {
         for (uint256 i = 0; i < ammProtocolAddresses.length; i++) {
-            if (!logicStorage.registry.isAMMProtocolRegistered(ammProtocolAddresses[i])) {
+            if (!logicStorage.guard.isAMMProtocolRegistered(ammProtocolAddresses[i])) {
                 revert NotRegistered();
             }
             logicStorage.ammProtocols.add(ammProtocolAddresses[i]);

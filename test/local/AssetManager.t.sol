@@ -13,50 +13,50 @@ import {
     DisableRebalanceUntilTimestampTooEarly,
     ETHBalanceNotEnough
 } from "../../src/interfaces/IAssetManager.sol";
-import {Deprecated, NotRegistered} from "registry-contracts/src/interfaces/IRegistry.sol";
+import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IGuard.sol";
 import {ILendingProtocol} from "protocol-contracts/src/interfaces/ILendingProtocol.sol";
 import {IStakingProtocol} from "protocol-contracts/src/interfaces/IStakingProtocol.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {BittyRegistry} from "registry-contracts/src/BittyRegistry.sol";
-import {Vault} from "../../src/Vault.sol";
+import {BittyGuard} from "guard-contracts/src/BittyGuard.sol";
+import {BittyVault} from "../../src/BittyVault.sol";
 import {AddingAssetsDisabled} from "../../src/interfaces/IVault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {IProtocol} from "protocol-contracts/src/interfaces/IProtocol.sol";
 import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 
-contract TestAssetManager is ProtocolTestSetup, Vault {
+contract TestAssetManager is ProtocolTestSetup, BittyVault {
     using Clones for address;
 
-    address public registryAddress;
+    address public guardAddress;
     address[] public assets;
     address[] public stableCoins;
     address[] public lendingProtocols;
     address[] public stakingProtocols;
     address[] public ammProtocols;
-    address public assetManagerAddress;
     address public ownerAddress;
+    address public assetManagerAddress;
 
     function setUp() public {
         ownerAddress = tx.origin;
-        assetManagerAddress = makeAddr("assetManager");
+        assetManagerAddress = address(this);
 
-        BittyRegistry registry = new BittyRegistry();
-        registryAddress = address(registry);
+        BittyGuard guard = new BittyGuard();
+        guardAddress = address(guard);
 
         vm.startPrank(tx.origin);
-        registry.grantRole(registry.ASSET_MANAGER_ROLE(), tx.origin);
-        registry.grantRole(registry.STABLE_COIN_MANAGER_ROLE(), tx.origin);
-        registry.grantRole(registry.LENDING_MANAGER_ROLE(), tx.origin);
-        registry.grantRole(registry.STAKING_MANAGER_ROLE(), tx.origin);
-        registry.grantRole(registry.AMM_MANAGER_ROLE(), tx.origin);
-        registry.addAssets(_two(mainnet.WETH, WBTC));
-        registry.addStableCoins(_two(mainnet.USDT, mainnet.USDC));
+        guard.grantRole(guard.ASSET_MANAGER_ROLE(), tx.origin);
+        guard.grantRole(guard.STABLE_COIN_MANAGER_ROLE(), tx.origin);
+        guard.grantRole(guard.LENDING_MANAGER_ROLE(), tx.origin);
+        guard.grantRole(guard.STAKING_MANAGER_ROLE(), tx.origin);
+        guard.grantRole(guard.AMM_MANAGER_ROLE(), tx.origin);
+        guard.addAssets(_two(mainnet.WETH, WBTC));
+        guard.addStableCoins(_two(mainnet.USDT, mainnet.USDC));
         vm.stopPrank();
 
-        setupMainnetForkProtocols(registry);
+        setupMainnetForkProtocols(guard);
 
         assets = _two(mainnet.WETH, WBTC);
         stableCoins = _two(mainnet.USDT, mainnet.USDC);
@@ -101,9 +101,7 @@ contract TestAssetManager is ProtocolTestSetup, Vault {
             ownerAddress,
             "test",
             assetManagerAddress,
-            ownerAddress, // configManager: owner gets CONFIG_MANAGER_ROLE for tests
-            address(0), // receiverManager
-            registryAddress,
+            guardAddress,
             mainnet.WETH,
             assets,
             stableCoins,
@@ -167,8 +165,9 @@ contract TestAssetManager is ProtocolTestSetup, Vault {
 
     function test_revertETHToWETH() public {
         this.doInitialize();
-        address caller = address(this);
-        vm.expectRevert(_roleError(caller, ASSET_MANAGER_ROLE));
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, ASSET_MANAGER_ROLE));
         this.ETHToWETH(1 ether);
     }
 
@@ -182,7 +181,7 @@ contract TestAssetManager is ProtocolTestSetup, Vault {
         assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)) - wethBefore, amount, 10);
     }
 
-    /// @dev Regression: plain ETH sends must not revert (Vault.receive). Matches wallet "Send ETH" (empty calldata).
+    /// @dev Regression: plain ETH sends must not revert (BittyVault.receive). Matches wallet "Send ETH" (empty calldata).
     function test_ethDeposit_viaReceive_thenETHToWETH() public {
         this.doInitialize();
 
@@ -276,7 +275,7 @@ contract TestAssetManager is ProtocolTestSetup, Vault {
     function test_SupplyFromDeprecatedLendingProvider() public {
         this.doInitialize();
         vm.prank(tx.origin);
-        BittyRegistry(registryAddress).deprecateLendingProtocols(lendingProtocols);
+        BittyGuard(guardAddress).deprecateLendingProtocols(lendingProtocols);
         vm.expectRevert(Deprecated.selector);
         vm.prank(assetManagerAddress);
         this.supply(address(aaveProtocol), address(mainnet.WETH), 1 ether);
@@ -288,7 +287,7 @@ contract TestAssetManager is ProtocolTestSetup, Vault {
         vm.prank(assetManagerAddress);
         this.supply(address(aaveProtocol), address(mainnet.WETH), 1 ether);
         vm.prank(tx.origin);
-        BittyRegistry(registryAddress).deprecateLendingProtocols(lendingProtocols);
+        BittyGuard(guardAddress).deprecateLendingProtocols(lendingProtocols);
         uint256 supplied = this.getSuppliedBalance(address(aaveProtocol), address(mainnet.WETH));
         vm.prank(assetManagerAddress);
         this.withdraw(address(aaveProtocol), address(mainnet.WETH), supplied);
@@ -331,7 +330,7 @@ contract TestAssetManager is ProtocolTestSetup, Vault {
     function test_GetBalanceFromDeprecatedLendingProvider() public {
         this.doInitialize();
         vm.prank(tx.origin);
-        BittyRegistry(registryAddress).deprecateLendingProtocols(lendingProtocols);
+        BittyGuard(guardAddress).deprecateLendingProtocols(lendingProtocols);
         uint256 balance = this.getSuppliedBalance(address(aaveProtocol), address(mainnet.WETH));
         assertEq(balance, 0);
     }
@@ -618,7 +617,7 @@ contract TestAssetManager is ProtocolTestSetup, Vault {
         address[] memory newAssets = new address[](1);
         newAssets[0] = address(mockDAI);
         vm.prank(ownerAddress);
-        BittyRegistry(registryAddress).addAssets(newAssets);
+        BittyGuard(guardAddress).addAssets(newAssets);
 
         vm.prank(ownerAddress);
         this.disableAddingAssets();

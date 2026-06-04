@@ -37,9 +37,9 @@ error OwnerAndAssetManagerMustDiffer();
  * Vault is going to implement:
  * 1. Familly/Company weekly/monthly spending.
  * 2. Money for kids get in the future.
- * 3. Investment avoiding scams assets by Bitty Registry.
- * 4. Yielding avoid high risk lending/staking protocols by Bitty Registry.
- * 5. Trading avoid scam protocols by Bitty Registry.
+ * 3. Investment avoiding scams assets by Bitty Guard.
+ * 4. Yielding avoid high risk lending/staking protocols by Bitty Guard.
+ * 5. Trading avoid scam protocols by Bitty Guard.
  * 6. Stay away from frontend supply chain attacks(which is the biggest security issue in DeFi) when interating with trading/lending/staking protocols.
  */
 interface IVault {

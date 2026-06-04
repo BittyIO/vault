@@ -5,7 +5,7 @@ import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initia
 import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 import {IAssetManager} from "./interfaces/IAssetManager.sol";
 import {IAMMProtocol} from "protocol-contracts/src/interfaces/IAMMProtocol.sol";
-import {IRegistry} from "registry-contracts/src/interfaces/IRegistry.sol";
+import {IGuard} from "guard-contracts/src/interfaces/IGuard.sol";
 import {
     IVault,
     ReceiverNotFound,
@@ -18,23 +18,19 @@ import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
 
 /**
- * @title Vault
+ * @title BittyVault
  * @notice
  * @dev
  *
  * Role hierarchy:
- * - DEFAULT_ADMIN_ROLE: hardware wallet / multi-sig. Grants all roles, owns irreversible ops.
- * - CONFIG_MANAGER_ROLE: configures allowed assets and protocol providers.
- * - ASSET_MANAGER_ROLE: hot wallet / AI agent. Executes yield and trading operations.
- * - RECEIVER_MANAGER_ROLE: manages recurring payment receivers.
+ * - DEFAULT_ADMIN_ROLE: hardware wallet / multi-sig. Owns all config and irreversible ops.
+ * - ASSET_MANAGER_ROLE: hot wallet / AI agent. Executes yield and trading operations only.
  */
-contract Vault is IVault, IAssetManager, Initializable, AccessControl {
+contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
     using AssetManagerLogic for AssetManagerStorage;
     using VaultLogic for VaultStorage;
 
-    bytes32 public constant CONFIG_MANAGER_ROLE = keccak256("CONFIG_MANAGER_ROLE");
     bytes32 public constant ASSET_MANAGER_ROLE = keccak256("ASSET_MANAGER_ROLE");
-    bytes32 public constant RECEIVER_MANAGER_ROLE = keccak256("RECEIVER_MANAGER_ROLE");
 
     string public vaultName;
 
@@ -47,9 +43,7 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
         address owner_,
         string memory vaultName_,
         address assetManager_,
-        address configManager_,
-        address receiverManager_,
-        address registryAddress,
+        address guardAddress,
         address wethAddress_,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
@@ -57,25 +51,17 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
         address[] memory stakingProtocols,
         address[] memory ammProtocols
     ) public initializer {
-        if (assetManager_ == owner_) {
-            revert OwnerAndAssetManagerMustDiffer();
-        }
+        if (assetManager_ == owner_) revert OwnerAndAssetManagerMustDiffer();
         vaultName = vaultName_;
         _grantRole(DEFAULT_ADMIN_ROLE, owner_);
         _grantRole(ASSET_MANAGER_ROLE, assetManager_);
-        _grantRole(CONFIG_MANAGER_ROLE, configManager_ != address(0) ? configManager_ : owner_);
-        _grantRole(RECEIVER_MANAGER_ROLE, receiverManager_ != address(0) ? receiverManager_ : owner_);
-        _vault.initialize(registryAddress);
+        _vault.initialize(guardAddress);
         _vault.addAssets(assetAddresses);
         _vault.addStableCoins(stableCoinAddresses);
-        _assetManager.initialize(registryAddress, wethAddress_);
+        _assetManager.initialize(guardAddress, wethAddress_);
         _assetManager.addLendingProtocols(lendingProtocols);
         _assetManager.addStakingProtocols(stakingProtocols);
         _assetManager.addAMMProtocols(ammProtocols);
-    }
-
-    function setName(string memory name) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        vaultName = name;
     }
 
     function _grantRole(bytes32 role, address account) internal override {
@@ -86,6 +72,10 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
             revert OwnerAndAssetManagerMustDiffer();
         }
         super._grantRole(role, account);
+    }
+
+    function setName(string memory name) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        vaultName = name;
     }
 
     // ============ AMM ============
@@ -187,12 +177,12 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
         _assetManager.claimUnstaked(stakingProtocol, requestIds);
     }
 
-    // ============ Rebalance config (CONFIG_MANAGER_ROLE) ============
+    // ============ Rebalance config ============
 
     function setRebalanceConfig(address assetAddress, IAssetManager.RebalanceConfig memory _assetConfig)
         external
         override
-        onlyRole(CONFIG_MANAGER_ROLE)
+        onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _assetManager.setRebalanceConfig(assetAddress, _assetConfig);
     }
@@ -201,7 +191,7 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
         _assetManager.disableRebalanceUntilTimestamp(timestamp);
     }
 
-    // ============ Protocol config (CONFIG_MANAGER_ROLE) ============
+    // ============ Protocol config ============
 
     function disableAddingProtocols() external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _assetManager.disableAddingProtocols();
@@ -215,7 +205,7 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
     function addLendingProtocols(address[] memory lendingProtocolAddresses)
         external
         override
-        onlyRole(CONFIG_MANAGER_ROLE)
+        onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _assetManager.addLendingProtocols(lendingProtocolAddresses);
     }
@@ -223,7 +213,7 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
     function removeLendingProtocols(address[] memory lendingProtocolAddresses)
         external
         override
-        onlyRole(CONFIG_MANAGER_ROLE)
+        onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _assetManager.removeLendingProtocols(lendingProtocolAddresses);
     }
@@ -231,7 +221,7 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
     function addStakingProtocols(address[] memory stakingProtocolAddresses)
         external
         override
-        onlyRole(CONFIG_MANAGER_ROLE)
+        onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _assetManager.addStakingProtocols(stakingProtocolAddresses);
     }
@@ -239,20 +229,20 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
     function removeStakingProtocols(address[] memory stakingProtocolAddresses)
         external
         override
-        onlyRole(CONFIG_MANAGER_ROLE)
+        onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _assetManager.removeStakingProtocols(stakingProtocolAddresses);
     }
 
-    function addAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(CONFIG_MANAGER_ROLE) {
+    function addAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _assetManager.addAMMProtocols(ammProtocolAddresses);
     }
 
-    function removeAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(CONFIG_MANAGER_ROLE) {
+    function removeAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _assetManager.removeAMMProtocols(ammProtocolAddresses);
     }
 
-    // ============ ETH/WETH (ASSET_MANAGER_ROLE) ============
+    // ============ ETH/WETH ============
 
     function ETHToWETH(uint256 amount) external override onlyRole(ASSET_MANAGER_ROLE) {
         _assetManager.ETHToWETH(amount);
@@ -262,21 +252,21 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
         _assetManager.WETHToETH(amount);
     }
 
-    // ============ Asset config (CONFIG_MANAGER_ROLE) ============
+    // ============ Asset config ============
 
-    function addAssets(address[] memory assetAddresses) external override onlyRole(CONFIG_MANAGER_ROLE) {
+    function addAssets(address[] memory assetAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.addAssets(assetAddresses);
     }
 
-    function removeAssets(address[] memory assetAddresses) external override onlyRole(CONFIG_MANAGER_ROLE) {
+    function removeAssets(address[] memory assetAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.removeAssets(assetAddresses);
     }
 
-    function addStableCoins(address[] memory stableCoinAddresses) external override onlyRole(CONFIG_MANAGER_ROLE) {
+    function addStableCoins(address[] memory stableCoinAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.addStableCoins(stableCoinAddresses);
     }
 
-    function removeStableCoins(address[] memory stableCoinAddresses) external override onlyRole(CONFIG_MANAGER_ROLE) {
+    function removeStableCoins(address[] memory stableCoinAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.removeStableCoins(stableCoinAddresses);
     }
 
@@ -295,7 +285,7 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
     function addReceiver(string memory name, IVault.Receiver calldata receiver_)
         external
         override
-        onlyRole(RECEIVER_MANAGER_ROLE)
+        onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _vault.addReceiver(name, receiver_);
     }
@@ -303,12 +293,12 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
     function updateReceiver(string memory name, IVault.Receiver calldata receiver_)
         external
         override
-        onlyRole(RECEIVER_MANAGER_ROLE)
+        onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _vault.updateReceiver(name, receiver_);
     }
 
-    function removeReceiver(string memory name) external override onlyRole(RECEIVER_MANAGER_ROLE) {
+    function removeReceiver(string memory name) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.removeReceiver(name);
     }
 
@@ -346,8 +336,8 @@ contract Vault is IVault, IAssetManager, Initializable, AccessControl {
         return _assetManager.weth;
     }
 
-    function registry() external view returns (IRegistry) {
-        return _assetManager.registry;
+    function guard() external view returns (IGuard) {
+        return _assetManager.guard;
     }
 
     function getLendingProtocols() external view override returns (address[] memory) {

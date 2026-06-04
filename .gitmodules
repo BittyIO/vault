@@ -7,9 +7,9 @@
 [submodule "lib/solmate"]
 	path = lib/solmate
 	url = https://github.com/transmissions11/solmate
-[submodule "lib/registry-contracts"]
-	path = lib/registry-contracts
-	url = https://github.com/BittyIO/BittyRegistry
+[submodule "lib/guard-contracts"]
+	path = lib/guard-contracts
+	url = https://github.com/BittyIO/guard
 [submodule "lib/protocol-contracts"]
 	path = lib/protocol-contracts
 	url = https://github.com/BittyIO/Protocols

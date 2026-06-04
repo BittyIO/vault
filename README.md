@@ -1,6 +1,6 @@
 # Bitty Vault Contracts
 
-Solidity contracts for Bitty Vault: a factory deploys minimal proxy vaults per owner, each vault manages assets through registry-approved lending, staking, and AMM protocols.
+Solidity contracts for Bitty Vault: a factory deploys minimal proxy vaults per owner, each vault manages assets through guard-approved lending, staking, and AMM protocols.
 
 ## Prerequisites
 
@@ -44,7 +44,7 @@ All third-party code lives under `lib/` as pinned git submodules. Do not run `fo
 | `lib/forge-std` | [foundry-rs/forge-std](https://github.com/foundry-rs/forge-std) | Scripts and tests |
 | `lib/openzeppelin-contracts` | [OpenZeppelin/openzeppelin-contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) | Proxies, ERC20, access control |
 | `lib/solmate` | [transmissions11/solmate](https://github.com/transmissions11/solmate) | WETH and test mocks |
-| `lib/registry-contracts` | [BittyIO/BittyRegistry](https://github.com/BittyIO/BittyRegistry) | Asset and protocols registry |
+| `lib/guard-contracts` | [BittyIO/guard](https://github.com/BittyIO/guard) | Asset and protocols guard |
 | `lib/protocol-contracts` | [BittyIO/Protocols](https://github.com/BittyIO/Protocols) | AMM, Lending, Staking protocols integrations |
 
 Import remappings are declared in `foundry.toml`:
@@ -52,7 +52,7 @@ Import remappings are declared in `foundry.toml`:
 ```toml
 forge-std/=lib/forge-std/src/
 openzeppelin-contracts/=lib/openzeppelin-contracts/
-registry-contracts/=lib/registry-contracts/
+guard-contracts/=lib/guard-contracts/
 protocol-contracts/=lib/protocol-contracts/
 solmate/=lib/solmate/src/
 ```
@@ -81,7 +81,7 @@ Run all tests:
 forge test -vvv
 ```
 
-Local tests only (BittyVaultFactory and Vault; no RPC required):
+Local tests only (BittyVaultFactory and BittyVault; no RPC required):
 
 ```shell
 forge test -vvv

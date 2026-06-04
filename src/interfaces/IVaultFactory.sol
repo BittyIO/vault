@@ -7,18 +7,16 @@ interface IVaultFactory {
     /**
      * @notice Initialize the factory.
      * @param vaultImplementation_ The address of the vault implementation.
-     * @param registryAddress_ The address of the registry.
+     * @param guardAddress_ The address of the guard.
      * @param wethAddress_ The address of the weth.
      */
-    function initialize(address vaultImplementation_, address registryAddress_, address wethAddress_) external;
+    function initialize(address vaultImplementation_, address guardAddress_, address wethAddress_) external;
 
     /**
      * @notice Deploy a vault owned by owner.
      * @param owner The address of the owner.
      * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
-     * @param assetManager The address of the asset manager.
-     * @param configManager The address of the config manager, if address(0), then the config manager is the owner.
-     * @param receiverManager The address of the receiver manager, if address(0), then the receiver manager is the owner.
+     * @param assetManager The address of the asset manager (hot wallet / AI agent).
      * @param assetAddresses The addresses of the assets.
      * @param stableCoinAddresses The addresses of the stable coins.
      * @param lendingProtocols The addresses of the lending protocols.
@@ -30,8 +28,6 @@ interface IVaultFactory {
         address owner,
         string memory name,
         address assetManager,
-        address configManager,
-        address receiverManager,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory lendingProtocols,

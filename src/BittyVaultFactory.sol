@@ -4,32 +4,32 @@ pragma solidity ^0.8.34;
 import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {AddressZero} from "./interfaces/IVault.sol";
-import {IRegistry, NotRegistered} from "registry-contracts/src/interfaces/IRegistry.sol";
-import {Vault} from "./Vault.sol";
+import {IGuard, NotRegistered} from "guard-contracts/src/interfaces/IGuard.sol";
+import {BittyVault} from "./BittyVault.sol";
 import {IVaultFactory, VaultAlreadyDeployed} from "./interfaces/IVaultFactory.sol";
 
 /**
  * @title BittyVaultFactory
- * @notice Deploys Vault instances with deterministic addresses per (owner, name) pair,
+ * @notice Deploys BittyVault instances with deterministic addresses per (owner, name) pair,
  *         allowing one owner to hold multiple vaults distinguished by name.
  */
 contract BittyVaultFactory is IVaultFactory, Initializable {
-    address public registryAddress;
+    address public guardAddress;
     address public vaultImplementation;
     address public wethAddress;
 
     event VaultDeployed(address indexed vault, address indexed owner, string name);
 
-    function initialize(address vaultImplementation_, address registryAddress_, address wethAddress_)
+    function initialize(address vaultImplementation_, address guardAddress_, address wethAddress_)
         external
         override
         initializer
     {
         if (vaultImplementation_ == address(0)) revert AddressZero();
-        if (registryAddress_ == address(0)) revert AddressZero();
+        if (guardAddress_ == address(0)) revert AddressZero();
         if (wethAddress_ == address(0)) revert AddressZero();
         vaultImplementation = vaultImplementation_;
-        registryAddress = registryAddress_;
+        guardAddress = guardAddress_;
         wethAddress = wethAddress_;
     }
 
@@ -37,16 +37,14 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         address owner,
         string memory name,
         address assetManager,
-        address configManager,
-        address receiverManager,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
         address[] memory ammProtocols
     ) external override returns (address vault) {
-        if (owner == address(0) || configManager == address(0)) revert AddressZero();
-        _checkRegistry(assetAddresses, stableCoinAddresses, lendingProtocols, stakingProtocols, ammProtocols);
+        if (owner == address(0)) revert AddressZero();
+        _checkGuard(assetAddresses, stableCoinAddresses, lendingProtocols, stakingProtocols, ammProtocols);
 
         bytes32 salt = keccak256(abi.encodePacked(owner, name));
         if (Clones.predictDeterministicAddress(vaultImplementation, salt, address(this)).code.length > 0) {
@@ -59,8 +57,6 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
             owner,
             name,
             assetManager,
-            configManager,
-            receiverManager,
             assetAddresses,
             stableCoinAddresses,
             lendingProtocols,
@@ -82,22 +78,18 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         address owner_,
         string memory name,
         address assetManager,
-        address configManager,
-        address receiverManager,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
         address[] memory ammProtocols
     ) internal {
-        Vault(payable(vault))
+        BittyVault(payable(vault))
             .initialize(
                 owner_,
                 name,
                 assetManager,
-                configManager,
-                receiverManager,
-                registryAddress,
+                guardAddress,
                 wethAddress,
                 assetAddresses,
                 stableCoinAddresses,
@@ -107,28 +99,28 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
             );
     }
 
-    function _checkRegistry(
+    function _checkGuard(
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
         address[] memory ammProtocols
     ) internal view {
-        IRegistry registry = IRegistry(registryAddress);
+        IGuard guard = IGuard(guardAddress);
         for (uint256 i = 0; i < assetAddresses.length; i++) {
-            if (!registry.isAssetRegistered(assetAddresses[i])) revert NotRegistered();
+            if (!guard.isAssetRegistered(assetAddresses[i])) revert NotRegistered();
         }
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            if (!registry.isStableCoinRegistered(stableCoinAddresses[i])) revert NotRegistered();
+            if (!guard.isStableCoinRegistered(stableCoinAddresses[i])) revert NotRegistered();
         }
         for (uint256 i = 0; i < lendingProtocols.length; i++) {
-            if (!registry.isLendingProtocolRegistered(lendingProtocols[i])) revert NotRegistered();
+            if (!guard.isLendingProtocolRegistered(lendingProtocols[i])) revert NotRegistered();
         }
         for (uint256 i = 0; i < stakingProtocols.length; i++) {
-            if (!registry.isStakingProtocolRegistered(stakingProtocols[i])) revert NotRegistered();
+            if (!guard.isStakingProtocolRegistered(stakingProtocols[i])) revert NotRegistered();
         }
         for (uint256 i = 0; i < ammProtocols.length; i++) {
-            if (!registry.isAMMProtocolRegistered(ammProtocols[i])) revert NotRegistered();
+            if (!guard.isAMMProtocolRegistered(ammProtocols[i])) revert NotRegistered();
         }
     }
 }
