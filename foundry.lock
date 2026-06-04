@@ -8,13 +8,13 @@
   "lib/openzeppelin-contracts": {
     "rev": "dc44c9f1a4c3b10af99492eed84f83ed244203f6"
   },
-  "lib/provider-contracts": {
-    "rev": "8cbb9eef532e658b1b7e0b475b3a113b74657214"
+  "lib/protocol-contracts": {
+    "rev": "b407ccdea3b1d9688ce288e83fa281deca5b0ecc"
   },
   "lib/solmate": {
     "rev": "89365b880c4f3c786bdd453d4b8e8fe410344a69"
   },
-  "lib/registry-contracts": {
-    "rev": "c810326b0b97e138feb4280e38c632c6698748c2"
+  "lib/guard-contracts": {
+    "rev": "242aa776b6bf622ffd1d1f9c18a88f56029ea7f3"
   }
 }

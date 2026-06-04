@@ -2,9 +2,9 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
-import {Vault} from "../../src/Vault.sol";
+import {BittyVault} from "../../src/BittyVault.sol";
 import {BittyVaultFactory} from "../../src/BittyVaultFactory.sol";
-import {BittyRegistry} from "registry-contracts/src/BittyRegistry.sol";
+import {BittyGuard} from "guard-contracts/src/BittyGuard.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
@@ -15,17 +15,17 @@ import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Proto
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
 import {IAssetManager} from "../../src/interfaces/IAssetManager.sol";
 
-/// @notice Mainnet fork integration tests for Vault with real Aave and Lido providers.
+/// @notice Mainnet fork integration tests for BittyVault with real Aave and Lido providers.
 contract TestVaultFork is Test {
     using SafeERC20 for IERC20;
     using Path for bytes;
 
     address internal constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
 
-    Vault public vaultImpl;
-    Vault public vault;
+    BittyVault public vaultImpl;
+    BittyVault public vault;
     BittyVaultFactory public factory;
-    BittyRegistry public registry;
+    BittyGuard public guard;
     AaveV3Protocol public aaveProtocol;
     LidoV2Protocol public lidoProtocol;
     UniswapV3Protocol public uniswapV3Protocol;
@@ -40,28 +40,28 @@ contract TestVaultFork is Test {
     function setUp() public {
         vm.createSelectFork("mainnet");
 
-        registry = new BittyRegistry();
+        guard = new BittyGuard();
         vm.startPrank(tx.origin);
-        registry.grantRole(registry.ASSET_MANAGER_ROLE(), tx.origin);
-        registry.grantRole(registry.STABLE_COIN_MANAGER_ROLE(), tx.origin);
-        registry.grantRole(registry.LENDING_MANAGER_ROLE(), tx.origin);
-        registry.grantRole(registry.STAKING_MANAGER_ROLE(), tx.origin);
-        registry.grantRole(registry.AMM_MANAGER_ROLE(), tx.origin);
-        registry.addAssets(_arr(mainnet.WETH, WBTC));
-        registry.addStableCoins(_arr(mainnet.USDC, mainnet.USDT));
+        guard.grantRole(guard.ASSET_MANAGER_ROLE(), tx.origin);
+        guard.grantRole(guard.STABLE_COIN_MANAGER_ROLE(), tx.origin);
+        guard.grantRole(guard.LENDING_MANAGER_ROLE(), tx.origin);
+        guard.grantRole(guard.STAKING_MANAGER_ROLE(), tx.origin);
+        guard.grantRole(guard.AMM_MANAGER_ROLE(), tx.origin);
+        guard.addAssets(_arr(mainnet.WETH, WBTC));
+        guard.addStableCoins(_arr(mainnet.USDC, mainnet.USDT));
 
         aaveProtocol = new AaveV3Protocol(mainnet.AAVE_V3, mainnet.POOL_DATA_PROVIDER);
         aaveProtocol.initialize(address(this));
-        registry.addLendingProtocols(_arr(address(aaveProtocol)));
+        guard.addLendingProtocols(_arr(address(aaveProtocol)));
 
         lidoProtocol = new LidoV2Protocol(mainnet.STETH, mainnet.UNSTETH, mainnet.WETH);
         lidoProtocol.initialize(address(this));
-        registry.addStakingProtocols(_arr(address(lidoProtocol)));
+        guard.addStakingProtocols(_arr(address(lidoProtocol)));
 
         uniswapV3Protocol =
             new UniswapV3Protocol(mainnet.UNISWAP_V3_ROUTER, mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
         uniswapV3Protocol.initialize(address(this));
-        registry.addAMMProtocols(_arr(address(uniswapV3Protocol)));
+        guard.addAMMProtocols(_arr(address(uniswapV3Protocol)));
         vm.stopPrank();
 
         assets = _arr(mainnet.WETH, WBTC);
@@ -70,24 +70,15 @@ contract TestVaultFork is Test {
         stakingProtocols = _arr(address(lidoProtocol));
         ammProtocols = _arr(address(uniswapV3Protocol));
 
-        vaultImpl = new Vault();
+        vaultImpl = new BittyVault();
         factory = new BittyVaultFactory();
-        factory.initialize(address(vaultImpl), address(registry), mainnet.WETH);
+        factory.initialize(address(vaultImpl), address(guard), mainnet.WETH);
 
         assetManager = address(this);
         address vaultAddr = factory.deployVault(
-            tx.origin,
-            "main",
-            assetManager,
-            tx.origin,
-            tx.origin,
-            assets,
-            stableCoins,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols
+            tx.origin, "main", assetManager, assets, stableCoins, lendingProtocols, stakingProtocols, ammProtocols
         );
-        vault = Vault(payable(vaultAddr));
+        vault = BittyVault(payable(vaultAddr));
     }
 
     function _arr(address a, address b) internal pure returns (address[] memory) {
@@ -105,7 +96,6 @@ contract TestVaultFork is Test {
 
     function test_VaultDeployAndInitialize() public view {
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), tx.origin));
-        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), assetManager));
         assertEq(vault.wethAddress(), mainnet.WETH);
 
         address[] memory lending = vault.getLendingProtocols();
@@ -124,7 +114,6 @@ contract TestVaultFork is Test {
         uint256 balanceBefore = vault.getSuppliedBalance(address(aaveProtocol), mainnet.WETH);
         assertEq(balanceBefore, 0);
 
-        vm.prank(assetManager);
         vault.supply(address(aaveProtocol), mainnet.WETH, amount);
 
         uint256 balanceAfter = vault.getSuppliedBalance(address(aaveProtocol), mainnet.WETH);
@@ -135,13 +124,11 @@ contract TestVaultFork is Test {
     function test_WithdrawFromAave() public {
         uint256 supplyAmount = 1 ether;
         deal(mainnet.WETH, address(vault), supplyAmount);
-        vm.prank(assetManager);
         vault.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
         uint256 withdrawAmount = 0.5 ether;
         uint256 vaultBalanceBefore = IERC20(mainnet.WETH).balanceOf(address(vault));
 
-        vm.prank(assetManager);
         vault.withdraw(address(aaveProtocol), mainnet.WETH, withdrawAmount);
 
         uint256 vaultBalanceAfter = IERC20(mainnet.WETH).balanceOf(address(vault));
@@ -157,7 +144,6 @@ contract TestVaultFork is Test {
 
         uint256 stakingBalanceBefore = vault.getStakedBalance(address(lidoProtocol), mainnet.WETH);
 
-        vm.prank(assetManager);
         vault.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
         uint256 stakingBalanceAfter = vault.getStakedBalance(address(lidoProtocol), mainnet.WETH);
@@ -169,11 +155,9 @@ contract TestVaultFork is Test {
     function test_UnstakeFromLido() public {
         uint256 stakeAmount = 0.1 ether;
         deal(mainnet.WETH, address(vault), stakeAmount);
-        vm.prank(assetManager);
         vault.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
         uint256 unstakeAmount = 0.05 ether;
-        vm.prank(assetManager);
         vault.unstake(address(lidoProtocol), mainnet.WETH, unstakeAmount);
 
         uint256[] memory ids = vault.getUnstakeRequestIds(address(lidoProtocol));
@@ -183,17 +167,14 @@ contract TestVaultFork is Test {
     function test_ClaimFromLido() public {
         uint256 stakeAmount = 0.1 ether;
         deal(mainnet.WETH, address(vault), stakeAmount);
-        vm.prank(assetManager);
         vault.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
         uint256 unstakeAmount = 0.05 ether;
-        vm.prank(assetManager);
         vault.unstake(address(lidoProtocol), mainnet.WETH, unstakeAmount);
 
         uint256[] memory ids = vault.getUnstakeRequestIds(address(lidoProtocol));
         assertEq(ids.length, 1);
 
-        vm.prank(assetManager);
         vault.claimUnstaked(address(lidoProtocol), ids);
         // On mainnet fork, Lido withdrawals are not finalized immediately, so request ids remain
         uint256[] memory remaining = vault.getUnstakeRequestIds(address(lidoProtocol));
@@ -204,11 +185,9 @@ contract TestVaultFork is Test {
         uint256 amount = 1 ether;
         deal(mainnet.WETH, address(vault), amount);
 
-        vm.prank(assetManager);
         vault.supply(address(aaveProtocol), mainnet.WETH, amount);
 
         uint256 lendingBalance = vault.getSuppliedBalance(address(aaveProtocol), mainnet.WETH);
-        vm.prank(assetManager);
         vault.withdraw(address(aaveProtocol), mainnet.WETH, lendingBalance);
 
         assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(vault)), amount, 5);
@@ -231,7 +210,6 @@ contract TestVaultFork is Test {
         uint256 amount = 1 ether;
         vm.deal(address(vault), amount);
 
-        vm.prank(assetManager);
         vault.ETHToWETH(amount);
 
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), amount);
@@ -248,7 +226,6 @@ contract TestVaultFork is Test {
         assertTrue(success);
         assertEq(address(vault).balance, amount);
 
-        vm.prank(assetManager);
         vault.ETHToWETH(amount);
 
         assertEq(address(vault).balance, 0);
@@ -270,16 +247,7 @@ contract TestVaultFork is Test {
     function test_FactoryRevertWhenVaultAlreadyDeployed() public {
         vm.expectRevert();
         factory.deployVault(
-            tx.origin,
-            "main",
-            assetManager,
-            tx.origin,
-            address(0),
-            assets,
-            stableCoins,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols
+            tx.origin, "main", assetManager, assets, stableCoins, lendingProtocols, stakingProtocols, ammProtocols
         );
     }
 
@@ -303,7 +271,6 @@ contract TestVaultFork is Test {
         bytes memory swapData = abi.encode(mainnet.WETH, sellAmount, mainnet.USDT, buyAmountMin, encodedPath);
 
         uint256 usdtBefore = IERC20(mainnet.USDT).balanceOf(address(vault));
-        vm.prank(assetManager);
         vault.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
         uint256 usdtAfter = IERC20(mainnet.USDT).balanceOf(address(vault));
         assertGt(usdtAfter, usdtBefore);
@@ -341,7 +308,6 @@ contract TestVaultFork is Test {
         address receiverAddr = makeAddr("receiverBeneficiary");
 
         deal(mainnet.WETH, address(vault), supplyAmount);
-        vm.prank(assetManager);
         vault.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
 
@@ -371,15 +337,13 @@ contract TestVaultFork is Test {
         assertGe(remaining, supplyAmount - payAmount);
     }
 
-    function test_DeployVault_customOwnerAndAssetManager() public {
+    function test_DeployVault_customOwner() public {
         address customOwner = makeAddr("customVaultOwner");
         address customAssetManager = makeAddr("customAssetManager");
         address vaultAddr = factory.deployVault(
             customOwner,
             "main",
             customAssetManager,
-            customOwner,
-            address(0),
             assets,
             stableCoins,
             lendingProtocols,
@@ -387,9 +351,8 @@ contract TestVaultFork is Test {
             ammProtocols
         );
 
-        Vault customVault = Vault(payable(vaultAddr));
+        BittyVault customVault = BittyVault(payable(vaultAddr));
         assertTrue(customVault.hasRole(customVault.DEFAULT_ADMIN_ROLE(), customOwner));
-        assertTrue(customVault.hasRole(customVault.ASSET_MANAGER_ROLE(), customAssetManager));
         assertEq(factory.computeVaultAddress(customOwner, "main"), vaultAddr);
     }
 }

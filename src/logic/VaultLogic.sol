@@ -9,7 +9,7 @@ import {
     NotInitialized,
     InsufficientBalance
 } from "../interfaces/IVault.sol";
-import {IRegistry, NotRegistered} from "registry-contracts/src/interfaces/IRegistry.sol";
+import {IGuard, NotRegistered} from "guard-contracts/src/interfaces/IGuard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {VaultStorage} from "./Storages.sol";
@@ -71,11 +71,11 @@ library VaultLogic {
         }
     }
 
-    function initialize(VaultStorage storage vaultStorage, address registryAddress)
+    function initialize(VaultStorage storage vaultStorage, address guardAddress)
         external
         onlyNotInitialized(vaultStorage)
     {
-        vaultStorage.registry = IRegistry(registryAddress);
+        vaultStorage.guard = IGuard(guardAddress);
         vaultStorage.isInitialized = true;
     }
 
@@ -225,7 +225,7 @@ library VaultLogic {
             revert AddingAssetsDisabled();
         }
         for (uint256 i = 0; i < assetAddresses.length; i++) {
-            if (!vaultStorage.registry.isAssetRegistered(assetAddresses[i])) {
+            if (!vaultStorage.guard.isAssetRegistered(assetAddresses[i])) {
                 revert NotRegistered();
             }
             vaultStorage.assets.add(assetAddresses[i]);
@@ -250,7 +250,7 @@ library VaultLogic {
         onlyInitialized(vaultStorage)
     {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            if (!vaultStorage.registry.isStableCoinRegistered(stableCoinAddresses[i])) {
+            if (!vaultStorage.guard.isStableCoinRegistered(stableCoinAddresses[i])) {
                 revert NotRegistered();
             }
             vaultStorage.stableCoins.add(stableCoinAddresses[i]);

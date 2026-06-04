@@ -164,7 +164,7 @@ interface IAssetManager {
      *
      * @param ammProtocol The address of the swap provider.
      * @param from The address of the from asset.
-     * @param to The address of the to asset, asset should be in the added registry.
+     * @param to The address of the to asset, asset should be in the added guard.
      * @param sellAmount The amount of the from asset to sell.
      * @param buyAmountMin The minimum amount of the to asset to buy.
      * @param data The data for the swap.

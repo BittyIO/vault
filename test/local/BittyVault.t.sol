@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
-import {Vault} from "../../src/Vault.sol";
+import {BittyVault} from "../../src/BittyVault.sol";
 import {VaultLogic} from "../../src/logic/VaultLogic.sol";
 import {
     IVault,
@@ -25,23 +25,21 @@ import {
     OwnerAndAssetManagerMustDiffer
 } from "../../src/interfaces/IVault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
-import {BittyRegistry} from "registry-contracts/src/BittyRegistry.sol";
+import {BittyGuard} from "guard-contracts/src/BittyGuard.sol";
 
-contract VaultTest is Test {
-    Vault public vault;
+contract BittyVaultTest is Test {
+    BittyVault public vault;
     WETH public weth;
-    address public registryAddress;
+    address public guardAddress;
     address public ownerAddress;
     address public assetManagerAddress;
-    address public receiverManagerAddress;
 
     function setUp() public {
         weth = new WETH();
-        vault = new Vault();
-        registryAddress = address(new BittyRegistry());
+        vault = new BittyVault();
+        guardAddress = address(new BittyGuard());
         ownerAddress = tx.origin;
         assetManagerAddress = makeAddr("assetManager");
-        receiverManagerAddress = makeAddr("receiverManager");
     }
 
     function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
@@ -104,9 +102,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -132,9 +128,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             ownerAddress, // assetManager == owner — must revert
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -149,9 +143,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -176,9 +168,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetMgr,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -197,9 +187,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -212,9 +200,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -229,9 +215,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -242,7 +226,7 @@ contract VaultTest is Test {
         address receiverAddr = makeAddr("receiver");
         IVault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
     }
 
@@ -251,9 +235,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -263,7 +245,7 @@ contract VaultTest is Test {
         );
         IVault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.startPrank(receiverManagerAddress);
+        vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
         vm.expectRevert(ReceiverNameAlreadyExists.selector);
         vault.addReceiver("alice", r);
@@ -275,9 +257,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -287,7 +267,7 @@ contract VaultTest is Test {
         );
         IVault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.startPrank(receiverManagerAddress);
+        vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
         vault.removeReceiver("alice");
         vault.addReceiver("alice", r);
@@ -299,9 +279,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -311,7 +289,7 @@ contract VaultTest is Test {
         );
         IVault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        bytes32 _receiverRole = vault.RECEIVER_MANAGER_ROLE();
+        bytes32 _receiverRole = vault.DEFAULT_ADMIN_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _receiverRole));
@@ -323,9 +301,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -335,7 +311,7 @@ contract VaultTest is Test {
         );
         IVault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 0, 1, block.timestamp, 0, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vm.expectRevert(AmountIsZero.selector);
         vault.addReceiver("alice", r);
     }
@@ -345,9 +321,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -357,7 +331,7 @@ contract VaultTest is Test {
         );
         IVault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 0, block.timestamp, 0, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vm.expectRevert(ReceiverPaymentCountZero.selector);
         vault.addReceiver("alice", r);
     }
@@ -367,9 +341,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -387,7 +359,7 @@ contract VaultTest is Test {
             VaultLogic.RECEIVER_MINIMAL_DURATION - 1,
             false
         );
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vm.expectRevert(ReceiverDurationTooShort.selector);
         vault.addReceiver("alice", r);
     }
@@ -397,9 +369,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -409,7 +379,7 @@ contract VaultTest is Test {
         );
         IVault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
     }
 
@@ -418,9 +388,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -438,11 +406,11 @@ contract VaultTest is Test {
             VaultLogic.RECEIVER_MINIMAL_DURATION,
             false
         );
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         r.durationTimestamp = VaultLogic.RECEIVER_MINIMAL_DURATION - 1;
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vm.expectRevert(ReceiverDurationTooShort.selector);
         vault.updateReceiver("alice", r);
     }
@@ -452,9 +420,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -472,12 +438,12 @@ contract VaultTest is Test {
             VaultLogic.RECEIVER_MINIMAL_DURATION,
             false
         );
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         r.paymentCount = 1;
         r.durationTimestamp = 0;
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.updateReceiver("alice", r);
     }
 
@@ -486,9 +452,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -499,7 +463,7 @@ contract VaultTest is Test {
         address receiverAddr = makeAddr("receiver");
         IVault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 2, block.timestamp, 1 days, false);
-        vm.startPrank(receiverManagerAddress);
+        vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
         r.amount = 2 ether;
         vault.updateReceiver("alice", r);
@@ -511,9 +475,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -523,7 +485,7 @@ contract VaultTest is Test {
         );
         IVault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vm.expectRevert(ReceiverNotFound.selector);
         vault.updateReceiver("nonexistent", r);
     }
@@ -533,9 +495,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -545,7 +505,7 @@ contract VaultTest is Test {
         );
         IVault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true);
-        vm.startPrank(receiverManagerAddress);
+        vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
         r.amount = 2 ether;
         vm.expectRevert(ReceiverImmutable.selector);
@@ -558,9 +518,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -570,10 +528,10 @@ contract VaultTest is Test {
         );
         IVault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
         r.amount = 2 ether;
-        bytes32 _receiverRole = vault.RECEIVER_MANAGER_ROLE();
+        bytes32 _receiverRole = vault.DEFAULT_ADMIN_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _receiverRole));
@@ -585,9 +543,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -597,7 +553,7 @@ contract VaultTest is Test {
         );
         IVault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.startPrank(receiverManagerAddress);
+        vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
         vault.removeReceiver("alice");
         vm.stopPrank();
@@ -610,9 +566,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -622,9 +576,9 @@ contract VaultTest is Test {
         );
         IVault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
-        bytes32 _receiverRole = vault.RECEIVER_MANAGER_ROLE();
+        bytes32 _receiverRole = vault.DEFAULT_ADMIN_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _receiverRole));
@@ -636,9 +590,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -650,7 +602,7 @@ contract VaultTest is Test {
         address bob = makeAddr("bob");
         IVault.Receiver memory r =
             _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
         vm.prank(alice);
         vault.changeReceiverAddress("alice", bob);
@@ -661,9 +613,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -680,9 +630,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -694,7 +642,7 @@ contract VaultTest is Test {
         address bob = makeAddr("bob");
         IVault.Receiver memory r =
             _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
         vm.prank(makeAddr("stranger"));
         vm.expectRevert(OnlyReceiver.selector);
@@ -706,9 +654,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -720,7 +666,7 @@ contract VaultTest is Test {
         address bob = makeAddr("bob");
         IVault.Receiver memory r =
             _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
         vm.prank(alice);
         vm.expectRevert(ReceiverImmutable.selector);
@@ -732,9 +678,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -746,7 +690,7 @@ contract VaultTest is Test {
         IVault.Receiver memory r = _makeReceiver(
             makeAddr("receiver"), address(0), address(weth), 1 ether, 1, futureStartTimestamp, 1 days, false
         );
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         vm.expectRevert(ReceiverNotStartYet.selector);
@@ -758,9 +702,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -771,7 +713,7 @@ contract VaultTest is Test {
         address receiverAddr = makeAddr("receiver");
         IVault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         deal(address(weth), address(vault), 1 ether);
@@ -788,9 +730,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -810,7 +750,7 @@ contract VaultTest is Test {
             VaultLogic.RECEIVER_MINIMAL_DURATION,
             false
         );
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         deal(address(weth), address(vault), 2 ether);
@@ -861,7 +801,7 @@ contract VaultTest is Test {
         address receiverAddr = makeAddr("receiver");
         IVault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         deal(address(weth), address(vault), 1 ether);
@@ -880,7 +820,7 @@ contract VaultTest is Test {
         uint256 addedAt = block.timestamp;
         IVault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         deal(address(weth), address(vault), 1 ether);
@@ -895,7 +835,7 @@ contract VaultTest is Test {
         address receiverAddr = makeAddr("receiver");
         IVault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         deal(address(weth), address(vault), 1 ether);
@@ -914,7 +854,7 @@ contract VaultTest is Test {
 
         IVault.Receiver memory alice =
             _makeReceiver(aliceReceiver, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", alice);
 
         vm.prank(ownerAddress);
@@ -922,7 +862,7 @@ contract VaultTest is Test {
 
         IVault.Receiver memory bob =
             _makeReceiver(bobReceiver, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("bob", bob);
 
         deal(address(weth), address(vault), 2 ether);
@@ -944,7 +884,7 @@ contract VaultTest is Test {
 
         IVault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vm.startPrank(receiverManagerAddress);
+        vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
         vault.removeReceiver("alice");
         vault.addReceiver("alice", r);
@@ -1021,7 +961,7 @@ contract VaultTest is Test {
         address trigger = makeAddr("trigger");
         IVault.Receiver memory r =
             _makeReceiver(receiverAddr, trigger, address(weth), 1 ether, 1, futureStart, 0, false);
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         deal(address(weth), address(vault), 1 ether);
@@ -1070,7 +1010,7 @@ contract VaultTest is Test {
         IVault.Receiver memory r = _makeReceiver(
             receiverAddr, address(0), address(weth), amount, paymentCount, block.timestamp, durationTimestamp, false
         );
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver(name, r);
     }
 
@@ -1085,7 +1025,7 @@ contract VaultTest is Test {
         IVault.Receiver memory r = _makeReceiver(
             receiverAddr, trigger, address(weth), amount, paymentCount, block.timestamp, durationTimestamp, false
         );
-        vm.prank(receiverManagerAddress);
+        vm.prank(ownerAddress);
         vault.addReceiver(name, r);
     }
 
@@ -1094,9 +1034,7 @@ contract VaultTest is Test {
             ownerAddress,
             "test vault",
             assetManagerAddress,
-            address(0), // configManager
-            receiverManagerAddress,
-            registryAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -1115,10 +1053,8 @@ contract VaultTest is Test {
         vault.initialize(
             ownerAddress,
             "",
-            address(0),
-            address(0),
-            receiverManagerAddress,
-            registryAddress,
+            assetManagerAddress,
+            guardAddress,
             address(weth),
             new address[](0),
             new address[](0),
@@ -1162,25 +1098,12 @@ contract VaultTest is Test {
         vault.setName("hacked");
     }
 
-    function test_setName_configManagerCannotSetName() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            makeAddr("configManager"),
-            address(0),
-            receiverManagerAddress,
-            registryAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
+    function test_setName_strangerCannotSetName() public {
+        _initializeVault();
         bytes32 _adminRole = vault.DEFAULT_ADMIN_ROLE();
-        address configManager = makeAddr("configManager");
-        vm.prank(configManager);
-        vm.expectRevert(_roleError(configManager, _adminRole));
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, _adminRole));
         vault.setName("attempt");
     }
 

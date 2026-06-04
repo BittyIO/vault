@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IAssetManager} from "../interfaces/IAssetManager.sol";
-import {IRegistry} from "registry-contracts/src/interfaces/IRegistry.sol";
+import {IGuard} from "guard-contracts/src/interfaces/IGuard.sol";
 import {IVault} from "../interfaces/IVault.sol";
 
 struct AssetManagerStorage {
@@ -18,7 +18,7 @@ struct AssetManagerStorage {
     EnumerableSet.AddressSet stakingProtocols;
     EnumerableSet.AddressSet ammProtocols;
 
-    IRegistry registry;
+    IGuard guard;
 
     bool addingProtocolsDisabled;
 
@@ -30,7 +30,7 @@ struct VaultStorage {
     mapping(string => IVault.Receiver) receivers;
     mapping(string => uint256) lastReceiveTimestamps;
     mapping(string => uint256) newReceiverProtectionTimestamps;
-    IRegistry registry;
+    IGuard guard;
     EnumerableSet.AddressSet assets;
     EnumerableSet.AddressSet stableCoins;
     bool addingAssetsDisabled;
