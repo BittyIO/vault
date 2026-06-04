@@ -4,15 +4,8 @@ pragma solidity ^0.8.34;
 import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 import {IAssetManager} from "./interfaces/IAssetManager.sol";
-import {IAMMProtocol} from "protocol-contracts/src/interfaces/IAMMProtocol.sol";
 import {IGuard} from "guard-contracts/src/interfaces/IGuard.sol";
-import {
-    IVault,
-    ReceiverNotFound,
-    AddressZero,
-    OnlyReceiver,
-    OwnerAndAssetManagerMustDiffer
-} from "./interfaces/IVault.sol";
+import {IVault, ReceiverNotFound, OnlyReceiver, OwnerAndAssetManagerMustDiffer} from "./interfaces/IVault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";

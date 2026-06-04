@@ -35,38 +35,6 @@ cp .env.sample .env
 
 Foundry reads `.env` automatically for `${ALCHEMY_KEY}` and `${ETHERSCAN_API_KEY}` in `foundry.toml`.
 
-## Dependencies
-
-All third-party code lives under `lib/` as pinned git submodules. Do not run `forge install` for these packages; use submodules so everyone builds the same commits.
-
-| Submodule | Repository | Used for |
-| --- | --- | --- |
-| `lib/forge-std` | [foundry-rs/forge-std](https://github.com/foundry-rs/forge-std) | Scripts and tests |
-| `lib/openzeppelin-contracts` | [OpenZeppelin/openzeppelin-contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) | Proxies, ERC20, access control |
-| `lib/solmate` | [transmissions11/solmate](https://github.com/transmissions11/solmate) | WETH and test mocks |
-| `lib/guard-contracts` | [BittyIO/guard](https://github.com/BittyIO/guard) | Asset and protocols guard |
-| `lib/protocol-contracts` | [BittyIO/Protocols](https://github.com/BittyIO/Protocols) | AMM, Lending, Staking protocols integrations |
-
-Import remappings are declared in `foundry.toml`:
-
-```toml
-forge-std/=lib/forge-std/src/
-openzeppelin-contracts/=lib/openzeppelin-contracts/
-guard-contracts/=lib/guard-contracts/
-protocol-contracts/=lib/protocol-contracts/
-solmate/=lib/solmate/src/
-```
-
-To update a dependency to a newer commit:
-
-```shell
-cd lib/<submodule>
-git fetch && git checkout <commit-or-tag>
-cd ../..
-git add lib/<submodule>
-git commit -m "chore: bump <submodule>"
-```
-
 ## Build
 
 ```shell

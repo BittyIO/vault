@@ -13,7 +13,6 @@ import {IGuard, NotRegistered} from "guard-contracts/src/interfaces/IGuard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {VaultStorage} from "./Storages.sol";
-import {WETH} from "solmate/tokens/WETH.sol";
 import {
     IVault,
     ReceiverNotFound,
@@ -24,7 +23,6 @@ import {
     ReceiverNotStartYet,
     ReceiverInDuration,
     AddingAssetsDisabled,
-    AddingProtocolsDisabled,
     ReceiverDurationTooShort,
     NewReceiverProtectionOutOfRange,
     ReceiverProtectionNotEnded,
