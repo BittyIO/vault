@@ -12,4 +12,4 @@
 	url = https://github.com/BittyIO/guard
 [submodule "lib/protocol-contracts"]
 	path = lib/protocol-contracts
-	url = https://github.com/BittyIO/Protocols
+	url = https://github.com/BittyIO/protocol-store.git

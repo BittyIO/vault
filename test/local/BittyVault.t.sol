@@ -7,7 +7,6 @@ import {BittyVault} from "../../src/BittyVault.sol";
 import {VaultLogic} from "../../src/logic/VaultLogic.sol";
 import {
     IVault,
-    AddressZero,
     AmountIsZero,
     ReceiverNotFound,
     ReceiverNameAlreadyExists,
@@ -21,7 +20,6 @@ import {
     PayMoreThanReceiverAmount,
     PayReceiverAmountTriggerEmpty,
     InsufficientBalance,
-    NotInitialized,
     OwnerAndAssetManagerMustDiffer
 } from "../../src/interfaces/IVault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
