@@ -33,6 +33,37 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         wethAddress = wethAddress_;
     }
 
+    /**
+     * @notice Deploy a clean vault owned by owner with name.
+     * @param owner The address of the owner.
+     * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
+     * @return vault The address of the deployed vault.
+     */
+    function deployVault(address owner, string memory name) external override returns (address vault) {
+        return _deployVault(
+            owner,
+            name,
+            address(0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+    }
+
+    /**
+     * @notice Deploy a vault owned by owner with name and make the asset manager start to work.
+     * @param owner The address of the owner.
+     * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
+     * @param assetManager The address of the asset manager (hot wallet / AI agent), can not be the owner.
+     * @param assetAddresses The addresses of the assets.
+     * @param stableCoinAddresses The addresses of the stable coins.
+     * @param lendingProtocols The addresses of the lending protocols, must be registered in guard.
+     * @param stakingProtocols The addresses of the staking protocols, must be registered in guard.
+     * @param ammProtocols The addresses of the amm protocols, must be registered in guard.
+     * @return vault The address of the deployed vault.
+     */
     function deployVault(
         address owner,
         string memory name,
@@ -43,17 +74,9 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         address[] memory stakingProtocols,
         address[] memory ammProtocols
     ) external override returns (address vault) {
-        if (owner == address(0)) revert AddressZero();
         _checkGuard(assetAddresses, stableCoinAddresses, lendingProtocols, stakingProtocols, ammProtocols);
 
-        bytes32 salt = keccak256(abi.encodePacked(owner, name));
-        if (Clones.predictDeterministicAddress(vaultImplementation, salt, address(this)).code.length > 0) {
-            revert VaultAlreadyDeployed();
-        }
-
-        vault = Clones.cloneDeterministic(vaultImplementation, salt);
-        _initVault(
-            vault,
+        return _deployVault(
             owner,
             name,
             assetManager,
@@ -63,19 +86,10 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
             stakingProtocols,
             ammProtocols
         );
-
-        emit VaultDeployed(vault, owner, name);
     }
 
-    function computeVaultAddress(address owner, string memory name) external view override returns (address) {
-        return Clones.predictDeterministicAddress(
-            vaultImplementation, keccak256(abi.encodePacked(owner, name)), address(this)
-        );
-    }
-
-    function _initVault(
-        address vault,
-        address owner_,
+    function _deployVault(
+        address owner,
         string memory name,
         address assetManager,
         address[] memory assetAddresses,
@@ -83,10 +97,18 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
         address[] memory ammProtocols
-    ) internal {
+    ) internal returns (address vault) {
+        if (owner == address(0)) revert AddressZero();
+
+        bytes32 salt = keccak256(abi.encodePacked(owner, name));
+        if (Clones.predictDeterministicAddress(vaultImplementation, salt, address(this)).code.length > 0) {
+            revert VaultAlreadyDeployed();
+        }
+
+        vault = Clones.cloneDeterministic(vaultImplementation, salt);
         BittyVault(payable(vault))
             .initialize(
-                owner_,
+                owner,
                 name,
                 assetManager,
                 guardAddress,
@@ -97,6 +119,14 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
                 stakingProtocols,
                 ammProtocols
             );
+
+        emit VaultDeployed(vault, owner, name);
+    }
+
+    function computeVaultAddress(address owner, string memory name) external view override returns (address) {
+        return Clones.predictDeterministicAddress(
+            vaultImplementation, keccak256(abi.encodePacked(owner, name)), address(this)
+        );
     }
 
     function _checkGuard(

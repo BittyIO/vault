@@ -103,7 +103,7 @@ interface IVault {
     /**
      * @notice Human-readable name set at deploy time to distinguish vaults with the same owner.
      */
-    function vaultName() external view returns (string memory);
+    function name() external view returns (string memory);
 
     /**
      * @notice Add the assets to the vault.

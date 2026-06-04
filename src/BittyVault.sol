@@ -40,28 +40,43 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
     receive() external payable {}
 
     function initialize(
-        address owner_,
-        string memory vaultName_,
-        address assetManager_,
+        address owner,
+        string memory name,
+        address assetManagerAddress,
         address guardAddress,
-        address wethAddress_,
+        address wethAddress,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
         address[] memory ammProtocols
     ) public initializer {
-        if (assetManager_ == owner_) revert OwnerAndAssetManagerMustDiffer();
-        vaultName = vaultName_;
-        _grantRole(DEFAULT_ADMIN_ROLE, owner_);
-        _grantRole(ASSET_MANAGER_ROLE, assetManager_);
+        if (assetManagerAddress == owner) revert OwnerAndAssetManagerMustDiffer();
+        vaultName = name;
+
+        _grantRole(DEFAULT_ADMIN_ROLE, owner);
+        if (assetManagerAddress != address(0)) {
+            _grantRole(ASSET_MANAGER_ROLE, assetManagerAddress);
+        }
+
         _vault.initialize(guardAddress);
-        _vault.addAssets(assetAddresses);
-        _vault.addStableCoins(stableCoinAddresses);
-        _assetManager.initialize(guardAddress, wethAddress_);
-        _assetManager.addLendingProtocols(lendingProtocols);
-        _assetManager.addStakingProtocols(stakingProtocols);
-        _assetManager.addAMMProtocols(ammProtocols);
+        if (assetAddresses.length > 0) {
+            _vault.addAssets(assetAddresses);
+        }
+        if (stableCoinAddresses.length > 0) {
+            _vault.addStableCoins(stableCoinAddresses);
+        }
+
+        _assetManager.initialize(guardAddress, wethAddress);
+        if (lendingProtocols.length > 0) {
+            _assetManager.addLendingProtocols(lendingProtocols);
+        }
+        if (stakingProtocols.length > 0) {
+            _assetManager.addStakingProtocols(stakingProtocols);
+        }
+        if (ammProtocols.length > 0) {
+            _assetManager.addAMMProtocols(ammProtocols);
+        }
     }
 
     function _grantRole(bytes32 role, address account) internal override {
@@ -323,6 +338,10 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
     }
 
     // ============ View ============
+
+    function name() external view override returns (string memory) {
+        return vaultName;
+    }
 
     function getAssets() external view override returns (address[] memory) {
         return _vault.getAssets();
