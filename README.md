@@ -12,8 +12,8 @@ Solidity contracts for Bitty Vault: a factory deploys minimal proxy vaults per o
 Clone the repository and initialize all dependencies as git submodules:
 
 ```shell
-git clone --recurse-submodules https://github.com/bittyio/vault-contracts.git
-cd vault-contracts
+git clone --recurse-submodules https://github.com/bittyio/vault.git
+cd vault
 ```
 
 If you already cloned without submodules:
