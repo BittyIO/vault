@@ -16,6 +16,14 @@ interface IVaultFactory {
      * @notice Deploy a vault owned by owner.
      * @param owner The address of the owner.
      * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
+     * @return vault The address of the deployed vault.
+     */
+    function deployVault(address owner, string memory name) external returns (address vault);
+
+    /**
+     * @notice Deploy a vault owned by owner.
+     * @param owner The address of the owner.
+     * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
      * @param assetManager The address of the asset manager (hot wallet / AI agent).
      * @param assetAddresses The addresses of the assets.
      * @param stableCoinAddresses The addresses of the stable coins.
