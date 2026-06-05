@@ -288,7 +288,8 @@ contract TestVaultFork is Test {
             paymentCount: 1,
             startTimestamp: block.timestamp,
             durationTimestamp: 1 days,
-            isImmutable: false
+            isImmutable: false,
+            payWithInsufficientBalance: false
         });
 
         vm.prank(tx.origin);
@@ -319,7 +320,8 @@ contract TestVaultFork is Test {
             paymentCount: 1,
             startTimestamp: block.timestamp,
             durationTimestamp: 1 days,
-            isImmutable: false
+            isImmutable: false,
+            payWithInsufficientBalance: false
         });
         vm.prank(tx.origin);
         vault.addReceiver("salary", receiver);

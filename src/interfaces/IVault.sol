@@ -57,6 +57,8 @@ interface IVault {
         uint256 startTimestamp;
         uint256 durationTimestamp;
         bool isImmutable;
+        // if this is true, then the payment will not revert if the balance is insufficient
+        bool payWithInsufficientBalance;
     }
 
     /**

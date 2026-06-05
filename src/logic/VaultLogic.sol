@@ -203,16 +203,23 @@ library VaultLogic {
         }
         vaultStorage.lastReceiveTimestamps[name] = block.timestamp;
         receiver.paymentCount = receiver.paymentCount - 1;
-        _transferMoney(receiver.assetAddress, receiver.amount, receiver.receiverAddress);
+        _transferMoney(
+            receiver.assetAddress, receiver.amount, receiver.receiverAddress, receiver.payWithInsufficientBalance
+        );
     }
 
-    function _transferMoney(address erc20Address, uint256 amount, address receiverAddress) internal {
+    function _transferMoney(
+        address erc20Address,
+        uint256 amount,
+        address receiverAddress,
+        bool payWithInsufficientBalance
+    ) internal {
         IERC20 asset = IERC20(erc20Address);
         uint256 balance = asset.balanceOf(address(this));
-        if (balance < amount) {
+        if (!payWithInsufficientBalance && balance < amount) {
             revert InsufficientBalance();
         }
-        asset.safeTransfer(receiverAddress, amount);
+        asset.safeTransfer(receiverAddress, balance < amount ? balance : amount);
     }
 
     function addAssets(VaultStorage storage vaultStorage, address[] memory assetAddresses)
