@@ -69,7 +69,8 @@ contract BittyVaultTest is Test {
             paymentCount: paymentCount_,
             startTimestamp: startTimestamp_,
             durationTimestamp: durationTimestamp_,
-            isImmutable: isImmutable_
+            isImmutable: isImmutable_,
+            payWithInsufficientBalance: false
         });
     }
 
@@ -996,6 +997,109 @@ contract BittyVaultTest is Test {
         vm.prank(trigger);
         vm.expectRevert(InsufficientBalance.selector);
         vault.payReceiverAmount("alice", 1 ether);
+    }
+
+    function test_PayReceiver_revertInsufficientBalance_whenPayWithInsufficientBalanceFalse() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        deal(address(weth), address(vault), 0.5 ether);
+
+        vm.expectRevert(InsufficientBalance.selector);
+        vault.payReceiver("alice");
+        assertEq(weth.balanceOf(receiverAddr), 0, "no partial transfer on revert");
+    }
+
+    function test_PayReceiver_paysAvailableBalance_whenPayWithInsufficientBalanceTrue() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        uint256 vaultBalance = 0.5 ether;
+        IVault.Receiver memory r = IVault.Receiver({
+            receiverAddress: receiverAddr,
+            trigger: address(0),
+            assetAddress: address(weth),
+            amount: 1 ether,
+            paymentCount: 1,
+            startTimestamp: block.timestamp,
+            durationTimestamp: 0,
+            isImmutable: false,
+            payWithInsufficientBalance: true
+        });
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        deal(address(weth), address(vault), vaultBalance);
+
+        vault.payReceiver("alice");
+
+        assertEq(weth.balanceOf(receiverAddr), vaultBalance, "transfers entire vault balance");
+        assertEq(weth.balanceOf(address(vault)), 0);
+        vm.expectRevert(ReceiverPaymentCountZero.selector);
+        vault.payReceiver("alice");
+    }
+
+    function test_PayReceiver_paysFullAmount_whenPayWithInsufficientBalanceTrueAndBalanceSufficient() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        IVault.Receiver memory r = IVault.Receiver({
+            receiverAddress: receiverAddr,
+            trigger: address(0),
+            assetAddress: address(weth),
+            amount: 1 ether,
+            paymentCount: 1,
+            startTimestamp: block.timestamp,
+            durationTimestamp: 0,
+            isImmutable: false,
+            payWithInsufficientBalance: true
+        });
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vault.payReceiver("alice");
+
+        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+        assertEq(weth.balanceOf(address(vault)), 0);
+    }
+
+    function test_PayReceiver_partialPaymentsAcrossMultiplePayouts_whenPayWithInsufficientBalanceTrue() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        uint256 start = block.timestamp;
+        IVault.Receiver memory r = IVault.Receiver({
+            receiverAddress: receiverAddr,
+            trigger: address(0),
+            assetAddress: address(weth),
+            amount: 1 ether,
+            paymentCount: 3,
+            startTimestamp: start,
+            durationTimestamp: VaultLogic.RECEIVER_MINIMAL_DURATION,
+            isImmutable: false,
+            payWithInsufficientBalance: true
+        });
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        deal(address(weth), address(vault), 1.5 ether);
+
+        vault.payReceiver("alice");
+        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+
+        vm.warp(start + VaultLogic.RECEIVER_MINIMAL_DURATION + 1);
+        vault.payReceiver("alice");
+        assertEq(weth.balanceOf(receiverAddr), 1.5 ether, "second payout sends remaining 0.5 ether");
+
+        vm.warp(start + 2 * (VaultLogic.RECEIVER_MINIMAL_DURATION + 1));
+        vault.payReceiver("alice");
+        assertEq(weth.balanceOf(receiverAddr), 1.5 ether, "third payout with zero balance sends nothing");
+
+        vm.expectRevert(ReceiverPaymentCountZero.selector);
+        vault.payReceiver("alice");
     }
 
     function _addReceiver(
