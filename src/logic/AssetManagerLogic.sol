@@ -334,15 +334,25 @@ library AssetManagerLogic {
         configFrom = logicStorage.rebalanceConfigs[from];
         configTo = logicStorage.rebalanceConfigs[to];
 
-        if (configFrom.minimalDuration == 0 && configTo.minimalDuration == 0) {
+        if (
+            configFrom.maxAmount == 0 && configFrom.minimalBalance == 0 && configFrom.minimalDuration == 0
+                && configTo.maxAmount == 0 && configTo.minimalBalance == 0 && configTo.minimalDuration == 0
+        ) {
             return (configFrom, configTo);
         }
-
-        uint256 fromBalance = _addressBalance(from);
 
         if (configFrom.maxAmount > 0 && configFrom.maxAmount < sellAmount) {
             revert RebalanceMaxAmount();
         }
+
+        uint256 fromBalance = _addressBalance(from);
+
+        if (configFrom.minimalBalance > 0) {
+            if (fromBalance < sellAmount || fromBalance - sellAmount < configFrom.minimalBalance) {
+                revert MinimalBalanceNotMet();
+            }
+        }
+
         if (
             (configFrom.minimalDuration > 0
                     && logicStorage.lastRebalanceTimestamps[from] > 0
@@ -353,11 +363,8 @@ library AssetManagerLogic {
         ) {
             revert RebalanceInMinimalTime();
         }
-        if (configFrom.minimalBalance > 0) {
-            if (fromBalance < sellAmount || fromBalance - sellAmount < configFrom.minimalBalance) {
-                revert MinimalBalanceNotMet();
-            }
-        }
+
+        return (configFrom, configTo);
     }
 
     function _updateRebalanceTimestamps(
