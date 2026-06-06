@@ -37,8 +37,6 @@ interface IAssetManager {
         /**
          * @dev The minimal duration between rebalances.
          * @param minimalDuration The minimal duration between rebalances.
-         * @dev If the minimal duration is 0, means the asset config is null for the asset,
-         *      so make sure set it to a non-zero value if you want to use the rebalance config.
          */
         uint256 minimalDuration;
         /**

@@ -1102,6 +1102,148 @@ contract BittyVaultTest is Test {
         vault.payReceiver("alice");
     }
 
+    // ─── Fuzz Tests ───────────────────────────────────────────────────────────
+
+    function testFuzz_AddReceiver_validAmountAndCount(uint256 amount, uint8 paymentCount) public {
+        vm.assume(amount > 0 && paymentCount > 0);
+        _initializeVault();
+        uint256 duration = paymentCount > 1 ? VaultLogic.RECEIVER_MINIMAL_DURATION : 0;
+        IVault.Receiver memory r = _makeReceiver(
+            makeAddr("r"), address(0), address(weth), amount, paymentCount, block.timestamp, duration, false
+        );
+        vm.prank(ownerAddress);
+        vault.addReceiver("r", r);
+    }
+
+    function testFuzz_SetNewReceiverProtection_withinBounds(uint256 protection) public {
+        vm.assume(protection <= VaultLogic.RECEIVER_NEW_PROTECTION_MAX);
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vault.setNewReceiverProtection(protection);
+    }
+
+    function testFuzz_SetNewReceiverProtection_rejectsAboveMax(uint256 protection) public {
+        vm.assume(protection > VaultLogic.RECEIVER_NEW_PROTECTION_MAX);
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(NewReceiverProtectionOutOfRange.selector);
+        vault.setNewReceiverProtection(protection);
+    }
+
+    function testFuzz_ReceiverProtection_blocksDuringWindow(uint256 protection, uint256 elapsed) public {
+        protection = bound(protection, 1, VaultLogic.RECEIVER_NEW_PROTECTION_MAX);
+        elapsed = bound(elapsed, 0, protection - 1);
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vault.setNewReceiverProtection(protection);
+        address receiverAddr = makeAddr("r");
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("r", r);
+        deal(address(weth), address(vault), 1 ether);
+        vm.warp(block.timestamp + elapsed);
+        vm.expectRevert(ReceiverProtectionNotEnded.selector);
+        vault.payReceiver("r");
+    }
+
+    function testFuzz_ReceiverProtection_allowsAfterWindow(uint256 protection, uint256 extra) public {
+        protection = bound(protection, 1, VaultLogic.RECEIVER_NEW_PROTECTION_MAX);
+        extra = bound(extra, 0, 365 days);
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vault.setNewReceiverProtection(protection);
+        address receiverAddr = makeAddr("r");
+        uint256 addedAt = block.timestamp;
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("r", r);
+        deal(address(weth), address(vault), 1 ether);
+        vm.warp(addedAt + protection + extra);
+        vault.payReceiver("r");
+        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+    }
+
+    function testFuzz_PayReceiver_allPaymentsComplete(uint8 paymentCount) public {
+        paymentCount = uint8(bound(uint256(paymentCount), 1, 10));
+        _initializeVault();
+        address receiverAddr = makeAddr("r");
+        uint256 amount = 0.1 ether;
+        uint256 start = block.timestamp;
+        IVault.Receiver memory r = _makeReceiver(
+            receiverAddr,
+            address(0),
+            address(weth),
+            amount,
+            paymentCount,
+            start,
+            paymentCount > 1 ? VaultLogic.RECEIVER_MINIMAL_DURATION : 0,
+            false
+        );
+        vm.prank(ownerAddress);
+        vault.addReceiver("r", r);
+        deal(address(weth), address(vault), uint256(paymentCount) * amount);
+        vault.payReceiver("r");
+        for (uint8 i = 1; i < paymentCount; i++) {
+            vm.warp(start + uint256(i) * VaultLogic.RECEIVER_MINIMAL_DURATION);
+            vault.payReceiver("r");
+        }
+        assertEq(weth.balanceOf(receiverAddr), uint256(paymentCount) * amount);
+        vm.expectRevert(ReceiverPaymentCountZero.selector);
+        vault.payReceiver("r");
+    }
+
+    // ─── Stress Tests ─────────────────────────────────────────────────────────
+
+    function test_stress_fiftyReceivers_addAndPayAll() public {
+        _initializeVault();
+        uint256 n = 50;
+        uint256 amount = 0.01 ether;
+        deal(address(weth), address(vault), n * amount);
+        address[] memory receivers = new address[](n);
+        for (uint256 i = 0; i < n; i++) {
+            receivers[i] = makeAddr(string.concat("r", Strings.toString(i)));
+            IVault.Receiver memory r =
+                _makeReceiver(receivers[i], address(0), address(weth), amount, 1, block.timestamp, 0, false);
+            vm.prank(ownerAddress);
+            vault.addReceiver(string.concat("r", Strings.toString(i)), r);
+        }
+        for (uint256 i = 0; i < n; i++) {
+            vault.payReceiver(string.concat("r", Strings.toString(i)));
+            assertEq(weth.balanceOf(receivers[i]), amount);
+        }
+    }
+
+    function test_stress_twentySequentialPayments() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("r");
+        uint8 paymentCount = 20;
+        uint256 amount = 0.05 ether;
+        uint256 start = block.timestamp;
+        IVault.Receiver memory r = _makeReceiver(
+            receiverAddr,
+            address(0),
+            address(weth),
+            amount,
+            paymentCount,
+            start,
+            VaultLogic.RECEIVER_MINIMAL_DURATION,
+            false
+        );
+        vm.prank(ownerAddress);
+        vault.addReceiver("r", r);
+        deal(address(weth), address(vault), uint256(paymentCount) * amount);
+        vault.payReceiver("r");
+        for (uint8 i = 1; i < paymentCount; i++) {
+            vm.warp(start + uint256(i) * VaultLogic.RECEIVER_MINIMAL_DURATION);
+            vault.payReceiver("r");
+        }
+        assertEq(weth.balanceOf(receiverAddr), uint256(paymentCount) * amount);
+        vm.expectRevert(ReceiverPaymentCountZero.selector);
+        vault.payReceiver("r");
+    }
+
     function _addReceiver(
         string memory name,
         address receiverAddr,
