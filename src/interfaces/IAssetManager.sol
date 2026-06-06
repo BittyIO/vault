@@ -17,31 +17,31 @@ error WETHBalanceNotEnough();
 
 interface IAssetManager {
     /**
-     * @notice Asset config for the asset, Asset config can be something like the following:
-     * USDC, minimalBalance = 1000,000, minimalDuration = 13 seconds, maxAmount = 0
-     * WBTC, minimalBalance = 1, minimalDuration = 13 seconds, maxAmount = 0.1 WBTC
-     * WETH, minimalBalance = 10, minimalDuration = 13 seconds, maxAmount = 1 WETH
+     * @notice Per-asset limits for rebalancing. All amount fields use the token's native decimals
+     *         (raw on-chain units), not human-readable whole-token amounts.
      *
-     * @param minimalBalance The minimal balance of the asset.
-     * @param minimalDuration The minimal duration between rebalances.
-     * @param maxAmount The max rebalance amount of the asset.
+     * Examples (minimalDuration = 13 seconds in each case):
+     * - USDC (6 decimals): keep 1,000,000 USDC → minimalBalance = 1_000_000e6; no per-swap cap → maxAmount = 0
+     * - WBTC (8 decimals): keep 1 WBTC → minimalBalance = 1e8; cap each swap at 0.1 WBTC → maxAmount = 1e7
+     * - WETH (18 decimals): keep 10 WETH → minimalBalance = 10 ether; cap each swap at 1 WETH → maxAmount = 1 ether
+     *
+     * @param minimalBalance Minimum token balance that must remain in the vault after a rebalance sell.
+     *                       Set to 0 to allow selling the full balance. Use 1e8 for 1 WBTC, 1 ether for 1 WETH, etc.
+     * @param minimalDuration Minimum time between rebalances for this asset. Set to 0 to disable the cooldown.
+     * @param maxAmount Maximum sell amount per rebalance for this asset. Set to 0 for no limit.
      */
     struct RebalanceConfig {
         /**
-         * @dev The minimal balance of the asset.
-         * @param minimalBalance The minimal balance of the asset.
-         * @dev The minimal balance of the asset should remained after the rebalance, can be 0 to sell all of the asset.
-         *      If the minimal balance is not 0, use the receiver to get the remaining asset.
+         * @dev Minimum balance left after selling `from` during rebalance. Expressed in token decimals
+         *      (e.g. 1e8 = 1 WBTC, 10 ether = 10 WETH). Zero allows selling the entire balance.
          */
         uint256 minimalBalance;
         /**
-         * @dev The minimal duration between rebalances.
-         * @param minimalDuration The minimal duration between rebalances.
+         * @dev Seconds that must pass since the last rebalance involving this asset before another is allowed.
          */
         uint256 minimalDuration;
         /**
-         * @dev The max rebalance amount of the asset, if it is set to 0, means no limit for rebalance.
-         * @param maxAmount The max rebalance amount of the asset.
+         * @dev Upper bound on sell amount per rebalance, in token decimals. Zero means unlimited.
          */
         uint256 maxAmount;
     }
@@ -82,10 +82,9 @@ interface IAssetManager {
     function getAMMProtocols() external view returns (address[] memory);
 
     /**
-     * @notice Set the asset config.
-     * @dev Set the asset config.
+     * @notice Set rebalance limits for an asset. Amount fields in `assetConfig` use the asset's token decimals.
      * @param assetAddress The address of the asset.
-     * @param assetConfig The asset config.
+     * @param assetConfig The rebalance config (see `RebalanceConfig` for decimal examples).
      */
     function setRebalanceConfig(address assetAddress, RebalanceConfig memory assetConfig) external;
 
