@@ -715,5 +715,15 @@ contract BittyVaultFactoryTest is Test {
         address vault = _deployVault(owner1, "my savings", assetManagerAddress);
         assertEq(BittyVault(payable(vault)).vaultName(), "my savings");
     }
+
+    function test_DeployVault_simpleOverload_noAssetManager() public {
+        _initFactory();
+        address vault = factory.deployVault(tx.origin, "simple");
+        assertTrue(vault != address(0));
+        assertTrue(BittyVault(payable(vault)).hasRole(BittyVault(payable(vault)).DEFAULT_ADMIN_ROLE(), tx.origin));
+        assertFalse(BittyVault(payable(vault)).hasRole(BittyVault(payable(vault)).ASSET_MANAGER_ROLE(), address(0)));
+        assertEq(BittyVault(payable(vault)).vaultName(), "simple");
+        assertEq(factory.computeVaultAddress(tx.origin, "simple"), vault);
+    }
 }
 

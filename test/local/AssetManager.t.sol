@@ -1,17 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {AmountIsZero, AddressZero} from "../../src/interfaces/IVault.sol";
+import {
+    IVault,
+    AmountIsZero,
+    AddressZero,
+    InsufficientBalance,
+    AddingProtocolsDisabled,
+    NotInitialized
+} from "../../src/interfaces/IVault.sol";
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 import {
     InvalidLendingProtocol,
     InvalidStakingProtocol,
+    InvalidAMMProtocol,
+    InvalidSwapData,
+    SellAmountMismatch,
+    BuyAmountNotEnough,
     RebalanceMaxAmount,
     RebalanceDisabled,
     RebalanceInMinimalTime,
     MinimalBalanceNotMet,
     DisableRebalanceUntilTimestampTooEarly,
-    ETHBalanceNotEnough
+    ETHBalanceNotEnough,
+    WETHBalanceNotEnough
 } from "../../src/interfaces/IAssetManager.sol";
 import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IGuard.sol";
 import {ILendingProtocol} from "protocol-contracts/src/interfaces/ILendingProtocol.sol";
@@ -24,8 +36,45 @@ import {BittyVault} from "../../src/BittyVault.sol";
 import {AddingAssetsDisabled} from "../../src/interfaces/IVault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {IProtocol} from "protocol-contracts/src/interfaces/IProtocol.sol";
+import {IAMMProtocol} from "protocol-contracts/src/interfaces/IAMMProtocol.sol";
 import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
+
+/// @dev Consumes half of sellAmount, triggering SellAmountMismatch.
+contract MockAMMSellMismatch is IProtocol, IAMMProtocol {
+    function initialize(address) external {}
+
+    function swap(bytes calldata data) external payable {
+        (address sellToken, uint256 sellAmount_,,) = abi.decode(data, (address, uint256, address, uint256));
+        IERC20(sellToken).transferFrom(msg.sender, address(this), sellAmount_ / 2);
+    }
+
+    function addLiquidity(bytes calldata) external {}
+    function removeLiquidity(bytes calldata) external {}
+    function claimAMMFees(bytes calldata) external {}
+
+    function getLiquidity(bytes calldata) external view returns (uint256) {
+        return 0;
+    }
+}
+
+/// @dev Consumes exact sellAmount but returns no buy tokens, triggering BuyAmountNotEnough.
+contract MockAMMBuyNotEnough is IProtocol, IAMMProtocol {
+    function initialize(address) external {}
+
+    function swap(bytes calldata data) external payable {
+        (address sellToken, uint256 sellAmount_,,) = abi.decode(data, (address, uint256, address, uint256));
+        IERC20(sellToken).transferFrom(msg.sender, address(this), sellAmount_);
+    }
+
+    function addLiquidity(bytes calldata) external {}
+    function removeLiquidity(bytes calldata) external {}
+    function claimAMMFees(bytes calldata) external {}
+
+    function getLiquidity(bytes calldata) external view returns (uint256) {
+        return 0;
+    }
+}
 
 contract TestAssetManager is ProtocolTestSetup, BittyVault {
     using Clones for address;
@@ -896,5 +945,394 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
 
         assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProtocol), 0);
         assertApproxEqAbs(IStakingProtocol(clonedProtocol).getStakedBalance(mainnet.WETH), stakeAmount, 10);
+    }
+
+    // ─── WETHToETH ────────────────────────────────────────────────────────────
+
+    function test_WETHToETH_revertsWhenInsufficientWETH() public {
+        this.doInitialize();
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(WETHBalanceNotEnough.selector);
+        this.WETHToETH(1 ether);
+    }
+
+    // ─── setRebalanceConfig ───────────────────────────────────────────────────
+
+    function test_SetRebalanceConfig_revertsWhenAddressZero() public {
+        this.doInitialize();
+        RebalanceConfig memory config = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
+        vm.expectRevert(AddressZero.selector);
+        vm.prank(ownerAddress);
+        this.setRebalanceConfig(address(0), config);
+    }
+
+    // ─── Lending: withdraw ────────────────────────────────────────────────────
+
+    function test_Withdraw_revertsWhenInsufficientBalance() public {
+        this.doInitialize();
+        uint256 supplyAmount = 0.1 ether;
+        deal(mainnet.WETH, address(this), supplyAmount);
+        vm.prank(assetManagerAddress);
+        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
+
+        uint256 withdrawAmount = supplyAmount * 10;
+        vm.expectRevert(InsufficientBalance.selector);
+        vm.prank(assetManagerAddress);
+        this.withdraw(address(aaveProtocol), mainnet.WETH, withdrawAmount);
+    }
+
+    // ─── Staking ──────────────────────────────────────────────────────────────
+
+    function test_Stake_revertsWhenDeprecated() public {
+        this.doInitialize();
+        vm.prank(tx.origin);
+        BittyGuard(guardAddress).deprecateStakingProtocols(stakingProtocols);
+        deal(mainnet.WETH, address(this), 1 ether);
+        vm.expectRevert(Deprecated.selector);
+        vm.prank(assetManagerAddress);
+        this.stake(address(lidoProtocol), mainnet.WETH, 1 ether);
+    }
+
+    function test_Stake_revertsWhenAssetAddressZero() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+        vm.expectRevert(AddressZero.selector);
+        vm.prank(assetManagerAddress);
+        this.stake(address(lidoProtocol), address(0), 1 ether);
+    }
+
+    function test_Unstake_revertsWhenAssetAddressZero() public {
+        this.doInitialize();
+        vm.expectRevert(AddressZero.selector);
+        vm.prank(assetManagerAddress);
+        this.unstake(address(lidoProtocol), address(0), 1 ether);
+    }
+
+    function test_Unstake_revertsWhenInsufficientBalance() public {
+        this.doInitialize();
+        uint256 stakeAmount = 0.1 ether;
+        deal(mainnet.WETH, address(this), stakeAmount);
+        vm.prank(assetManagerAddress);
+        this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
+
+        vm.expectRevert(InsufficientBalance.selector);
+        vm.prank(assetManagerAddress);
+        this.unstake(address(lidoProtocol), mainnet.WETH, stakeAmount * 10);
+    }
+
+    function test_GetStakedBalance_revertsWhenAssetAddressZero() public {
+        this.doInitialize();
+        vm.expectRevert(AddressZero.selector);
+        this.getStakedBalance(address(lidoProtocol), address(0));
+    }
+
+    // ─── disableRebalanceUntilTimestamp ───────────────────────────────────────
+
+    function test_DisableRebalanceUntilTimestamp_zeroIsNoOp() public {
+        this.doInitialize();
+        vm.prank(assetManagerAddress);
+        this.disableRebalanceUntilTimestamp(0);
+        RebalanceConfig memory config = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
+        vm.prank(ownerAddress);
+        this.setRebalanceConfig(mainnet.WETH, config);
+        uint256 sellAmount = 0.01 ether;
+        deal(mainnet.WETH, address(this), sellAmount);
+        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, 1);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+    }
+
+    // ─── Protocol management: NotRegistered and AddingProtocolsDisabled ───────
+
+    function test_AddLendingProtocols_revertsWhenNotRegisteredInGuard() public {
+        this.doInitialize();
+        address[] memory protocols = new address[](1);
+        protocols[0] = makeAddr("unregisteredLending");
+        vm.expectRevert(NotRegistered.selector);
+        vm.prank(ownerAddress);
+        this.addLendingProtocols(protocols);
+    }
+
+    function test_AddStakingProtocols_revertsWhenNotRegisteredInGuard() public {
+        this.doInitialize();
+        address[] memory protocols = new address[](1);
+        protocols[0] = makeAddr("unregisteredStaking");
+        vm.expectRevert(NotRegistered.selector);
+        vm.prank(ownerAddress);
+        this.addStakingProtocols(protocols);
+    }
+
+    function test_AddAMMProtocols_revertsWhenNotRegisteredInGuard() public {
+        this.doInitialize();
+        address[] memory protocols = new address[](1);
+        protocols[0] = makeAddr("unregisteredAMM");
+        vm.expectRevert(NotRegistered.selector);
+        vm.prank(ownerAddress);
+        this.addAMMProtocols(protocols);
+    }
+
+    function test_AddLendingProtocols_revertsWhenProtocolsDisabled() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.disableAddingProtocols();
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        vm.prank(ownerAddress);
+        this.addLendingProtocols(new address[](0));
+    }
+
+    function test_AddStakingProtocols_revertsWhenProtocolsDisabled() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.disableAddingProtocols();
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        vm.prank(ownerAddress);
+        this.addStakingProtocols(new address[](0));
+    }
+
+    function test_AddAMMProtocols_revertsWhenProtocolsDisabled() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.disableAddingProtocols();
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        vm.prank(ownerAddress);
+        this.addAMMProtocols(new address[](0));
+    }
+
+    // ─── AMM: _checkAMMProtocol ───────────────────────────────────────────────
+
+    function test_Rebalance_revertsWhenAMMProtocolNotInVault() public {
+        this.doInitialize();
+        address fakeAMM = makeAddr("fakeAMM");
+        bytes memory swapData = abi.encode(mainnet.WETH, uint256(0.01 ether), mainnet.USDT, uint256(1));
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(fakeAMM, mainnet.WETH, mainnet.USDT, 0.01 ether, 1, swapData);
+    }
+
+    function test_Rebalance_revertsWhenAMMRemovedFromGuard() public {
+        this.doInitialize();
+        // Guard prevents removing all AMM protocols, so add a spare before removing the real one.
+        address spareAMM = makeAddr("spareAMM");
+        address[] memory spareArr = new address[](1);
+        spareArr[0] = spareAMM;
+        vm.startPrank(tx.origin);
+        BittyGuard(guardAddress).addAMMProtocols(spareArr);
+        BittyGuard(guardAddress).removeAMMProtocols(ammProtocols);
+        vm.stopPrank();
+        bytes memory swapData = abi.encode(mainnet.WETH, uint256(0.01 ether), mainnet.USDT, uint256(1));
+        vm.expectRevert(NotRegistered.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, swapData);
+    }
+
+    // ─── AMM: addLiquidity / removeLiquidity / claimAMMFees / getLiquidity ────
+
+    function test_AddLiquidity_revertsWhenCloneNotExists() public {
+        this.doInitialize();
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        vm.prank(assetManagerAddress);
+        this.addLiquidity(address(uniswapV3Protocol), address(0), 0, address(0), 0, "");
+    }
+
+    function test_RemoveLiquidity_revertsWhenCloneNotExists() public {
+        this.doInitialize();
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        vm.prank(assetManagerAddress);
+        this.removeLiquidity(address(uniswapV3Protocol), "");
+    }
+
+    function test_ClaimAMMFees_revertsWhenCloneNotExists() public {
+        this.doInitialize();
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        vm.prank(assetManagerAddress);
+        this.claimAMMFees(address(uniswapV3Protocol), "");
+    }
+
+    function test_GetLiquidity_returnsZeroWhenNotCloned() public {
+        this.doInitialize();
+        assertEq(this.getLiquidity(address(uniswapV3Protocol), ""), 0);
+    }
+
+    function test_GetLiquidity_revertsWhenInvalidAMMProtocol() public {
+        this.doInitialize();
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        this.getLiquidity(makeAddr("invalid"), "");
+    }
+
+    // ─── _swap error paths ────────────────────────────────────────────────────
+
+    function test_Rebalance_revertsWhenSellAmountIsZero() public {
+        this.doInitialize();
+        bytes memory swapData = abi.encode(mainnet.WETH, uint256(0), mainnet.USDT, uint256(1));
+        vm.expectRevert(AmountIsZero.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0, 1, swapData);
+    }
+
+    function test_Rebalance_revertsWhenBuyAmountMinIsZero() public {
+        this.doInitialize();
+        bytes memory swapData = abi.encode(mainnet.WETH, uint256(0.01 ether), mainnet.USDT, uint256(0));
+        vm.expectRevert(AmountIsZero.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.01 ether, 0, swapData);
+    }
+
+    function test_Rebalance_revertsWhenSwapDataMismatch() public {
+        this.doInitialize();
+        uint256 sellAmount = 0.01 ether;
+        deal(mainnet.WETH, address(this), sellAmount);
+        bytes memory swapData = abi.encode(mainnet.WETH, sellAmount * 2, mainnet.USDT, uint256(1));
+        vm.expectRevert(InvalidSwapData.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+    }
+
+    function test_Rebalance_revertsWhenInsufficientSellBalance() public {
+        this.doInitialize();
+        uint256 sellAmount = 1 ether;
+        bytes memory swapData = abi.encode(mainnet.WETH, sellAmount, mainnet.USDT, uint256(1));
+        vm.expectRevert(InsufficientBalance.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+    }
+
+    // ─── NotInitialized ───────────────────────────────────────────────────────────
+
+    function _setupRolesOnly() internal {
+        _grantRole(DEFAULT_ADMIN_ROLE, ownerAddress);
+        _grantRole(ASSET_MANAGER_ROLE, assetManagerAddress);
+    }
+
+    function test_Supply_revertsWhenNotInitialized() public {
+        _setupRolesOnly();
+        vm.expectRevert(NotInitialized.selector);
+        vm.prank(assetManagerAddress);
+        this.supply(address(aaveProtocol), mainnet.WETH, 1 ether);
+    }
+
+    function test_AddReceiver_revertsWhenNotInitialized() public {
+        _setupRolesOnly();
+        IVault.Receiver memory r = IVault.Receiver({
+            receiverAddress: makeAddr("r"),
+            trigger: address(0),
+            assetAddress: mainnet.WETH,
+            amount: 1 ether,
+            paymentCount: 1,
+            startTimestamp: block.timestamp,
+            durationTimestamp: 0,
+            isImmutable: false,
+            payWithInsufficientBalance: false
+        });
+        vm.expectRevert(NotInitialized.selector);
+        vm.prank(ownerAddress);
+        this.addReceiver("alice", r);
+    }
+
+    // ─── Mock AMM: SellAmountMismatch and BuyAmountNotEnough ─────────────────
+
+    function _deployAndRegisterMockAMM(address mockImpl) internal returns (address[] memory arr) {
+        arr = new address[](1);
+        arr[0] = mockImpl;
+        vm.startPrank(tx.origin);
+        BittyGuard(guardAddress).addAMMProtocols(arr);
+        vm.stopPrank();
+        vm.prank(ownerAddress);
+        this.addAMMProtocols(arr);
+    }
+
+    function test_Rebalance_revertsSellAmountMismatch() public {
+        this.doInitialize();
+        address mock = address(new MockAMMSellMismatch());
+        address[] memory arr = _deployAndRegisterMockAMM(mock);
+
+        uint256 sellAmount = 0.02 ether;
+        deal(mainnet.WETH, address(this), sellAmount);
+        bytes memory swapData = abi.encode(mainnet.WETH, sellAmount, mainnet.USDT, uint256(1));
+
+        vm.expectRevert(SellAmountMismatch.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(arr[0], mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+    }
+
+    function test_Rebalance_revertsBuyAmountNotEnough() public {
+        this.doInitialize();
+        address mock = address(new MockAMMBuyNotEnough());
+        address[] memory arr = _deployAndRegisterMockAMM(mock);
+
+        uint256 sellAmount = 0.02 ether;
+        uint256 buyAmountMin = 1000;
+        deal(mainnet.WETH, address(this), sellAmount);
+        bytes memory swapData = abi.encode(mainnet.WETH, sellAmount, mainnet.USDT, buyAmountMin);
+
+        vm.expectRevert(BuyAmountNotEnough.selector);
+        vm.prank(assetManagerAddress);
+        this.rebalance(arr[0], mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+    }
+
+    // ─── addLiquidity / removeLiquidity / claimAMMFees / getLiquidity ─────────
+    // Clone is created lazily by rebalance. These calls reach the success-path
+    // lines even though Uniswap reverts on bad data.
+
+    function _createUniswapClone() internal {
+        uint256 sellAmount = 0.01 ether;
+        deal(mainnet.WETH, address(this), sellAmount);
+        RebalanceConfig memory cfg = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
+        vm.prank(ownerAddress);
+        this.setRebalanceConfig(mainnet.WETH, cfg);
+        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, 1);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+    }
+
+    function test_AddLiquidity_withExistingClone() public {
+        this.doInitialize();
+        _createUniswapClone();
+        vm.expectRevert();
+        vm.prank(assetManagerAddress);
+        this.addLiquidity(address(uniswapV3Protocol), mainnet.WETH, 1, mainnet.USDT, 1, "");
+    }
+
+    function test_RemoveLiquidity_withExistingClone() public {
+        this.doInitialize();
+        _createUniswapClone();
+        vm.expectRevert();
+        vm.prank(assetManagerAddress);
+        this.removeLiquidity(address(uniswapV3Protocol), "");
+    }
+
+    function test_ClaimAMMFees_withExistingClone() public {
+        this.doInitialize();
+        _createUniswapClone();
+        vm.expectRevert();
+        vm.prank(assetManagerAddress);
+        this.claimAMMFees(address(uniswapV3Protocol), "");
+    }
+
+    function test_GetLiquidity_withExistingClone() public {
+        this.doInitialize();
+        _createUniswapClone();
+        // Uniswap reverts for any tokenId that has no position.
+        vm.expectRevert();
+        this.getLiquidity(address(uniswapV3Protocol), abi.encode(uint256(0)));
+    }
+
+    // ─── _updateRebalanceTimestamps for `to` asset ────────────────────────────
+
+    function test_Rebalance_updatesTimestampForToAsset() public {
+        this.doInitialize();
+        RebalanceConfig memory config = RebalanceConfig({minimalBalance: 0, minimalDuration: 7 days, maxAmount: 0});
+        vm.prank(ownerAddress);
+        this.setRebalanceConfig(mainnet.WETH, config);
+        vm.prank(ownerAddress);
+        this.setRebalanceConfig(mainnet.USDT, config);
+
+        uint256 sellAmount = 0.01 ether;
+        deal(mainnet.WETH, address(this), sellAmount);
+        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, 1);
+        vm.prank(assetManagerAddress);
+        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+
+        assertGt(this.lastRebalanceTimestamps(mainnet.WETH), 0, "from timestamp should be set");
+        assertGt(this.lastRebalanceTimestamps(mainnet.USDT), 0, "to timestamp should be set");
     }
 }

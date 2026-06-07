@@ -8,6 +8,7 @@ import {VaultLogic} from "../../src/logic/VaultLogic.sol";
 import {
     IVault,
     AmountIsZero,
+    AddressZero,
     ReceiverNotFound,
     ReceiverNameAlreadyExists,
     ReceiverImmutable,
@@ -15,6 +16,8 @@ import {
     ReceiverDurationTooShort,
     NewReceiverProtectionOutOfRange,
     ReceiverProtectionNotEnded,
+    ReceiverInDuration,
+    ReceiverTriggerError,
     OnlyReceiver,
     ReceiverNotStartYet,
     PayMoreThanReceiverAmount,
@@ -22,8 +25,10 @@ import {
     InsufficientBalance,
     OwnerAndAssetManagerMustDiffer
 } from "../../src/interfaces/IVault.sol";
+import {IAssetManager} from "../../src/interfaces/IAssetManager.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {BittyGuard} from "guard-contracts/src/BittyGuard.sol";
+import {NotRegistered} from "guard-contracts/src/interfaces/IGuard.sol";
 
 contract BittyVaultTest is Test {
     BittyVault public vault;
@@ -1357,5 +1362,455 @@ contract BittyVaultTest is Test {
         vm.prank(ownerAddress);
         vault.setName("new name");
         assertEq(address(vault), vaultAddr, "vault address unchanged after rename");
+    }
+
+    // ===== Guard helpers =====
+
+    // ownerAddress == tx.origin is the DEFAULT_ADMIN_ROLE holder in the guard
+    // (the guard was deployed by tx.origin in setUp, not by address(this)).
+    function _registerInGuard(
+        address asset,
+        address stablecoin,
+        address lendingProtocol,
+        address stakingProtocol,
+        address ammProtocol
+    ) internal {
+        BittyGuard g = BittyGuard(guardAddress);
+        vm.startPrank(ownerAddress);
+        if (asset != address(0)) {
+            g.grantRole(g.ASSET_MANAGER_ROLE(), ownerAddress);
+            address[] memory a = new address[](1);
+            a[0] = asset;
+            g.addAssets(a);
+        }
+        if (stablecoin != address(0)) {
+            g.grantRole(g.STABLE_COIN_MANAGER_ROLE(), ownerAddress);
+            address[] memory a = new address[](1);
+            a[0] = stablecoin;
+            g.addStableCoins(a);
+        }
+        if (lendingProtocol != address(0)) {
+            g.grantRole(g.LENDING_MANAGER_ROLE(), ownerAddress);
+            address[] memory a = new address[](1);
+            a[0] = lendingProtocol;
+            g.addLendingProtocols(a);
+        }
+        if (stakingProtocol != address(0)) {
+            g.grantRole(g.STAKING_MANAGER_ROLE(), ownerAddress);
+            address[] memory a = new address[](1);
+            a[0] = stakingProtocol;
+            g.addStakingProtocols(a);
+        }
+        if (ammProtocol != address(0)) {
+            g.grantRole(g.AMM_MANAGER_ROLE(), ownerAddress);
+            address[] memory a = new address[](1);
+            a[0] = ammProtocol;
+            g.addAMMProtocols(a);
+        }
+        vm.stopPrank();
+    }
+
+    // ===== View functions =====
+
+    function test_name_equalsVaultName() public {
+        _initializeVault();
+        assertEq(vault.name(), vault.vaultName());
+        assertEq(vault.name(), "test vault");
+    }
+
+    function test_guard_returnsGuardAddress() public {
+        _initializeVault();
+        assertEq(address(vault.guard()), guardAddress);
+    }
+
+    function test_getAMMProtocols_emptyInitially() public {
+        _initializeVault();
+        assertEq(vault.getAMMProtocols().length, 0);
+    }
+
+    function test_lastRebalanceTimestamps_zeroInitially() public {
+        _initializeVault();
+        assertEq(vault.lastRebalanceTimestamps(address(weth)), 0);
+    }
+
+    function test_rebalanceConfigs_zeroInitially() public {
+        _initializeVault();
+        IAssetManager.RebalanceConfig memory cfg = vault.rebalanceConfigs(address(weth));
+        assertEq(cfg.minimalBalance, 0);
+        assertEq(cfg.minimalDuration, 0);
+        assertEq(cfg.maxAmount, 0);
+    }
+
+    function test_isAddingAssetsDisabled_falseInitially() public {
+        _initializeVault();
+        assertFalse(vault.isAddingAssetsDisabled());
+    }
+
+    function test_isAddingAssetsDisabled_trueAfterDisable() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vault.disableAddingAssets();
+        assertTrue(vault.isAddingAssetsDisabled());
+    }
+
+    function test_isAddingProtocolsDisabled_falseInitially() public {
+        _initializeVault();
+        assertFalse(vault.isAddingProtocolsDisabled());
+    }
+
+    // ===== Protocol management =====
+
+    function test_disableAddingProtocols_ownerCanDisable() public {
+        _initializeVault();
+        assertFalse(vault.isAddingProtocolsDisabled());
+        vm.prank(ownerAddress);
+        vault.disableAddingProtocols();
+        assertTrue(vault.isAddingProtocolsDisabled());
+    }
+
+    function test_disableAddingProtocols_revertUnauthorized() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.disableAddingProtocols();
+    }
+
+    function test_addLendingProtocols_ownerCanAddRegisteredProtocol() public {
+        _initializeVault();
+        address mock = makeAddr("lendingProtocol");
+        _registerInGuard(address(0), address(0), mock, address(0), address(0));
+        address[] memory protocols = new address[](1);
+        protocols[0] = mock;
+        vm.prank(ownerAddress);
+        vault.addLendingProtocols(protocols);
+        address[] memory stored = vault.getLendingProtocols();
+        assertEq(stored.length, 1);
+        assertEq(stored[0], mock);
+    }
+
+    function test_addLendingProtocols_revertUnauthorized() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.addLendingProtocols(new address[](0));
+    }
+
+    function test_removeLendingProtocols_ownerCanRemove() public {
+        _initializeVault();
+        address mock = makeAddr("lendingProtocol");
+        _registerInGuard(address(0), address(0), mock, address(0), address(0));
+        address[] memory protocols = new address[](1);
+        protocols[0] = mock;
+        vm.prank(ownerAddress);
+        vault.addLendingProtocols(protocols);
+        assertEq(vault.getLendingProtocols().length, 1);
+        vm.prank(ownerAddress);
+        vault.removeLendingProtocols(protocols);
+        assertEq(vault.getLendingProtocols().length, 0);
+    }
+
+    function test_removeLendingProtocols_revertUnauthorized() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.removeLendingProtocols(new address[](0));
+    }
+
+    function test_addStakingProtocols_ownerCanAddRegisteredProtocol() public {
+        _initializeVault();
+        address mock = makeAddr("stakingProtocol");
+        _registerInGuard(address(0), address(0), address(0), mock, address(0));
+        address[] memory protocols = new address[](1);
+        protocols[0] = mock;
+        vm.prank(ownerAddress);
+        vault.addStakingProtocols(protocols);
+        address[] memory stored = vault.getStakingProtocols();
+        assertEq(stored.length, 1);
+        assertEq(stored[0], mock);
+    }
+
+    function test_addStakingProtocols_revertUnauthorized() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.addStakingProtocols(new address[](0));
+    }
+
+    function test_removeStakingProtocols_ownerCanRemove() public {
+        _initializeVault();
+        address mock = makeAddr("stakingProtocol");
+        _registerInGuard(address(0), address(0), address(0), mock, address(0));
+        address[] memory protocols = new address[](1);
+        protocols[0] = mock;
+        vm.prank(ownerAddress);
+        vault.addStakingProtocols(protocols);
+        vm.prank(ownerAddress);
+        vault.removeStakingProtocols(protocols);
+        assertEq(vault.getStakingProtocols().length, 0);
+    }
+
+    function test_removeStakingProtocols_revertUnauthorized() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.removeStakingProtocols(new address[](0));
+    }
+
+    function test_addAMMProtocols_ownerCanAddRegisteredProtocol() public {
+        _initializeVault();
+        address mock = makeAddr("ammProtocol");
+        _registerInGuard(address(0), address(0), address(0), address(0), mock);
+        address[] memory protocols = new address[](1);
+        protocols[0] = mock;
+        vm.prank(ownerAddress);
+        vault.addAMMProtocols(protocols);
+        address[] memory stored = vault.getAMMProtocols();
+        assertEq(stored.length, 1);
+        assertEq(stored[0], mock);
+    }
+
+    function test_addAMMProtocols_revertUnauthorized() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.addAMMProtocols(new address[](0));
+    }
+
+    function test_removeAMMProtocols_ownerCanRemove() public {
+        _initializeVault();
+        address mock = makeAddr("ammProtocol");
+        _registerInGuard(address(0), address(0), address(0), address(0), mock);
+        address[] memory protocols = new address[](1);
+        protocols[0] = mock;
+        vm.prank(ownerAddress);
+        vault.addAMMProtocols(protocols);
+        vm.prank(ownerAddress);
+        vault.removeAMMProtocols(protocols);
+        assertEq(vault.getAMMProtocols().length, 0);
+    }
+
+    function test_removeAMMProtocols_revertUnauthorized() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.removeAMMProtocols(new address[](0));
+    }
+
+    // ===== Asset / stablecoin management =====
+
+    function test_removeAssets_ownerCanRemove() public {
+        _initializeVault();
+        _registerInGuard(address(weth), address(0), address(0), address(0), address(0));
+        address[] memory assets = new address[](1);
+        assets[0] = address(weth);
+        vm.prank(ownerAddress);
+        vault.addAssets(assets);
+        assertEq(vault.getAssets().length, 1);
+        vm.prank(ownerAddress);
+        vault.removeAssets(assets);
+        assertEq(vault.getAssets().length, 0);
+    }
+
+    function test_removeAssets_revertUnauthorized() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.removeAssets(new address[](0));
+    }
+
+    function test_addStableCoins_ownerCanAdd() public {
+        _initializeVault();
+        address stable = makeAddr("stablecoin");
+        _registerInGuard(address(0), stable, address(0), address(0), address(0));
+        address[] memory stables = new address[](1);
+        stables[0] = stable;
+        vm.prank(ownerAddress);
+        vault.addStableCoins(stables);
+        address[] memory stored = vault.getStableCoins();
+        assertEq(stored.length, 1);
+        assertEq(stored[0], stable);
+    }
+
+    function test_addStableCoins_revertUnauthorized() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.addStableCoins(new address[](0));
+    }
+
+    function test_removeStableCoins_ownerCanRemove() public {
+        _initializeVault();
+        address stable = makeAddr("stablecoin");
+        _registerInGuard(address(0), stable, address(0), address(0), address(0));
+        address[] memory stables = new address[](1);
+        stables[0] = stable;
+        vm.prank(ownerAddress);
+        vault.addStableCoins(stables);
+        vm.prank(ownerAddress);
+        vault.removeStableCoins(stables);
+        assertEq(vault.getStableCoins().length, 0);
+    }
+
+    function test_removeStableCoins_revertUnauthorized() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.removeStableCoins(new address[](0));
+    }
+
+    // ===== ETH / WETH =====
+
+    function test_WETHToETH_convertsWethToEth() public {
+        _initializeVault();
+        uint256 amount = 1 ether;
+        deal(address(weth), address(vault), amount);
+        vm.deal(address(weth), amount); // WETH contract needs backing ETH to fulfill withdraw()
+        uint256 ethBefore = address(vault).balance;
+        vm.prank(assetManagerAddress);
+        vault.WETHToETH(amount);
+        assertEq(address(vault).balance, ethBefore + amount);
+        assertEq(weth.balanceOf(address(vault)), 0);
+    }
+
+    function test_WETHToETH_revertUnauthorized() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 amRole = vault.ASSET_MANAGER_ROLE();
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, amRole));
+        vault.WETHToETH(1 ether);
+    }
+
+    // ===== Receiver edge cases =====
+
+    function test_PayReceiver_revertReceiverInDuration() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("r");
+        IVault.Receiver memory r = _makeReceiver(
+            receiverAddr,
+            address(0),
+            address(weth),
+            1 ether,
+            2,
+            block.timestamp,
+            VaultLogic.RECEIVER_MINIMAL_DURATION,
+            false
+        );
+        vm.prank(ownerAddress);
+        vault.addReceiver("r", r);
+        deal(address(weth), address(vault), 2 ether);
+        vault.payReceiver("r");
+        vm.expectRevert(ReceiverInDuration.selector);
+        vault.payReceiver("r");
+    }
+
+    function test_ChangeReceiverAddress_revertAddressZero() public {
+        _initializeVault();
+        address alice = makeAddr("alice");
+        IVault.Receiver memory r =
+            _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+        vm.prank(alice);
+        vm.expectRevert(AddressZero.selector);
+        vault.changeReceiverAddress("alice", address(0));
+    }
+
+    // ===== Initialize edge case =====
+
+    function test_AddReceiver_revertAddressZeroReceiver() public {
+        _initializeVault();
+        IVault.Receiver memory r =
+            _makeReceiver(address(0), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddressZero.selector);
+        vault.addReceiver("alice", r);
+    }
+
+    function test_PayReceiver_revertReceiverTriggerError() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        address trigger = makeAddr("trigger");
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, trigger, address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+        deal(address(weth), address(vault), 1 ether);
+        address wrongCaller = makeAddr("wrongCaller");
+        vm.prank(wrongCaller);
+        vm.expectRevert(ReceiverTriggerError.selector);
+        vault.payReceiver("alice");
+    }
+
+    function test_AddAssets_revertNotRegistered() public {
+        _initializeVault();
+        address[] memory assets = new address[](1);
+        assets[0] = address(weth);
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotRegistered.selector);
+        vault.addAssets(assets);
+    }
+
+    function test_AddStableCoins_revertNotRegistered() public {
+        _initializeVault();
+        address stable = makeAddr("stable");
+        address[] memory stables = new address[](1);
+        stables[0] = stable;
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotRegistered.selector);
+        vault.addStableCoins(stables);
+    }
+
+    function test_initialize_revertsWhenGuardIsZero() public {
+        vm.expectRevert(AddressZero.selector);
+        vault.initialize(
+            ownerAddress,
+            "vault",
+            assetManagerAddress,
+            address(0),
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+    }
+
+    function test_initialize_withZeroAssetManager_noRoleGranted() public {
+        vault.initialize(
+            ownerAddress,
+            "vault",
+            address(0),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        assertFalse(vault.hasRole(vault.ASSET_MANAGER_ROLE(), address(0)));
+        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
     }
 }
