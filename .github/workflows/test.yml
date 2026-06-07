@@ -51,8 +51,9 @@ jobs:
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
 
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v7.0.0
         with:
           fail_ci_if_error: true
           files: ./lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
+          skip_validation: true
