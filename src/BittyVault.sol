@@ -34,10 +34,10 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
 
     function initialize(
         address owner,
-        string memory name,
+        string memory initialName,
         address assetManagerAddress,
         address guardAddress,
-        address wethAddress,
+        address weth,
         address[] memory assetAddresses,
         address[] memory stableCoinAddresses,
         address[] memory lendingProtocols,
@@ -45,7 +45,7 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
         address[] memory ammProtocols
     ) public initializer {
         if (assetManagerAddress == owner) revert OwnerAndAssetManagerMustDiffer();
-        vaultName = name;
+        vaultName = initialName;
 
         _grantRole(DEFAULT_ADMIN_ROLE, owner);
         if (assetManagerAddress != address(0)) {
@@ -60,7 +60,7 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
             _vault.addStableCoins(stableCoinAddresses);
         }
 
-        _assetManager.initialize(guardAddress, wethAddress);
+        _assetManager.initialize(guardAddress, weth);
         if (lendingProtocols.length > 0) {
             _assetManager.addLendingProtocols(lendingProtocols);
         }
@@ -82,8 +82,8 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
         super._grantRole(role, account);
     }
 
-    function setName(string memory name) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        vaultName = name;
+    function setName(string memory newName) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        vaultName = newName;
     }
 
     // ============ AMM ============
@@ -290,24 +290,24 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
 
     // ============ Receivers (RECEIVER_MANAGER_ROLE) ============
 
-    function addReceiver(string memory name, IVault.Receiver calldata receiver_)
+    function addReceiver(string memory receiverName, IVault.Receiver calldata receiver_)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _vault.addReceiver(name, receiver_);
+        _vault.addReceiver(receiverName, receiver_);
     }
 
-    function updateReceiver(string memory name, IVault.Receiver calldata receiver_)
+    function updateReceiver(string memory receiverName, IVault.Receiver calldata receiver_)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _vault.updateReceiver(name, receiver_);
+        _vault.updateReceiver(receiverName, receiver_);
     }
 
-    function removeReceiver(string memory name) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.removeReceiver(name);
+    function removeReceiver(string memory receiverName) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.removeReceiver(receiverName);
     }
 
     // DEFAULT_ADMIN_ROLE — controls the time-lock window for new receivers
@@ -315,19 +315,19 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
         _vault.setNewReceiverProtection(newReceiverProtection);
     }
 
-    function changeReceiverAddress(string memory name, address newReceiverAddress) external override {
-        address oldReceiverAddress = _vault.getReceiverAddress(name);
+    function changeReceiverAddress(string memory receiverName, address newReceiverAddress) external override {
+        address oldReceiverAddress = _vault.getReceiverAddress(receiverName);
         if (oldReceiverAddress == address(0)) revert ReceiverNotFound();
         if (oldReceiverAddress != msg.sender) revert OnlyReceiver();
-        _vault.changeReceiverAddress(name, newReceiverAddress);
+        _vault.changeReceiverAddress(receiverName, newReceiverAddress);
     }
 
-    function payReceiver(string memory name) external override {
-        _vault.payReceiver(name);
+    function payReceiver(string memory receiverName) external override {
+        _vault.payReceiver(receiverName);
     }
 
-    function payReceiverAmount(string memory name, uint256 amount) external override {
-        _vault.payReceiverAmount(name, amount);
+    function payReceiverAmount(string memory receiverName, uint256 amount) external override {
+        _vault.payReceiverAmount(receiverName, amount);
     }
 
     // ============ View ============
