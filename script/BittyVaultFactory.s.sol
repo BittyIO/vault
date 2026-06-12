@@ -19,7 +19,7 @@ interface ImmutableCreate2Factory {
 contract Deploy is DeployScript {
     ImmutableCreate2Factory immutable factory = ImmutableCreate2Factory(0x0000000000FFe8B47B3e2130213B802212439497);
 
-    bytes32 salt = 0x0000000000000000000000000000000000000000352efb6f7e2a50001d6e1c6f;
+    bytes32 salt = 0x00000000000000000000000000000000000000009e9784e1310e90005d0ffb1e;
 
     function deploy() public override {
         bytes memory initCode = type(BittyVaultFactory).creationCode;
