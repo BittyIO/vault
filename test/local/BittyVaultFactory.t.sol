@@ -716,4 +716,3 @@ contract BittyVaultFactoryTest is Test {
         assertEq(BittyVault(payable(vault)).vaultName(), "my savings");
     }
 }
-
