@@ -24,6 +24,7 @@ import {
     ReceiverInDuration,
     AddingAssetsDisabled,
     ReceiverDurationTooShort,
+    AssetAddressNotContract,
     NewReceiverProtectionOutOfRange,
     ReceiverProtectionNotEnded,
     PayMoreThanReceiverAmount,
@@ -124,9 +125,12 @@ library VaultLogic {
         vaultStorage.receivers[name] = receiver;
     }
 
-    function _checkReceiver(IVault.Receiver memory receiver) internal pure {
+    function _checkReceiver(IVault.Receiver memory receiver) internal view {
         if (receiver.receiverAddress == address(0)) {
             revert AddressZero();
+        }
+        if (receiver.assetAddress.code.length == 0) {
+            revert AssetAddressNotContract();
         }
         if (receiver.amount == 0) {
             revert AmountIsZero();

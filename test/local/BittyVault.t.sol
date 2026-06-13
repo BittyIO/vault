@@ -13,6 +13,7 @@ import {
     ReceiverImmutable,
     ReceiverPaymentCountZero,
     ReceiverDurationTooShort,
+    AssetAddressNotContract,
     NewReceiverProtectionOutOfRange,
     ReceiverProtectionNotEnded,
     OnlyReceiver,
@@ -292,6 +293,27 @@ contract BittyVaultTest is Test {
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _receiverRole));
+        vault.addReceiver("alice", r);
+    }
+
+    function test_AddReceiverRevertAssetAddressNotContract() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            assetManagerAddress,
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+        IVault.Receiver memory r = _makeReceiver(
+            makeAddr("receiver"), address(0), makeAddr("eoaAsset"), 1 ether, 1, block.timestamp, 0, false
+        );
+        vm.prank(ownerAddress);
+        vm.expectRevert(AssetAddressNotContract.selector);
         vault.addReceiver("alice", r);
     }
 
