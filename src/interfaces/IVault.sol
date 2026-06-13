@@ -18,6 +18,7 @@ error ReceiverTriggerError();
 error ReceiverNotStartYet();
 error ReceiverInDuration();
 error ReceiverDurationTooShort();
+error AssetAddressNotContract();
 error NewReceiverProtectionOutOfRange();
 error ReceiverProtectionNotEnded();
 error PayMoreThanReceiverAmount();
