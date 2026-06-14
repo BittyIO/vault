@@ -1124,6 +1124,123 @@ contract BittyVaultTest is Test {
         vault.payReceiver("alice");
     }
 
+    // ─── Receiver Events ──────────────────────────────────────────────────────
+
+    function test_AddReceiver_emitsReceiverAddedEvent() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit IVault.ReceiverAdded("alice", r);
+
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+    }
+
+    function test_UpdateReceiver_emitsReceiverUpdatedEvent() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        IVault.Receiver memory r =
+            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        IVault.Receiver memory updated =
+            _makeReceiver(receiverAddr, address(0), address(weth), 2 ether, 2, block.timestamp, 2 days, false);
+
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit IVault.ReceiverUpdated("alice", updated);
+
+        vm.prank(ownerAddress);
+        vault.updateReceiver("alice", updated);
+    }
+
+    function test_RemoveReceiver_emitsReceiverRemovedEvent() public {
+        _initializeVault();
+        _addReceiver("alice", makeAddr("receiver"), 1 ether, 1, 0);
+
+        vm.expectEmit(true, false, false, false, address(vault));
+        emit IVault.ReceiverRemoved("alice");
+
+        vm.prank(ownerAddress);
+        vault.removeReceiver("alice");
+    }
+
+    function test_ChangeReceiverAddress_emitsReceiverAddressChangedEvent() public {
+        _initializeVault();
+        address alice = makeAddr("alice");
+        address bob = makeAddr("bob");
+        _addReceiver("alice", alice, 1 ether, 1, 0);
+
+        vm.expectEmit(true, true, true, false, address(vault));
+        emit IVault.ReceiverAddressChanged("alice", alice, bob);
+        vm.prank(alice);
+        vault.changeReceiverAddress("alice", bob);
+    }
+
+    function test_SetNewReceiverProtection_emitsNewReceiverProtectionSetEvent() public {
+        _initializeVault();
+        uint256 protection = 1 days;
+
+        vm.expectEmit(false, false, false, true, address(vault));
+        emit IVault.NewReceiverProtectionSet(protection);
+
+        vm.prank(ownerAddress);
+        vault.setNewReceiverProtection(protection);
+    }
+
+    function test_PayReceiver_emitsReceiverPaidEvent() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        _addReceiver("alice", receiverAddr, 1 ether, 2, VaultLogic.RECEIVER_MINIMAL_DURATION);
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit IVault.ReceiverPaid("alice", receiverAddr, address(weth), 1 ether, 1);
+
+        vault.payReceiver("alice");
+    }
+
+    function test_PayReceiverAmount_emitsReceiverPaidEvent() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        address trigger = makeAddr("trigger");
+        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.prank(trigger);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit IVault.ReceiverPaid("alice", receiverAddr, address(weth), 1 ether, 0);
+        vault.payReceiverAmount("alice", 1 ether);
+    }
+
+    function test_PayReceiver_emitsReceiverPaidEvent_withPartialBalance() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        uint256 vaultBalance = 0.5 ether;
+        IVault.Receiver memory r = IVault.Receiver({
+            receiverAddress: receiverAddr,
+            trigger: address(0),
+            assetAddress: address(weth),
+            amount: 1 ether,
+            paymentCount: 1,
+            startTimestamp: block.timestamp,
+            durationTimestamp: 0,
+            isImmutable: false,
+            payWithInsufficientBalance: true
+        });
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+        deal(address(weth), address(vault), vaultBalance);
+
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit IVault.ReceiverPaid("alice", receiverAddr, address(weth), vaultBalance, 0);
+
+        vault.payReceiver("alice");
+    }
+
     // ─── Fuzz Tests ───────────────────────────────────────────────────────────
 
     function testFuzz_AddReceiver_validAmountAndCount(uint256 amount, uint8 paymentCount) public {

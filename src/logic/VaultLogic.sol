@@ -90,6 +90,7 @@ library VaultLogic {
         if (vaultStorage.newReceiverProtection != 0) {
             vaultStorage.newReceiverProtectionTimestamps[name] = block.timestamp + vaultStorage.newReceiverProtection;
         }
+        emit IVault.ReceiverAdded(name, receiver);
     }
 
     function getReceiverAddress(VaultStorage storage vaultStorage, string memory name) external view returns (address) {
@@ -107,7 +108,9 @@ library VaultLogic {
         if (newReceiverAddress == address(0)) {
             revert AddressZero();
         }
+        address oldReceiverAddress = receiver.receiverAddress;
         receiver.receiverAddress = newReceiverAddress;
+        emit IVault.ReceiverAddressChanged(name, oldReceiverAddress, newReceiverAddress);
     }
 
     function updateReceiver(VaultStorage storage vaultStorage, string memory name, IVault.Receiver memory receiver)
@@ -123,6 +126,7 @@ library VaultLogic {
         }
         _checkReceiver(receiver);
         vaultStorage.receivers[name] = receiver;
+        emit IVault.ReceiverUpdated(name, receiver);
     }
 
     function _checkReceiver(IVault.Receiver memory receiver) internal view {
@@ -149,6 +153,7 @@ library VaultLogic {
     {
         delete vaultStorage.receivers[name];
         delete vaultStorage.newReceiverProtectionTimestamps[name];
+        emit IVault.ReceiverRemoved(name);
     }
 
     function setNewReceiverProtection(VaultStorage storage vaultStorage, uint256 newReceiverProtection)
@@ -159,6 +164,7 @@ library VaultLogic {
             revert NewReceiverProtectionOutOfRange();
         }
         vaultStorage.newReceiverProtection = newReceiverProtection;
+        emit IVault.NewReceiverProtectionSet(newReceiverProtection);
     }
 
     function payReceiver(VaultStorage storage vaultStorage, string memory name) external {
@@ -207,8 +213,11 @@ library VaultLogic {
         }
         vaultStorage.lastReceiveTimestamps[name] = block.timestamp;
         receiver.paymentCount = receiver.paymentCount - 1;
-        _transferMoney(
+        uint256 paidAmount = _transferMoney(
             receiver.assetAddress, receiver.amount, receiver.receiverAddress, receiver.payWithInsufficientBalance
+        );
+        emit IVault.ReceiverPaid(
+            name, receiver.receiverAddress, receiver.assetAddress, paidAmount, receiver.paymentCount
         );
     }
 
@@ -217,13 +226,14 @@ library VaultLogic {
         uint256 amount,
         address receiverAddress,
         bool payWithInsufficientBalance
-    ) internal {
+    ) internal returns (uint256 paidAmount) {
         IERC20 asset = IERC20(erc20Address);
         uint256 balance = asset.balanceOf(address(this));
         if (!payWithInsufficientBalance && balance < amount) {
             revert InsufficientBalance();
         }
-        asset.safeTransfer(receiverAddress, balance < amount ? balance : amount);
+        paidAmount = balance < amount ? balance : amount;
+        asset.safeTransfer(receiverAddress, paidAmount);
     }
 
     function addAssets(VaultStorage storage vaultStorage, address[] memory assetAddresses)
