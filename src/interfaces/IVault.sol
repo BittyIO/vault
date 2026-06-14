@@ -47,6 +47,21 @@ interface IVault {
     event AssetsLocked();
     event ProtocolsLocked();
 
+    event ReceiverAdded(string indexed name, Receiver receiver);
+    event ReceiverUpdated(string indexed name, Receiver receiver);
+    event ReceiverRemoved(string indexed name);
+    event ReceiverAddressChanged(
+        string indexed name, address indexed oldReceiverAddress, address indexed newReceiverAddress
+    );
+    event NewReceiverProtectionSet(uint256 protectionDuration);
+    event ReceiverPaid(
+        string indexed name,
+        address indexed receiverAddress,
+        address indexed assetAddress,
+        uint256 amount,
+        uint8 remainingPaymentCount
+    );
+
     struct Receiver {
         // a more complex receiver contract can be implemented for advanced users out of this repo
         address receiverAddress;
