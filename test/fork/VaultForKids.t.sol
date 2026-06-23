@@ -59,12 +59,11 @@ contract VaultForKidsForkTest is Test {
 
     function _deployKidsVaultViaFactory() internal {
         address expected = factory.computeVaultAddress(parentOwner, VAULT_NAME);
-        address vaultAddr = factory.deployVault(
+        address vaultAddr = factory.deployVaultWithSelected(
             parentOwner,
             VAULT_NAME,
-            address(0),
-            assetAddresses,
             new address[](0),
+            assetAddresses,
             new address[](0),
             new address[](0),
             new address[](0)
