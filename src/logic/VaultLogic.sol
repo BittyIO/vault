@@ -244,10 +244,13 @@ library VaultLogic {
             revert AddingAssetsDisabled();
         }
         for (uint256 i = 0; i < assetAddresses.length; i++) {
-            if (!vaultStorage.guard.isAssetRegistered(assetAddresses[i])) {
+            if (vaultStorage.guard.isAssetRegistered(assetAddresses[i])) {
+                vaultStorage.assets.add(assetAddresses[i]);
+            } else if (vaultStorage.guard.isStableCoinRegistered(assetAddresses[i])) {
+                vaultStorage.stableCoins.add(assetAddresses[i]);
+            } else {
                 revert NotRegistered();
             }
-            vaultStorage.assets.add(assetAddresses[i]);
         }
     }
 
@@ -260,28 +263,13 @@ library VaultLogic {
         onlyInitialized(vaultStorage)
     {
         for (uint256 i = 0; i < assetAddresses.length; i++) {
-            vaultStorage.assets.remove(assetAddresses[i]);
-        }
-    }
-
-    function addStableCoins(VaultStorage storage vaultStorage, address[] memory stableCoinAddresses)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            if (!vaultStorage.guard.isStableCoinRegistered(stableCoinAddresses[i])) {
+            if (vaultStorage.assets.contains(assetAddresses[i])) {
+                vaultStorage.assets.remove(assetAddresses[i]);
+            } else if (vaultStorage.stableCoins.contains(assetAddresses[i])) {
+                vaultStorage.stableCoins.remove(assetAddresses[i]);
+            } else {
                 revert NotRegistered();
             }
-            vaultStorage.stableCoins.add(stableCoinAddresses[i]);
-        }
-    }
-
-    function removeStableCoins(VaultStorage storage vaultStorage, address[] memory stableCoinAddresses)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            vaultStorage.stableCoins.remove(stableCoinAddresses[i]);
         }
     }
 

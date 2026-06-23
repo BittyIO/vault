@@ -24,7 +24,9 @@ import {
     OwnerAndAssetManagerMustDiffer
 } from "../../src/interfaces/IVault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
+import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {BittyGuard} from "guard-contracts/src/BittyGuard.sol";
+import {NotRegistered} from "guard-contracts/src/interfaces/IGuard.sol";
 
 contract BittyVaultTest is Test {
     BittyVault public vault;
@@ -39,6 +41,11 @@ contract BittyVaultTest is Test {
         guardAddress = address(new BittyGuard());
         ownerAddress = tx.origin;
         assetManagerAddress = makeAddr("assetManager");
+    }
+
+    function _assetManagers(address manager) internal pure returns (address[] memory managers) {
+        managers = new address[](1);
+        managers[0] = manager;
     }
 
     function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
@@ -101,10 +108,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -127,10 +133,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            ownerAddress, // assetManager == owner — must revert
+            _assetManagers(ownerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -142,16 +147,58 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
             new address[](0)
         );
         assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), assetManagerAddress));
+    }
+
+    function test_InitGrantsMultipleAssetManagers() public {
+        address manager1 = makeAddr("manager1");
+        address manager2 = makeAddr("manager2");
+        address[] memory assetManagers = new address[](2);
+        assetManagers[0] = manager1;
+        assetManagers[1] = manager2;
+
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            assetManagers,
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
+
+        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), manager1));
+        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), manager2));
+    }
+
+    function test_InitRevertsWhenAnyAssetManagerIsOwner() public {
+        address manager1 = makeAddr("manager1");
+        address[] memory assetManagers = new address[](2);
+        assetManagers[0] = manager1;
+        assetManagers[1] = ownerAddress;
+
+        vm.expectRevert(OwnerAndAssetManagerMustDiffer.selector);
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            assetManagers,
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
     }
 
     function test_GrantRoleRevertsIfOwnerGrantsAssetManagerRoleToSelf() public {
@@ -167,10 +214,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetMgr,
+            _assetManagers(assetMgr),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -186,10 +232,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -199,10 +244,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -214,10 +258,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -234,10 +277,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -256,10 +298,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -278,10 +319,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -300,10 +340,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -321,10 +360,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -341,10 +379,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -361,10 +398,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -389,10 +425,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -408,10 +443,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -440,10 +474,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -472,10 +505,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -495,10 +527,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -515,10 +546,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -538,10 +568,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -563,10 +592,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -586,10 +614,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -610,10 +637,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -633,10 +659,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -650,10 +675,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -674,10 +698,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -698,10 +721,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -722,10 +744,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -750,10 +771,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -1416,10 +1436,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "test vault",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -1436,10 +1455,9 @@ contract BittyVaultTest is Test {
         vault.initialize(
             ownerAddress,
             "",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
-            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -1496,5 +1514,99 @@ contract BittyVaultTest is Test {
         vm.prank(ownerAddress);
         vault.setName("new name");
         assertEq(address(vault), vaultAddr, "vault address unchanged after rename");
+    }
+
+    // ─── Unified addAssets / removeAssets ─────────────────────────────────────
+
+    function test_AddAssets_addsRegisteredStableCoinToStableCoinsSet() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
+        address[] memory toAdd = new address[](1);
+        toAdd[0] = address(usdc);
+
+        vm.prank(tx.origin);
+        BittyGuard(guardAddress).addStableCoins(toAdd);
+
+        vm.prank(ownerAddress);
+        vault.addAssets(toAdd);
+
+        address[] memory stableCoins = vault.getStableCoins();
+        assertEq(stableCoins.length, 1);
+        assertEq(stableCoins[0], address(usdc));
+        assertEq(vault.getAssets().length, 0);
+    }
+
+    function test_AddAssets_addsRegisteredAssetToAssetsSet() public {
+        _initializeVault();
+        MockERC20 dai = new MockERC20("DAI", "DAI", 18);
+        address[] memory toAdd = new address[](1);
+        toAdd[0] = address(dai);
+
+        vm.prank(tx.origin);
+        BittyGuard(guardAddress).addAssets(toAdd);
+
+        vm.prank(ownerAddress);
+        vault.addAssets(toAdd);
+
+        address[] memory assets = vault.getAssets();
+        assertEq(assets.length, 1);
+        assertEq(assets[0], address(dai));
+        assertEq(vault.getStableCoins().length, 0);
+    }
+
+    function test_RemoveAssets_removesStableCoinFromStableCoinsSet() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
+        address[] memory toAdd = new address[](1);
+        toAdd[0] = address(usdc);
+
+        vm.prank(tx.origin);
+        BittyGuard(guardAddress).addStableCoins(toAdd);
+        vm.prank(ownerAddress);
+        vault.addAssets(toAdd);
+
+        vm.prank(ownerAddress);
+        vault.removeAssets(toAdd);
+
+        assertEq(vault.getStableCoins().length, 0);
+    }
+
+    function test_RemoveAssets_removesAssetFromAssetsSet() public {
+        _initializeVault();
+        MockERC20 dai = new MockERC20("DAI", "DAI", 18);
+        address[] memory toAdd = new address[](1);
+        toAdd[0] = address(dai);
+
+        vm.prank(tx.origin);
+        BittyGuard(guardAddress).addAssets(toAdd);
+        vm.prank(ownerAddress);
+        vault.addAssets(toAdd);
+
+        vm.prank(ownerAddress);
+        vault.removeAssets(toAdd);
+
+        assertEq(vault.getAssets().length, 0);
+    }
+
+    function test_AddAssets_revertsWhenNotRegisteredOnGuard() public {
+        _initializeVault();
+        address unregistered = makeAddr("unregistered");
+        address[] memory toAdd = new address[](1);
+        toAdd[0] = unregistered;
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotRegistered.selector);
+        vault.addAssets(toAdd);
+    }
+
+    function test_RemoveAssets_revertsWhenNotInVault() public {
+        _initializeVault();
+        address unregistered = makeAddr("unregistered");
+        address[] memory toRemove = new address[](1);
+        toRemove[0] = unregistered;
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotRegistered.selector);
+        vault.removeAssets(toRemove);
     }
 }

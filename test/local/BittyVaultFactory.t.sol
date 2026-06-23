@@ -25,6 +25,7 @@ contract BittyVaultFactoryTest is Test {
     address public uniswapV4RouterAddress;
     address[] public assetAddresses;
     address[] public stableCoinAddresses;
+    address[] public vaultAssetAddresses;
     address[] public lendingProtocols;
     address[] public stakingProtocols;
     address[] public ammProtocols;
@@ -66,16 +67,25 @@ contract BittyVaultFactoryTest is Test {
         IGuard(guardAddress).addLendingProtocols(lendingProtocols);
         IGuard(guardAddress).addAMMProtocols(ammProtocols);
         IGuard(guardAddress).addStakingProtocols(stakingProtocols);
+        vaultAssetAddresses = new address[](4);
+        vaultAssetAddresses[0] = wbtcAddress;
+        vaultAssetAddresses[1] = wethAddress;
+        vaultAssetAddresses[2] = usdtAddress;
+        vaultAssetAddresses[3] = usdcAddress;
         vm.stopPrank();
     }
 
+    function _assetManagers(address manager) internal pure returns (address[] memory managers) {
+        managers = new address[](1);
+        managers[0] = manager;
+    }
+
     function _deployVault(address owner, string memory name, address assetManager) internal returns (address) {
-        return factory.deployVault(
+        return factory.deployVaultWithSelected(
             owner,
             name,
-            assetManager,
-            assetAddresses,
-            stableCoinAddresses,
+            _assetManagers(assetManager),
+            vaultAssetAddresses,
             lendingProtocols,
             stakingProtocols,
             ammProtocols
@@ -110,12 +120,11 @@ contract BittyVaultFactoryTest is Test {
         address[] memory invalidAddressArray = new address[](1);
         invalidAddressArray[0] = makeAddr("invalidAddress");
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVault(
+        factory.deployVaultWithSelected(
             owner1,
             "main",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             invalidAddressArray,
-            stableCoinAddresses,
             lendingProtocols,
             stakingProtocols,
             ammProtocols
@@ -207,13 +216,12 @@ contract BittyVaultFactoryTest is Test {
         address[] memory invalidStableCoinArray = new address[](1);
         invalidStableCoinArray[0] = makeAddr("invalidStableCoin");
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVault(
+        factory.deployVaultWithSelected(
             owner1,
             "main",
-            assetManagerAddress,
-            assetAddresses,
-            stableCoinAddresses,
+            _assetManagers(assetManagerAddress),
             invalidStableCoinArray,
+            lendingProtocols,
             stakingProtocols,
             ammProtocols
         );
@@ -224,12 +232,11 @@ contract BittyVaultFactoryTest is Test {
         address[] memory invalidLendingProviderArray = new address[](1);
         invalidLendingProviderArray[0] = makeAddr("invalidLendingProtocol");
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVault(
+        factory.deployVaultWithSelected(
             owner1,
             "main",
-            assetManagerAddress,
-            assetAddresses,
-            stableCoinAddresses,
+            _assetManagers(assetManagerAddress),
+            vaultAssetAddresses,
             invalidLendingProviderArray,
             stakingProtocols,
             ammProtocols
@@ -241,12 +248,11 @@ contract BittyVaultFactoryTest is Test {
         address[] memory invalidAMMProviderArray = new address[](1);
         invalidAMMProviderArray[0] = makeAddr("invalidAMMProtocol");
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVault(
+        factory.deployVaultWithSelected(
             owner1,
             "main",
-            assetManagerAddress,
-            assetAddresses,
-            stableCoinAddresses,
+            _assetManagers(assetManagerAddress),
+            vaultAssetAddresses,
             lendingProtocols,
             stakingProtocols,
             invalidAMMProviderArray
@@ -255,21 +261,8 @@ contract BittyVaultFactoryTest is Test {
 
     function test_DeployVaultWithEmptyArrays() public {
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
-        address[] memory emptyAssets = new address[](0);
-        address[] memory emptyStableCoins = new address[](0);
-        address[] memory emptyLendingProtocols = new address[](0);
-        address[] memory emptyAMMProtocols = new address[](0);
 
-        address vault = factory.deployVault(
-            owner1,
-            "main",
-            assetManagerAddress,
-            emptyAssets,
-            emptyStableCoins,
-            emptyLendingProtocols,
-            stakingProtocols,
-            emptyAMMProtocols
-        );
+        address vault = factory.deployVault(owner1, "main");
 
         assertTrue(vault != address(0), "Vault should be deployed");
     }
@@ -309,12 +302,11 @@ contract BittyVaultFactoryTest is Test {
         vm.prank(tx.origin);
         IGuard(guardAddress).addAssets(newAsset);
 
-        address vault = factory.deployVault(
+        address vault = factory.deployVaultWithSelected(
             owner1,
             "main",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             multipleAssets,
-            stableCoinAddresses,
             lendingProtocols,
             stakingProtocols,
             ammProtocols
@@ -335,12 +327,19 @@ contract BittyVaultFactoryTest is Test {
         vm.prank(tx.origin);
         IGuard(guardAddress).addStableCoins(newStableCoin);
 
-        address vault = factory.deployVault(
+        address[] memory deployAssets = new address[](assetAddresses.length + multipleStableCoins.length);
+        for (uint256 i = 0; i < assetAddresses.length; i++) {
+            deployAssets[i] = assetAddresses[i];
+        }
+        for (uint256 i = 0; i < multipleStableCoins.length; i++) {
+            deployAssets[assetAddresses.length + i] = multipleStableCoins[i];
+        }
+
+        address vault = factory.deployVaultWithSelected(
             owner1,
             "main",
-            assetManagerAddress,
-            assetAddresses,
-            multipleStableCoins,
+            _assetManagers(assetManagerAddress),
+            deployAssets,
             lendingProtocols,
             stakingProtocols,
             ammProtocols
@@ -376,12 +375,11 @@ contract BittyVaultFactoryTest is Test {
         vm.prank(tx.origin);
         IGuard(guardAddress).addAMMProtocols(multipleAMMProtocols);
 
-        address vault = factory.deployVault(
+        address vault = factory.deployVaultWithSelected(
             owner1,
             "main",
-            assetManagerAddress,
-            assetAddresses,
-            stableCoinAddresses,
+            _assetManagers(assetManagerAddress),
+            vaultAssetAddresses,
             lendingProtocols,
             stakingProtocols,
             multipleAMMProtocols
@@ -398,12 +396,11 @@ contract BittyVaultFactoryTest is Test {
         mixedAssets[2] = makeAddr("invalidAsset");
 
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVault(
+        factory.deployVaultWithSelected(
             owner1,
             "main",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             mixedAssets,
-            stableCoinAddresses,
             lendingProtocols,
             stakingProtocols,
             ammProtocols
@@ -418,11 +415,10 @@ contract BittyVaultFactoryTest is Test {
         mixedStableCoins[2] = makeAddr("invalidStableCoin");
 
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVault(
+        factory.deployVaultWithSelected(
             owner1,
             "main",
-            assetManagerAddress,
-            assetAddresses,
+            _assetManagers(assetManagerAddress),
             mixedStableCoins,
             lendingProtocols,
             stakingProtocols,
@@ -443,12 +439,11 @@ contract BittyVaultFactoryTest is Test {
         IGuard(guardAddress).addLendingProtocols(validProtocol);
 
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVault(
+        factory.deployVaultWithSelected(
             owner1,
             "main",
-            assetManagerAddress,
-            assetAddresses,
-            stableCoinAddresses,
+            _assetManagers(assetManagerAddress),
+            vaultAssetAddresses,
             mixedLendingProtocols,
             stakingProtocols,
             ammProtocols
@@ -468,12 +463,11 @@ contract BittyVaultFactoryTest is Test {
         IGuard(guardAddress).addAMMProtocols(validProtocol);
 
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVault(
+        factory.deployVaultWithSelected(
             owner1,
             "main",
-            assetManagerAddress,
-            assetAddresses,
-            stableCoinAddresses,
+            _assetManagers(assetManagerAddress),
+            vaultAssetAddresses,
             lendingProtocols,
             stakingProtocols,
             mixedAMMProtocols
@@ -564,16 +558,7 @@ contract BittyVaultFactoryTest is Test {
     function test_DeployVaultFor_revertOwnerZero() public {
         _initFactory();
         vm.expectRevert(AddressZero.selector);
-        factory.deployVault(
-            address(0),
-            "main",
-            assetManagerAddress,
-            assetAddresses,
-            stableCoinAddresses,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols
-        );
+        factory.deployVault(address(0), "main");
     }
 
     function test_DeployVaultFor_revertVaultAlreadyDeployed() public {
@@ -610,6 +595,40 @@ contract BittyVaultFactoryTest is Test {
         BittyVault vault = BittyVault(payable(_newVaultFor(owner1)));
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), owner1));
         assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), assetManagerAddress));
+    }
+
+    function test_DeployVaultFor_grantsMultipleAssetManagers() public {
+        _initFactory();
+        address manager1 = makeAddr("manager1");
+        address manager2 = makeAddr("manager2");
+        address[] memory assetManagers = new address[](2);
+        assetManagers[0] = manager1;
+        assetManagers[1] = manager2;
+
+        address vault = factory.deployVaultWithSelected(
+            owner1, "main", assetManagers, vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols
+        );
+
+        BittyVault vaultInstance = BittyVault(payable(vault));
+        assertTrue(vaultInstance.hasRole(vaultInstance.ASSET_MANAGER_ROLE(), manager1));
+        assertTrue(vaultInstance.hasRole(vaultInstance.ASSET_MANAGER_ROLE(), manager2));
+    }
+
+    function test_DeployVaultAllSelected_usesAllGuardAssetsAndProtocols() public {
+        _initFactory();
+        address vault = factory.deployVaultAllSelected(owner1, "main", _assetManagers(assetManagerAddress));
+
+        BittyVault vaultInstance = BittyVault(payable(vault));
+        assertTrue(vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), owner1));
+        assertTrue(vaultInstance.hasRole(vaultInstance.ASSET_MANAGER_ROLE(), assetManagerAddress));
+        assertEq(vaultInstance.getAssets().length, assetAddresses.length);
+        assertEq(vaultInstance.getAssets()[0], wbtcAddress);
+        assertEq(vaultInstance.getAssets()[1], wethAddress);
+        assertEq(vaultInstance.getStableCoins().length, stableCoinAddresses.length);
+        assertEq(vaultInstance.getStableCoins()[0], usdtAddress);
+        assertEq(vaultInstance.getStableCoins()[1], usdcAddress);
+        assertEq(vaultInstance.getAMMProtocols().length, ammProtocols.length);
+        assertEq(vaultInstance.getAMMProtocols()[0], ammProtocols[0]);
     }
 
     function test_DeployVaultFor_nonOwnerCannotGrantRoles() public {

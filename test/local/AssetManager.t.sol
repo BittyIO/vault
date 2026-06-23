@@ -32,7 +32,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
 
     address public guardAddress;
     address[] public assets;
-    address[] public stableCoins;
+    address[] public vaultAssets;
     address[] public lendingProtocols;
     address[] public stakingProtocols;
     address[] public ammProtocols;
@@ -59,7 +59,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         setupMainnetForkProtocols(guard);
 
         assets = _two(mainnet.WETH, WBTC);
-        stableCoins = _two(mainnet.USDT, mainnet.USDC);
+        vaultAssets = new address[](4);
+        vaultAssets[0] = mainnet.WETH;
+        vaultAssets[1] = WBTC;
+        vaultAssets[2] = mainnet.USDT;
+        vaultAssets[3] = mainnet.USDC;
         lendingProtocols = _single(address(aaveProtocol));
         stakingProtocols = _single(address(lidoProtocol));
         ammProtocols = _single(address(uniswapV3Protocol));
@@ -69,6 +73,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         arr = new address[](2);
         arr[0] = a;
         arr[1] = b;
+    }
+
+    function _assetManagers(address manager) internal pure returns (address[] memory managers) {
+        managers = new address[](1);
+        managers[0] = manager;
     }
 
     function getClonedProvider(address protocol) external view returns (address) {
@@ -100,11 +109,10 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         this.initialize(
             ownerAddress,
             "test",
-            assetManagerAddress,
+            _assetManagers(assetManagerAddress),
             guardAddress,
             mainnet.WETH,
-            assets,
-            stableCoins,
+            vaultAssets,
             lendingProtocols,
             stakingProtocols,
             ammProtocols
@@ -608,6 +616,34 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
         this.disableAddingAssets();
+    }
+
+    function test_AddAssets_afterInit_addsStableCoinViaUnifiedPath() public {
+        this.initialize(
+            ownerAddress,
+            "test",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            mainnet.WETH,
+            assets,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols
+        );
+
+        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
+        address[] memory toAdd = new address[](1);
+        toAdd[0] = address(usdc);
+
+        vm.prank(tx.origin);
+        BittyGuard(guardAddress).addStableCoins(toAdd);
+
+        vm.prank(ownerAddress);
+        this.addAssets(toAdd);
+
+        assertEq(this.getStableCoins().length, 1);
+        assertEq(this.getStableCoins()[0], address(usdc));
+        assertEq(this.getAssets().length, 2);
     }
 
     function test_DisableAddingAssets_SucceedsAndAddAssetsReverts() public {

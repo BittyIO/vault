@@ -41,59 +41,72 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
      */
     function deployVault(address owner, string memory name) external override returns (address vault) {
         return _deployVault(
-            owner,
-            name,
-            address(0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
+            owner, name, new address[](0), new address[](0), new address[](0), new address[](0), new address[](0)
         );
     }
 
     /**
-     * @notice Deploy a vault owned by owner with name and make the asset manager start to work.
+     * @notice Deploy a vault owned by owner, user select protocols and assets.
      * @param owner The address of the owner.
      * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
-     * @param assetManager The address of the asset manager (hot wallet / AI agent), can not be the owner.
-     * @param assetAddresses The addresses of the assets.
-     * @param stableCoinAddresses The addresses of the stable coins.
+     * @param assetManagers The addresses of the asset managers (hot wallet / AI agents), can not be the owner.
+     * @param assetAddresses Guard-registered assets and/or stable coins to add to the vault.
      * @param lendingProtocols The addresses of the lending protocols, must be registered in guard.
      * @param stakingProtocols The addresses of the staking protocols, must be registered in guard.
      * @param ammProtocols The addresses of the amm protocols, must be registered in guard.
      * @return vault The address of the deployed vault.
      */
-    function deployVault(
+    function deployVaultWithSelected(
         address owner,
         string memory name,
-        address assetManager,
+        address[] memory assetManagers,
         address[] memory assetAddresses,
-        address[] memory stableCoinAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
         address[] memory ammProtocols
     ) external override returns (address vault) {
-        _checkGuard(assetAddresses, stableCoinAddresses, lendingProtocols, stakingProtocols, ammProtocols);
+        _checkGuard(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols);
 
-        return _deployVault(
-            owner,
-            name,
-            assetManager,
-            assetAddresses,
-            stableCoinAddresses,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols
-        );
+        return
+            _deployVault(owner, name, assetManagers, assetAddresses, lendingProtocols, stakingProtocols, ammProtocols);
+    }
+
+    /**
+     * @notice Deploy a vault owned by owner, user select all assets and protocols.
+     * @param owner The address of the owner.
+     * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
+     * @param assetManagers The addresses of the asset managers (hot wallet / AI agents).
+     * @return vault The address of the deployed vault.
+     */
+    function deployVaultAllSelected(address owner, string memory name, address[] memory assetManagers)
+        external
+        override
+        returns (address vault)
+    {
+        IGuard guard = IGuard(guardAddress);
+        address[] memory lendingProtocols = guard.getLendingProtocols();
+        address[] memory stakingProtocols = guard.getStakingProtocols();
+        address[] memory ammProtocols = guard.getAMMProtocols();
+        address[] memory assetAddresses = guard.getAssets();
+        address[] memory stableCoinAddresses = guard.getStableCoins();
+        address[] memory allAssetAddresses = new address[](assetAddresses.length + stableCoinAddresses.length);
+        for (uint256 i = 0; i < assetAddresses.length; i++) {
+            allAssetAddresses[i] = assetAddresses[i];
+        }
+        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
+            allAssetAddresses[assetAddresses.length + i] = stableCoinAddresses[i];
+        }
+        return
+            _deployVault(
+                owner, name, assetManagers, allAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols
+            );
     }
 
     function _deployVault(
         address owner,
         string memory name,
-        address assetManager,
+        address[] memory assetManagers,
         address[] memory assetAddresses,
-        address[] memory stableCoinAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
         address[] memory ammProtocols
@@ -110,11 +123,10 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
             .initialize(
                 owner,
                 name,
-                assetManager,
+                assetManagers,
                 guardAddress,
                 wethAddress,
                 assetAddresses,
-                stableCoinAddresses,
                 lendingProtocols,
                 stakingProtocols,
                 ammProtocols
@@ -131,17 +143,16 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
 
     function _checkGuard(
         address[] memory assetAddresses,
-        address[] memory stableCoinAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
         address[] memory ammProtocols
     ) internal view {
         IGuard guard = IGuard(guardAddress);
         for (uint256 i = 0; i < assetAddresses.length; i++) {
-            if (!guard.isAssetRegistered(assetAddresses[i])) revert NotRegistered();
-        }
-        for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
-            if (!guard.isStableCoinRegistered(stableCoinAddresses[i])) revert NotRegistered();
+            address assetAddress = assetAddresses[i];
+            if (!guard.isAssetRegistered(assetAddress) && !guard.isStableCoinRegistered(assetAddress)) {
+                revert NotRegistered();
+            }
         }
         for (uint256 i = 0; i < lendingProtocols.length; i++) {
             if (!guard.isLendingProtocolRegistered(lendingProtocols[i])) revert NotRegistered();

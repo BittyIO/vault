@@ -35,29 +35,27 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
     function initialize(
         address owner,
         string memory initialName,
-        address assetManagerAddress,
+        address[] memory assetManagers,
         address guardAddress,
         address weth,
         address[] memory assetAddresses,
-        address[] memory stableCoinAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
         address[] memory ammProtocols
     ) public initializer {
-        if (assetManagerAddress == owner) revert OwnerAndAssetManagerMustDiffer();
         vaultName = initialName;
-
         _grantRole(DEFAULT_ADMIN_ROLE, owner);
-        if (assetManagerAddress != address(0)) {
-            _grantRole(ASSET_MANAGER_ROLE, assetManagerAddress);
+
+        for (uint256 i = 0; i < assetManagers.length; i++) {
+            if (assetManagers[i] == owner) revert OwnerAndAssetManagerMustDiffer();
+            if (assetManagers[i] != address(0)) {
+                _grantRole(ASSET_MANAGER_ROLE, assetManagers[i]);
+            }
         }
 
         _vault.initialize(guardAddress);
         if (assetAddresses.length > 0) {
             _vault.addAssets(assetAddresses);
-        }
-        if (stableCoinAddresses.length > 0) {
-            _vault.addStableCoins(stableCoinAddresses);
         }
 
         _assetManager.initialize(guardAddress, weth);
@@ -268,14 +266,6 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
 
     function removeAssets(address[] memory assetAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.removeAssets(assetAddresses);
-    }
-
-    function addStableCoins(address[] memory stableCoinAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.addStableCoins(stableCoinAddresses);
-    }
-
-    function removeStableCoins(address[] memory stableCoinAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.removeStableCoins(stableCoinAddresses);
     }
 
     // irreversible — DEFAULT_ADMIN_ROLE only

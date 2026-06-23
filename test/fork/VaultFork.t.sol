@@ -32,7 +32,7 @@ contract TestVaultFork is Test {
     address public assetManager;
 
     address[] public assets;
-    address[] public stableCoins;
+    address[] public vaultAssets;
     address[] public lendingProtocols;
     address[] public stakingProtocols;
     address[] public ammProtocols;
@@ -65,7 +65,11 @@ contract TestVaultFork is Test {
         vm.stopPrank();
 
         assets = _arr(mainnet.WETH, WBTC);
-        stableCoins = _arr(mainnet.USDC, mainnet.USDT);
+        vaultAssets = new address[](4);
+        vaultAssets[0] = mainnet.WETH;
+        vaultAssets[1] = WBTC;
+        vaultAssets[2] = mainnet.USDC;
+        vaultAssets[3] = mainnet.USDT;
         lendingProtocols = _arr(address(aaveProtocol));
         stakingProtocols = _arr(address(lidoProtocol));
         ammProtocols = _arr(address(uniswapV3Protocol));
@@ -75,10 +79,21 @@ contract TestVaultFork is Test {
         factory.initialize(address(vaultImpl), address(guard), mainnet.WETH);
 
         assetManager = address(this);
-        address vaultAddr = factory.deployVault(
-            tx.origin, "main", assetManager, assets, stableCoins, lendingProtocols, stakingProtocols, ammProtocols
+        address vaultAddr = factory.deployVaultWithSelected(
+            tx.origin,
+            "main",
+            _assetManagers(assetManager),
+            vaultAssets,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols
         );
         vault = BittyVault(payable(vaultAddr));
+    }
+
+    function _assetManagers(address manager) internal pure returns (address[] memory managers) {
+        managers = new address[](1);
+        managers[0] = manager;
     }
 
     function _arr(address a, address b) internal pure returns (address[] memory) {
@@ -246,8 +261,14 @@ contract TestVaultFork is Test {
 
     function test_FactoryRevertWhenVaultAlreadyDeployed() public {
         vm.expectRevert();
-        factory.deployVault(
-            tx.origin, "main", assetManager, assets, stableCoins, lendingProtocols, stakingProtocols, ammProtocols
+        factory.deployVaultWithSelected(
+            tx.origin,
+            "main",
+            _assetManagers(assetManager),
+            vaultAssets,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols
         );
     }
 
@@ -475,12 +496,11 @@ contract TestVaultFork is Test {
     function test_DeployVault_customOwner() public {
         address customOwner = makeAddr("customVaultOwner");
         address customAssetManager = makeAddr("customAssetManager");
-        address vaultAddr = factory.deployVault(
+        address vaultAddr = factory.deployVaultWithSelected(
             customOwner,
             "main",
-            customAssetManager,
-            assets,
-            stableCoins,
+            _assetManagers(customAssetManager),
+            vaultAssets,
             lendingProtocols,
             stakingProtocols,
             ammProtocols
@@ -488,6 +508,7 @@ contract TestVaultFork is Test {
 
         BittyVault customVault = BittyVault(payable(vaultAddr));
         assertTrue(customVault.hasRole(customVault.DEFAULT_ADMIN_ROLE(), customOwner));
+        assertTrue(customVault.hasRole(customVault.ASSET_MANAGER_ROLE(), customAssetManager));
         assertEq(factory.computeVaultAddress(customOwner, "main"), vaultAddr);
     }
 }
