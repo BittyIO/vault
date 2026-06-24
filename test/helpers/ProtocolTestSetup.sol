@@ -29,8 +29,9 @@ abstract contract ProtocolTestSetup is Test {
         lidoProtocol = new LidoV2Protocol(mainnet.STETH, mainnet.UNSTETH, mainnet.WETH);
         lidoProtocol.initialize(address(this));
 
-        uniswapV3Protocol =
-            new UniswapV3Protocol(mainnet.UNISWAP_V3_ROUTER, mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
+        uniswapV3Protocol = new UniswapV3Protocol(
+            mainnet.UNISWAP_V3_ROUTER, mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER, address(guard)
+        );
         uniswapV3Protocol.initialize(address(this));
 
         guard.addLendingProtocols(_single(address(aaveProtocol)));
