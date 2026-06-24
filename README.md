@@ -63,10 +63,16 @@ forge coverage --ir-minimum --no-match-coverage 'test|node_modules|script|src/li
 
 ## Deploy
 
-Deployment scripts read chain-specific addresses from `deployments/<chain>.toml` via `forge-std` config. Example for Sepolia:
+Deployment scripts read chain-specific addresses from `deployments/<chain>.toml` via `forge-std` config. Deploy the vault implementation first, then the factory. Example for Sepolia:
 
 ```shell
 source .env
+forge script script/BittyVault.s.sol:Deploy \
+  --rpc-url sepolia \
+  --broadcast \
+  --private-key $SEPOLIA_PRIVATE_KEY \
+  -vvvv
+
 forge script script/BittyVaultFactory.s.sol:Deploy \
   --rpc-url sepolia \
   --broadcast \
@@ -78,7 +84,7 @@ The factory script uses CREATE2 via the immutable factory at `0x0000000000FFe8B4
 
 ### Deploy logic libraries
 
-`BittyVault` links against the `VaultLogic` and `AssetManagerLogic` libraries, deployed via the canonical CREATE2 deployer (`0x4e59b44847b379578588920cA78FbF26c0B4956C`, salt `0x0`) so they land at the same address on every chain. `forge script` normally deploys these automatically as part of `BittyVaultFactory.s.sol:Deploy`, but if a broadcast is interrupted before they confirm, the vault implementation ends up linked against addresses with no code. Use this script to (re)deploy any missing library to its expected address:
+`BittyVault` links against the `VaultLogic` and `AssetManagerLogic` libraries, deployed via the canonical CREATE2 deployer (`0x4e59b44847b379578588920cA78FbF26c0B4956C`, salt `0x0`) so they land at the same address on every chain. `forge script` normally deploys these automatically as part of `BittyVault.s.sol:Deploy`, but if a broadcast is interrupted before they confirm, the vault implementation ends up linked against addresses with no code. Use this script to (re)deploy any missing library to its expected address:
 
 ```shell
 source .env
@@ -108,15 +114,15 @@ forge verify-contract \
 ```shell
 forge verify-contract \
   --chain sepolia \
-  0x34B12C466A49Ebc0f77Ec4648dE63f1D1C18786B \
+  0xFb20542A2FeA887578D598e102e14D0E86db8291 \
   src/logic/VaultLogic.sol:VaultLogic \
   --etherscan-api-key $ETHERSCAN_API_KEY
 
 forge verify-contract \
   --chain sepolia \
-  0x2325AE2429e3B43650c6D3f1D7bB13cAdC6d8dee \
+  0x93cc0FcF2D8EddB6a9Be480b7A7BaAFa07D9Af4F \
   src/logic/AssetManagerLogic.sol:AssetManagerLogic \
-  --libraries src/logic/VaultLogic.sol:VaultLogic:0x34B12C466A49Ebc0f77Ec4648dE63f1D1C18786B \
+  --libraries src/logic/VaultLogic.sol:VaultLogic:0xFb20542A2FeA887578D598e102e14D0E86db8291 \
   --etherscan-api-key $ETHERSCAN_API_KEY
 ```
 
@@ -129,8 +135,8 @@ forge verify-contract \
   --chain sepolia \
   <vault-implementation-address> \
   src/BittyVault.sol:BittyVault \
-  --libraries src/logic/VaultLogic.sol:VaultLogic:0x34B12C466A49Ebc0f77Ec4648dE63f1D1C18786B \
-  --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:0x2325AE2429e3B43650c6D3f1D7bB13cAdC6d8dee \
+  --libraries src/logic/VaultLogic.sol:VaultLogic:0xFb20542A2FeA887578D598e102e14D0E86db8291 \
+  --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:0x93cc0FcF2D8EddB6a9Be480b7A7BaAFa07D9Af4F \
   --etherscan-api-key $ETHERSCAN_API_KEY
 ```
 

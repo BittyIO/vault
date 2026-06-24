@@ -4,24 +4,25 @@ pragma solidity ^0.8.34;
 import {Script, console2} from "forge-std/Script.sol";
 import {VaultLogic} from "../src/logic/VaultLogic.sol";
 import {AssetManagerLogic} from "../src/logic/AssetManagerLogic.sol";
+import {BittyVault} from "../src/BittyVault.sol";
 
-/// @notice Deploys the VaultLogic and AssetManagerLogic libraries via the
-/// canonical deterministic CREATE2 deployer (salt = 0), at the addresses
-/// already linked into the deployed BittyVault implementation
-/// (0x670e6F8144f11D7930b6a4797ed6595A7238A1D2). These library deployments
-/// were prepared but never confirmed during the original mainnet deploy.
+/// @notice Deploys VaultLogic, AssetManagerLogic, and BittyVault via the
+/// canonical deterministic CREATE2 deployer (salt = 0), so they land at the
+/// same address on every EVM chain.
 contract DeployLogicLibraries is Script {
     address constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
     bytes32 constant SALT = bytes32(0);
 
-    address constant VAULT_LOGIC = 0x34B12C466A49Ebc0f77Ec4648dE63f1D1C18786B;
-    address constant ASSET_MANAGER_LOGIC = 0x2325AE2429e3B43650c6D3f1D7bB13cAdC6d8dee;
+    address constant VAULT_LOGIC = 0xFb20542A2FeA887578D598e102e14D0E86db8291;
+    address constant ASSET_MANAGER_LOGIC = 0x93cc0FcF2D8EddB6a9Be480b7A7BaAFa07D9Af4F;
+    address constant VAULT_IMPLEMENTATION = 0x2E14D540D41AdF746e54B5FD259BA93666A4DE00;
 
     function run() public {
         vm.startBroadcast();
 
         _deploy("VaultLogic", type(VaultLogic).creationCode, VAULT_LOGIC);
         _deploy("AssetManagerLogic", type(AssetManagerLogic).creationCode, ASSET_MANAGER_LOGIC);
+        _deploy("BittyVault", type(BittyVault).creationCode, VAULT_IMPLEMENTATION);
 
         vm.stopBroadcast();
     }
