@@ -850,7 +850,6 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         vm.prank(assetManagerAddress);
         this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
-        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProtocol), 0);
         assertApproxEqAbs(ILendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH), supplyAmount, 10);
     }
 
@@ -930,7 +929,6 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         vm.prank(assetManagerAddress);
         this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
-        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProtocol), 0);
         assertApproxEqAbs(IStakingProtocol(clonedProtocol).getStakedBalance(mainnet.WETH), stakeAmount, 10);
     }
 }

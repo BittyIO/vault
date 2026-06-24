@@ -146,10 +146,6 @@ library AssetManagerLogic {
         lendingProtocol = _cloneProtocol(logicStorage, lendingProtocol);
         IERC20(assetAddress).safeIncreaseAllowance(lendingProtocol, amount);
         ILendingProtocol(lendingProtocol).supply(assetAddress, amount);
-        uint256 remaining = IERC20(assetAddress).allowance(address(this), lendingProtocol);
-        if (remaining > 0) {
-            IERC20(assetAddress).safeDecreaseAllowance(lendingProtocol, remaining);
-        }
     }
 
     function withdraw(
@@ -172,6 +168,7 @@ library AssetManagerLogic {
         if (supplyAmount < amount) {
             revert InsufficientBalance();
         }
+        _approveReceiptToken(lendingProtocol, assetAddress);
         ILendingProtocol(lendingProtocol).withdraw(assetAddress, amount);
     }
 
@@ -212,10 +209,6 @@ library AssetManagerLogic {
         stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
         IERC20(assetAddress).safeIncreaseAllowance(stakingProtocol, amount);
         IStakingProtocol(stakingProtocol).stake(assetAddress, amount);
-        uint256 remaining = IERC20(assetAddress).allowance(address(this), stakingProtocol);
-        if (remaining > 0) {
-            IERC20(assetAddress).safeDecreaseAllowance(stakingProtocol, remaining);
-        }
     }
 
     function unstake(
@@ -238,6 +231,7 @@ library AssetManagerLogic {
         if (stakingBalance < amount) {
             revert InsufficientBalance();
         }
+        _approveReceiptToken(stakingProtocol, assetAddress);
         IStakingProtocol(stakingProtocol).unstake(assetAddress, amount);
     }
 
@@ -290,6 +284,38 @@ library AssetManagerLogic {
         }
         stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
         IStakingProtocol(stakingProtocol).claimUnstaked(requestIds);
+    }
+
+    function _getReceiptToken(address protocol, address asset) private view returns (address) {
+        (bool success, bytes memory data) =
+            protocol.staticcall(abi.encodeWithSignature("receiptTokenOf(address)", asset));
+        if (success && data.length >= 32) {
+            return abi.decode(data, (address));
+        }
+        return address(0);
+    }
+
+    function _approveReceiptToken(address protocol, address asset) private {
+        address receiptToken = _getReceiptToken(protocol, asset);
+        if (receiptToken != address(0)) {
+            uint256 balance = IERC20(receiptToken).balanceOf(address(this));
+            if (balance > 0) {
+                IERC20(receiptToken).safeIncreaseAllowance(protocol, balance);
+            }
+        }
+    }
+
+    function _approveNFTIfNeeded(address protocol) private {
+        (bool success, bytes memory data) = protocol.staticcall(abi.encodeWithSignature("positionManager()"));
+        if (!success || data.length < 32) return;
+        address nft = abi.decode(data, (address));
+        (bool success2, bytes memory result) =
+            nft.staticcall(abi.encodeWithSignature("isApprovedForAll(address,address)", address(this), protocol));
+        if (!success2 || result.length < 32) return;
+        bool approved = abi.decode(result, (bool));
+        if (!approved) {
+            nft.functionCall(abi.encodeWithSignature("setApprovalForAll(address,bool)", protocol, true));
+        }
     }
 
     function _addressBalance(address assetAddress) private view returns (uint256) {
@@ -402,6 +428,7 @@ library AssetManagerLogic {
         if (token1 != address(0) && amount1 > 0 && IERC20(token1).allowance(address(this), clone) < amount1) {
             IERC20(token1).safeIncreaseAllowance(clone, amount1);
         }
+        _approveNFTIfNeeded(clone);
         IAMMProtocol(clone).addLiquidity(data);
     }
 
@@ -414,6 +441,7 @@ library AssetManagerLogic {
         if (clone == address(0)) {
             revert InvalidAMMProtocol();
         }
+        _approveNFTIfNeeded(clone);
         IAMMProtocol(clone).removeLiquidity(data);
     }
 
@@ -426,6 +454,7 @@ library AssetManagerLogic {
         if (clone == address(0)) {
             revert InvalidAMMProtocol();
         }
+        _approveNFTIfNeeded(clone);
         IAMMProtocol(clone).claimAMMFees(data);
     }
 

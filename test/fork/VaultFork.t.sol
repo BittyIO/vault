@@ -58,8 +58,9 @@ contract TestVaultFork is Test {
         lidoProtocol.initialize(address(this));
         guard.addStakingProtocols(_arr(address(lidoProtocol)));
 
-        uniswapV3Protocol =
-            new UniswapV3Protocol(mainnet.UNISWAP_V3_ROUTER, mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
+        uniswapV3Protocol = new UniswapV3Protocol(
+            mainnet.UNISWAP_V3_ROUTER, mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER, address(guard)
+        );
         uniswapV3Protocol.initialize(address(this));
         guard.addAMMProtocols(_arr(address(uniswapV3Protocol)));
         vm.stopPrank();
