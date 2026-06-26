@@ -6,9 +6,7 @@ import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 import {
     InvalidLendingProtocol,
     InvalidStakingProtocol,
-    RebalanceMaxAmount,
     RebalanceDisabled,
-    RebalanceInMinimalTime,
     MinimalBalanceNotMet,
     DisableRebalanceUntilTimestampTooEarly,
     ETHBalanceNotEnough
@@ -36,6 +34,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
     address[] public lendingProtocols;
     address[] public stakingProtocols;
     address[] public ammProtocols;
+    address[] public intentProtocols;
     address public ownerAddress;
     address public assetManagerAddress;
 
@@ -67,6 +66,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         lendingProtocols = _single(address(aaveProtocol));
         stakingProtocols = _single(address(lidoProtocol));
         ammProtocols = _single(address(uniswapV3Protocol));
+        intentProtocols = new address[](0);
     }
 
     function _two(address a, address b) private pure returns (address[] memory arr) {
@@ -115,16 +115,15 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
             vaultAssets,
             lendingProtocols,
             stakingProtocols,
-            ammProtocols
+            ammProtocols,
+            intentProtocols
         );
     }
 
-    function test_SetRebalanceConfig() public {
+    function test_SetMinimalBalance() public {
         this.doInitialize();
-        RebalanceConfig memory rebalanceConfig =
-            RebalanceConfig({minimalBalance: 100 * 1e6, minimalDuration: 30, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
+        this.setMinimalBalance(mainnet.WETH, 100 * 1e6);
     }
 
     function test_RevertOnlyAssetManager() public {
@@ -140,7 +139,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         this.withdraw(address(aaveProtocol), address(mainnet.WETH), 1 ether);
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, role));
-        this.rebalance(address(uniswapV3Protocol), address(WBTC), address(mainnet.USDT), 1 ether, 1 ether, "");
+        this.marketSell(address(uniswapV3Protocol), address(WBTC), address(mainnet.USDT), 1 ether, 1 ether, "");
     }
 
     function test_SupplyRevertAddressZero() public {
@@ -343,71 +342,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         assertEq(balance, 0);
     }
 
-    function test_RebalanceMaxAmount_ExceedsRebalanceConfig() public {
-        this.doInitialize();
-        RebalanceConfig memory rebalanceConfig =
-            RebalanceConfig({minimalBalance: 0, minimalDuration: 7 days, maxAmount: 999});
-        vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
-        uint256 fromBalance = 1000 * 1e18;
-        uint256 sellAmount = 100 * 1e18;
-
-        deal(address(mainnet.WETH), address(this), fromBalance);
-        IERC20(mainnet.WETH).approve(address(this), sellAmount);
-
-        uint256 buyAmount = 10 * 1e6;
-        bytes memory swapData = abi.encode(address(mainnet.WETH), sellAmount, address(mainnet.USDT), buyAmount);
-
-        vm.expectRevert(RebalanceMaxAmount.selector);
-        vm.prank(assetManagerAddress);
-        this.rebalance(
-            address(uniswapV3Protocol), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, swapData
-        );
-    }
-
-    function test_RebalanceMaxAmount_WithinLimit() public {
-        this.doInitialize();
-
-        RebalanceConfig memory rebalanceConfig =
-            RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 10000000000000000});
-        vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
-
-        uint256 sellAmount = 0.01 ether;
-        deal(mainnet.WETH, address(this), sellAmount);
-        uint256 buyAmountMin = 1;
-        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
-        uint256 usdtBefore = IERC20(mainnet.USDT).balanceOf(address(this));
-
-        vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
-
-        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
-        assertGt(IERC20(mainnet.USDT).balanceOf(address(this)), usdtBefore);
-    }
-
-    function test_RebalanceMaxAmount_ZeroSkipsCheck() public {
-        this.doInitialize();
-
-        RebalanceConfig memory rebalanceConfig = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
-        vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
-
-        uint256 sellAmount = 0.01 ether;
-        deal(mainnet.WETH, address(this), sellAmount);
-        uint256 buyAmountMin = 1;
-        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
-
-        vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
-    }
-
     function test_RebalanceFromCheck_RevertsWhenFromNotVaultAsset() public {
         this.doInitialize();
-
-        RebalanceConfig memory rebalanceConfig = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
-        vm.prank(ownerAddress);
-        this.setRebalanceConfig(address(mainnet.USDT), rebalanceConfig);
 
         address invalidFrom = makeAddr("invalidFromAsset");
         uint256 sellAmount = 1 ether;
@@ -416,17 +352,15 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
 
         vm.expectRevert(NotRegistered.selector);
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), invalidFrom, address(mainnet.USDT), sellAmount, buyAmount, swapData);
+        this.marketSell(address(uniswapV3Protocol), invalidFrom, address(mainnet.USDT), sellAmount, buyAmount, swapData);
     }
 
     function test_RebalanceFromCheck_MinimalBalanceNotMet_WhenRemainingBelowMinimal() public {
         this.doInitialize();
 
         uint256 minimalBalance = 100 ether;
-        RebalanceConfig memory rebalanceConfig =
-            RebalanceConfig({minimalBalance: minimalBalance, minimalDuration: 1, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
+        this.setMinimalBalance(mainnet.WETH, minimalBalance);
 
         uint256 fromBalance = 1000 ether;
         uint256 sellAmount = 950 ether;
@@ -439,7 +373,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
 
         vm.expectRevert(MinimalBalanceNotMet.selector);
         vm.prank(assetManagerAddress);
-        this.rebalance(
+        this.marketSell(
             address(uniswapV3Protocol), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, swapData
         );
     }
@@ -448,10 +382,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         this.doInitialize();
 
         uint256 minimalBalance = 100 ether;
-        RebalanceConfig memory rebalanceConfig =
-            RebalanceConfig({minimalBalance: minimalBalance, minimalDuration: 1, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
+        this.setMinimalBalance(mainnet.WETH, minimalBalance);
 
         uint256 fromBalance = 50 ether;
         uint256 sellAmount = 100 ether;
@@ -464,7 +396,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
 
         vm.expectRevert(MinimalBalanceNotMet.selector);
         vm.prank(assetManagerAddress);
-        this.rebalance(
+        this.marketSell(
             address(uniswapV3Protocol), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, swapData
         );
     }
@@ -473,10 +405,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         this.doInitialize();
 
         uint256 minimalBalance = 4 ether;
-        RebalanceConfig memory rebalanceConfig =
-            RebalanceConfig({minimalBalance: minimalBalance, minimalDuration: 1, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
+        this.setMinimalBalance(mainnet.WETH, minimalBalance);
 
         uint256 fromBalance = 10 ether;
         uint256 sellAmount = 5 ether;
@@ -486,62 +416,13 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
         assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), fromBalance - sellAmount, 10);
     }
 
-    function test_RebalanceFromCheck_RebalanceInMinimalTime_RevertsWhenFromDurationNotElapsed() public {
-        this.doInitialize();
-
-        uint256 minimalDuration = 7 days;
-        RebalanceConfig memory rebalanceConfig =
-            RebalanceConfig({minimalBalance: 0, minimalDuration: minimalDuration, maxAmount: 0});
-        vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
-
-        uint256 sellAmount = 0.01 ether;
-        deal(mainnet.WETH, address(this), 1 ether);
-        uint256 buyAmountMin = 1;
-        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
-
-        vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
-
-        vm.expectRevert(RebalanceInMinimalTime.selector);
-        vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
-    }
-
-    function test_RebalanceFromCheck_RebalanceInMinimalTime_SucceedsAfterFromDurationElapsed() public {
-        this.doInitialize();
-
-        uint256 minimalDuration = 7 days;
-        RebalanceConfig memory rebalanceConfig =
-            RebalanceConfig({minimalBalance: 0, minimalDuration: minimalDuration, maxAmount: 0});
-        vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
-
-        uint256 sellAmount = 0.01 ether;
-        deal(mainnet.WETH, address(this), 1 ether);
-        uint256 buyAmountMin = 1;
-        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
-
-        vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
-
-        vm.warp(block.timestamp + minimalDuration + 1);
-
-        deal(mainnet.WETH, address(this), 1 ether);
-        vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
-    }
-
     function test_CheckRebalanceDisabledUntilTimestamp_RevertsWhenBeforeTimestamp() public {
         this.doInitialize();
-        RebalanceConfig memory rebalanceConfig = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
-        vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
 
         uint256 disabledUntil = block.timestamp + 100;
         vm.prank(assetManagerAddress);
@@ -554,14 +435,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
 
         vm.expectRevert(RebalanceDisabled.selector);
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_SucceedsAfterTimestamp() public {
         this.doInitialize();
-        RebalanceConfig memory rebalanceConfig = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
-        vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
 
         uint256 disabledUntil = block.timestamp + 100;
         vm.prank(assetManagerAddress);
@@ -575,16 +453,13 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_SucceedsWhenNeverDisabled() public {
         this.doInitialize();
-        RebalanceConfig memory rebalanceConfig = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
-        vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, rebalanceConfig);
 
         uint256 sellAmount = 0.01 ether;
         deal(mainnet.WETH, address(this), sellAmount);
@@ -592,7 +467,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
@@ -628,7 +503,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
             assets,
             lendingProtocols,
             stakingProtocols,
-            ammProtocols
+            ammProtocols,
+            intentProtocols
         );
 
         MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
@@ -855,30 +731,10 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
 
     // ─── Fuzz Tests ───────────────────────────────────────────────────────────
 
-    function testFuzz_SetRebalanceConfig_anyValuesAccepted(
-        uint256 minimalBalance,
-        uint256 minimalDuration,
-        uint256 maxAmount
-    ) public {
+    function testFuzz_SetMinimalBalance_anyValueAccepted(uint256 minimalBalance) public {
         this.doInitialize();
-        RebalanceConfig memory config =
-            RebalanceConfig({minimalBalance: minimalBalance, minimalDuration: minimalDuration, maxAmount: maxAmount});
         vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, config);
-    }
-
-    function testFuzz_RebalanceMaxAmount_rejectsAboveLimit(uint256 maxAmount) public {
-        maxAmount = bound(maxAmount, 1, 1000 ether);
-        uint256 sellAmount = maxAmount + 1;
-        this.doInitialize();
-        RebalanceConfig memory config = RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: maxAmount});
-        vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, config);
-        deal(mainnet.WETH, address(this), sellAmount);
-        bytes memory swapData = abi.encode(mainnet.WETH, sellAmount, mainnet.USDT, uint256(1));
-        vm.expectRevert(RebalanceMaxAmount.selector);
-        vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+        this.setMinimalBalance(mainnet.WETH, minimalBalance);
     }
 
     function testFuzz_RebalanceMinimalBalance_revertsWhenRemainingBelowMin(
@@ -890,15 +746,13 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         fromBalance = bound(fromBalance, minimalBalance, minimalBalance + 100 ether);
         sellAmount = bound(sellAmount, fromBalance - minimalBalance + 1, fromBalance);
         this.doInitialize();
-        RebalanceConfig memory config =
-            RebalanceConfig({minimalBalance: minimalBalance, minimalDuration: 0, maxAmount: 0});
         vm.prank(ownerAddress);
-        this.setRebalanceConfig(mainnet.WETH, config);
+        this.setMinimalBalance(mainnet.WETH, minimalBalance);
         deal(mainnet.WETH, address(this), fromBalance);
         bytes memory swapData = abi.encode(mainnet.WETH, sellAmount, mainnet.USDT, uint256(1));
         vm.expectRevert(MinimalBalanceNotMet.selector);
         vm.prank(assetManagerAddress);
-        this.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
     }
 
     function testFuzz_DisableRebalanceUntilTimestamp_cannotMovePrevTimestampEarlier(uint256 offset, uint256 reduction)

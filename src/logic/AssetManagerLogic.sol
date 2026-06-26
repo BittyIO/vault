@@ -7,20 +7,22 @@ import {
     IAssetManager,
     DisableRebalanceUntilTimestampTooEarly,
     RebalanceDisabled,
-    RebalanceInMinimalTime,
-    RebalanceMaxAmount,
     SellAmountMismatch,
     BuyAmountNotEnough,
     MinimalBalanceNotMet,
     InvalidLendingProtocol,
     InvalidStakingProtocol,
     InvalidAMMProtocol,
+    InvalidIntentProtocol,
+    InvalidValidTo,
     InvalidSwapData
 } from "../interfaces/IAssetManager.sol";
 import {IProtocol} from "protocol-contracts/src/interfaces/IProtocol.sol";
 import {ILendingProtocol} from "protocol-contracts/src/interfaces/ILendingProtocol.sol";
 import {IStakingProtocol} from "protocol-contracts/src/interfaces/IStakingProtocol.sol";
 import {IAMMProtocol} from "protocol-contracts/src/interfaces/IAMMProtocol.sol";
+import {IIntentProtocol, OrderNotExpired} from "protocol-contracts/src/interfaces/IIntentProtocol.sol";
+import {ICoWTwap} from "protocol-contracts/src/interfaces/ICoWTwap.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
@@ -114,15 +116,12 @@ library AssetManagerLogic {
         WETH(payable(logicStorage.weth)).withdraw(amount);
     }
 
-    function setRebalanceConfig(
-        AssetManagerStorage storage logicStorage,
-        address assetAddress,
-        IAssetManager.RebalanceConfig memory assetConfig
-    ) external onlyInitialized(logicStorage) {
-        if (assetAddress == address(0)) {
-            revert AddressZero();
-        }
-        logicStorage.rebalanceConfigs[assetAddress] = assetConfig;
+    function setMinimalBalance(AssetManagerStorage storage logicStorage, address assetAddress, uint256 minimalBalance)
+        external
+        onlyInitialized(logicStorage)
+    {
+        if (assetAddress == address(0)) revert AddressZero();
+        logicStorage.minimalBalances[assetAddress] = minimalBalance;
     }
 
     function supply(
@@ -349,62 +348,14 @@ library AssetManagerLogic {
         address from,
         address to,
         uint256 sellAmount
-    )
-        private
-        view
-        returns (IAssetManager.RebalanceConfig memory configFrom, IAssetManager.RebalanceConfig memory configTo)
-    {
+    ) private view {
         VaultLogic.checkAsset(vaultStorage, from);
         VaultLogic.checkAsset(vaultStorage, to);
         _checkRebalanceDisabledUntilTimestamp(logicStorage);
-        configFrom = logicStorage.rebalanceConfigs[from];
-        configTo = logicStorage.rebalanceConfigs[to];
-
-        if (
-            configFrom.maxAmount == 0 && configFrom.minimalBalance == 0 && configFrom.minimalDuration == 0
-                && configTo.maxAmount == 0 && configTo.minimalBalance == 0 && configTo.minimalDuration == 0
-        ) {
-            return (configFrom, configTo);
-        }
-
-        if (configFrom.maxAmount > 0 && configFrom.maxAmount < sellAmount) {
-            revert RebalanceMaxAmount();
-        }
-
-        uint256 fromBalance = _addressBalance(from);
-
-        if (configFrom.minimalBalance > 0) {
-            if (fromBalance < sellAmount || fromBalance - sellAmount < configFrom.minimalBalance) {
-                revert MinimalBalanceNotMet();
-            }
-        }
-
-        if (
-            (configFrom.minimalDuration > 0
-                    && logicStorage.lastRebalanceTimestamps[from] > 0
-                    && block.timestamp - logicStorage.lastRebalanceTimestamps[from] < configFrom.minimalDuration)
-                || (configTo.minimalDuration > 0
-                    && logicStorage.lastRebalanceTimestamps[to] > 0
-                    && block.timestamp - logicStorage.lastRebalanceTimestamps[to] < configTo.minimalDuration)
-        ) {
-            revert RebalanceInMinimalTime();
-        }
-
-        return (configFrom, configTo);
-    }
-
-    function _updateRebalanceTimestamps(
-        AssetManagerStorage storage logicStorage,
-        IAssetManager.RebalanceConfig memory assetConfigFrom,
-        IAssetManager.RebalanceConfig memory assetConfigTo,
-        address from,
-        address to
-    ) private {
-        if (assetConfigFrom.minimalDuration > 0) {
-            logicStorage.lastRebalanceTimestamps[from] = block.timestamp;
-        }
-        if (assetConfigTo.minimalDuration > 0) {
-            logicStorage.lastRebalanceTimestamps[to] = block.timestamp;
+        uint256 minBal = logicStorage.minimalBalances[from];
+        if (minBal > 0) {
+            uint256 bal = _addressBalance(from);
+            if (bal < sellAmount || bal - sellAmount < minBal) revert MinimalBalanceNotMet();
         }
     }
 
@@ -458,7 +409,7 @@ library AssetManagerLogic {
         IAMMProtocol(clone).claimAMMFees(data);
     }
 
-    function rebalance(
+    function marketSell(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address ammProtocol,
@@ -469,13 +420,26 @@ library AssetManagerLogic {
         bytes memory data
     ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
-        (IAssetManager.RebalanceConfig memory assetConfigFrom, IAssetManager.RebalanceConfig memory assetConfigTo) =
-            _validateRebalance(logicStorage, vaultStorage, from, to, sellAmount);
-        _swap(logicStorage, ammProtocol, from, sellAmount, to, buyAmountMin, data);
-        _updateRebalanceTimestamps(logicStorage, assetConfigFrom, assetConfigTo, from, to);
+        _validateRebalance(logicStorage, vaultStorage, from, to, sellAmount);
+        _swapExactIn(logicStorage, ammProtocol, from, sellAmount, to, buyAmountMin, data);
     }
 
-    function _swap(
+    function marketBuy(
+        AssetManagerStorage storage logicStorage,
+        VaultStorage storage vaultStorage,
+        address ammProtocol,
+        address from,
+        address to,
+        uint256 buyAmount,
+        uint256 sellAmountMax,
+        bytes memory data
+    ) external onlyInitialized(logicStorage) {
+        _checkAMMProtocol(logicStorage, ammProtocol);
+        _validateRebalance(logicStorage, vaultStorage, from, to, sellAmountMax);
+        _swapExactOut(logicStorage, ammProtocol, from, sellAmountMax, to, buyAmount, data);
+    }
+
+    function _swapExactIn(
         AssetManagerStorage storage logicStorage,
         address ammProtocol,
         address sellAssetAddress,
@@ -484,38 +448,57 @@ library AssetManagerLogic {
         uint256 buyAmountMin,
         bytes memory data
     ) private {
-        if (sellAmount == 0 || buyAmountMin == 0) {
-            revert AmountIsZero();
-        }
+        if (sellAmount == 0 || buyAmountMin == 0) revert AmountIsZero();
         (address sellToken_, uint256 sellAmount_, address buyToken_, uint256 buyAmountMin_) =
             abi.decode(data, (address, uint256, address, uint256));
         if (
             sellToken_ != sellAssetAddress || sellAmount_ != sellAmount || buyToken_ != toAssetAddress
                 || buyAmountMin_ != buyAmountMin
-        ) {
-            revert InvalidSwapData();
-        }
+        ) revert InvalidSwapData();
+
         uint256 sellAssetBalanceBefore = _addressBalance(sellAssetAddress);
-        if (sellAssetBalanceBefore < sellAmount) {
-            revert InsufficientBalance();
-        }
+        if (sellAssetBalanceBefore < sellAmount) revert InsufficientBalance();
         uint256 buyAssetBalanceBefore = _addressBalance(toAssetAddress);
 
         ammProtocol = _cloneProtocol(logicStorage, ammProtocol);
-
         if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmount) {
             IERC20(sellAssetAddress).safeIncreaseAllowance(ammProtocol, sellAmount);
         }
         IAMMProtocol(ammProtocol).swap(data);
 
-        uint256 sellAssetBalanceAfter = _addressBalance(sellAssetAddress);
-        if (sellAssetBalanceBefore - sellAssetBalanceAfter != sellAmount) {
-            revert SellAmountMismatch();
+        if (_addressBalance(sellAssetAddress) != sellAssetBalanceBefore - sellAmount) revert SellAmountMismatch();
+        if (_addressBalance(toAssetAddress) - buyAssetBalanceBefore < buyAmountMin) revert BuyAmountNotEnough();
+    }
+
+    function _swapExactOut(
+        AssetManagerStorage storage logicStorage,
+        address ammProtocol,
+        address sellAssetAddress,
+        uint256 sellAmountMax,
+        address toAssetAddress,
+        uint256 buyAmount,
+        bytes memory data
+    ) private {
+        if (buyAmount == 0 || sellAmountMax == 0) revert AmountIsZero();
+        (address sellToken_, uint256 sellAmountMax_, address buyToken_, uint256 buyAmount_) =
+            abi.decode(data, (address, uint256, address, uint256));
+        if (
+            sellToken_ != sellAssetAddress || sellAmountMax_ != sellAmountMax || buyToken_ != toAssetAddress
+                || buyAmount_ != buyAmount
+        ) revert InvalidSwapData();
+
+        uint256 sellAssetBalanceBefore = _addressBalance(sellAssetAddress);
+        if (sellAssetBalanceBefore < sellAmountMax) revert InsufficientBalance();
+        uint256 buyAssetBalanceBefore = _addressBalance(toAssetAddress);
+
+        ammProtocol = _cloneProtocol(logicStorage, ammProtocol);
+        if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmountMax) {
+            IERC20(sellAssetAddress).safeIncreaseAllowance(ammProtocol, sellAmountMax);
         }
-        uint256 buyAssetBalanceAfter = _addressBalance(toAssetAddress);
-        if (buyAssetBalanceAfter - buyAssetBalanceBefore < buyAmountMin) {
-            revert BuyAmountNotEnough();
-        }
+        IAMMProtocol(ammProtocol).swapExactOut(data);
+
+        if (sellAssetBalanceBefore - _addressBalance(sellAssetAddress) > sellAmountMax) revert SellAmountMismatch();
+        if (_addressBalance(toAssetAddress) - buyAssetBalanceBefore < buyAmount) revert BuyAmountNotEnough();
     }
 
     function disableRebalanceUntilTimestamp(AssetManagerStorage storage logicStorage, uint256 timestamp)
@@ -622,5 +605,163 @@ library AssetManagerLogic {
         address clone = logicStorage.clonedProtocols[ammProtocol];
         if (clone == address(0)) return 0;
         return IAMMProtocol(clone).getLiquidity(data);
+    }
+
+    // ============ Intent ============
+
+    function _checkIntentProtocol(AssetManagerStorage storage logicStorage, address intentProtocol) private view {
+        if (!logicStorage.intentProtocols.contains(intentProtocol)) revert InvalidIntentProtocol();
+        if (logicStorage.guard.isIntentProtocolDeprecated(intentProtocol)) revert Deprecated();
+        if (!logicStorage.guard.isIntentProtocolRegistered(intentProtocol)) revert NotRegistered();
+    }
+
+    function limitSell(
+        AssetManagerStorage storage logicStorage,
+        VaultStorage storage vaultStorage,
+        address intentProtocol,
+        address from,
+        address to,
+        uint256 sellAmount,
+        uint256 buyAmountMin,
+        uint32 validTo
+    ) external onlyInitialized(logicStorage) returns (bytes32 orderId) {
+        _checkIntentProtocol(logicStorage, intentProtocol);
+        _validateRebalance(logicStorage, vaultStorage, from, to, sellAmount);
+        orderId = _intentTrade(logicStorage, intentProtocol, from, sellAmount, to, buyAmountMin, validTo, true);
+    }
+
+    function limitBuy(
+        AssetManagerStorage storage logicStorage,
+        VaultStorage storage vaultStorage,
+        address intentProtocol,
+        address from,
+        address to,
+        uint256 buyAmount,
+        uint256 sellAmountMax,
+        uint32 validTo
+    ) external onlyInitialized(logicStorage) returns (bytes32 orderId) {
+        _checkIntentProtocol(logicStorage, intentProtocol);
+        _validateRebalance(logicStorage, vaultStorage, from, to, sellAmountMax);
+        orderId = _intentTrade(logicStorage, intentProtocol, from, sellAmountMax, to, buyAmount, validTo, false);
+    }
+
+    function _intentTrade(
+        AssetManagerStorage storage logicStorage,
+        address intentProtocol,
+        address sellAssetAddress,
+        uint256 sellAmount,
+        address toAssetAddress,
+        uint256 buyAmountMin,
+        uint32 validTo,
+        bool isSellOrder
+    ) private returns (bytes32 orderId) {
+        if (sellAmount == 0 || buyAmountMin == 0) revert AmountIsZero();
+        if (validTo <= block.timestamp) revert InvalidValidTo();
+        if (_addressBalance(sellAssetAddress) < sellAmount) revert InsufficientBalance();
+
+        address clone = _cloneProtocol(logicStorage, intentProtocol);
+        bytes memory data = abi.encode(sellAssetAddress, sellAmount, toAssetAddress, buyAmountMin, validTo, isSellOrder);
+        IERC20(sellAssetAddress).safeIncreaseAllowance(clone, sellAmount);
+        orderId = IIntentProtocol(clone).trade(data);
+    }
+
+    function cancelLimitOrder(AssetManagerStorage storage logicStorage, address intentProtocol, bytes memory data)
+        external
+        onlyInitialized(logicStorage)
+    {
+        address clone = logicStorage.clonedProtocols[intentProtocol];
+        if (clone == address(0)) revert InvalidIntentProtocol();
+        IIntentProtocol(clone).cancelTrade(data);
+    }
+
+    function cleanExpiredOrders(
+        AssetManagerStorage storage logicStorage,
+        address intentProtocol,
+        bytes32[] calldata orderDigests
+    ) external {
+        address clone = logicStorage.clonedProtocols[intentProtocol];
+        if (clone == address(0)) revert InvalidIntentProtocol();
+        IIntentProtocol(clone).cleanExpiredOrders(orderDigests);
+    }
+
+    function addIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
+        external
+        onlyInitialized(logicStorage)
+    {
+        for (uint256 i = 0; i < intentProtocolAddresses.length; i++) {
+            if (!logicStorage.guard.isIntentProtocolRegistered(intentProtocolAddresses[i])) revert NotRegistered();
+            logicStorage.intentProtocols.add(intentProtocolAddresses[i]);
+        }
+    }
+
+    function removeIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
+        external
+        onlyInitialized(logicStorage)
+    {
+        for (uint256 i = 0; i < intentProtocolAddresses.length; i++) {
+            logicStorage.intentProtocols.remove(intentProtocolAddresses[i]);
+        }
+    }
+
+    function getIntentProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+        return logicStorage.intentProtocols.values();
+    }
+
+    function twapSell(
+        AssetManagerStorage storage logicStorage,
+        VaultStorage storage vaultStorage,
+        address intentProtocol,
+        address from,
+        address to,
+        uint256 totalSellAmount,
+        uint256 minPartLimit,
+        uint256 n,
+        uint256 partDuration,
+        uint256 span
+    ) external onlyInitialized(logicStorage) returns (bytes32 twapId) {
+        _checkIntentProtocol(logicStorage, intentProtocol);
+        if (totalSellAmount == 0 || minPartLimit == 0 || n == 0 || partDuration == 0) revert AmountIsZero();
+        if (_addressBalance(from) < totalSellAmount) revert InsufficientBalance();
+        _validateRebalance(logicStorage, vaultStorage, from, to, totalSellAmount);
+
+        address clone = _cloneProtocol(logicStorage, intentProtocol);
+        bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
+        IERC20(from).safeIncreaseAllowance(clone, totalSellAmount);
+        twapId = ICoWTwap(clone).createTwap(data);
+    }
+
+    function twapBuy(
+        AssetManagerStorage storage logicStorage,
+        VaultStorage storage vaultStorage,
+        address intentProtocol,
+        address from,
+        address to,
+        uint256 totalBuyAmount,
+        uint256 sellAmountPerPart,
+        uint256 n,
+        uint256 partDuration,
+        uint256 span
+    ) external onlyInitialized(logicStorage) returns (bytes32 twapId) {
+        _checkIntentProtocol(logicStorage, intentProtocol);
+        if (totalBuyAmount == 0 || sellAmountPerPart == 0 || n == 0 || partDuration == 0) revert AmountIsZero();
+        uint256 minPartLimit = totalBuyAmount / n;
+        if (minPartLimit == 0) revert AmountIsZero();
+        uint256 totalSellAmount = sellAmountPerPart * n;
+        if (_addressBalance(from) < totalSellAmount) revert InsufficientBalance();
+        _validateRebalance(logicStorage, vaultStorage, from, to, totalSellAmount);
+
+        address clone = _cloneProtocol(logicStorage, intentProtocol);
+        bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
+        IERC20(from).safeIncreaseAllowance(clone, totalSellAmount);
+        twapId = ICoWTwap(clone).createTwap(data);
+    }
+
+    function cancelTwap(AssetManagerStorage storage logicStorage, address intentProtocol, bytes32 twapId)
+        external
+        onlyInitialized(logicStorage)
+    {
+        address clone = logicStorage.clonedProtocols[intentProtocol];
+        if (clone == address(0)) revert InvalidIntentProtocol();
+        ICoWTwap(clone).cancelTwap(twapId);
     }
 }

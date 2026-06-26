@@ -114,6 +114,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
 
@@ -139,6 +140,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
     }
@@ -150,6 +152,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -171,6 +174,7 @@ contract BittyVaultTest is Test {
             assetManagers,
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -197,6 +201,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
     }
@@ -220,6 +225,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
@@ -238,6 +244,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         vm.expectRevert("Initializable: contract is already initialized");
@@ -247,6 +254,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -261,6 +269,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -280,6 +289,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -304,6 +314,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r =
@@ -322,6 +333,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -346,6 +358,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r = _makeReceiver(
@@ -363,6 +376,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -385,6 +399,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r =
@@ -401,6 +416,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -431,6 +447,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r =
@@ -446,6 +463,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -480,6 +498,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r = _makeReceiver(
@@ -511,6 +530,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         address receiverAddr = makeAddr("receiver");
@@ -533,6 +553,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r =
@@ -549,6 +570,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -571,6 +593,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -598,6 +621,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         IVault.Receiver memory r =
@@ -617,6 +641,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -643,6 +668,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         address alice = makeAddr("alice");
@@ -665,6 +691,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         vm.expectRevert(ReceiverNotFound.selector);
@@ -678,6 +705,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -704,6 +732,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         address alice = makeAddr("alice");
@@ -727,6 +756,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
         uint256 futureStartTimestamp = block.timestamp + 100;
@@ -747,6 +777,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -774,6 +805,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),
@@ -1442,6 +1474,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
     }
@@ -1458,6 +1491,7 @@ contract BittyVaultTest is Test {
             _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
+            new address[](0),
             new address[](0),
             new address[](0),
             new address[](0),

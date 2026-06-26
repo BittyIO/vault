@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-error RebalanceInMinimalTime();
-error RebalanceMaxAmount();
 error SellAmountMismatch();
 error BuyAmountNotEnough();
 error MinimalBalanceNotMet();
 error InvalidLendingProtocol();
 error InvalidStakingProtocol();
 error InvalidAMMProtocol();
+error InvalidIntentProtocol();
+error InvalidValidTo();
 error InvalidSwapData();
 error DisableRebalanceUntilTimestampTooEarly();
 error RebalanceDisabled();
@@ -16,36 +16,6 @@ error ETHBalanceNotEnough();
 error WETHBalanceNotEnough();
 
 interface IAssetManager {
-    /**
-     * @notice Per-asset limits for rebalancing. All amount fields use the token's native decimals
-     *         (raw on-chain units), not human-readable whole-token amounts.
-     *
-     * Examples (minimalDuration = 13 seconds in each case):
-     * - USDC (6 decimals): keep 1,000,000 USDC → minimalBalance = 1_000_000e6; no per-swap cap → maxAmount = 0
-     * - WBTC (8 decimals): keep 1 WBTC → minimalBalance = 1e8; cap each swap at 0.1 WBTC → maxAmount = 1e7
-     * - WETH (18 decimals): keep 10 WETH → minimalBalance = 10 ether; cap each swap at 1 WETH → maxAmount = 1 ether
-     *
-     * @param minimalBalance Minimum token balance that must remain in the vault after a rebalance sell.
-     *                       Set to 0 to allow selling the full balance. Use 1e8 for 1 WBTC, 1 ether for 1 WETH, etc.
-     * @param minimalDuration Minimum time between rebalances for this asset. Set to 0 to disable the cooldown.
-     * @param maxAmount Maximum sell amount per rebalance for this asset. Set to 0 for no limit.
-     */
-    struct RebalanceConfig {
-        /**
-         * @dev Minimum balance left after selling `from` during rebalance. Expressed in token decimals
-         *      (e.g. 1e8 = 1 WBTC, 10 ether = 10 WETH). Zero allows selling the entire balance.
-         */
-        uint256 minimalBalance;
-        /**
-         * @dev Seconds that must pass since the last rebalance involving this asset before another is allowed.
-         */
-        uint256 minimalDuration;
-        /**
-         * @dev Upper bound on sell amount per rebalance, in token decimals. Zero means unlimited.
-         */
-        uint256 maxAmount;
-    }
-
     /**
      * @notice Turn the ETH to WETH.
      * @dev Turn the ETH to WETH.
@@ -81,12 +51,9 @@ interface IAssetManager {
      */
     function getAMMProtocols() external view returns (address[] memory);
 
-    /**
-     * @notice Set rebalance limits for an asset. Amount fields in `assetConfig` use the asset's token decimals.
-     * @param assetAddress The address of the asset.
-     * @param assetConfig The rebalance config (see `RebalanceConfig` for decimal examples).
-     */
-    function setRebalanceConfig(address assetAddress, RebalanceConfig memory assetConfig) external;
+    /// @notice Set the minimum balance that must remain in the vault after any sell of `assetAddress`.
+    ///         Use token decimals (e.g. 1e8 = 1 WBTC, 10 ether = 10 WETH). Zero disables the check.
+    function setMinimalBalance(address assetAddress, uint256 minimalBalance) external;
 
     /**
      * @notice Supply the asset to the lending provider.
@@ -157,22 +124,26 @@ interface IAssetManager {
      */
     function claimUnstaked(address stakingProtocol, uint256[] memory requestIds) external;
 
-    /**
-     *
-     * @param ammProtocol The address of the swap provider.
-     * @param from The address of the from asset.
-     * @param to The address of the to asset, asset should be in the added guard.
-     * @param sellAmount The amount of the from asset to sell.
-     * @param buyAmountMin The minimum amount of the to asset to buy.
-     * @param data The data for the swap.
-     * @dev Rebalance the assets.
-     */
-    function rebalance(
+    /// @notice Exact-input market swap: sell exactly `sellAmount` of `from`, receive ≥ `buyAmountMin` of `to`.
+    /// @dev data = abi.encode(from, sellAmount, to, buyAmountMin, path)
+    function marketSell(
         address ammProtocol,
         address from,
         address to,
         uint256 sellAmount,
         uint256 buyAmountMin,
+        bytes memory data
+    ) external;
+
+    /// @notice Exact-output market swap: receive exactly `buyAmount` of `to`, spend ≤ `sellAmountMax` of `from`.
+    /// @dev data = abi.encode(from, sellAmountMax, to, buyAmount, reversedPath)
+    ///      reversedPath must be encoded in reverse order (to → ... → from) per Uniswap V3 exactOutput.
+    function marketBuy(
+        address ammProtocol,
+        address from,
+        address to,
+        uint256 buyAmount,
+        uint256 sellAmountMax,
         bytes memory data
     ) external;
 
@@ -272,4 +243,71 @@ interface IAssetManager {
      * @dev Remove the swap providers.
      */
     function removeAMMProtocols(address[] memory ammProtocolAddresses) external;
+
+    function getIntentProtocols() external view returns (address[] memory);
+
+    function addIntentProtocols(address[] memory intentProtocolAddresses) external;
+
+    function removeIntentProtocols(address[] memory intentProtocolAddresses) external;
+
+    /// @notice Place a sell limit order: sell exactly `sellAmount` of `from`, receive ≥ `buyAmountMin` of `to`.
+    /// @return orderId use to cancel via cancelLimitOrder
+    function limitSell(
+        address intentProtocol,
+        address from,
+        address to,
+        uint256 sellAmount,
+        uint256 buyAmountMin,
+        uint32 validTo
+    ) external returns (bytes32 orderId);
+
+    /// @notice Place a buy limit order: receive exactly `buyAmount` of `to`, spend ≤ `sellAmountMax` of `from`.
+    /// @return orderId use to cancel via cancelLimitOrder
+    function limitBuy(
+        address intentProtocol,
+        address from,
+        address to,
+        uint256 buyAmount,
+        uint256 sellAmountMax,
+        uint32 validTo
+    ) external returns (bytes32 orderId);
+
+    function cancelLimitOrder(address intentProtocol, bytes memory data) external;
+
+    function cleanExpiredOrders(address intentProtocol, bytes32[] calldata orderDigests) external;
+
+    /// @notice Create a TWAP sell order via Composable CoW.
+    ///         Splits totalSellAmount into n equal parts executed every partDuration seconds.
+    ///         CoW watchdog submits each slot automatically — no off-chain service needed.
+    /// @return twapId use to cancel via cancelTwap
+    function twapSell(
+        address intentProtocol,
+        address from,
+        address to,
+        uint256 totalSellAmount,
+        uint256 minPartLimit,
+        uint256 n,
+        uint256 partDuration,
+        uint256 span
+    ) external returns (bytes32 twapId);
+
+    /// @notice Cancel an active TWAP and return unfilled sell tokens to the vault.
+    function cancelTwap(address intentProtocol, bytes32 twapId) external;
+
+    /// @notice Create a TWAP buy order via Composable CoW.
+    ///         Spends sellAmountPerPart of `from` every partDuration seconds across n parts,
+    ///         receiving at least totalBuyAmount/n of `to` per part.
+    /// @param totalBuyAmount minimum total `to` tokens across all n parts (minPartLimit = totalBuyAmount/n)
+    /// @param sellAmountPerPart sell tokens per part (totalSellAmount = sellAmountPerPart * n)
+    /// @return twapId use to cancel via cancelTwap
+    function twapBuy(
+        address intentProtocol,
+        address from,
+        address to,
+        uint256 totalBuyAmount,
+        uint256 sellAmountPerPart,
+        uint256 n,
+        uint256 partDuration,
+        uint256 span
+    ) external returns (bytes32 twapId);
 }

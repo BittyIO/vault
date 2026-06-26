@@ -29,6 +29,7 @@ interface IVaultFactory {
      * @param lendingProtocols The addresses of the lending protocols.
      * @param stakingProtocols The addresses of the staking protocols.
      * @param ammProtocols The addresses of the amm protocols.
+     * @param intentProtocols The addresses of the intent protocols.
      * @return vault The address of the deployed vault.
      */
     function deployVaultWithSelected(
@@ -38,7 +39,8 @@ interface IVaultFactory {
         address[] memory assetAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
-        address[] memory ammProtocols
+        address[] memory ammProtocols,
+        address[] memory intentProtocols
     ) external returns (address vault);
 
     /**

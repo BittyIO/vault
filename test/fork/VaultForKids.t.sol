@@ -66,6 +66,7 @@ contract VaultForKidsForkTest is Test {
             assetAddresses,
             new address[](0),
             new address[](0),
+            new address[](0),
             new address[](0)
         );
 

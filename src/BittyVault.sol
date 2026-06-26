@@ -41,7 +41,8 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
         address[] memory assetAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
-        address[] memory ammProtocols
+        address[] memory ammProtocols,
+        address[] memory intentProtocols
     ) public initializer {
         vaultName = initialName;
         _grantRole(DEFAULT_ADMIN_ROLE, owner);
@@ -68,6 +69,9 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
         if (ammProtocols.length > 0) {
             _assetManager.addAMMProtocols(ammProtocols);
         }
+        if (intentProtocols.length > 0) {
+            _assetManager.addIntentProtocols(intentProtocols);
+        }
     }
 
     function _grantRole(bytes32 role, address account) internal override {
@@ -86,7 +90,7 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
 
     // ============ AMM ============
 
-    function rebalance(
+    function marketSell(
         address ammProtocol,
         address from,
         address to,
@@ -96,7 +100,20 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
     ) external override onlyRole(ASSET_MANAGER_ROLE) {
         _vault.checkAsset(from);
         _vault.checkAsset(to);
-        _assetManager.rebalance(_vault, ammProtocol, from, to, sellAmount, buyAmountMin, data);
+        _assetManager.marketSell(_vault, ammProtocol, from, to, sellAmount, buyAmountMin, data);
+    }
+
+    function marketBuy(
+        address ammProtocol,
+        address from,
+        address to,
+        uint256 buyAmount,
+        uint256 sellAmountMax,
+        bytes memory data
+    ) external override onlyRole(ASSET_MANAGER_ROLE) {
+        _vault.checkAsset(from);
+        _vault.checkAsset(to);
+        _assetManager.marketBuy(_vault, ammProtocol, from, to, buyAmount, sellAmountMax, data);
     }
 
     function addLiquidity(
@@ -120,6 +137,89 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
 
     function getLiquidity(address ammProtocol, bytes memory data) external view override returns (uint256) {
         return _assetManager.getLiquidity(ammProtocol, data);
+    }
+
+    // ============ Intent ============
+
+    function limitSell(
+        address intentProtocol,
+        address from,
+        address to,
+        uint256 sellAmount,
+        uint256 buyAmountMin,
+        uint32 validTo
+    ) external override onlyRole(ASSET_MANAGER_ROLE) returns (bytes32 orderId) {
+        _vault.checkAsset(from);
+        _vault.checkAsset(to);
+        return _assetManager.limitSell(_vault, intentProtocol, from, to, sellAmount, buyAmountMin, validTo);
+    }
+
+    function limitBuy(
+        address intentProtocol,
+        address from,
+        address to,
+        uint256 buyAmount,
+        uint256 sellAmountMax,
+        uint32 validTo
+    ) external override onlyRole(ASSET_MANAGER_ROLE) returns (bytes32 orderId) {
+        _vault.checkAsset(from);
+        _vault.checkAsset(to);
+        return _assetManager.limitBuy(_vault, intentProtocol, from, to, buyAmount, sellAmountMax, validTo);
+    }
+
+    function cancelLimitOrder(address intentProtocol, bytes memory data)
+        external
+        override
+        onlyRole(ASSET_MANAGER_ROLE)
+    {
+        _assetManager.cancelLimitOrder(intentProtocol, data);
+    }
+
+    function cleanExpiredOrders(address intentProtocol, bytes32[] calldata orderDigests) external override {
+        _assetManager.cleanExpiredOrders(intentProtocol, orderDigests);
+    }
+
+    function twapSell(
+        address intentProtocol,
+        address from,
+        address to,
+        uint256 totalSellAmount,
+        uint256 minPartLimit,
+        uint256 n,
+        uint256 partDuration,
+        uint256 span
+    ) external override onlyRole(ASSET_MANAGER_ROLE) returns (bytes32 twapId) {
+        _vault.checkAsset(from);
+        _vault.checkAsset(to);
+        return
+            _assetManager.twapSell(
+                _vault, intentProtocol, from, to, totalSellAmount, minPartLimit, n, partDuration, span
+            );
+    }
+
+    function cancelTwap(address intentProtocol, bytes32 twapId) external override onlyRole(ASSET_MANAGER_ROLE) {
+        _assetManager.cancelTwap(intentProtocol, twapId);
+    }
+
+    function twapBuy(
+        address intentProtocol,
+        address from,
+        address to,
+        uint256 totalBuyAmount,
+        uint256 sellAmountPerPart,
+        uint256 n,
+        uint256 partDuration,
+        uint256 span
+    ) external override onlyRole(ASSET_MANAGER_ROLE) returns (bytes32 twapId) {
+        _vault.checkAsset(from);
+        _vault.checkAsset(to);
+        return _assetManager.twapBuy(
+            _vault, intentProtocol, from, to, totalBuyAmount, sellAmountPerPart, n, partDuration, span
+        );
+    }
+
+    function getIntentProtocols() external view override returns (address[] memory) {
+        return _assetManager.getIntentProtocols();
     }
 
     // ============ Lending ============
@@ -185,12 +285,12 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
 
     // ============ Rebalance config ============
 
-    function setRebalanceConfig(address assetAddress, IAssetManager.RebalanceConfig memory _assetConfig)
+    function setMinimalBalance(address assetAddress, uint256 newMinimalBalance)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _assetManager.setRebalanceConfig(assetAddress, _assetConfig);
+        _assetManager.setMinimalBalance(assetAddress, newMinimalBalance);
     }
 
     function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyRole(ASSET_MANAGER_ROLE) {
@@ -246,6 +346,22 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
 
     function removeAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _assetManager.removeAMMProtocols(ammProtocolAddresses);
+    }
+
+    function addIntentProtocols(address[] memory intentProtocolAddresses)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _assetManager.addIntentProtocols(intentProtocolAddresses);
+    }
+
+    function removeIntentProtocols(address[] memory intentProtocolAddresses)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _assetManager.removeIntentProtocols(intentProtocolAddresses);
     }
 
     // ============ ETH/WETH ============
@@ -354,11 +470,7 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
         return _assetManager.getAMMProtocols();
     }
 
-    function lastRebalanceTimestamps(address assetAddress) external view returns (uint256) {
-        return _assetManager.lastRebalanceTimestamps[assetAddress];
-    }
-
-    function rebalanceConfigs(address assetAddress) external view returns (IAssetManager.RebalanceConfig memory) {
-        return _assetManager.rebalanceConfigs[assetAddress];
+    function minimalBalance(address assetAddress) external view returns (uint256) {
+        return _assetManager.minimalBalances[assetAddress];
     }
 }
