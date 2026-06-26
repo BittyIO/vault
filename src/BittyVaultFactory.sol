@@ -41,7 +41,14 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
      */
     function deployVault(address owner, string memory name) external override returns (address vault) {
         return _deployVault(
-            owner, name, new address[](0), new address[](0), new address[](0), new address[](0), new address[](0)
+            owner,
+            name,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
         );
     }
 
@@ -63,12 +70,21 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         address[] memory assetAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
-        address[] memory ammProtocols
+        address[] memory ammProtocols,
+        address[] memory intentProtocols
     ) external override returns (address vault) {
-        _checkGuard(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols);
+        _checkGuard(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
 
-        return
-            _deployVault(owner, name, assetManagers, assetAddresses, lendingProtocols, stakingProtocols, ammProtocols);
+        return _deployVault(
+            owner,
+            name,
+            assetManagers,
+            assetAddresses,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols
+        );
     }
 
     /**
@@ -87,6 +103,7 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         address[] memory lendingProtocols = guard.getLendingProtocols();
         address[] memory stakingProtocols = guard.getStakingProtocols();
         address[] memory ammProtocols = guard.getAMMProtocols();
+        address[] memory intentProtocols = guard.getIntentProtocols();
         address[] memory assetAddresses = guard.getAssets();
         address[] memory stableCoinAddresses = guard.getStableCoins();
         address[] memory allAssetAddresses = new address[](assetAddresses.length + stableCoinAddresses.length);
@@ -96,10 +113,16 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
             allAssetAddresses[assetAddresses.length + i] = stableCoinAddresses[i];
         }
-        return
-            _deployVault(
-                owner, name, assetManagers, allAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols
-            );
+        return _deployVault(
+            owner,
+            name,
+            assetManagers,
+            allAssetAddresses,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols
+        );
     }
 
     function _deployVault(
@@ -109,7 +132,8 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         address[] memory assetAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
-        address[] memory ammProtocols
+        address[] memory ammProtocols,
+        address[] memory intentProtocols
     ) internal returns (address vault) {
         if (owner == address(0)) revert AddressZero();
 
@@ -129,7 +153,8 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
                 assetAddresses,
                 lendingProtocols,
                 stakingProtocols,
-                ammProtocols
+                ammProtocols,
+                intentProtocols
             );
 
         emit VaultDeployed(vault, owner, name);
@@ -145,7 +170,8 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         address[] memory assetAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
-        address[] memory ammProtocols
+        address[] memory ammProtocols,
+        address[] memory intentProtocols
     ) internal view {
         IGuard guard = IGuard(guardAddress);
         for (uint256 i = 0; i < assetAddresses.length; i++) {
@@ -162,6 +188,9 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         }
         for (uint256 i = 0; i < ammProtocols.length; i++) {
             if (!guard.isAMMProtocolRegistered(ammProtocols[i])) revert NotRegistered();
+        }
+        for (uint256 i = 0; i < intentProtocols.length; i++) {
+            if (!guard.isIntentProtocolRegistered(intentProtocols[i])) revert NotRegistered();
         }
     }
 }

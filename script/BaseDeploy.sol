@@ -7,8 +7,7 @@ import {console2} from "forge-std/console2.sol";
 
 abstract contract DeployScript is Script, Config {
     function deploy(string memory chainName) public {
-        console2.log("Forking chain", chainName);
-        vm.createSelectFork(chainName);
+        console2.log("Deploying to chain", chainName);
         string memory configPath = string.concat("./deployments/", chainName, ".toml");
         _loadConfig(configPath, true);
         vm.startBroadcast();

@@ -63,39 +63,67 @@ forge coverage --ir-minimum --no-match-coverage 'test|node_modules|script|src/li
 
 ## Deploy
 
-Deployment scripts read chain-specific addresses from `deployments/<chain>.toml` via `forge-std` config. Deploy the vault implementation first, then the factory. Example for Sepolia:
+Deployment scripts read chain-specific addresses from `deployments/<chain>.toml` via `forge-std` config. Deploy in order — each step writes addresses the next step needs.
+
+### Step 1 — logic libraries
+
+Deploy `VaultLogic` and `AssetManagerLogic` via the canonical CREATE2 deployer (`0x4e59b44847b379578588920cA78FbF26c0B4956C`, salt `0x0`). Both live in `script/DeployLogicLibraries.s.sol` and must be broadcast separately.
+
+**1a — VaultLogic** (no `--libraries` flag):
 
 ```shell
 source .env
-forge script script/BittyVault.s.sol:Deploy \
-  --rpc-url sepolia \
-  --broadcast \
-  --private-key $SEPOLIA_PRIVATE_KEY \
-  -vvvv
-
-forge script script/BittyVaultFactory.s.sol:Deploy \
+forge script script/DeployLogicLibraries.s.sol:DeployVaultLogic \
   --rpc-url sepolia \
   --broadcast \
   --private-key $SEPOLIA_PRIVATE_KEY \
   -vvvv
 ```
 
-The factory script uses CREATE2 via the immutable factory at `0x0000000000FFe8B47B3e2130213B802212439497`. Deployed addresses are written back to the chain TOML under `deployments/`.
-
-### Deploy logic libraries
-
-`BittyVault` links against the `VaultLogic` and `AssetManagerLogic` libraries, deployed via the canonical CREATE2 deployer (`0x4e59b44847b379578588920cA78FbF26c0B4956C`, salt `0x0`) so they land at the same address on every chain. `forge script` normally deploys these automatically as part of `BittyVault.s.sol:Deploy`, but if a broadcast is interrupted before they confirm, the vault implementation ends up linked against addresses with no code. Use this script to (re)deploy any missing library to its expected address:
+**1b — AssetManagerLogic** (links against VaultLogic at `0xc65daA9e6a35A6a25E08492b962DA927864B9F9e`):
 
 ```shell
-source .env
-forge script script/DeployLogicLibraries.s.sol:DeployLogicLibraries \
+forge script script/DeployLogicLibraries.s.sol:DeployAssetManagerLogic \
+  --rpc-url sepolia \
+  --broadcast \
+  --private-key $SEPOLIA_PRIVATE_KEY \
+  --libraries src/logic/VaultLogic.sol:VaultLogic:0xc65daA9e6a35A6a25E08492b962DA927864B9F9e \
+  -vvvv
+```
+
+Writes `VAULT_LOGIC` and `ASSET_MANAGER_LOGIC` to `deployments/<chain>.toml`.
+
+### Step 2 — vault implementation
+
+Deploy `BittyVault` via CREATE2. Pass both library addresses from step 1:
+
+```shell
+forge script script/DeployBittyVault.s.sol:Deploy \
+  --rpc-url sepolia \
+  --broadcast \
+  --private-key $SEPOLIA_PRIVATE_KEY \
+  --libraries src/logic/VaultLogic.sol:VaultLogic:0xc65daA9e6a35A6a25E08492b962DA927864B9F9e \
+  --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:0x3bcE6098B426613bA86d4d23e9E5eE4a9A54968E \
+  -vvvv
+```
+
+Writes `VAULT_IMPLEMENTATION` to `deployments/<chain>.toml`.
+
+### Step 3 — factory
+
+Deploy `BittyVaultFactory` via the immutable factory at `0x0000000000FFe8B47B3e2130213B802212439497`, initialized with `VAULT_IMPLEMENTATION`, `BITTY_GUARD`, and `WETH` from the chain TOML:
+
+```shell
+forge script script/DeployBittyVaultFactory.s.sol:Deploy \
   --rpc-url sepolia \
   --broadcast \
   --private-key $SEPOLIA_PRIVATE_KEY \
   -vvvv
 ```
 
-It's idempotent — libraries already present at their expected address are skipped.
+Writes `BITTY_VAULT_FACTORY` to `deployments/<chain>.toml`.
+
+Each script is idempotent — contracts already present at their expected address are skipped.
 
 ## Verify
 

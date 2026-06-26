@@ -13,7 +13,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IVault} from "../../src/interfaces/IVault.sol";
 import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Protocol.sol";
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
-import {IAssetManager, RebalanceInMinimalTime} from "../../src/interfaces/IAssetManager.sol";
+import {IAssetManager} from "../../src/interfaces/IAssetManager.sol";
 
 /// @notice Mainnet fork integration tests for BittyVault with real Aave and Lido providers.
 contract TestVaultFork is Test {
@@ -36,6 +36,7 @@ contract TestVaultFork is Test {
     address[] public lendingProtocols;
     address[] public stakingProtocols;
     address[] public ammProtocols;
+    address[] public intentProtocols;
 
     function setUp() public {
         vm.createSelectFork("mainnet");
@@ -74,6 +75,7 @@ contract TestVaultFork is Test {
         lendingProtocols = _arr(address(aaveProtocol));
         stakingProtocols = _arr(address(lidoProtocol));
         ammProtocols = _arr(address(uniswapV3Protocol));
+        intentProtocols = new address[](0);
 
         vaultImpl = new BittyVault();
         factory = new BittyVaultFactory();
@@ -87,7 +89,8 @@ contract TestVaultFork is Test {
             vaultAssets,
             lendingProtocols,
             stakingProtocols,
-            ammProtocols
+            ammProtocols,
+            intentProtocols
         );
         vault = BittyVault(payable(vaultAddr));
     }
@@ -269,18 +272,14 @@ contract TestVaultFork is Test {
             vaultAssets,
             lendingProtocols,
             stakingProtocols,
-            ammProtocols
+            ammProtocols,
+            intentProtocols
         );
     }
 
     function test_RebalanceWETHToUSDT() public {
         uint256 sellAmount = 0.01 ether;
         deal(mainnet.WETH, address(vault), sellAmount);
-
-        IAssetManager.RebalanceConfig memory config =
-            IAssetManager.RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
-        vm.prank(tx.origin);
-        vault.setRebalanceConfig(mainnet.WETH, config);
 
         address[] memory path = new address[](2);
         path[0] = mainnet.WETH;
@@ -293,7 +292,7 @@ contract TestVaultFork is Test {
         bytes memory swapData = abi.encode(mainnet.WETH, sellAmount, mainnet.USDT, buyAmountMin, encodedPath);
 
         uint256 usdtBefore = IERC20(mainnet.USDT).balanceOf(address(vault));
-        vault.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        vault.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
         uint256 usdtAfter = IERC20(mainnet.USDT).balanceOf(address(vault));
         assertGt(usdtAfter, usdtBefore);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
@@ -361,84 +360,8 @@ contract TestVaultFork is Test {
         assertGe(remaining, supplyAmount - payAmount);
     }
 
-    function test_Rebalance_firstTimeSucceedsWithMinimalDurationSet() public {
-        // lastRebalanceTimestamp is 0 before first rebalance; cooldown must not block it
-        IAssetManager.RebalanceConfig memory config =
-            IAssetManager.RebalanceConfig({minimalBalance: 0, minimalDuration: 7 days, maxAmount: 0});
-        vm.prank(tx.origin);
-        vault.setRebalanceConfig(mainnet.WETH, config);
-
-        uint256 sellAmount = 0.01 ether;
-        deal(mainnet.WETH, address(vault), sellAmount);
-
-        address[] memory path = new address[](2);
-        path[0] = mainnet.WETH;
-        path[1] = mainnet.USDT;
-        uint24[] memory fees = new uint24[](1);
-        fees[0] = 3000;
-        bytes memory swapData =
-            abi.encode(mainnet.WETH, sellAmount, mainnet.USDT, uint256(1), Path.encodePath(path, fees));
-
-        uint256 usdtBefore = IERC20(mainnet.USDT).balanceOf(address(vault));
-        vault.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
-        assertGt(IERC20(mainnet.USDT).balanceOf(address(vault)), usdtBefore);
-    }
-
-    function test_Rebalance_cooldownBlocksSecondImmediately() public {
-        uint256 minimalDuration = 7 days;
-        IAssetManager.RebalanceConfig memory config =
-            IAssetManager.RebalanceConfig({minimalBalance: 0, minimalDuration: minimalDuration, maxAmount: 0});
-        vm.prank(tx.origin);
-        vault.setRebalanceConfig(mainnet.WETH, config);
-
-        address[] memory path = new address[](2);
-        path[0] = mainnet.WETH;
-        path[1] = mainnet.USDT;
-        uint24[] memory fees = new uint24[](1);
-        fees[0] = 3000;
-        bytes memory swapData =
-            abi.encode(mainnet.WETH, uint256(0.01 ether), mainnet.USDT, uint256(1), Path.encodePath(path, fees));
-
-        deal(mainnet.WETH, address(vault), 1 ether);
-        vault.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, swapData);
-
-        deal(mainnet.WETH, address(vault), 0.01 ether);
-        vm.expectRevert(RebalanceInMinimalTime.selector);
-        vault.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, swapData);
-    }
-
-    function test_Rebalance_succeedsAfterCooldownElapsed() public {
-        uint256 minimalDuration = 7 days;
-        IAssetManager.RebalanceConfig memory config =
-            IAssetManager.RebalanceConfig({minimalBalance: 0, minimalDuration: minimalDuration, maxAmount: 0});
-        vm.prank(tx.origin);
-        vault.setRebalanceConfig(mainnet.WETH, config);
-
-        address[] memory path = new address[](2);
-        path[0] = mainnet.WETH;
-        path[1] = mainnet.USDT;
-        uint24[] memory fees = new uint24[](1);
-        fees[0] = 3000;
-        bytes memory swapData =
-            abi.encode(mainnet.WETH, uint256(0.01 ether), mainnet.USDT, uint256(1), Path.encodePath(path, fees));
-
-        deal(mainnet.WETH, address(vault), 1 ether);
-        vault.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, swapData);
-
-        vm.warp(block.timestamp + minimalDuration + 1);
-        deal(mainnet.WETH, address(vault), 0.01 ether);
-        uint256 usdtBefore = IERC20(mainnet.USDT).balanceOf(address(vault));
-        vault.rebalance(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, swapData);
-        assertGt(IERC20(mainnet.USDT).balanceOf(address(vault)), usdtBefore);
-    }
-
     function test_MultiStep_rebalanceThenPayReceiverThenRebalance() public {
         deal(mainnet.WETH, address(vault), 1 ether);
-
-        IAssetManager.RebalanceConfig memory config =
-            IAssetManager.RebalanceConfig({minimalBalance: 0, minimalDuration: 0, maxAmount: 0});
-        vm.prank(tx.origin);
-        vault.setRebalanceConfig(mainnet.WETH, config);
 
         address[] memory path = new address[](2);
         path[0] = mainnet.WETH;
@@ -449,7 +372,7 @@ contract TestVaultFork is Test {
 
         // Step 1: rebalance 0.3 WETH → USDT
         uint256 firstSell = 0.3 ether;
-        vault.rebalance(
+        vault.marketSell(
             address(uniswapV3Protocol),
             mainnet.WETH,
             mainnet.USDT,
@@ -482,7 +405,7 @@ contract TestVaultFork is Test {
         uint256 remainingWeth = IERC20(mainnet.WETH).balanceOf(address(vault));
         assertGt(remainingWeth, 0);
         uint256 usdtBefore = IERC20(mainnet.USDT).balanceOf(address(vault));
-        vault.rebalance(
+        vault.marketSell(
             address(uniswapV3Protocol),
             mainnet.WETH,
             mainnet.USDT,
@@ -504,7 +427,8 @@ contract TestVaultFork is Test {
             vaultAssets,
             lendingProtocols,
             stakingProtocols,
-            ammProtocols
+            ammProtocols,
+            intentProtocols
         );
 
         BittyVault customVault = BittyVault(payable(vaultAddr));

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {IAssetManager} from "../interfaces/IAssetManager.sol";
 import {IGuard} from "guard-contracts/src/interfaces/IGuard.sol";
 import {IVault} from "../interfaces/IVault.sol";
 
@@ -11,12 +10,12 @@ struct AssetManagerStorage {
     address weth;
 
     mapping(address => address) clonedProtocols;
-    mapping(address => IAssetManager.RebalanceConfig) rebalanceConfigs;
-    mapping(address => uint256) lastRebalanceTimestamps;
+    mapping(address => uint256) minimalBalances;
 
     EnumerableSet.AddressSet lendingProtocols;
     EnumerableSet.AddressSet stakingProtocols;
     EnumerableSet.AddressSet ammProtocols;
+    EnumerableSet.AddressSet intentProtocols;
 
     IGuard guard;
 
