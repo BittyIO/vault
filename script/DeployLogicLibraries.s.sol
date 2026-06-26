@@ -26,10 +26,7 @@ contract DeployVaultLogic is DeployScript, Create2Deployer {
 
 /// @notice Step 1b — deploy AssetManagerLogic via CREATE2 (salt = 0).
 ///
-/// Run after step 1a. AssetManagerLogic links against VaultLogic, so pass the
-/// VaultLogic CREATE2 address when compiling:
-///
-///   --libraries src/logic/VaultLogic.sol:VaultLogic:0xDb4FCe915F33e804279102Ce8dd3ffC449A51cfe
+/// Run after step 1a. AssetManagerLogic links against VaultLogic.
 ///
 /// Usage:
 ///   source .env
@@ -37,7 +34,6 @@ contract DeployVaultLogic is DeployScript, Create2Deployer {
 ///     --rpc-url sepolia \
 ///     --broadcast \
 ///     --private-key $SEPOLIA_PRIVATE_KEY \
-///     --libraries src/logic/VaultLogic.sol:VaultLogic:0xDb4FCe915F33e804279102Ce8dd3ffC449A51cfe \
 ///     -vvvv
 contract DeployAssetManagerLogic is DeployScript, Create2Deployer {
     function deploy() public override {

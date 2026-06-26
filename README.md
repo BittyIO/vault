@@ -87,7 +87,6 @@ forge script script/DeployLogicLibraries.s.sol:DeployAssetManagerLogic \
   --rpc-url sepolia \
   --broadcast \
   --private-key $SEPOLIA_PRIVATE_KEY \
-  --libraries src/logic/VaultLogic.sol:VaultLogic:0xc65daA9e6a35A6a25E08492b962DA927864B9F9e \
   -vvvv
 ```
 
@@ -142,15 +141,15 @@ forge verify-contract \
 ```shell
 forge verify-contract \
   --chain sepolia \
-  0xFb20542A2FeA887578D598e102e14D0E86db8291 \
+  {vaultLogicAddress} \
   src/logic/VaultLogic.sol:VaultLogic \
   --etherscan-api-key $ETHERSCAN_API_KEY
 
 forge verify-contract \
   --chain sepolia \
-  0x93cc0FcF2D8EddB6a9Be480b7A7BaAFa07D9Af4F \
+  {vaultLogicAddress} \
   src/logic/AssetManagerLogic.sol:AssetManagerLogic \
-  --libraries src/logic/VaultLogic.sol:VaultLogic:0xFb20542A2FeA887578D598e102e14D0E86db8291 \
+  --libraries src/logic/VaultLogic.sol:VaultLogic:{vaultLogicAddress} \
   --etherscan-api-key $ETHERSCAN_API_KEY
 ```
 
@@ -161,14 +160,14 @@ forge verify-contract \
 ```shell
 forge verify-contract \
   --chain sepolia \
-  <vault-implementation-address> \
+  {VaultImplementationAddress} \
   src/BittyVault.sol:BittyVault \
-  --libraries src/logic/VaultLogic.sol:VaultLogic:0xFb20542A2FeA887578D598e102e14D0E86db8291 \
-  --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:0x93cc0FcF2D8EddB6a9Be480b7A7BaAFa07D9Af4F \
+  --libraries src/logic/VaultLogic.sol:VaultLogic:{vaultLogicAddress} \
+  --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{AssetManagerLogicAddress} \
   --etherscan-api-key $ETHERSCAN_API_KEY
 ```
 
-`<vault-implementation-address>` is the `VAULT_IMPLEMENTATION` value recorded in `deployments/<chain>.toml`.
+`VaultImplementationAddress` is the `VAULT_IMPLEMENTATION` value recorded in `deployments/<chain>.toml`.
 
 ## Formatting
 
