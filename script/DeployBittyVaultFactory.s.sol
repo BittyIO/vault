@@ -24,7 +24,7 @@ interface ImmutableCreate2Factory {
 contract Deploy is DeployScript {
     ImmutableCreate2Factory constant IMMUTABLE_CREATE2 =
         ImmutableCreate2Factory(0x0000000000FFe8B47B3e2130213B802212439497);
-    bytes32 constant FACTORY_SALT = 0x0000000000000000000000000000000000000000e3b8e27e256a40000b2b5a1c;
+    bytes32 constant FACTORY_SALT = 0x000000000000000000000000000000000000000082423e31543f00000ce897fb;
 
     function deploy() public override {
         address vaultImpl = getAddress("VAULT_IMPLEMENTATION");
