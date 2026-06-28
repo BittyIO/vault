@@ -80,7 +80,7 @@ forge script script/LogicLibraries.s.sol:VaultLogic \
   -vvvv
 ```
 
-**1b — AssetManagerLogic** (links against VaultLogic at `0xc65daA9e6a35A6a25E08492b962DA927864B9F9e`):
+**1b — AssetManagerLogic** (links against VaultLogic at `{vaultLogicAddress}`):
 
 ```shell
 forge script script/LogicLibraries.s.sol:AssetManagerLogic \
@@ -101,8 +101,8 @@ forge script script/BittyV1Vault.s.sol:BittyV1Vault \
   --rpc-url sepolia \
   --broadcast \
   --private-key $SEPOLIA_PRIVATE_KEY \
-  --libraries src/logic/VaultLogic.sol:VaultLogic:0xc65daA9e6a35A6a25E08492b962DA927864B9F9e \
-  --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:0x3bcE6098B426613bA86d4d23e9E5eE4a9A54968E \
+  --libraries src/logic/VaultLogic.sol:VaultLogic:{vaultLogicAddress} \
+  --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{assetManagerLogciAddress} \
   -vvvv
 ```
 
