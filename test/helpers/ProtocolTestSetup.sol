@@ -7,7 +7,7 @@ import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.so
 import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Protocol.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
-import {BittyGuard} from "guard-contracts/src/BittyGuard.sol";
+import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 
 /// @dev Mainnet fork setup with real Aave, Lido, and Uniswap V3 provider templates.
 abstract contract ProtocolTestSetup is Test {
@@ -19,7 +19,7 @@ abstract contract ProtocolTestSetup is Test {
     LidoV2Protocol internal lidoProtocol;
     UniswapV3Protocol internal uniswapV3Protocol;
 
-    function setupMainnetForkProtocols(BittyGuard guard) internal {
+    function setupMainnetForkProtocols(BittyV1Guard guard) internal {
         vm.createSelectFork("mainnet");
 
         vm.startPrank(tx.origin);

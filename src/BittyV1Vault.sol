@@ -1,29 +1,38 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
-import {IAssetManager} from "./interfaces/IAssetManager.sol";
-import {IGuard} from "guard-contracts/src/interfaces/IGuard.sol";
-import {IVault, ReceiverNotFound, OnlyReceiver, OwnerAndAssetManagerMustDiffer} from "./interfaces/IVault.sol";
+import {
+    AccessControlDefaultAdminRulesUpgradeable
+} from "openzeppelin-contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
+import {IBittyV1AssetManager} from "./interfaces/IBittyV1AssetManager.sol";
+import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {
+    IBittyV1Vault,
+    ReceiverNotFound,
+    OnlyReceiver,
+    OwnerAndAssetManagerMustDiffer,
+    AddressZero
+} from "./interfaces/IBittyV1Vault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
 
 /**
- * @title BittyVault
+ * @title BittyV1Vault
  * @notice
  * @dev
  *
  * Role hierarchy:
  * - DEFAULT_ADMIN_ROLE: hardware wallet / multi-sig. Owns all config and irreversible ops.
+ *   Managed via {AccessControlDefaultAdminRulesUpgradeable} (2-step transfer + delay).
  * - ASSET_MANAGER_ROLE: hot wallet / AI agent. Executes yield and trading operations only.
  */
-contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
+contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefaultAdminRulesUpgradeable {
     using AssetManagerLogic for AssetManagerStorage;
     using VaultLogic for VaultStorage;
 
     bytes32 public constant ASSET_MANAGER_ROLE = keccak256("ASSET_MANAGER_ROLE");
+    uint48 public constant OWNER_TRANSFER_DELAY = 1 days;
 
     string public vaultName;
 
@@ -44,8 +53,10 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
         address[] memory ammProtocols,
         address[] memory intentProtocols
     ) public initializer {
+        if (owner == address(0)) revert AddressZero();
         vaultName = initialName;
-        _grantRole(DEFAULT_ADMIN_ROLE, owner);
+        __AccessControl_init();
+        __AccessControlDefaultAdminRules_init(OWNER_TRANSFER_DELAY, owner);
 
         for (uint256 i = 0; i < assetManagers.length; i++) {
             if (assetManagers[i] == owner) revert OwnerAndAssetManagerMustDiffer();
@@ -74,14 +85,18 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
         }
     }
 
-    function _grantRole(bytes32 role, address account) internal override {
-        if (role == ASSET_MANAGER_ROLE && hasRole(DEFAULT_ADMIN_ROLE, account)) {
+    function _grantRole(bytes32 role, address account) internal override returns (bool) {
+        if (role == ASSET_MANAGER_ROLE && account == defaultAdmin()) {
             revert OwnerAndAssetManagerMustDiffer();
         }
-        if (role == DEFAULT_ADMIN_ROLE && hasRole(ASSET_MANAGER_ROLE, account)) {
+        return super._grantRole(role, account);
+    }
+
+    function beginDefaultAdminTransfer(address newAdmin) public override onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newAdmin != address(0) && hasRole(ASSET_MANAGER_ROLE, newAdmin)) {
             revert OwnerAndAssetManagerMustDiffer();
         }
-        super._grantRole(role, account);
+        super.beginDefaultAdminTransfer(newAdmin);
     }
 
     function setName(string memory newName) external override onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -396,7 +411,7 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
 
     // ============ Receivers (RECEIVER_MANAGER_ROLE) ============
 
-    function addReceiver(string memory receiverName, IVault.Receiver calldata receiver_)
+    function addReceiver(string memory receiverName, IBittyV1Vault.Receiver calldata receiver_)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
@@ -404,7 +419,7 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
         _vault.addReceiver(receiverName, receiver_);
     }
 
-    function updateReceiver(string memory receiverName, IVault.Receiver calldata receiver_)
+    function updateReceiver(string memory receiverName, IBittyV1Vault.Receiver calldata receiver_)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
@@ -454,7 +469,7 @@ contract BittyVault is IVault, IAssetManager, Initializable, AccessControl {
         return _assetManager.weth;
     }
 
-    function guard() external view returns (IGuard) {
+    function guard() external view returns (IBittyV1Guard) {
         return _assetManager.guard;
     }
 

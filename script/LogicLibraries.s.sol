@@ -3,8 +3,8 @@ pragma solidity ^0.8.34;
 
 import {DeployScript} from "./BaseDeploy.sol";
 import {Create2Deployer} from "./Create2Deployer.sol";
-import {VaultLogic} from "../src/logic/VaultLogic.sol";
-import {AssetManagerLogic} from "../src/logic/AssetManagerLogic.sol";
+import {VaultLogic as VaultLogicImplementation} from "../src/logic/VaultLogic.sol";
+import {AssetManagerLogic as AssetManagerLogicImplementation} from "../src/logic/AssetManagerLogic.sol";
 
 /// @notice Step 1a — deploy VaultLogic via CREATE2 (salt = 0).
 ///
@@ -12,14 +12,14 @@ import {AssetManagerLogic} from "../src/logic/AssetManagerLogic.sol";
 ///
 /// Usage:
 ///   source .env
-///   forge script script/DeployLogicLibraries.s.sol:DeployVaultLogic \
+///   forge script script/LogicLibraries.s.sol:VaultLogic \
 ///     --rpc-url sepolia \
 ///     --broadcast \
 ///     --private-key $SEPOLIA_PRIVATE_KEY \
 ///     -vvvv
-contract DeployVaultLogic is DeployScript, Create2Deployer {
+contract VaultLogic is DeployScript, Create2Deployer {
     function deploy() public override {
-        address vaultLogic = _deployCreate2("VaultLogic", type(VaultLogic).creationCode);
+        address vaultLogic = _deployCreate2("VaultLogic", type(VaultLogicImplementation).creationCode);
         saveAddress("VAULT_LOGIC", vaultLogic);
     }
 }
@@ -30,14 +30,15 @@ contract DeployVaultLogic is DeployScript, Create2Deployer {
 ///
 /// Usage:
 ///   source .env
-///   forge script script/DeployLogicLibraries.s.sol:DeployAssetManagerLogic \
+///   forge script script/LogicLibraries.s.sol:AssetManagerLogic \
 ///     --rpc-url sepolia \
 ///     --broadcast \
 ///     --private-key $SEPOLIA_PRIVATE_KEY \
 ///     -vvvv
-contract DeployAssetManagerLogic is DeployScript, Create2Deployer {
+contract AssetManagerLogic is DeployScript, Create2Deployer {
     function deploy() public override {
-        address assetManagerLogic = _deployCreate2("AssetManagerLogic", type(AssetManagerLogic).creationCode);
+        address assetManagerLogic =
+            _deployCreate2("AssetManagerLogic", type(AssetManagerLogicImplementation).creationCode);
         saveAddress("ASSET_MANAGER_LOGIC", assetManagerLogic);
     }
 }

@@ -3,17 +3,17 @@ pragma solidity ^0.8.34;
 
 import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
-import {AddressZero} from "./interfaces/IVault.sol";
-import {IGuard, NotRegistered} from "guard-contracts/src/interfaces/IGuard.sol";
-import {BittyVault} from "./BittyVault.sol";
-import {IVaultFactory, VaultAlreadyDeployed} from "./interfaces/IVaultFactory.sol";
+import {AddressZero} from "./interfaces/IBittyV1Vault.sol";
+import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {BittyV1Vault} from "./BittyV1Vault.sol";
+import {IBittyV1VaultFactory, VaultAlreadyDeployed} from "./interfaces/IBittyV1VaultFactory.sol";
 
 /**
- * @title BittyVaultFactory
- * @notice Deploys BittyVault instances with deterministic addresses per (owner, name) pair,
+ * @title BittyV1VaultFactory
+ * @notice Deploys BittyV1Vault instances with deterministic addresses per (owner, name) pair,
  *         allowing one owner to hold multiple vaults distinguished by name.
  */
-contract BittyVaultFactory is IVaultFactory, Initializable {
+contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
     address public guardAddress;
     address public vaultImplementation;
     address public wethAddress;
@@ -99,7 +99,7 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         override
         returns (address vault)
     {
-        IGuard guard = IGuard(guardAddress);
+        IBittyV1Guard guard = IBittyV1Guard(guardAddress);
         address[] memory lendingProtocols = guard.getLendingProtocols();
         address[] memory stakingProtocols = guard.getStakingProtocols();
         address[] memory ammProtocols = guard.getAMMProtocols();
@@ -143,7 +143,7 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         }
 
         vault = Clones.cloneDeterministic(vaultImplementation, salt);
-        BittyVault(payable(vault))
+        BittyV1Vault(payable(vault))
             .initialize(
                 owner,
                 name,
@@ -173,7 +173,7 @@ contract BittyVaultFactory is IVaultFactory, Initializable {
         address[] memory ammProtocols,
         address[] memory intentProtocols
     ) internal view {
-        IGuard guard = IGuard(guardAddress);
+        IBittyV1Guard guard = IBittyV1Guard(guardAddress);
         for (uint256 i = 0; i < assetAddresses.length; i++) {
             address assetAddress = assetAddresses[i];
             if (!guard.isAssetRegistered(assetAddress) && !guard.isStableCoinRegistered(assetAddress)) {

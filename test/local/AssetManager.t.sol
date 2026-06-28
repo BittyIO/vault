@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {AmountIsZero, AddressZero} from "../../src/interfaces/IVault.sol";
-import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
+import {AmountIsZero, AddressZero} from "../../src/interfaces/IBittyV1Vault.sol";
+import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {
     InvalidLendingProtocol,
     InvalidStakingProtocol,
@@ -10,22 +10,22 @@ import {
     MinimalBalanceNotMet,
     DisableRebalanceUntilTimestampTooEarly,
     ETHBalanceNotEnough
-} from "../../src/interfaces/IAssetManager.sol";
-import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IGuard.sol";
-import {ILendingProtocol} from "protocol-contracts/src/interfaces/ILendingProtocol.sol";
-import {IStakingProtocol} from "protocol-contracts/src/interfaces/IStakingProtocol.sol";
+} from "../../src/interfaces/IBittyV1AssetManager.sol";
+import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IBittyV1LendingProtocol} from "protocol-contracts/src/interfaces/IBittyV1LendingProtocol.sol";
+import {IBittyV1StakingProtocol} from "protocol-contracts/src/interfaces/IBittyV1StakingProtocol.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {BittyGuard} from "guard-contracts/src/BittyGuard.sol";
-import {BittyVault} from "../../src/BittyVault.sol";
-import {AddingAssetsDisabled} from "../../src/interfaces/IVault.sol";
+import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
+import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {AddingAssetsDisabled} from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
-import {IProtocol} from "protocol-contracts/src/interfaces/IProtocol.sol";
+import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
 import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 
-contract TestAssetManager is ProtocolTestSetup, BittyVault {
+contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
     using Clones for address;
 
     address public guardAddress;
@@ -42,7 +42,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         ownerAddress = tx.origin;
         assetManagerAddress = address(this);
 
-        BittyGuard guard = new BittyGuard();
+        BittyV1Guard guard = new BittyV1Guard();
         guardAddress = address(guard);
 
         vm.startPrank(tx.origin);
@@ -90,19 +90,12 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
             return clonedProtocol;
         }
         clonedProtocol = protocol.clone();
-        IProtocol(clonedProtocol).initialize(address(this));
+        IBittyV1Protocol(clonedProtocol).initialize(address(this));
         _assetManager.clonedProtocols[protocol] = clonedProtocol;
     }
 
     function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
-        return bytes(
-            string.concat(
-                "AccessControl: account ",
-                Strings.toHexString(uint160(account), 20),
-                " is missing role ",
-                Strings.toHexString(uint256(role), 32)
-            )
-        );
+        return abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, account, role);
     }
 
     function doInitialize() public {
@@ -188,7 +181,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)) - wethBefore, amount, 10);
     }
 
-    /// @dev Regression: plain ETH sends must not revert (BittyVault.receive). Matches wallet "Send ETH" (empty calldata).
+    /// @dev Regression: plain ETH sends must not revert (BittyV1Vault.receive). Matches wallet "Send ETH" (empty calldata).
     function test_ethDeposit_viaReceive_thenETHToWETH() public {
         this.doInitialize();
 
@@ -242,7 +235,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
         require(clonedProtocol != address(0), "Provider should be cloned");
 
-        uint256 balanceAfter = ILendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH);
+        uint256 balanceAfter = IBittyV1LendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH);
         assertApproxEqAbs(balanceAfter, supplyAmount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
@@ -266,7 +259,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         uint256 balanceAfter = IERC20(mainnet.WETH).balanceOf(address(this));
         assertApproxEqAbs(balanceAfter - balanceBefore, withdrawAmount, 5);
 
-        uint256 remaining = ILendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH);
+        uint256 remaining = IBittyV1LendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH);
         assertApproxEqAbs(remaining, supplyAmount - withdrawAmount, 10);
     }
 
@@ -282,7 +275,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
     function test_SupplyFromDeprecatedLendingProvider() public {
         this.doInitialize();
         vm.prank(tx.origin);
-        BittyGuard(guardAddress).deprecateLendingProtocols(lendingProtocols);
+        BittyV1Guard(guardAddress).deprecateLendingProtocols(lendingProtocols);
         vm.expectRevert(Deprecated.selector);
         vm.prank(assetManagerAddress);
         this.supply(address(aaveProtocol), address(mainnet.WETH), 1 ether);
@@ -294,7 +287,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         vm.prank(assetManagerAddress);
         this.supply(address(aaveProtocol), address(mainnet.WETH), 1 ether);
         vm.prank(tx.origin);
-        BittyGuard(guardAddress).deprecateLendingProtocols(lendingProtocols);
+        BittyV1Guard(guardAddress).deprecateLendingProtocols(lendingProtocols);
         uint256 supplied = this.getSuppliedBalance(address(aaveProtocol), address(mainnet.WETH));
         vm.prank(assetManagerAddress);
         this.withdraw(address(aaveProtocol), address(mainnet.WETH), supplied);
@@ -337,7 +330,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
     function test_GetBalanceFromDeprecatedLendingProvider() public {
         this.doInitialize();
         vm.prank(tx.origin);
-        BittyGuard(guardAddress).deprecateLendingProtocols(lendingProtocols);
+        BittyV1Guard(guardAddress).deprecateLendingProtocols(lendingProtocols);
         uint256 balance = this.getSuppliedBalance(address(aaveProtocol), address(mainnet.WETH));
         assertEq(balance, 0);
     }
@@ -512,7 +505,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         toAdd[0] = address(usdc);
 
         vm.prank(tx.origin);
-        BittyGuard(guardAddress).addStableCoins(toAdd);
+        BittyV1Guard(guardAddress).addStableCoins(toAdd);
 
         vm.prank(ownerAddress);
         this.addAssets(toAdd);
@@ -529,7 +522,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         address[] memory newAssets = new address[](1);
         newAssets[0] = address(mockDAI);
         vm.prank(ownerAddress);
-        BittyGuard(guardAddress).addAssets(newAssets);
+        BittyV1Guard(guardAddress).addAssets(newAssets);
 
         vm.prank(ownerAddress);
         this.disableAddingAssets();
@@ -575,7 +568,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
 
         address clonedProtocol = this.getClonedProvider(address(lidoProtocol));
         assertTrue(clonedProtocol != address(0));
-        assertApproxEqAbs(IStakingProtocol(clonedProtocol).getStakedBalance(mainnet.WETH), stakeAmount, 10);
+        assertApproxEqAbs(IBittyV1StakingProtocol(clonedProtocol).getStakedBalance(mainnet.WETH), stakeAmount, 10);
         assertApproxEqAbs(this.getStakedBalance(address(lidoProtocol), mainnet.WETH), stakeAmount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
@@ -726,7 +719,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         vm.prank(assetManagerAddress);
         this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
-        assertApproxEqAbs(ILendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH), supplyAmount, 10);
+        assertApproxEqAbs(IBittyV1LendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH), supplyAmount, 10);
     }
 
     // ─── Fuzz Tests ───────────────────────────────────────────────────────────
@@ -783,6 +776,6 @@ contract TestAssetManager is ProtocolTestSetup, BittyVault {
         vm.prank(assetManagerAddress);
         this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
-        assertApproxEqAbs(IStakingProtocol(clonedProtocol).getStakedBalance(mainnet.WETH), stakeAmount, 10);
+        assertApproxEqAbs(IBittyV1StakingProtocol(clonedProtocol).getStakedBalance(mainnet.WETH), stakeAmount, 10);
     }
 }

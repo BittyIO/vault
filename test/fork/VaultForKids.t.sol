@@ -3,10 +3,15 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {BittyVault} from "../../src/BittyVault.sol";
-import {BittyVaultFactory} from "../../src/BittyVaultFactory.sol";
-import {IVault, ReceiverNotStartYet, OnlyReceiver, AddingAssetsDisabled} from "../../src/interfaces/IVault.sol";
-import {BittyGuard} from "guard-contracts/src/BittyGuard.sol";
+import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
+import {
+    IBittyV1Vault,
+    ReceiverNotStartYet,
+    OnlyReceiver,
+    AddingAssetsDisabled
+} from "../../src/interfaces/IBittyV1Vault.sol";
+import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 
 /// @notice Mainnet fork: parents deploy a WBTC/WETH kids vault via the factory,
@@ -24,10 +29,10 @@ contract VaultForKidsForkTest is Test {
     string internal constant RECEIVER_NAME_WBTC = "WBTC for Alice";
     string internal constant RECEIVER_NAME_WETH = "WETH for Alice";
 
-    BittyVaultFactory public factory;
-    BittyVault public vaultImpl;
-    BittyVault public vault;
-    BittyGuard public guard;
+    BittyV1VaultFactory public factory;
+    BittyV1Vault public vaultImpl;
+    BittyV1Vault public vault;
+    BittyV1Guard public guard;
 
     address[] internal assetAddresses;
 
@@ -40,7 +45,7 @@ contract VaultForKidsForkTest is Test {
         assetAddresses[0] = WBTC;
         assetAddresses[1] = mainnet.WETH;
 
-        guard = new BittyGuard();
+        guard = new BittyV1Guard();
         vm.startPrank(tx.origin);
         guard.grantRole(guard.ASSET_MANAGER_ROLE(), tx.origin);
         guard.grantRole(guard.STABLE_COIN_MANAGER_ROLE(), tx.origin);
@@ -50,8 +55,8 @@ contract VaultForKidsForkTest is Test {
         guard.addAssets(assetAddresses);
         vm.stopPrank();
 
-        vaultImpl = new BittyVault();
-        factory = new BittyVaultFactory();
+        vaultImpl = new BittyV1Vault();
+        factory = new BittyV1VaultFactory();
         factory.initialize(address(vaultImpl), address(guard), mainnet.WETH);
 
         parentOwner = address(this);
@@ -71,15 +76,15 @@ contract VaultForKidsForkTest is Test {
         );
 
         assertEq(vaultAddr, expected);
-        vault = BittyVault(payable(vaultAddr));
+        vault = BittyV1Vault(payable(vaultAddr));
     }
 
     function _makeReceiver(address receiverAddress_, address assetAddress_, uint256 amount_, uint256 startTimestamp_)
         internal
         pure
-        returns (IVault.Receiver memory)
+        returns (IBittyV1Vault.Receiver memory)
     {
-        return IVault.Receiver({
+        return IBittyV1Vault.Receiver({
             receiverAddress: receiverAddress_,
             trigger: address(0),
             assetAddress: assetAddress_,
@@ -93,7 +98,7 @@ contract VaultForKidsForkTest is Test {
     }
 
     /// @dev Steps from file comments:
-    /// 1. Vault limited to WBTC and WETH (deployed through BittyVaultFactory on mainnet fork).
+    /// 1. Vault limited to WBTC and WETH (deployed through BittyV1VaultFactory on mainnet fork).
     /// 2. Two receivers pay kids at their 18th birthday.
     /// 3. Parent renounces admin (no on-chain owner).
     /// 4. After the 18th birthday, kids redirect payouts to a new address.
@@ -104,8 +109,9 @@ contract VaultForKidsForkTest is Test {
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner));
 
         // Step 2: scheduled gifts at 18th birthday
-        IVault.Receiver memory wbtcReceiver = _makeReceiver(ALICE_ADDRESS, WBTC, PAY_AMOUNT_WBTC, EIGHTEEN_TIMESTAMP);
-        IVault.Receiver memory wethReceiver =
+        IBittyV1Vault.Receiver memory wbtcReceiver =
+            _makeReceiver(ALICE_ADDRESS, WBTC, PAY_AMOUNT_WBTC, EIGHTEEN_TIMESTAMP);
+        IBittyV1Vault.Receiver memory wethReceiver =
             _makeReceiver(ALICE_ADDRESS, mainnet.WETH, PAY_AMOUNT_WETH, EIGHTEEN_TIMESTAMP);
 
         vault.addReceiver(RECEIVER_NAME_WBTC, wbtcReceiver);
@@ -120,6 +126,11 @@ contract VaultForKidsForkTest is Test {
         vault.payReceiver(RECEIVER_NAME_WBTC);
 
         // Step 3: parent gives up vault admin — no account holds DEFAULT_ADMIN_ROLE afterward
+        vm.startPrank(parentOwner);
+        vault.beginDefaultAdminTransfer(address(0));
+        vm.stopPrank();
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(parentOwner);
         vault.renounceRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner);
         assertFalse(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner));
 

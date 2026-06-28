@@ -2,9 +2,9 @@
 pragma solidity ^0.8.34;
 
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {IGuard, NotRegistered, Deprecated} from "guard-contracts/src/interfaces/IGuard.sol";
+import {IBittyV1Guard, NotRegistered, Deprecated} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {
-    IAssetManager,
+    IBittyV1AssetManager,
     DisableRebalanceUntilTimestampTooEarly,
     RebalanceDisabled,
     SellAmountMismatch,
@@ -16,13 +16,13 @@ import {
     InvalidIntentProtocol,
     InvalidValidTo,
     InvalidSwapData
-} from "../interfaces/IAssetManager.sol";
-import {IProtocol} from "protocol-contracts/src/interfaces/IProtocol.sol";
-import {ILendingProtocol} from "protocol-contracts/src/interfaces/ILendingProtocol.sol";
-import {IStakingProtocol} from "protocol-contracts/src/interfaces/IStakingProtocol.sol";
-import {IAMMProtocol} from "protocol-contracts/src/interfaces/IAMMProtocol.sol";
-import {IIntentProtocol, OrderNotExpired} from "protocol-contracts/src/interfaces/IIntentProtocol.sol";
-import {ICoWTwap} from "protocol-contracts/src/interfaces/ICoWTwap.sol";
+} from "../interfaces/IBittyV1AssetManager.sol";
+import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
+import {IBittyV1LendingProtocol} from "protocol-contracts/src/interfaces/IBittyV1LendingProtocol.sol";
+import {IBittyV1StakingProtocol} from "protocol-contracts/src/interfaces/IBittyV1StakingProtocol.sol";
+import {IBittyV1AMMProtocol} from "protocol-contracts/src/interfaces/IBittyV1AMMProtocol.sol";
+import {IBittyV1IntentProtocol, OrderNotExpired} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
+import {IBittyV1CoWTwap} from "protocol-contracts/src/interfaces/IBittyV1CoWTwap.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
@@ -34,9 +34,9 @@ import {
     NotInitialized,
     AlreadyInitialized,
     AddingProtocolsDisabled
-} from "../interfaces/IVault.sol";
+} from "../interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
-import {ETHBalanceNotEnough, WETHBalanceNotEnough} from "../interfaces/IAssetManager.sol";
+import {ETHBalanceNotEnough, WETHBalanceNotEnough} from "../interfaces/IBittyV1AssetManager.sol";
 import {AssetManagerStorage, VaultStorage} from "./Storages.sol";
 import {VaultLogic} from "./VaultLogic.sol";
 
@@ -74,7 +74,7 @@ library AssetManagerLogic {
         if (guardAddress == address(0)) {
             revert AddressZero();
         }
-        logicStorage.guard = IGuard(guardAddress);
+        logicStorage.guard = IBittyV1Guard(guardAddress);
         logicStorage.weth = wethAddress;
         logicStorage.isInitialized = true;
     }
@@ -89,7 +89,7 @@ library AssetManagerLogic {
             return clonedProtocol;
         }
         clonedProtocol = protocol.clone();
-        IProtocol(clonedProtocol).initialize(address(this));
+        IBittyV1Protocol(clonedProtocol).initialize(address(this));
         logicStorage.clonedProtocols[protocol] = clonedProtocol;
         return clonedProtocol;
     }
@@ -144,7 +144,7 @@ library AssetManagerLogic {
         }
         lendingProtocol = _cloneProtocol(logicStorage, lendingProtocol);
         IERC20(assetAddress).safeIncreaseAllowance(lendingProtocol, amount);
-        ILendingProtocol(lendingProtocol).supply(assetAddress, amount);
+        IBittyV1LendingProtocol(lendingProtocol).supply(assetAddress, amount);
     }
 
     function withdraw(
@@ -163,12 +163,12 @@ library AssetManagerLogic {
             revert AmountIsZero();
         }
         lendingProtocol = _cloneProtocol(logicStorage, lendingProtocol);
-        uint256 supplyAmount = ILendingProtocol(lendingProtocol).getSuppliedBalance(assetAddress);
+        uint256 supplyAmount = IBittyV1LendingProtocol(lendingProtocol).getSuppliedBalance(assetAddress);
         if (supplyAmount < amount) {
             revert InsufficientBalance();
         }
         _approveReceiptToken(lendingProtocol, assetAddress);
-        ILendingProtocol(lendingProtocol).withdraw(assetAddress, amount);
+        IBittyV1LendingProtocol(lendingProtocol).withdraw(assetAddress, amount);
     }
 
     function getSuppliedBalance(AssetManagerStorage storage logicStorage, address lendingProtocol, address assetAddress)
@@ -184,7 +184,7 @@ library AssetManagerLogic {
         if (_clonedProtocol == address(0)) {
             return 0;
         }
-        return ILendingProtocol(_clonedProtocol).getSuppliedBalance(assetAddress);
+        return IBittyV1LendingProtocol(_clonedProtocol).getSuppliedBalance(assetAddress);
     }
 
     function stake(
@@ -207,7 +207,7 @@ library AssetManagerLogic {
         }
         stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
         IERC20(assetAddress).safeIncreaseAllowance(stakingProtocol, amount);
-        IStakingProtocol(stakingProtocol).stake(assetAddress, amount);
+        IBittyV1StakingProtocol(stakingProtocol).stake(assetAddress, amount);
     }
 
     function unstake(
@@ -226,12 +226,12 @@ library AssetManagerLogic {
             revert AmountIsZero();
         }
         stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
-        uint256 stakingBalance = IStakingProtocol(stakingProtocol).getStakedBalance(assetAddress);
+        uint256 stakingBalance = IBittyV1StakingProtocol(stakingProtocol).getStakedBalance(assetAddress);
         if (stakingBalance < amount) {
             revert InsufficientBalance();
         }
         _approveReceiptToken(stakingProtocol, assetAddress);
-        IStakingProtocol(stakingProtocol).unstake(assetAddress, amount);
+        IBittyV1StakingProtocol(stakingProtocol).unstake(assetAddress, amount);
     }
 
     function getStakedBalance(AssetManagerStorage storage logicStorage, address stakingProtocol, address assetAddress)
@@ -250,7 +250,7 @@ library AssetManagerLogic {
         if (_clonedProtocol == address(0)) {
             return 0;
         }
-        return IStakingProtocol(_clonedProtocol).getStakedBalance(assetAddress);
+        return IBittyV1StakingProtocol(_clonedProtocol).getStakedBalance(assetAddress);
     }
 
     function getUnstakeRequestIds(AssetManagerStorage storage logicStorage, address stakingProtocol)
@@ -267,7 +267,7 @@ library AssetManagerLogic {
         if (_clonedProtocol == address(0)) {
             return new uint256[](0);
         }
-        return IStakingProtocol(_clonedProtocol).getUnstakeRequestIds();
+        return IBittyV1StakingProtocol(_clonedProtocol).getUnstakeRequestIds();
     }
 
     function claimUnstaked(
@@ -282,7 +282,7 @@ library AssetManagerLogic {
             return;
         }
         stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
-        IStakingProtocol(stakingProtocol).claimUnstaked(requestIds);
+        IBittyV1StakingProtocol(stakingProtocol).claimUnstaked(requestIds);
     }
 
     function _getReceiptToken(address protocol, address asset) private view returns (address) {
@@ -380,7 +380,7 @@ library AssetManagerLogic {
             IERC20(token1).safeIncreaseAllowance(clone, amount1);
         }
         _approveNFTIfNeeded(clone);
-        IAMMProtocol(clone).addLiquidity(data);
+        IBittyV1AMMProtocol(clone).addLiquidity(data);
     }
 
     function removeLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
@@ -393,7 +393,7 @@ library AssetManagerLogic {
             revert InvalidAMMProtocol();
         }
         _approveNFTIfNeeded(clone);
-        IAMMProtocol(clone).removeLiquidity(data);
+        IBittyV1AMMProtocol(clone).removeLiquidity(data);
     }
 
     function claimAMMFees(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
@@ -406,7 +406,7 @@ library AssetManagerLogic {
             revert InvalidAMMProtocol();
         }
         _approveNFTIfNeeded(clone);
-        IAMMProtocol(clone).claimAMMFees(data);
+        IBittyV1AMMProtocol(clone).claimAMMFees(data);
     }
 
     function marketSell(
@@ -464,7 +464,7 @@ library AssetManagerLogic {
         if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmount) {
             IERC20(sellAssetAddress).safeIncreaseAllowance(ammProtocol, sellAmount);
         }
-        IAMMProtocol(ammProtocol).swap(data);
+        IBittyV1AMMProtocol(ammProtocol).swap(data);
 
         if (_addressBalance(sellAssetAddress) != sellAssetBalanceBefore - sellAmount) revert SellAmountMismatch();
         if (_addressBalance(toAssetAddress) - buyAssetBalanceBefore < buyAmountMin) revert BuyAmountNotEnough();
@@ -495,7 +495,7 @@ library AssetManagerLogic {
         if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmountMax) {
             IERC20(sellAssetAddress).safeIncreaseAllowance(ammProtocol, sellAmountMax);
         }
-        IAMMProtocol(ammProtocol).swapExactOut(data);
+        IBittyV1AMMProtocol(ammProtocol).swapExactOut(data);
 
         if (sellAssetBalanceBefore - _addressBalance(sellAssetAddress) > sellAmountMax) revert SellAmountMismatch();
         if (_addressBalance(toAssetAddress) - buyAssetBalanceBefore < buyAmount) revert BuyAmountNotEnough();
@@ -604,7 +604,7 @@ library AssetManagerLogic {
         _checkAMMProtocol(logicStorage, ammProtocol);
         address clone = logicStorage.clonedProtocols[ammProtocol];
         if (clone == address(0)) return 0;
-        return IAMMProtocol(clone).getLiquidity(data);
+        return IBittyV1AMMProtocol(clone).getLiquidity(data);
     }
 
     // ============ Intent ============
@@ -662,7 +662,7 @@ library AssetManagerLogic {
         address clone = _cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(sellAssetAddress, sellAmount, toAssetAddress, buyAmountMin, validTo, isSellOrder);
         IERC20(sellAssetAddress).safeIncreaseAllowance(clone, sellAmount);
-        orderId = IIntentProtocol(clone).trade(data);
+        orderId = IBittyV1IntentProtocol(clone).trade(data);
     }
 
     function cancelLimitOrder(AssetManagerStorage storage logicStorage, address intentProtocol, bytes memory data)
@@ -671,7 +671,7 @@ library AssetManagerLogic {
     {
         address clone = logicStorage.clonedProtocols[intentProtocol];
         if (clone == address(0)) revert InvalidIntentProtocol();
-        IIntentProtocol(clone).cancelTrade(data);
+        IBittyV1IntentProtocol(clone).cancelTrade(data);
     }
 
     function cleanExpiredOrders(
@@ -681,7 +681,7 @@ library AssetManagerLogic {
     ) external {
         address clone = logicStorage.clonedProtocols[intentProtocol];
         if (clone == address(0)) revert InvalidIntentProtocol();
-        IIntentProtocol(clone).cleanExpiredOrders(orderDigests);
+        IBittyV1IntentProtocol(clone).cleanExpiredOrders(orderDigests);
     }
 
     function addIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
@@ -727,7 +727,7 @@ library AssetManagerLogic {
         address clone = _cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
         IERC20(from).safeIncreaseAllowance(clone, totalSellAmount);
-        twapId = ICoWTwap(clone).createTwap(data);
+        twapId = IBittyV1CoWTwap(clone).createTwap(data);
     }
 
     function twapBuy(
@@ -753,7 +753,7 @@ library AssetManagerLogic {
         address clone = _cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
         IERC20(from).safeIncreaseAllowance(clone, totalSellAmount);
-        twapId = ICoWTwap(clone).createTwap(data);
+        twapId = IBittyV1CoWTwap(clone).createTwap(data);
     }
 
     function cancelTwap(AssetManagerStorage storage logicStorage, address intentProtocol, bytes32 twapId)
@@ -762,6 +762,6 @@ library AssetManagerLogic {
     {
         address clone = logicStorage.clonedProtocols[intentProtocol];
         if (clone == address(0)) revert InvalidIntentProtocol();
-        ICoWTwap(clone).cancelTwap(twapId);
+        IBittyV1CoWTwap(clone).cancelTwap(twapId);
     }
 }

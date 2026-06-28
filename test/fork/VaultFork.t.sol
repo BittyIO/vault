@@ -2,30 +2,30 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
-import {BittyVault} from "../../src/BittyVault.sol";
-import {BittyVaultFactory} from "../../src/BittyVaultFactory.sol";
-import {BittyGuard} from "guard-contracts/src/BittyGuard.sol";
+import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
+import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IVault} from "../../src/interfaces/IVault.sol";
+import {IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
 import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Protocol.sol";
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
-import {IAssetManager} from "../../src/interfaces/IAssetManager.sol";
+import {IBittyV1AssetManager} from "../../src/interfaces/IBittyV1AssetManager.sol";
 
-/// @notice Mainnet fork integration tests for BittyVault with real Aave and Lido providers.
+/// @notice Mainnet fork integration tests for BittyV1Vault with real Aave and Lido providers.
 contract TestVaultFork is Test {
     using SafeERC20 for IERC20;
     using Path for bytes;
 
     address internal constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
 
-    BittyVault public vaultImpl;
-    BittyVault public vault;
-    BittyVaultFactory public factory;
-    BittyGuard public guard;
+    BittyV1Vault public vaultImpl;
+    BittyV1Vault public vault;
+    BittyV1VaultFactory public factory;
+    BittyV1Guard public guard;
     AaveV3Protocol public aaveProtocol;
     LidoV2Protocol public lidoProtocol;
     UniswapV3Protocol public uniswapV3Protocol;
@@ -41,7 +41,7 @@ contract TestVaultFork is Test {
     function setUp() public {
         vm.createSelectFork("mainnet");
 
-        guard = new BittyGuard();
+        guard = new BittyV1Guard();
         vm.startPrank(tx.origin);
         guard.grantRole(guard.ASSET_MANAGER_ROLE(), tx.origin);
         guard.grantRole(guard.STABLE_COIN_MANAGER_ROLE(), tx.origin);
@@ -77,8 +77,8 @@ contract TestVaultFork is Test {
         ammProtocols = _arr(address(uniswapV3Protocol));
         intentProtocols = new address[](0);
 
-        vaultImpl = new BittyVault();
-        factory = new BittyVaultFactory();
+        vaultImpl = new BittyV1Vault();
+        factory = new BittyV1VaultFactory();
         factory.initialize(address(vaultImpl), address(guard), mainnet.WETH);
 
         assetManager = address(this);
@@ -92,7 +92,7 @@ contract TestVaultFork is Test {
             ammProtocols,
             intentProtocols
         );
-        vault = BittyVault(payable(vaultAddr));
+        vault = BittyV1Vault(payable(vaultAddr));
     }
 
     function _assetManagers(address manager) internal pure returns (address[] memory managers) {
@@ -301,7 +301,7 @@ contract TestVaultFork is Test {
     function test_AddReceiverAndPayReceiver() public {
         deal(mainnet.USDC, address(vault), 1000e6);
 
-        IVault.Receiver memory receiver = IVault.Receiver({
+        IBittyV1Vault.Receiver memory receiver = IBittyV1Vault.Receiver({
             receiverAddress: address(this),
             trigger: address(0),
             assetAddress: mainnet.USDC,
@@ -333,7 +333,7 @@ contract TestVaultFork is Test {
         vault.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
 
-        IVault.Receiver memory receiver = IVault.Receiver({
+        IBittyV1Vault.Receiver memory receiver = IBittyV1Vault.Receiver({
             receiverAddress: receiverAddr,
             trigger: address(0),
             assetAddress: mainnet.WETH,
@@ -385,7 +385,7 @@ contract TestVaultFork is Test {
 
         // Step 2: add WETH receiver and pay
         address receiverAddr = makeAddr("recipient");
-        IVault.Receiver memory receiver = IVault.Receiver({
+        IBittyV1Vault.Receiver memory receiver = IBittyV1Vault.Receiver({
             receiverAddress: receiverAddr,
             trigger: address(0),
             assetAddress: mainnet.WETH,
@@ -431,7 +431,7 @@ contract TestVaultFork is Test {
             intentProtocols
         );
 
-        BittyVault customVault = BittyVault(payable(vaultAddr));
+        BittyV1Vault customVault = BittyV1Vault(payable(vaultAddr));
         assertTrue(customVault.hasRole(customVault.DEFAULT_ADMIN_ROLE(), customOwner));
         assertTrue(customVault.hasRole(customVault.ASSET_MANAGER_ROLE(), customAssetManager));
         assertEq(factory.computeVaultAddress(customOwner, "main"), vaultAddr);
