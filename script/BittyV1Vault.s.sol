@@ -10,8 +10,8 @@ import {BittyV1Vault as BittyV1VaultImplementation} from "../src/BittyV1Vault.so
 /// BittyV1Vault links against both logic libraries. Pass their CREATE2 addresses
 /// (from step 1 / `deployments/<chain>.toml`) when compiling this script:
 ///
-///   --libraries src/logic/VaultLogic.sol:VaultLogic:0xDb4FCe915F33e804279102Ce8dd3ffC449A51cfe
-///   --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:0x2FEaCA063F6F2169bd3931D25f02A2Ab264fe1A0
+///   --libraries src/logic/VaultLogic.sol:VaultLogic:{VAULT_LOGIC}}
+///   --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{ASSET_MANAGER_LOGIC}}
 ///
 /// Usage:
 ///   source .env
@@ -19,8 +19,8 @@ import {BittyV1Vault as BittyV1VaultImplementation} from "../src/BittyV1Vault.so
 ///     --rpc-url sepolia \
 ///     --broadcast \
 ///     --private-key $SEPOLIA_PRIVATE_KEY \
-///     --libraries src/logic/VaultLogic.sol:VaultLogic:0xDb4FCe915F33e804279102Ce8dd3ffC449A51cfe \
-///     --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:0x2FEaCA063F6F2169bd3931D25f02A2Ab264fe1A0 \
+///     --libraries src/logic/VaultLogic.sol:VaultLogic:{VAULT_LOGIC} \
+///     --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{ASSET_MANAGER_LOGIC} \
 ///     -vvvv
 contract BittyV1Vault is DeployScript, Create2Deployer {
     function deploy() public override {
