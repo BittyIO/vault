@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 error VaultAlreadyDeployed();
 
-interface IVaultFactory {
+interface IBittyV1VaultFactory {
     /**
      * @notice Initialize the factory.
      * @param vaultImplementation_ The address of the vault implementation.

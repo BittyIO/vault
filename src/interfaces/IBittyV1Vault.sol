@@ -30,7 +30,7 @@ error AddingProtocolsDisabled();
 error OwnerAndAssetManagerMustDiffer();
 
 /**
- * @title Bitty Vault
+ * @title IBittyV1Vault
  * @notice Multi-sigs + Bitty Vault ensure your safe.
  *
  * Vault is not going to fix the safety of private key management, the best practise of private key management is multi-sigs.
@@ -43,7 +43,7 @@ error OwnerAndAssetManagerMustDiffer();
  * 5. Trading avoid scam protocols by Bitty Guard.
  * 6. Stay away from frontend supply chain attacks(which is the biggest security issue in DeFi) when interating with trading/lending/staking protocols.
  */
-interface IVault {
+interface IBittyV1Vault {
     event AssetsLocked();
     event ProtocolsLocked();
 

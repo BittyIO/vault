@@ -6,15 +6,24 @@
     }
   },
   "lib/openzeppelin-contracts": {
-    "rev": "dc44c9f1a4c3b10af99492eed84f83ed244203f6"
+    "tag": {
+      "name": "v5.0.2",
+      "rev": "dbb6104ce834628e473d2173bbc9d47f81a9eec3"
+    }
+  },
+  "lib/openzeppelin-contracts-upgradeable": {
+    "tag": {
+      "name": "v5.0.2",
+      "rev": "723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1"
+    }
   },
   "lib/protocol-contracts": {
-    "rev": "ef82021d1e47b0f5d4be70c24a28457e25232c18"
+    "rev": "591b339d776e19053ffea868b36849202ee6b590"
   },
   "lib/solmate": {
     "rev": "89365b880c4f3c786bdd453d4b8e8fe410344a69"
   },
   "lib/guard-contracts": {
-    "rev": "242aa776b6bf622ffd1d1f9c18a88f56029ea7f3"
+    "rev": "500824f269985d298e03daaada4416b8b74531"
   }
 }

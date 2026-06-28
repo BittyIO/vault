@@ -3,10 +3,10 @@ pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
-import {BittyVault} from "../../src/BittyVault.sol";
+import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {VaultLogic} from "../../src/logic/VaultLogic.sol";
 import {
-    IVault,
+    IBittyV1Vault,
     AmountIsZero,
     ReceiverNotFound,
     ReceiverNameAlreadyExists,
@@ -22,14 +22,19 @@ import {
     PayReceiverAmountTriggerEmpty,
     InsufficientBalance,
     OwnerAndAssetManagerMustDiffer
-} from "../../src/interfaces/IVault.sol";
+} from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {BittyGuard} from "guard-contracts/src/BittyGuard.sol";
-import {NotRegistered} from "guard-contracts/src/interfaces/IGuard.sol";
+import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
+import {NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
+import {
+    IAccessControlDefaultAdminRules
+} from "openzeppelin-contracts/contracts/access/extensions/IAccessControlDefaultAdminRules.sol";
+import {Initializable} from "openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
 
-contract BittyVaultTest is Test {
-    BittyVault public vault;
+contract BittyV1VaultTest is Test {
+    BittyV1Vault public vault;
     WETH public weth;
     address public guardAddress;
     address public ownerAddress;
@@ -37,8 +42,8 @@ contract BittyVaultTest is Test {
 
     function setUp() public {
         weth = new WETH();
-        vault = new BittyVault();
-        guardAddress = address(new BittyGuard());
+        vault = new BittyV1Vault();
+        guardAddress = address(new BittyV1Guard());
         ownerAddress = tx.origin;
         assetManagerAddress = makeAddr("assetManager");
     }
@@ -49,14 +54,7 @@ contract BittyVaultTest is Test {
     }
 
     function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
-        return bytes(
-            string.concat(
-                "AccessControl: account ",
-                Strings.toHexString(uint160(account), 20),
-                " is missing role ",
-                Strings.toHexString(uint256(role), 32)
-            )
-        );
+        return abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, account, role);
     }
 
     function _makeReceiver(
@@ -68,8 +66,8 @@ contract BittyVaultTest is Test {
         uint256 startTimestamp_,
         uint256 durationTimestamp_,
         bool isImmutable_
-    ) internal pure returns (IVault.Receiver memory) {
-        return IVault.Receiver({
+    ) internal pure returns (IBittyV1Vault.Receiver memory) {
+        return IBittyV1Vault.Receiver({
             receiverAddress: receiverAddress_,
             trigger: trigger_,
             assetAddress: assetAddress_,
@@ -230,7 +228,7 @@ contract BittyVaultTest is Test {
         );
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
         vm.prank(ownerAddress);
-        vm.expectRevert(OwnerAndAssetManagerMustDiffer.selector);
+        vm.expectRevert(IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminRules.selector);
         vault.grantRole(adminRole, assetMgr);
     }
 
@@ -247,7 +245,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        vm.expectRevert("Initializable: contract is already initialized");
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -276,7 +274,7 @@ contract BittyVaultTest is Test {
             new address[](0)
         );
         address receiverAddr = makeAddr("receiver");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -295,7 +293,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -317,7 +315,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -339,7 +337,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         bytes32 _receiverRole = vault.DEFAULT_ADMIN_ROLE();
         address stranger = makeAddr("stranger");
@@ -361,7 +359,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r = _makeReceiver(
+        IBittyV1Vault.Receiver memory r = _makeReceiver(
             makeAddr("receiver"), address(0), makeAddr("eoaAsset"), 1 ether, 1, block.timestamp, 0, false
         );
         vm.prank(ownerAddress);
@@ -382,7 +380,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 0, 1, block.timestamp, 0, false);
         vm.prank(ownerAddress);
         vm.expectRevert(AmountIsZero.selector);
@@ -402,7 +400,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 0, block.timestamp, 0, false);
         vm.prank(ownerAddress);
         vm.expectRevert(ReceiverPaymentCountZero.selector);
@@ -422,7 +420,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r = _makeReceiver(
+        IBittyV1Vault.Receiver memory r = _makeReceiver(
             makeAddr("receiver"),
             address(0),
             address(weth),
@@ -450,7 +448,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -469,7 +467,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r = _makeReceiver(
+        IBittyV1Vault.Receiver memory r = _makeReceiver(
             makeAddr("receiver"),
             address(0),
             address(weth),
@@ -501,7 +499,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r = _makeReceiver(
+        IBittyV1Vault.Receiver memory r = _makeReceiver(
             makeAddr("receiver"),
             address(0),
             address(weth),
@@ -534,7 +532,7 @@ contract BittyVaultTest is Test {
             new address[](0)
         );
         address receiverAddr = makeAddr("receiver");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 2, block.timestamp, 1 days, false);
         vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -556,7 +554,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vm.expectRevert(ReceiverNotFound.selector);
@@ -576,7 +574,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true);
         vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -599,7 +597,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -624,7 +622,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -647,7 +645,7 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -673,7 +671,7 @@ contract BittyVaultTest is Test {
         );
         address alice = makeAddr("alice");
         address bob = makeAddr("bob");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -713,7 +711,7 @@ contract BittyVaultTest is Test {
         );
         address alice = makeAddr("alice");
         address bob = makeAddr("bob");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -737,7 +735,7 @@ contract BittyVaultTest is Test {
         );
         address alice = makeAddr("alice");
         address bob = makeAddr("bob");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -760,7 +758,7 @@ contract BittyVaultTest is Test {
             new address[](0)
         );
         uint256 futureStartTimestamp = block.timestamp + 100;
-        IVault.Receiver memory r = _makeReceiver(
+        IBittyV1Vault.Receiver memory r = _makeReceiver(
             makeAddr("receiver"), address(0), address(weth), 1 ether, 1, futureStartTimestamp, 1 days, false
         );
         vm.prank(ownerAddress);
@@ -784,7 +782,7 @@ contract BittyVaultTest is Test {
             new address[](0)
         );
         address receiverAddr = makeAddr("receiver");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -813,7 +811,7 @@ contract BittyVaultTest is Test {
         );
         address receiverAddr = makeAddr("receiver");
         vm.warp(1000);
-        IVault.Receiver memory r = _makeReceiver(
+        IBittyV1Vault.Receiver memory r = _makeReceiver(
             receiverAddr,
             address(0),
             address(weth),
@@ -872,7 +870,7 @@ contract BittyVaultTest is Test {
         vault.setNewReceiverProtection(protection);
 
         address receiverAddr = makeAddr("receiver");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -891,7 +889,7 @@ contract BittyVaultTest is Test {
 
         address receiverAddr = makeAddr("receiver");
         uint256 addedAt = block.timestamp;
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -906,7 +904,7 @@ contract BittyVaultTest is Test {
     function test_PayReceiver_noProtectionWhenProtectionIsZero() public {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -925,7 +923,7 @@ contract BittyVaultTest is Test {
         vm.prank(ownerAddress);
         vault.setNewReceiverProtection(2 days);
 
-        IVault.Receiver memory alice =
+        IBittyV1Vault.Receiver memory alice =
             _makeReceiver(aliceReceiver, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", alice);
@@ -933,7 +931,7 @@ contract BittyVaultTest is Test {
         vm.prank(ownerAddress);
         vault.setNewReceiverProtection(0);
 
-        IVault.Receiver memory bob =
+        IBittyV1Vault.Receiver memory bob =
             _makeReceiver(bobReceiver, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         vm.prank(ownerAddress);
         vault.addReceiver("bob", bob);
@@ -955,7 +953,7 @@ contract BittyVaultTest is Test {
         vm.prank(ownerAddress);
         vault.setNewReceiverProtection(protection);
 
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         vm.startPrank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -1032,7 +1030,7 @@ contract BittyVaultTest is Test {
         uint256 futureStart = block.timestamp + 100;
         address receiverAddr = makeAddr("receiver");
         address trigger = makeAddr("trigger");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, trigger, address(weth), 1 ether, 1, futureStart, 0, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -1076,7 +1074,7 @@ contract BittyVaultTest is Test {
     function test_PayReceiver_revertInsufficientBalance_whenPayWithInsufficientBalanceFalse() public {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -1092,7 +1090,7 @@ contract BittyVaultTest is Test {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
         uint256 vaultBalance = 0.5 ether;
-        IVault.Receiver memory r = IVault.Receiver({
+        IBittyV1Vault.Receiver memory r = IBittyV1Vault.Receiver({
             receiverAddress: receiverAddr,
             trigger: address(0),
             assetAddress: address(weth),
@@ -1119,7 +1117,7 @@ contract BittyVaultTest is Test {
     function test_PayReceiver_paysFullAmount_whenPayWithInsufficientBalanceTrueAndBalanceSufficient() public {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
-        IVault.Receiver memory r = IVault.Receiver({
+        IBittyV1Vault.Receiver memory r = IBittyV1Vault.Receiver({
             receiverAddress: receiverAddr,
             trigger: address(0),
             assetAddress: address(weth),
@@ -1145,7 +1143,7 @@ contract BittyVaultTest is Test {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
         uint256 start = block.timestamp;
-        IVault.Receiver memory r = IVault.Receiver({
+        IBittyV1Vault.Receiver memory r = IBittyV1Vault.Receiver({
             receiverAddress: receiverAddr,
             trigger: address(0),
             assetAddress: address(weth),
@@ -1181,11 +1179,11 @@ contract BittyVaultTest is Test {
     function test_AddReceiver_emitsReceiverAddedEvent() public {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit IVault.ReceiverAdded("alice", r);
+        emit IBittyV1Vault.ReceiverAdded("alice", r);
 
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
@@ -1194,16 +1192,16 @@ contract BittyVaultTest is Test {
     function test_UpdateReceiver_emitsReceiverUpdatedEvent() public {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
-        IVault.Receiver memory updated =
+        IBittyV1Vault.Receiver memory updated =
             _makeReceiver(receiverAddr, address(0), address(weth), 2 ether, 2, block.timestamp, 2 days, false);
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit IVault.ReceiverUpdated("alice", updated);
+        emit IBittyV1Vault.ReceiverUpdated("alice", updated);
 
         vm.prank(ownerAddress);
         vault.updateReceiver("alice", updated);
@@ -1214,7 +1212,7 @@ contract BittyVaultTest is Test {
         _addReceiver("alice", makeAddr("receiver"), 1 ether, 1, 0);
 
         vm.expectEmit(true, false, false, false, address(vault));
-        emit IVault.ReceiverRemoved("alice");
+        emit IBittyV1Vault.ReceiverRemoved("alice");
 
         vm.prank(ownerAddress);
         vault.removeReceiver("alice");
@@ -1227,7 +1225,7 @@ contract BittyVaultTest is Test {
         _addReceiver("alice", alice, 1 ether, 1, 0);
 
         vm.expectEmit(true, true, true, false, address(vault));
-        emit IVault.ReceiverAddressChanged("alice", alice, bob);
+        emit IBittyV1Vault.ReceiverAddressChanged("alice", alice, bob);
         vm.prank(alice);
         vault.changeReceiverAddress("alice", bob);
     }
@@ -1237,7 +1235,7 @@ contract BittyVaultTest is Test {
         uint256 protection = 1 days;
 
         vm.expectEmit(false, false, false, true, address(vault));
-        emit IVault.NewReceiverProtectionSet(protection);
+        emit IBittyV1Vault.NewReceiverProtectionSet(protection);
 
         vm.prank(ownerAddress);
         vault.setNewReceiverProtection(protection);
@@ -1250,7 +1248,7 @@ contract BittyVaultTest is Test {
         deal(address(weth), address(vault), 1 ether);
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit IVault.ReceiverPaid("alice", receiverAddr, address(weth), 1 ether, 1);
+        emit IBittyV1Vault.ReceiverPaid("alice", receiverAddr, address(weth), 1 ether, 1);
 
         vault.payReceiver("alice");
     }
@@ -1264,7 +1262,7 @@ contract BittyVaultTest is Test {
 
         vm.prank(trigger);
         vm.expectEmit(true, true, true, true, address(vault));
-        emit IVault.ReceiverPaid("alice", receiverAddr, address(weth), 1 ether, 0);
+        emit IBittyV1Vault.ReceiverPaid("alice", receiverAddr, address(weth), 1 ether, 0);
         vault.payReceiverAmount("alice", 1 ether);
     }
 
@@ -1272,7 +1270,7 @@ contract BittyVaultTest is Test {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
         uint256 vaultBalance = 0.5 ether;
-        IVault.Receiver memory r = IVault.Receiver({
+        IBittyV1Vault.Receiver memory r = IBittyV1Vault.Receiver({
             receiverAddress: receiverAddr,
             trigger: address(0),
             assetAddress: address(weth),
@@ -1288,7 +1286,7 @@ contract BittyVaultTest is Test {
         deal(address(weth), address(vault), vaultBalance);
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit IVault.ReceiverPaid("alice", receiverAddr, address(weth), vaultBalance, 0);
+        emit IBittyV1Vault.ReceiverPaid("alice", receiverAddr, address(weth), vaultBalance, 0);
 
         vault.payReceiver("alice");
     }
@@ -1299,7 +1297,7 @@ contract BittyVaultTest is Test {
         vm.assume(amount > 0 && paymentCount > 0);
         _initializeVault();
         uint256 duration = paymentCount > 1 ? VaultLogic.RECEIVER_MINIMAL_DURATION : 0;
-        IVault.Receiver memory r = _makeReceiver(
+        IBittyV1Vault.Receiver memory r = _makeReceiver(
             makeAddr("r"), address(0), address(weth), amount, paymentCount, block.timestamp, duration, false
         );
         vm.prank(ownerAddress);
@@ -1328,7 +1326,7 @@ contract BittyVaultTest is Test {
         vm.prank(ownerAddress);
         vault.setNewReceiverProtection(protection);
         address receiverAddr = makeAddr("r");
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         vm.prank(ownerAddress);
         vault.addReceiver("r", r);
@@ -1346,7 +1344,7 @@ contract BittyVaultTest is Test {
         vault.setNewReceiverProtection(protection);
         address receiverAddr = makeAddr("r");
         uint256 addedAt = block.timestamp;
-        IVault.Receiver memory r =
+        IBittyV1Vault.Receiver memory r =
             _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         vm.prank(ownerAddress);
         vault.addReceiver("r", r);
@@ -1362,7 +1360,7 @@ contract BittyVaultTest is Test {
         address receiverAddr = makeAddr("r");
         uint256 amount = 0.1 ether;
         uint256 start = block.timestamp;
-        IVault.Receiver memory r = _makeReceiver(
+        IBittyV1Vault.Receiver memory r = _makeReceiver(
             receiverAddr,
             address(0),
             address(weth),
@@ -1395,7 +1393,7 @@ contract BittyVaultTest is Test {
         address[] memory receivers = new address[](n);
         for (uint256 i = 0; i < n; i++) {
             receivers[i] = makeAddr(string.concat("r", Strings.toString(i)));
-            IVault.Receiver memory r =
+            IBittyV1Vault.Receiver memory r =
                 _makeReceiver(receivers[i], address(0), address(weth), amount, 1, block.timestamp, 0, false);
             vm.prank(ownerAddress);
             vault.addReceiver(string.concat("r", Strings.toString(i)), r);
@@ -1412,7 +1410,7 @@ contract BittyVaultTest is Test {
         uint8 paymentCount = 20;
         uint256 amount = 0.05 ether;
         uint256 start = block.timestamp;
-        IVault.Receiver memory r = _makeReceiver(
+        IBittyV1Vault.Receiver memory r = _makeReceiver(
             receiverAddr,
             address(0),
             address(weth),
@@ -1442,7 +1440,7 @@ contract BittyVaultTest is Test {
         uint8 paymentCount,
         uint256 durationTimestamp
     ) internal {
-        IVault.Receiver memory r = _makeReceiver(
+        IBittyV1Vault.Receiver memory r = _makeReceiver(
             receiverAddr, address(0), address(weth), amount, paymentCount, block.timestamp, durationTimestamp, false
         );
         vm.prank(ownerAddress);
@@ -1457,7 +1455,7 @@ contract BittyVaultTest is Test {
         uint8 paymentCount,
         uint256 durationTimestamp
     ) internal {
-        IVault.Receiver memory r = _makeReceiver(
+        IBittyV1Vault.Receiver memory r = _makeReceiver(
             receiverAddr, trigger, address(weth), amount, paymentCount, block.timestamp, durationTimestamp, false
         );
         vm.prank(ownerAddress);
@@ -1477,6 +1475,84 @@ contract BittyVaultTest is Test {
             new address[](0),
             new address[](0)
         );
+    }
+
+    function test_defaultAdminDelay_isOneDayConstant() public {
+        assertEq(vault.OWNER_TRANSFER_DELAY(), 1 days);
+        _initializeVault();
+        assertEq(vault.defaultAdminDelay(), 1 days);
+        assertEq(vault.defaultAdmin(), ownerAddress);
+    }
+
+    function test_defaultAdmin_ownerCanActInstantly() public {
+        _initializeVault();
+        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
+
+        vm.prank(ownerAddress);
+        vault.setName("immediate admin");
+        assertEq(vault.vaultName(), "immediate admin");
+    }
+
+    function test_acceptDefaultAdminTransfer_revertsBeforeOneDay() public {
+        _initializeVault();
+        address newAdmin = makeAddr("newAdmin");
+
+        vm.prank(ownerAddress);
+        vault.beginDefaultAdminTransfer(newAdmin);
+
+        (, uint48 schedule) = vault.pendingDefaultAdmin();
+        vm.prank(newAdmin);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminDelay.selector, schedule
+            )
+        );
+        vault.acceptDefaultAdminTransfer();
+    }
+
+    function test_acceptDefaultAdminTransfer_succeedsAfterOneDay() public {
+        _initializeVault();
+        address newAdmin = makeAddr("newAdmin");
+
+        vm.prank(ownerAddress);
+        vault.beginDefaultAdminTransfer(newAdmin);
+
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(newAdmin);
+        vault.acceptDefaultAdminTransfer();
+
+        assertEq(vault.defaultAdmin(), newAdmin);
+        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), newAdmin));
+        assertFalse(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
+    }
+
+    function test_beginDefaultAdminTransfer_revertsToAssetManager() public {
+        _initializeVault();
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(OwnerAndAssetManagerMustDiffer.selector);
+        vault.beginDefaultAdminTransfer(assetManagerAddress);
+    }
+
+    function test_renounceDefaultAdmin_requiresTransferToZeroAndDelay() public {
+        _initializeVault();
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminDelay.selector, 0)
+        );
+        vault.renounceRole(adminRole, ownerAddress);
+
+        vm.prank(ownerAddress);
+        vault.beginDefaultAdminTransfer(address(0));
+
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(ownerAddress);
+        vault.renounceRole(adminRole, ownerAddress);
+
+        assertEq(vault.defaultAdmin(), address(0));
+        assertFalse(vault.hasRole(adminRole, ownerAddress));
     }
 
     function test_initialize_storesVaultName() public {
@@ -1559,7 +1635,7 @@ contract BittyVaultTest is Test {
         toAdd[0] = address(usdc);
 
         vm.prank(tx.origin);
-        BittyGuard(guardAddress).addStableCoins(toAdd);
+        BittyV1Guard(guardAddress).addStableCoins(toAdd);
 
         vm.prank(ownerAddress);
         vault.addAssets(toAdd);
@@ -1577,7 +1653,7 @@ contract BittyVaultTest is Test {
         toAdd[0] = address(dai);
 
         vm.prank(tx.origin);
-        BittyGuard(guardAddress).addAssets(toAdd);
+        BittyV1Guard(guardAddress).addAssets(toAdd);
 
         vm.prank(ownerAddress);
         vault.addAssets(toAdd);
@@ -1595,7 +1671,7 @@ contract BittyVaultTest is Test {
         toAdd[0] = address(usdc);
 
         vm.prank(tx.origin);
-        BittyGuard(guardAddress).addStableCoins(toAdd);
+        BittyV1Guard(guardAddress).addStableCoins(toAdd);
         vm.prank(ownerAddress);
         vault.addAssets(toAdd);
 
@@ -1612,7 +1688,7 @@ contract BittyVaultTest is Test {
         toAdd[0] = address(dai);
 
         vm.prank(tx.origin);
-        BittyGuard(guardAddress).addAssets(toAdd);
+        BittyV1Guard(guardAddress).addAssets(toAdd);
         vm.prank(ownerAddress);
         vault.addAssets(toAdd);
 

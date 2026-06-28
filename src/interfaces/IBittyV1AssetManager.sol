@@ -15,7 +15,7 @@ error RebalanceDisabled();
 error ETHBalanceNotEnough();
 error WETHBalanceNotEnough();
 
-interface IAssetManager {
+interface IBittyV1AssetManager {
     /**
      * @notice Turn the ETH to WETH.
      * @dev Turn the ETH to WETH.

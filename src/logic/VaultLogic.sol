@@ -8,13 +8,13 @@ import {
     AmountIsZero,
     NotInitialized,
     InsufficientBalance
-} from "../interfaces/IVault.sol";
-import {IGuard, NotRegistered} from "guard-contracts/src/interfaces/IGuard.sol";
+} from "../interfaces/IBittyV1Vault.sol";
+import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {VaultStorage} from "./Storages.sol";
 import {
-    IVault,
+    IBittyV1Vault,
     ReceiverNotFound,
     ReceiverNameAlreadyExists,
     ReceiverImmutable,
@@ -29,7 +29,7 @@ import {
     ReceiverProtectionNotEnded,
     PayMoreThanReceiverAmount,
     PayReceiverAmountTriggerEmpty
-} from "../interfaces/IVault.sol";
+} from "../interfaces/IBittyV1Vault.sol";
 
 library VaultLogic {
     /**
@@ -74,11 +74,11 @@ library VaultLogic {
         external
         onlyNotInitialized(vaultStorage)
     {
-        vaultStorage.guard = IGuard(guardAddress);
+        vaultStorage.guard = IBittyV1Guard(guardAddress);
         vaultStorage.isInitialized = true;
     }
 
-    function addReceiver(VaultStorage storage vaultStorage, string memory name, IVault.Receiver memory receiver)
+    function addReceiver(VaultStorage storage vaultStorage, string memory name, IBittyV1Vault.Receiver memory receiver)
         external
         onlyInitialized(vaultStorage)
     {
@@ -90,7 +90,7 @@ library VaultLogic {
         if (vaultStorage.newReceiverProtection != 0) {
             vaultStorage.newReceiverProtectionTimestamps[name] = block.timestamp + vaultStorage.newReceiverProtection;
         }
-        emit IVault.ReceiverAdded(name, receiver);
+        emit IBittyV1Vault.ReceiverAdded(name, receiver);
     }
 
     function getReceiverAddress(VaultStorage storage vaultStorage, string memory name) external view returns (address) {
@@ -101,7 +101,7 @@ library VaultLogic {
         external
         onlyInitialized(vaultStorage)
     {
-        IVault.Receiver storage receiver = vaultStorage.receivers[name];
+        IBittyV1Vault.Receiver storage receiver = vaultStorage.receivers[name];
         if (receiver.isImmutable) {
             revert ReceiverImmutable();
         }
@@ -110,14 +110,15 @@ library VaultLogic {
         }
         address oldReceiverAddress = receiver.receiverAddress;
         receiver.receiverAddress = newReceiverAddress;
-        emit IVault.ReceiverAddressChanged(name, oldReceiverAddress, newReceiverAddress);
+        emit IBittyV1Vault.ReceiverAddressChanged(name, oldReceiverAddress, newReceiverAddress);
     }
 
-    function updateReceiver(VaultStorage storage vaultStorage, string memory name, IVault.Receiver memory receiver)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        IVault.Receiver memory existing = vaultStorage.receivers[name];
+    function updateReceiver(
+        VaultStorage storage vaultStorage,
+        string memory name,
+        IBittyV1Vault.Receiver memory receiver
+    ) external onlyInitialized(vaultStorage) {
+        IBittyV1Vault.Receiver memory existing = vaultStorage.receivers[name];
         if (existing.receiverAddress == address(0)) {
             revert ReceiverNotFound();
         }
@@ -126,10 +127,10 @@ library VaultLogic {
         }
         _checkReceiver(receiver);
         vaultStorage.receivers[name] = receiver;
-        emit IVault.ReceiverUpdated(name, receiver);
+        emit IBittyV1Vault.ReceiverUpdated(name, receiver);
     }
 
-    function _checkReceiver(IVault.Receiver memory receiver) internal view {
+    function _checkReceiver(IBittyV1Vault.Receiver memory receiver) internal view {
         if (receiver.receiverAddress == address(0)) {
             revert AddressZero();
         }
@@ -153,7 +154,7 @@ library VaultLogic {
     {
         delete vaultStorage.receivers[name];
         delete vaultStorage.newReceiverProtectionTimestamps[name];
-        emit IVault.ReceiverRemoved(name);
+        emit IBittyV1Vault.ReceiverRemoved(name);
     }
 
     function setNewReceiverProtection(VaultStorage storage vaultStorage, uint256 newReceiverProtection)
@@ -164,11 +165,11 @@ library VaultLogic {
             revert NewReceiverProtectionOutOfRange();
         }
         vaultStorage.newReceiverProtection = newReceiverProtection;
-        emit IVault.NewReceiverProtectionSet(newReceiverProtection);
+        emit IBittyV1Vault.NewReceiverProtectionSet(newReceiverProtection);
     }
 
     function payReceiver(VaultStorage storage vaultStorage, string memory name) external {
-        IVault.Receiver storage receiver = vaultStorage.receivers[name];
+        IBittyV1Vault.Receiver storage receiver = vaultStorage.receivers[name];
         if (receiver.trigger != address(0) && msg.sender != receiver.trigger) {
             revert ReceiverTriggerError();
         }
@@ -176,7 +177,7 @@ library VaultLogic {
     }
 
     function payReceiverAmount(VaultStorage storage vaultStorage, string memory name, uint256 amount) external {
-        IVault.Receiver storage receiver = vaultStorage.receivers[name];
+        IBittyV1Vault.Receiver storage receiver = vaultStorage.receivers[name];
         if (receiver.amount < amount) {
             revert PayMoreThanReceiverAmount();
         }
@@ -186,9 +187,11 @@ library VaultLogic {
         _payReceiver(vaultStorage, receiver, name);
     }
 
-    function _payReceiver(VaultStorage storage vaultStorage, IVault.Receiver storage receiver, string memory name)
-        internal
-    {
+    function _payReceiver(
+        VaultStorage storage vaultStorage,
+        IBittyV1Vault.Receiver storage receiver,
+        string memory name
+    ) internal {
         if (receiver.amount == 0) {
             revert ReceiverNotFound();
         }
@@ -216,7 +219,7 @@ library VaultLogic {
         uint256 paidAmount = _transferMoney(
             receiver.assetAddress, receiver.amount, receiver.receiverAddress, receiver.payWithInsufficientBalance
         );
-        emit IVault.ReceiverPaid(
+        emit IBittyV1Vault.ReceiverPaid(
             name, receiver.receiverAddress, receiver.assetAddress, paidAmount, receiver.paymentCount
         );
     }

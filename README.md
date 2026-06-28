@@ -49,7 +49,7 @@ Run all tests:
 forge test -vvv
 ```
 
-Local tests only (BittyVaultFactory and BittyVault; no RPC required):
+Local tests only (BittyV1VaultFactory and BittyV1Vault; no RPC required):
 
 ```shell
 forge test -vvv
@@ -67,13 +67,13 @@ Deployment scripts read chain-specific addresses from `deployments/<chain>.toml`
 
 ### Step 1 — logic libraries
 
-Deploy `VaultLogic` and `AssetManagerLogic` via the canonical CREATE2 deployer (`0x4e59b44847b379578588920cA78FbF26c0B4956C`, salt `0x0`). Both live in `script/DeployLogicLibraries.s.sol` and must be broadcast separately.
+Deploy `VaultLogic` and `AssetManagerLogic` via the canonical CREATE2 deployer (`0x4e59b44847b379578588920cA78FbF26c0B4956C`, salt `0x0`). Both live in `script/LogicLibraries.s.sol` and must be broadcast separately.
 
 **1a — VaultLogic** (no `--libraries` flag):
 
 ```shell
 source .env
-forge script script/DeployLogicLibraries.s.sol:DeployVaultLogic \
+forge script script/LogicLibraries.s.sol:VaultLogic \
   --rpc-url sepolia \
   --broadcast \
   --private-key $SEPOLIA_PRIVATE_KEY \
@@ -83,7 +83,7 @@ forge script script/DeployLogicLibraries.s.sol:DeployVaultLogic \
 **1b — AssetManagerLogic** (links against VaultLogic at `0xc65daA9e6a35A6a25E08492b962DA927864B9F9e`):
 
 ```shell
-forge script script/DeployLogicLibraries.s.sol:DeployAssetManagerLogic \
+forge script script/LogicLibraries.s.sol:AssetManagerLogic \
   --rpc-url sepolia \
   --broadcast \
   --private-key $SEPOLIA_PRIVATE_KEY \
@@ -94,10 +94,10 @@ Writes `VAULT_LOGIC` and `ASSET_MANAGER_LOGIC` to `deployments/<chain>.toml`.
 
 ### Step 2 — vault implementation
 
-Deploy `BittyVault` via CREATE2. Pass both library addresses from step 1:
+Deploy `BittyV1Vault` via CREATE2. Pass both library addresses from step 1:
 
 ```shell
-forge script script/DeployBittyVault.s.sol:Deploy \
+forge script script/BittyV1Vault.s.sol:BittyV1Vault \
   --rpc-url sepolia \
   --broadcast \
   --private-key $SEPOLIA_PRIVATE_KEY \
@@ -110,10 +110,10 @@ Writes `VAULT_IMPLEMENTATION` to `deployments/<chain>.toml`.
 
 ### Step 3 — factory
 
-Deploy `BittyVaultFactory` via the immutable factory at `0x0000000000FFe8B47B3e2130213B802212439497`, initialized with `VAULT_IMPLEMENTATION`, `BITTY_GUARD`, and `WETH` from the chain TOML:
+Deploy `BittyV1VaultFactory` via the immutable factory at `0x0000000000FFe8B47B3e2130213B802212439497`, initialized with `VAULT_IMPLEMENTATION`, `BITTY_GUARD`, and `WETH` from the chain TOML:
 
 ```shell
-forge script script/DeployBittyVaultFactory.s.sol:Deploy \
+forge script script/BittyV1VaultFactory.s.sol:BittyV1VaultFactory \
   --rpc-url sepolia \
   --broadcast \
   --private-key $SEPOLIA_PRIVATE_KEY \
@@ -130,7 +130,7 @@ Each script is idempotent — contracts already present at their expected addres
 forge verify-contract \
   --chain sepolia \
   <factory-address> \
-  src/BittyVaultFactory.sol:Factory \
+  src/BittyV1VaultFactory.sol:BittyV1VaultFactory \
   --etherscan-api-key $ETHERSCAN_API_KEY
 ```
 
@@ -155,13 +155,13 @@ forge verify-contract \
 
 ### Verify vault implementation
 
-`BittyVault` links against both logic libraries, so pass both deployed addresses via `--libraries`:
+`BittyV1Vault` links against both logic libraries, so pass both deployed addresses via `--libraries`:
 
 ```shell
 forge verify-contract \
   --chain sepolia \
   {VaultImplementationAddress} \
-  src/BittyVault.sol:BittyVault \
+  src/BittyV1Vault.sol:BittyV1Vault \
   --libraries src/logic/VaultLogic.sol:VaultLogic:{vaultLogicAddress} \
   --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{AssetManagerLogicAddress} \
   --etherscan-api-key $ETHERSCAN_API_KEY
