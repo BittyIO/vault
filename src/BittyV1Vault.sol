@@ -16,6 +16,7 @@ import {
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
+import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 
 /**
  * @title BittyV1Vault
@@ -487,5 +488,26 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
 
     function minimalBalance(address assetAddress) external view returns (uint256) {
         return _assetManager.minimalBalances[assetAddress];
+    }
+
+    // ============ EIP-1271 (intent order signature validation) ============
+
+    /**
+     * @notice Validates intent order signatures on behalf of the vault.
+     *         Iterates all registered intent protocol clones and delegates to each one's
+     *         isValidSignature() until a match is found. Works for any protocol
+     *         (CoW Swap, UniswapX, etc.) without protocol-specific vault logic.
+     */
+    function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4) {
+        if (signature.length == 0) return 0xffffffff;
+        address[] memory protocols = _assetManager.getIntentProtocols();
+        for (uint256 i = 0; i < protocols.length; i++) {
+            address clone = _assetManager.clonedProtocols[protocols[i]];
+            if (clone == address(0)) continue;
+            try IBittyV1IntentProtocol(clone).isValidSignature(hash, signature) returns (bytes4 result) {
+                if (result == 0x1626ba7e) return result;
+            } catch {}
+        }
+        return 0xffffffff;
     }
 }

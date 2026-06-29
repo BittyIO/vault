@@ -21,8 +21,11 @@ import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protoc
 import {IBittyV1LendingProtocol} from "protocol-contracts/src/interfaces/IBittyV1LendingProtocol.sol";
 import {IBittyV1StakingProtocol} from "protocol-contracts/src/interfaces/IBittyV1StakingProtocol.sol";
 import {IBittyV1AMMProtocol} from "protocol-contracts/src/interfaces/IBittyV1AMMProtocol.sol";
-import {IBittyV1IntentProtocol, OrderNotExpired} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
-import {IBittyV1CoWTwap} from "protocol-contracts/src/interfaces/IBittyV1CoWTwap.sol";
+import {
+    IBittyV1IntentProtocol,
+    OrderNotExpired,
+    ActiveTwapExists
+} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
@@ -37,7 +40,7 @@ import {
 } from "../interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {ETHBalanceNotEnough, WETHBalanceNotEnough} from "../interfaces/IBittyV1AssetManager.sol";
-import {AssetManagerStorage, VaultStorage} from "./Storages.sol";
+import {AssetManagerStorage, VaultStorage, IntentOrderRecord} from "./Storages.sol";
 import {VaultLogic} from "./VaultLogic.sol";
 
 library AssetManagerLogic {
@@ -607,12 +610,22 @@ library AssetManagerLogic {
         return IBittyV1AMMProtocol(clone).getLiquidity(data);
     }
 
-    // ============ Intent ============
+    // ============ Intent protocols ============
 
     function _checkIntentProtocol(AssetManagerStorage storage logicStorage, address intentProtocol) private view {
         if (!logicStorage.intentProtocols.contains(intentProtocol)) revert InvalidIntentProtocol();
         if (logicStorage.guard.isIntentProtocolDeprecated(intentProtocol)) revert Deprecated();
         if (!logicStorage.guard.isIntentProtocolRegistered(intentProtocol)) revert NotRegistered();
+    }
+
+    function _executeCancel(AssetManagerStorage storage logicStorage, address intentProtocol, bytes32 orderId) private {
+        address clone = logicStorage.clonedProtocols[intentProtocol];
+        IBittyV1IntentProtocol.CancelInstructions memory instr =
+            IBittyV1IntentProtocol(clone).buildCancelInstructions(orderId);
+        if (instr.cancelTarget != address(0)) {
+            instr.cancelTarget.functionCall(instr.cancelCalldata);
+        }
+        delete logicStorage.intentOrderRecords[orderId];
     }
 
     function limitSell(
@@ -661,27 +674,54 @@ library AssetManagerLogic {
 
         address clone = _cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(sellAssetAddress, sellAmount, toAssetAddress, buyAmountMin, validTo, isSellOrder);
-        IERC20(sellAssetAddress).safeIncreaseAllowance(clone, sellAmount);
-        orderId = IBittyV1IntentProtocol(clone).trade(data);
+
+        IBittyV1IntentProtocol.OrderInstructions memory instr =
+            IBittyV1IntentProtocol(clone).buildLimitOrderInstructions(data);
+        orderId = instr.orderId;
+
+        if (instr.registerTarget != address(0)) {
+            instr.registerTarget.functionCall(instr.registerCalldata);
+        }
+
+        if (instr.approveTarget != address(0) && instr.sellAmount > 0) {
+            IERC20(instr.sellToken).safeIncreaseAllowance(instr.approveTarget, instr.sellAmount);
+        }
+
+        logicStorage.intentOrderRecords[orderId] =
+            IntentOrderRecord({sellToken: instr.sellToken, expiresAt: uint256(validTo)});
+
+        emit IBittyV1IntentProtocol.OrderCreated(orderId, address(this));
     }
 
     function cancelLimitOrder(AssetManagerStorage storage logicStorage, address intentProtocol, bytes memory data)
         external
         onlyInitialized(logicStorage)
     {
-        address clone = logicStorage.clonedProtocols[intentProtocol];
-        if (clone == address(0)) revert InvalidIntentProtocol();
-        IBittyV1IntentProtocol(clone).cancelTrade(data);
+        if (!logicStorage.intentProtocols.contains(intentProtocol)) revert InvalidIntentProtocol();
+
+        bytes32 orderId = abi.decode(data, (bytes32));
+        if (logicStorage.intentOrderRecords[orderId].sellToken == address(0)) revert InvalidIntentProtocol();
+
+        _executeCancel(logicStorage, intentProtocol, orderId);
     }
 
+    /// @notice Permissionless cleanup of expired orders. Reverts if any order is still live.
     function cleanExpiredOrders(
         AssetManagerStorage storage logicStorage,
         address intentProtocol,
         bytes32[] calldata orderDigests
     ) external {
-        address clone = logicStorage.clonedProtocols[intentProtocol];
-        if (clone == address(0)) revert InvalidIntentProtocol();
-        IBittyV1IntentProtocol(clone).cleanExpiredOrders(orderDigests);
+        if (!logicStorage.intentProtocols.contains(intentProtocol)) {
+            revert InvalidIntentProtocol();
+        }
+        if (logicStorage.clonedProtocols[intentProtocol] == address(0)) revert InvalidIntentProtocol();
+
+        for (uint256 i = 0; i < orderDigests.length; i++) {
+            bytes32 orderId = orderDigests[i];
+            IntentOrderRecord memory record = logicStorage.intentOrderRecords[orderId];
+            if (record.expiresAt == 0 || block.timestamp <= record.expiresAt) revert OrderNotExpired();
+            _executeCancel(logicStorage, intentProtocol, orderId);
+        }
     }
 
     function addIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
@@ -724,10 +764,28 @@ library AssetManagerLogic {
         if (_addressBalance(from) < totalSellAmount) revert InsufficientBalance();
         _validateRebalance(logicStorage, vaultStorage, from, to, totalSellAmount);
 
+        // at most one active TWAP per sell token
+        if (logicStorage.activeTwapPerToken[from] != bytes32(0)) revert ActiveTwapExists(from);
+
         address clone = _cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
-        IERC20(from).safeIncreaseAllowance(clone, totalSellAmount);
-        twapId = IBittyV1CoWTwap(clone).createTwap(data);
+
+        (IBittyV1IntentProtocol.OrderInstructions memory instr, uint256 expiresAt_) =
+            IBittyV1IntentProtocol(clone).buildTwapInstructions(data);
+        twapId = instr.orderId;
+
+        if (instr.registerTarget != address(0)) {
+            instr.registerTarget.functionCall(instr.registerCalldata);
+        }
+
+        if (instr.approveTarget != address(0) && instr.sellAmount > 0) {
+            IERC20(instr.sellToken).safeIncreaseAllowance(instr.approveTarget, instr.sellAmount);
+        }
+
+        logicStorage.intentOrderRecords[twapId] = IntentOrderRecord({sellToken: instr.sellToken, expiresAt: expiresAt_});
+        logicStorage.activeTwapPerToken[instr.sellToken] = twapId;
+
+        emit IBittyV1IntentProtocol.TwapCreated(twapId, address(this));
     }
 
     function twapBuy(
@@ -750,18 +808,43 @@ library AssetManagerLogic {
         if (_addressBalance(from) < totalSellAmount) revert InsufficientBalance();
         _validateRebalance(logicStorage, vaultStorage, from, to, totalSellAmount);
 
+        // at most one active TWAP per sell token
+        if (logicStorage.activeTwapPerToken[from] != bytes32(0)) revert ActiveTwapExists(from);
+
         address clone = _cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
-        IERC20(from).safeIncreaseAllowance(clone, totalSellAmount);
-        twapId = IBittyV1CoWTwap(clone).createTwap(data);
+
+        (IBittyV1IntentProtocol.OrderInstructions memory instr, uint256 expiresAt_) =
+            IBittyV1IntentProtocol(clone).buildTwapInstructions(data);
+        twapId = instr.orderId;
+
+        if (instr.registerTarget != address(0)) {
+            instr.registerTarget.functionCall(instr.registerCalldata);
+        }
+
+        if (instr.approveTarget != address(0) && instr.sellAmount > 0) {
+            IERC20(instr.sellToken).safeIncreaseAllowance(instr.approveTarget, instr.sellAmount);
+        }
+
+        logicStorage.intentOrderRecords[twapId] = IntentOrderRecord({sellToken: instr.sellToken, expiresAt: expiresAt_});
+        logicStorage.activeTwapPerToken[instr.sellToken] = twapId;
+
+        emit IBittyV1IntentProtocol.TwapCreated(twapId, address(this));
     }
 
     function cancelTwap(AssetManagerStorage storage logicStorage, address intentProtocol, bytes32 twapId)
         external
         onlyInitialized(logicStorage)
     {
-        address clone = logicStorage.clonedProtocols[intentProtocol];
-        if (clone == address(0)) revert InvalidIntentProtocol();
-        IBittyV1CoWTwap(clone).cancelTwap(twapId);
+        if (!logicStorage.intentProtocols.contains(intentProtocol)) revert InvalidIntentProtocol();
+
+        IntentOrderRecord memory record = logicStorage.intentOrderRecords[twapId];
+        if (record.sellToken == address(0)) revert InvalidIntentProtocol();
+
+        delete logicStorage.activeTwapPerToken[record.sellToken];
+
+        _executeCancel(logicStorage, intentProtocol, twapId);
+
+        emit IBittyV1IntentProtocol.TwapCancelled(twapId, address(this));
     }
 }

@@ -276,9 +276,7 @@ interface IBittyV1AssetManager {
 
     function cleanExpiredOrders(address intentProtocol, bytes32[] calldata orderDigests) external;
 
-    /// @notice Create a TWAP sell order via Composable CoW.
-    ///         Splits totalSellAmount into n equal parts executed every partDuration seconds.
-    ///         CoW watchdog submits each slot automatically — no off-chain service needed.
+    /// @notice Create a TWAP sell order: split totalSellAmount into n equal parts executed every partDuration seconds.
     /// @return twapId use to cancel via cancelTwap
     function twapSell(
         address intentProtocol,
@@ -294,8 +292,7 @@ interface IBittyV1AssetManager {
     /// @notice Cancel an active TWAP and return unfilled sell tokens to the vault.
     function cancelTwap(address intentProtocol, bytes32 twapId) external;
 
-    /// @notice Create a TWAP buy order via Composable CoW.
-    ///         Spends sellAmountPerPart of `from` every partDuration seconds across n parts,
+    /// @notice Create a TWAP buy order: spend sellAmountPerPart of `from` every partDuration seconds across n parts,
     ///         receiving at least totalBuyAmount/n of `to` per part.
     /// @param totalBuyAmount minimum total `to` tokens across all n parts (minPartLimit = totalBuyAmount/n)
     /// @param sellAmountPerPart sell tokens per part (totalSellAmount = sellAmountPerPart * n)

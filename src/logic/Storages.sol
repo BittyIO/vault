@@ -5,6 +5,11 @@ import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/Enum
 import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1Vault} from "../interfaces/IBittyV1Vault.sol";
 
+struct IntentOrderRecord {
+    address sellToken; // address(0) = no record
+    uint256 expiresAt;
+}
+
 struct AssetManagerStorage {
     bool isInitialized;
     address weth;
@@ -22,6 +27,9 @@ struct AssetManagerStorage {
     bool addingProtocolsDisabled;
 
     uint256 rebalanceDisabledUntilTimestamp;
+
+    mapping(bytes32 => IntentOrderRecord) intentOrderRecords;
+    mapping(address => bytes32) activeTwapPerToken;
 }
 
 struct VaultStorage {
