@@ -17,6 +17,7 @@ import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
+import {IERC1271} from "openzeppelin-contracts/contracts/interfaces/IERC1271.sol";
 
 /**
  * @title BittyV1Vault
@@ -236,6 +237,10 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
 
     function getIntentProtocols() external view override returns (address[] memory) {
         return _assetManager.getIntentProtocols();
+    }
+
+    function getClone(address intentProtocol) external view returns (address) {
+        return _assetManager.getClone(intentProtocol);
     }
 
     // ============ Lending ============
@@ -493,13 +498,21 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
     // ============ EIP-1271 (intent order signature validation) ============
 
     /**
+     * @notice Declares ERC-1271 support so composableCow uses the non-Safe ERC-1271 signature
+     *         path in getTradeableOrderWithSignature instead of the Gnosis Safe module path.
+     */
+    function supportsInterface(bytes4 interfaceId) public view override returns (bool) {
+        return interfaceId == type(IERC1271).interfaceId // 0x1626ba7e
+            || super.supportsInterface(interfaceId);
+    }
+
+    /**
      * @notice Validates intent order signatures on behalf of the vault.
      *         Iterates all registered intent protocol clones and delegates to each one's
      *         isValidSignature() until a match is found. Works for any protocol
      *         (CoW Swap, UniswapX, etc.) without protocol-specific vault logic.
      */
     function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4) {
-        if (signature.length == 0) return 0xffffffff;
         address[] memory protocols = _assetManager.getIntentProtocols();
         for (uint256 i = 0; i < protocols.length; i++) {
             address clone = _assetManager.clonedProtocols[protocols[i]];

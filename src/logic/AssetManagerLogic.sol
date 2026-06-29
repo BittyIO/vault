@@ -82,6 +82,10 @@ library AssetManagerLogic {
         logicStorage.isInitialized = true;
     }
 
+    function getClone(AssetManagerStorage storage logicStorage, address protocol) external view returns (address) {
+        return logicStorage.clonedProtocols[protocol];
+    }
+
     function _cloneProtocol(AssetManagerStorage storage logicStorage, address protocol)
         private
         onlyInitialized(logicStorage)
