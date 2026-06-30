@@ -21,6 +21,7 @@ import {
     ReceiverPaymentCountZero,
     ReceiverTriggerError,
     ReceiverNotStartYet,
+    ReceiverStartTimestampInPast,
     ReceiverInDuration,
     AddingAssetsDisabled,
     ReceiverDurationTooShort,
@@ -84,6 +85,9 @@ library VaultLogic {
     {
         if (vaultStorage.receivers[name].amount != 0) {
             revert ReceiverNameAlreadyExists();
+        }
+        if (receiver.startTimestamp < block.timestamp) {
+            revert ReceiverStartTimestampInPast();
         }
         _checkReceiver(receiver);
         vaultStorage.receivers[name] = receiver;

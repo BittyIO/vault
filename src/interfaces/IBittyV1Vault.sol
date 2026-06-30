@@ -16,6 +16,7 @@ error ReceiverImmutable();
 error ReceiverPaymentCountZero();
 error ReceiverTriggerError();
 error ReceiverNotStartYet();
+error ReceiverStartTimestampInPast();
 error ReceiverInDuration();
 error ReceiverDurationTooShort();
 error AssetAddressNotContract();

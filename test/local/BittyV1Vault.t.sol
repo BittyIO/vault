@@ -18,6 +18,7 @@ import {
     ReceiverProtectionNotEnded,
     OnlyReceiver,
     ReceiverNotStartYet,
+    ReceiverStartTimestampInPast,
     PayMoreThanReceiverAmount,
     PayReceiverAmountTriggerEmpty,
     InsufficientBalance,
@@ -432,6 +433,16 @@ contract BittyV1VaultTest is Test {
         );
         vm.prank(ownerAddress);
         vm.expectRevert(ReceiverDurationTooShort.selector);
+        vault.addReceiver("alice", r);
+    }
+
+    function test_AddReceiverRevertStartTimestampInPast() public {
+        _initializeVault();
+        IBittyV1Vault.Receiver memory r = _makeReceiver(
+            makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp - 1, 1 days, false
+        );
+        vm.prank(ownerAddress);
+        vm.expectRevert(ReceiverStartTimestampInPast.selector);
         vault.addReceiver("alice", r);
     }
 
