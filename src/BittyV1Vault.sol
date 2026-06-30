@@ -148,6 +148,10 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         _assetManager.removeLiquidity(ammProtocol, data);
     }
 
+    function decreaseLiquidity(address ammProtocol, bytes memory data) external override onlyRole(ASSET_MANAGER_ROLE) {
+        _assetManager.decreaseLiquidity(ammProtocol, data);
+    }
+
     function claimAMMFees(address ammProtocol, bytes memory data) external override onlyRole(ASSET_MANAGER_ROLE) {
         _assetManager.claimAMMFees(ammProtocol, data);
     }

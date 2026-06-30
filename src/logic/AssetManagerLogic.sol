@@ -335,7 +335,10 @@ library AssetManagerLogic {
         if (!logicStorage.ammProtocols.contains(ammProtocol)) {
             revert InvalidAMMProtocol();
         }
-        if (!logicStorage.guard.isAMMProtocolRegistered(ammProtocol)) {
+        if (
+            !logicStorage.guard.isAMMProtocolRegistered(ammProtocol)
+                && !logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)
+        ) {
             revert NotRegistered();
         }
     }
@@ -376,6 +379,7 @@ library AssetManagerLogic {
         bytes memory data
     ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
+        if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
         address clone = logicStorage.clonedProtocols[ammProtocol];
         if (clone == address(0)) {
             revert InvalidAMMProtocol();
@@ -403,6 +407,19 @@ library AssetManagerLogic {
         IBittyV1AMMProtocol(clone).removeLiquidity(data);
     }
 
+    function decreaseLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
+        external
+        onlyInitialized(logicStorage)
+    {
+        _checkAMMProtocol(logicStorage, ammProtocol);
+        address clone = logicStorage.clonedProtocols[ammProtocol];
+        if (clone == address(0)) {
+            revert InvalidAMMProtocol();
+        }
+        _approveNFTIfNeeded(clone);
+        IBittyV1AMMProtocol(clone).decreaseLiquidity(data);
+    }
+
     function claimAMMFees(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
         external
         onlyInitialized(logicStorage)
@@ -427,6 +444,7 @@ library AssetManagerLogic {
         bytes memory data
     ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
+        if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
         _validateRebalance(logicStorage, vaultStorage, from, to, sellAmount);
         _swapExactIn(logicStorage, ammProtocol, from, sellAmount, to, buyAmountMin, data);
     }
@@ -442,6 +460,7 @@ library AssetManagerLogic {
         bytes memory data
     ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
+        if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
         _validateRebalance(logicStorage, vaultStorage, from, to, sellAmountMax);
         _swapExactOut(logicStorage, ammProtocol, from, sellAmountMax, to, buyAmount, data);
     }

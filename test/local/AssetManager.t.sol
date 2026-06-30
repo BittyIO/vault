@@ -6,6 +6,7 @@ import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessCon
 import {
     InvalidLendingProtocol,
     InvalidStakingProtocol,
+    InvalidAMMProtocol,
     RebalanceDisabled,
     MinimalBalanceNotMet,
     DisableRebalanceUntilTimestampTooEarly,
@@ -23,6 +24,7 @@ import {AddingAssetsDisabled} from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
 import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
+import {MockAMMProtocol} from "../helpers/MockAMMProtocol.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 
 contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
@@ -92,6 +94,31 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         clonedProtocol = protocol.clone();
         IBittyV1Protocol(clonedProtocol).initialize(address(this));
         _assetManager.clonedProtocols[protocol] = clonedProtocol;
+    }
+
+    function _initializeWithMockAMM(MockAMMProtocol mockAmm) internal {
+        vm.startPrank(tx.origin);
+        BittyV1Guard(guardAddress).addAMMProtocols(_single(address(mockAmm)));
+        vm.stopPrank();
+
+        this.initialize(
+            ownerAddress,
+            "test",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            mainnet.WETH,
+            vaultAssets,
+            lendingProtocols,
+            stakingProtocols,
+            _single(address(mockAmm)),
+            intentProtocols
+        );
+        _cloneProtocolForTest(address(mockAmm));
+    }
+
+    function _deprecateVaultAMMProtocols() internal {
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).deprecateAMMProtocols(ammProtocols);
     }
 
     function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
@@ -720,6 +747,122 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
         assertApproxEqAbs(IBittyV1LendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH), supplyAmount, 10);
+    }
+
+    // ─── AMM: deprecated protocol and decreaseLiquidity ───────────────────────
+
+    function test_MarketSellRevertDeprecatedAMMProtocol() public {
+        this.doInitialize();
+        _deprecateVaultAMMProtocols();
+        vm.expectRevert(Deprecated.selector);
+        vm.prank(assetManagerAddress);
+        this.marketSell(
+            address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 1 ether, 1, encodeWethToUsdtSwap(1 ether, 1)
+        );
+    }
+
+    function test_MarketBuyRevertDeprecatedAMMProtocol() public {
+        this.doInitialize();
+        _deprecateVaultAMMProtocols();
+        vm.expectRevert(Deprecated.selector);
+        vm.prank(assetManagerAddress);
+        this.marketBuy(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 1, 1 ether, "");
+    }
+
+    function test_AddLiquidityRevertDeprecatedAMMProtocol() public {
+        this.doInitialize();
+        _deprecateVaultAMMProtocols();
+        vm.expectRevert(Deprecated.selector);
+        vm.prank(assetManagerAddress);
+        this.addLiquidity(address(uniswapV3Protocol), mainnet.WETH, 0, mainnet.USDT, 0, "");
+    }
+
+    function test_DecreaseLiquiditySuccess() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initializeWithMockAMM(mockAmm);
+        address clone = this.getClonedProvider(address(mockAmm));
+        bytes memory data = abi.encode(uint256(1));
+
+        vm.prank(assetManagerAddress);
+        this.decreaseLiquidity(address(mockAmm), data);
+
+        assertEq(MockAMMProtocol(clone).decreaseLiquidityCallCount(), 1);
+        assertEq(MockAMMProtocol(clone).lastDecreaseData(), data);
+    }
+
+    function test_DecreaseLiquiditySuccessOnDeprecatedAMMProtocol() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initializeWithMockAMM(mockAmm);
+        address clone = this.getClonedProvider(address(mockAmm));
+        vm.startPrank(tx.origin);
+        BittyV1Guard(guardAddress).deprecateAMMProtocols(_single(address(mockAmm)));
+        vm.stopPrank();
+
+        bytes memory data = abi.encode(uint256(42));
+        vm.prank(assetManagerAddress);
+        this.decreaseLiquidity(address(mockAmm), data);
+
+        assertEq(MockAMMProtocol(clone).decreaseLiquidityCallCount(), 1);
+        assertEq(MockAMMProtocol(clone).lastDecreaseData(), data);
+    }
+
+    function test_RemoveLiquiditySuccessOnDeprecatedAMMProtocol() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initializeWithMockAMM(mockAmm);
+        address clone = this.getClonedProvider(address(mockAmm));
+        vm.startPrank(tx.origin);
+        BittyV1Guard(guardAddress).deprecateAMMProtocols(_single(address(mockAmm)));
+        vm.stopPrank();
+
+        bytes memory data = abi.encode(uint256(7));
+        vm.prank(assetManagerAddress);
+        this.removeLiquidity(address(mockAmm), data);
+
+        assertEq(MockAMMProtocol(clone).removeLiquidityCallCount(), 1);
+        assertEq(MockAMMProtocol(clone).lastRemoveData(), data);
+    }
+
+    function test_DecreaseLiquidityRevertInvalidAMMProtocolWhenNotCloned() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        vm.startPrank(tx.origin);
+        BittyV1Guard(guardAddress).addAMMProtocols(_single(address(mockAmm)));
+        vm.stopPrank();
+
+        this.initialize(
+            ownerAddress,
+            "test",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            mainnet.WETH,
+            vaultAssets,
+            lendingProtocols,
+            stakingProtocols,
+            _single(address(mockAmm)),
+            intentProtocols
+        );
+
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        vm.prank(assetManagerAddress);
+        this.decreaseLiquidity(address(mockAmm), "");
+    }
+
+    function test_DecreaseLiquidityRevertOnlyAssetManager() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initializeWithMockAMM(mockAmm);
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, ASSET_MANAGER_ROLE));
+        this.decreaseLiquidity(address(mockAmm), "");
+    }
+
+    function test_GetLiquidityFromDeprecatedAMMProtocol() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initializeWithMockAMM(mockAmm);
+        vm.startPrank(tx.origin);
+        BittyV1Guard(guardAddress).deprecateAMMProtocols(_single(address(mockAmm)));
+        vm.stopPrank();
+
+        assertEq(this.getLiquidity(address(mockAmm), ""), 0);
     }
 
     // ─── Fuzz Tests ───────────────────────────────────────────────────────────

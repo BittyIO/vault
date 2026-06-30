@@ -173,6 +173,14 @@ interface IBittyV1AssetManager {
     function removeLiquidity(address ammProtocol, bytes memory data) external;
 
     /**
+     * @notice Decrease liquidity from the AMM provider without fully closing the position.
+     * @dev Works on both registered and deprecated AMM protocols.
+     * @param ammProtocol The address of the AMM provider.
+     * @param data The data for the decrease liquidity.
+     */
+    function decreaseLiquidity(address ammProtocol, bytes memory data) external;
+
+    /**
      * @notice Claim fees from the AMM provider.
      * @dev Claim fees from the AMM provider.
      * @param ammProtocol The address of the AMM provider.

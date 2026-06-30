@@ -446,6 +446,18 @@ contract BittyV1VaultTest is Test {
         vault.addReceiver("alice", r);
     }
 
+    function test_UpdateReceiverAllowsPastStartTimestamp() public {
+        _initializeVault();
+        IBittyV1Vault.Receiver memory r =
+            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        vm.prank(ownerAddress);
+        vault.addReceiver("alice", r);
+
+        r.startTimestamp = block.timestamp - 1;
+        vm.prank(ownerAddress);
+        vault.updateReceiver("alice", r);
+    }
+
     function test_AddReceiverSuccessWithShortDurationWhenPaymentCountIsOne() public {
         vault.initialize(
             ownerAddress,
