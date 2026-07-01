@@ -103,6 +103,7 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
 
     function setName(string memory newName) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         vaultName = newName;
+        emit NameSet(newName);
     }
 
     // ============ AMM ============
@@ -316,10 +317,12 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _assetManager.setMinimalBalance(assetAddress, newMinimalBalance);
+        emit MinimalBalanceSet(assetAddress, newMinimalBalance);
     }
 
     function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyRole(ASSET_MANAGER_ROLE) {
         _assetManager.disableRebalanceUntilTimestamp(timestamp);
+        emit RebalanceDisabledUntil(timestamp);
     }
 
     // ============ Protocol config ============
@@ -339,6 +342,7 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _assetManager.addLendingProtocols(lendingProtocolAddresses);
+        emit LendingProtocolsAdded(lendingProtocolAddresses);
     }
 
     function removeLendingProtocols(address[] memory lendingProtocolAddresses)
@@ -347,6 +351,7 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _assetManager.removeLendingProtocols(lendingProtocolAddresses);
+        emit LendingProtocolsRemoved(lendingProtocolAddresses);
     }
 
     function addStakingProtocols(address[] memory stakingProtocolAddresses)
@@ -355,6 +360,7 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _assetManager.addStakingProtocols(stakingProtocolAddresses);
+        emit StakingProtocolsAdded(stakingProtocolAddresses);
     }
 
     function removeStakingProtocols(address[] memory stakingProtocolAddresses)
@@ -363,14 +369,17 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _assetManager.removeStakingProtocols(stakingProtocolAddresses);
+        emit StakingProtocolsRemoved(stakingProtocolAddresses);
     }
 
     function addAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _assetManager.addAMMProtocols(ammProtocolAddresses);
+        emit AMMProtocolsAdded(ammProtocolAddresses);
     }
 
     function removeAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _assetManager.removeAMMProtocols(ammProtocolAddresses);
+        emit AMMProtocolsRemoved(ammProtocolAddresses);
     }
 
     function addIntentProtocols(address[] memory intentProtocolAddresses)
@@ -379,6 +388,7 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _assetManager.addIntentProtocols(intentProtocolAddresses);
+        emit IntentProtocolsAdded(intentProtocolAddresses);
     }
 
     function removeIntentProtocols(address[] memory intentProtocolAddresses)
@@ -387,26 +397,31 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
         _assetManager.removeIntentProtocols(intentProtocolAddresses);
+        emit IntentProtocolsRemoved(intentProtocolAddresses);
     }
 
     // ============ ETH/WETH ============
 
     function ETHToWETH(uint256 amount) external override onlyRole(ASSET_MANAGER_ROLE) {
         _assetManager.ETHToWETH(amount);
+        emit ETHWrapped(amount);
     }
 
     function WETHToETH(uint256 amount) external override onlyRole(ASSET_MANAGER_ROLE) {
         _assetManager.WETHToETH(amount);
+        emit WETHUnwrapped(amount);
     }
 
     // ============ Asset config ============
 
     function addAssets(address[] memory assetAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.addAssets(assetAddresses);
+        emit AssetsAdded(assetAddresses);
     }
 
     function removeAssets(address[] memory assetAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.removeAssets(assetAddresses);
+        emit AssetsRemoved(assetAddresses);
     }
 
     // irreversible — DEFAULT_ADMIN_ROLE only

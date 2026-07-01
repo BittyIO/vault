@@ -709,9 +709,10 @@ library AssetManagerLogic {
             instr.registerTarget.functionCall(instr.registerCalldata);
         }
 
-        if (instr.approveTarget != address(0) && instr.sellAmount > 0
-            && IERC20(instr.sellToken).allowance(address(this), instr.approveTarget) < instr.sellAmount)
-        {
+        if (
+            instr.approveTarget != address(0) && instr.sellAmount > 0
+                && IERC20(instr.sellToken).allowance(address(this), instr.approveTarget) < instr.sellAmount
+        ) {
             IERC20(instr.sellToken).forceApprove(instr.approveTarget, type(uint256).max);
         }
 
@@ -731,6 +732,7 @@ library AssetManagerLogic {
         if (logicStorage.intentOrderRecords[orderId].sellToken == address(0)) revert InvalidIntentProtocol();
 
         _executeCancel(logicStorage, intentProtocol, orderId);
+        emit IBittyV1IntentProtocol.OrderCancelled(orderId, address(this));
     }
 
     /// @notice Permissionless cleanup of expired orders. Reverts if any order is still live.
@@ -805,9 +807,10 @@ library AssetManagerLogic {
             instr.registerTarget.functionCall(instr.registerCalldata);
         }
 
-        if (instr.approveTarget != address(0) && instr.sellAmount > 0
-            && IERC20(instr.sellToken).allowance(address(this), instr.approveTarget) < instr.sellAmount)
-        {
+        if (
+            instr.approveTarget != address(0) && instr.sellAmount > 0
+                && IERC20(instr.sellToken).allowance(address(this), instr.approveTarget) < instr.sellAmount
+        ) {
             IERC20(instr.sellToken).forceApprove(instr.approveTarget, type(uint256).max);
         }
 
@@ -850,9 +853,10 @@ library AssetManagerLogic {
             instr.registerTarget.functionCall(instr.registerCalldata);
         }
 
-        if (instr.approveTarget != address(0) && instr.sellAmount > 0
-            && IERC20(instr.sellToken).allowance(address(this), instr.approveTarget) < instr.sellAmount)
-        {
+        if (
+            instr.approveTarget != address(0) && instr.sellAmount > 0
+                && IERC20(instr.sellToken).allowance(address(this), instr.approveTarget) < instr.sellAmount
+        ) {
             IERC20(instr.sellToken).forceApprove(instr.approveTarget, type(uint256).max);
         }
 

@@ -719,17 +719,25 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         this.getUnstakeRequestIds(makeAddr("InvalidStakingProtocol"));
     }
 
-    function test_SupplyAllowanceIsZeroAfterSuccess() public {
+    function test_SupplyAllowanceIsMaxAfterFirstApproval() public {
         this.doInitialize();
 
         uint256 supplyAmount = 1 ether;
-        deal(mainnet.WETH, address(this), supplyAmount);
+        deal(mainnet.WETH, address(this), supplyAmount * 2);
 
         vm.prank(assetManagerAddress);
         this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
         address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
-        assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProtocol), 0, "Allowance should be 0 after supply");
+        assertEq(
+            IERC20(mainnet.WETH).allowance(address(this), clonedProtocol),
+            type(uint256).max,
+            "Allowance should be max after first supply"
+        );
+
+        // Second supply must not revert — allowance guard skips re-approval when allowance >= amount
+        vm.prank(assetManagerAddress);
+        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
     }
 
     function test_SupplySucceedsWithPreExistingResidualAllowance() public {

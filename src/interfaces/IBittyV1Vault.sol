@@ -45,6 +45,9 @@ error OwnerAndAssetManagerMustDiffer();
  * 6. Stay away from frontend supply chain attacks(which is the biggest security issue in DeFi) when interating with trading/lending/staking protocols.
  */
 interface IBittyV1Vault {
+    event NameSet(string newName);
+    event AssetsAdded(address[] assets);
+    event AssetsRemoved(address[] assets);
     event AssetsLocked();
     event ProtocolsLocked();
 

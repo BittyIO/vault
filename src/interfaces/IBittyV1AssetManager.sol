@@ -16,6 +16,23 @@ error ETHBalanceNotEnough();
 error WETHBalanceNotEnough();
 
 interface IBittyV1AssetManager {
+    // ============ Events ============
+
+    event ETHWrapped(uint256 amount);
+    event WETHUnwrapped(uint256 amount);
+    event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
+    event RebalanceDisabledUntil(uint256 timestamp);
+    event LendingProtocolsAdded(address[] protocols);
+    event LendingProtocolsRemoved(address[] protocols);
+    event StakingProtocolsAdded(address[] protocols);
+    event StakingProtocolsRemoved(address[] protocols);
+    event AMMProtocolsAdded(address[] protocols);
+    event AMMProtocolsRemoved(address[] protocols);
+    event IntentProtocolsAdded(address[] protocols);
+    event IntentProtocolsRemoved(address[] protocols);
+
+    // ============ Functions ============
+
     /**
      * @notice Turn the ETH to WETH.
      * @dev Turn the ETH to WETH.
