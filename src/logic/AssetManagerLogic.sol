@@ -150,7 +150,9 @@ library AssetManagerLogic {
             revert AmountIsZero();
         }
         lendingProtocol = _cloneProtocol(logicStorage, lendingProtocol);
-        IERC20(assetAddress).safeIncreaseAllowance(lendingProtocol, amount);
+        if (IERC20(assetAddress).allowance(address(this), lendingProtocol) < amount) {
+            IERC20(assetAddress).forceApprove(lendingProtocol, type(uint256).max);
+        }
         IBittyV1LendingProtocol(lendingProtocol).supply(assetAddress, amount);
     }
 
@@ -213,7 +215,9 @@ library AssetManagerLogic {
             revert AmountIsZero();
         }
         stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
-        IERC20(assetAddress).safeIncreaseAllowance(stakingProtocol, amount);
+        if (IERC20(assetAddress).allowance(address(this), stakingProtocol) < amount) {
+            IERC20(assetAddress).forceApprove(stakingProtocol, type(uint256).max);
+        }
         IBittyV1StakingProtocol(stakingProtocol).stake(assetAddress, amount);
     }
 
@@ -305,8 +309,8 @@ library AssetManagerLogic {
         address receiptToken = _getReceiptToken(protocol, asset);
         if (receiptToken != address(0)) {
             uint256 balance = IERC20(receiptToken).balanceOf(address(this));
-            if (balance > 0) {
-                IERC20(receiptToken).safeIncreaseAllowance(protocol, balance);
+            if (balance > 0 && IERC20(receiptToken).allowance(address(this), protocol) < balance) {
+                IERC20(receiptToken).forceApprove(protocol, type(uint256).max);
             }
         }
     }
@@ -385,10 +389,10 @@ library AssetManagerLogic {
             revert InvalidAMMProtocol();
         }
         if (token0 != address(0) && amount0 > 0 && IERC20(token0).allowance(address(this), clone) < amount0) {
-            IERC20(token0).safeIncreaseAllowance(clone, amount0);
+            IERC20(token0).forceApprove(clone, type(uint256).max);
         }
         if (token1 != address(0) && amount1 > 0 && IERC20(token1).allowance(address(this), clone) < amount1) {
-            IERC20(token1).safeIncreaseAllowance(clone, amount1);
+            IERC20(token1).forceApprove(clone, type(uint256).max);
         }
         _approveNFTIfNeeded(clone);
         IBittyV1AMMProtocol(clone).addLiquidity(data);
@@ -488,7 +492,7 @@ library AssetManagerLogic {
 
         ammProtocol = _cloneProtocol(logicStorage, ammProtocol);
         if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmount) {
-            IERC20(sellAssetAddress).safeIncreaseAllowance(ammProtocol, sellAmount);
+            IERC20(sellAssetAddress).forceApprove(ammProtocol, type(uint256).max);
         }
         IBittyV1AMMProtocol(ammProtocol).swap(data);
 
@@ -519,7 +523,7 @@ library AssetManagerLogic {
 
         ammProtocol = _cloneProtocol(logicStorage, ammProtocol);
         if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmountMax) {
-            IERC20(sellAssetAddress).safeIncreaseAllowance(ammProtocol, sellAmountMax);
+            IERC20(sellAssetAddress).forceApprove(ammProtocol, type(uint256).max);
         }
         IBittyV1AMMProtocol(ammProtocol).swapExactOut(data);
 
@@ -693,7 +697,6 @@ library AssetManagerLogic {
     ) private returns (bytes32 orderId) {
         if (sellAmount == 0 || buyAmountMin == 0) revert AmountIsZero();
         if (validTo <= block.timestamp) revert InvalidValidTo();
-        if (_addressBalance(sellAssetAddress) < sellAmount) revert InsufficientBalance();
 
         address clone = _cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(sellAssetAddress, sellAmount, toAssetAddress, buyAmountMin, validTo, isSellOrder);
@@ -706,8 +709,10 @@ library AssetManagerLogic {
             instr.registerTarget.functionCall(instr.registerCalldata);
         }
 
-        if (instr.approveTarget != address(0) && instr.sellAmount > 0) {
-            IERC20(instr.sellToken).safeIncreaseAllowance(instr.approveTarget, instr.sellAmount);
+        if (instr.approveTarget != address(0) && instr.sellAmount > 0
+            && IERC20(instr.sellToken).allowance(address(this), instr.approveTarget) < instr.sellAmount)
+        {
+            IERC20(instr.sellToken).forceApprove(instr.approveTarget, type(uint256).max);
         }
 
         logicStorage.intentOrderRecords[orderId] =
@@ -784,7 +789,6 @@ library AssetManagerLogic {
     ) external onlyInitialized(logicStorage) returns (bytes32 twapId) {
         _checkIntentProtocol(logicStorage, intentProtocol);
         if (totalSellAmount == 0 || minPartLimit == 0 || n == 0 || partDuration == 0) revert AmountIsZero();
-        if (_addressBalance(from) < totalSellAmount) revert InsufficientBalance();
         _validateRebalance(logicStorage, vaultStorage, from, to, totalSellAmount);
 
         // at most one active TWAP per sell token
@@ -801,8 +805,10 @@ library AssetManagerLogic {
             instr.registerTarget.functionCall(instr.registerCalldata);
         }
 
-        if (instr.approveTarget != address(0) && instr.sellAmount > 0) {
-            IERC20(instr.sellToken).safeIncreaseAllowance(instr.approveTarget, instr.sellAmount);
+        if (instr.approveTarget != address(0) && instr.sellAmount > 0
+            && IERC20(instr.sellToken).allowance(address(this), instr.approveTarget) < instr.sellAmount)
+        {
+            IERC20(instr.sellToken).forceApprove(instr.approveTarget, type(uint256).max);
         }
 
         logicStorage.intentOrderRecords[twapId] = IntentOrderRecord({sellToken: instr.sellToken, expiresAt: expiresAt_});
@@ -828,7 +834,6 @@ library AssetManagerLogic {
         uint256 minPartLimit = totalBuyAmount / n;
         if (minPartLimit == 0) revert AmountIsZero();
         uint256 totalSellAmount = sellAmountPerPart * n;
-        if (_addressBalance(from) < totalSellAmount) revert InsufficientBalance();
         _validateRebalance(logicStorage, vaultStorage, from, to, totalSellAmount);
 
         // at most one active TWAP per sell token
@@ -845,8 +850,10 @@ library AssetManagerLogic {
             instr.registerTarget.functionCall(instr.registerCalldata);
         }
 
-        if (instr.approveTarget != address(0) && instr.sellAmount > 0) {
-            IERC20(instr.sellToken).safeIncreaseAllowance(instr.approveTarget, instr.sellAmount);
+        if (instr.approveTarget != address(0) && instr.sellAmount > 0
+            && IERC20(instr.sellToken).allowance(address(this), instr.approveTarget) < instr.sellAmount)
+        {
+            IERC20(instr.sellToken).forceApprove(instr.approveTarget, type(uint256).max);
         }
 
         logicStorage.intentOrderRecords[twapId] = IntentOrderRecord({sellToken: instr.sellToken, expiresAt: expiresAt_});
