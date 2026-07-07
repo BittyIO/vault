@@ -188,6 +188,9 @@ library VaultLogic {
         if (receiver.trigger == address(0)) {
             revert PayReceiverAmountTriggerEmpty();
         }
+        if (msg.sender != receiver.trigger) {
+            revert ReceiverTriggerError();
+        }
         _payReceiver(vaultStorage, receiver, name);
     }
 
