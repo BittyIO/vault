@@ -21,6 +21,7 @@ import {
     ReceiverStartTimestampInPast,
     PayMoreThanReceiverAmount,
     PayReceiverAmountTriggerEmpty,
+    ReceiverTriggerError,
     InsufficientBalance,
     OwnerAndAssetManagerMustDiffer
 } from "../../src/interfaces/IBittyV1Vault.sol";
@@ -1003,6 +1004,26 @@ contract BittyV1VaultTest is Test {
 
         vm.expectRevert(PayReceiverAmountTriggerEmpty.selector);
         vault.payReceiverAmount("alice", 1 ether);
+    }
+
+    function test_PayReceiverAmount_revertWhenCallerIsNotTrigger() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        address trigger = makeAddr("trigger");
+        address attacker = makeAddr("attacker");
+        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.prank(attacker);
+        vm.expectRevert(ReceiverTriggerError.selector);
+        vault.payReceiverAmount("alice", 1 ether);
+
+        assertEq(weth.balanceOf(receiverAddr), 0);
+
+        vm.prank(trigger);
+        vault.payReceiverAmount("alice", 1 ether);
+        assertEq(weth.balanceOf(receiverAddr), 1 ether);
     }
 
     function test_PayReceiverAmount_successWhenAmountEqualsReceiverAmount() public {
