@@ -18,7 +18,7 @@
     }
   },
   "lib/protocol-contracts": {
-    "rev": "5ab68a29c9f25c1e13af007fea15826b328ab712"
+    "rev": "dfbf8351ebc290e88a422d93ef12e312910c3808"
   },
   "lib/solmate": {
     "rev": "89365b880c4f3c786bdd453d4b8e8fe410344a69"
