@@ -177,7 +177,7 @@ library VaultLogic {
         if (receiver.trigger != address(0) && msg.sender != receiver.trigger) {
             revert ReceiverTriggerError();
         }
-        _payReceiver(vaultStorage, receiver, name);
+        _payReceiver(vaultStorage, receiver, name, receiver.amount);
     }
 
     function payReceiverAmount(VaultStorage storage vaultStorage, string memory name, uint256 amount) external {
@@ -191,13 +191,14 @@ library VaultLogic {
         if (msg.sender != receiver.trigger) {
             revert ReceiverTriggerError();
         }
-        _payReceiver(vaultStorage, receiver, name);
+        _payReceiver(vaultStorage, receiver, name, amount);
     }
 
     function _payReceiver(
         VaultStorage storage vaultStorage,
         IBittyV1Vault.Receiver storage receiver,
-        string memory name
+        string memory name,
+        uint256 payAmount
     ) internal {
         if (receiver.amount == 0) {
             revert ReceiverNotFound();
@@ -224,7 +225,7 @@ library VaultLogic {
         vaultStorage.lastReceiveTimestamps[name] = block.timestamp;
         receiver.paymentCount = receiver.paymentCount - 1;
         uint256 paidAmount = _transferMoney(
-            receiver.assetAddress, receiver.amount, receiver.receiverAddress, receiver.payWithInsufficientBalance
+            receiver.assetAddress, payAmount, receiver.receiverAddress, receiver.payWithInsufficientBalance
         );
         emit IBittyV1Vault.ReceiverPaid(
             name, receiver.receiverAddress, receiver.assetAddress, paidAmount, receiver.paymentCount
