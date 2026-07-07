@@ -1614,6 +1614,28 @@ contract BittyV1VaultTest is Test {
         vault.beginDefaultAdminTransfer(assetManagerAddress);
     }
 
+    function test_GrantRole_CannotGiveAssetManagerToPendingDefaultAdmin() public {
+        _initializeVault();
+        bytes32 assetManagerRole = vault.ASSET_MANAGER_ROLE();
+        address newAdmin = makeAddr("newAdmin");
+
+        vm.prank(ownerAddress);
+        vault.beginDefaultAdminTransfer(newAdmin);
+        (address pending,) = vault.pendingDefaultAdmin();
+        assertEq(pending, newAdmin);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(OwnerAndAssetManagerMustDiffer.selector);
+        vault.grantRole(assetManagerRole, newAdmin);
+
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(newAdmin);
+        vault.acceptDefaultAdminTransfer();
+
+        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), newAdmin));
+        assertFalse(vault.hasRole(assetManagerRole, newAdmin));
+    }
+
     function test_renounceDefaultAdmin_requiresTransferToZeroAndDelay() public {
         _initializeVault();
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();

@@ -88,8 +88,15 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
     }
 
     function _grantRole(bytes32 role, address account) internal override returns (bool) {
-        if (role == ASSET_MANAGER_ROLE && account == defaultAdmin()) {
-            revert OwnerAndAssetManagerMustDiffer();
+        if (role == ASSET_MANAGER_ROLE) {
+            // The owner (default admin) must never also hold the asset-manager role.
+            // Block the pending admin too, otherwise the admin could grant
+            // ASSET_MANAGER_ROLE to the pendingDefaultAdmin during the transfer delay
+            // and, after acceptance, one address would hold both roles.
+            (address pendingAdmin,) = pendingDefaultAdmin();
+            if (account == defaultAdmin() || (pendingAdmin != address(0) && account == pendingAdmin)) {
+                revert OwnerAndAssetManagerMustDiffer();
+            }
         }
         return super._grantRole(role, account);
     }
