@@ -20,7 +20,7 @@ import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {AddingAssetsDisabled} from "../../src/interfaces/IBittyV1Vault.sol";
+import {AddingAssetsDisabled, AddingProtocolsDisabled} from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
 import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
@@ -138,6 +138,50 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
             ammProtocols,
             intentProtocols
         );
+    }
+
+    function test_DisableAddingProtocols_BlocksAllProtocolTypesIncludingIntent() public {
+        address intentProto = makeAddr("intentProtocol");
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addIntentProtocols(_single(intentProto));
+
+        this.doInitialize();
+
+        vm.startPrank(ownerAddress);
+        this.disableAddingProtocols();
+        assertTrue(this.isAddingProtocolsDisabled(), "adding protocols must be locked");
+
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        this.addLendingProtocols(_single(address(aaveProtocol)));
+
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        this.addStakingProtocols(_single(address(lidoProtocol)));
+
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        this.addAMMProtocols(_single(address(uniswapV3Protocol)));
+
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        this.addIntentProtocols(_single(intentProto));
+
+        vm.stopPrank();
+    }
+
+    function test_DisableAddingProtocols_BlocksIntentEvenForRegisteredProtocol() public {
+        address intentProto = makeAddr("intentProtocolOnly");
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addIntentProtocols(_single(intentProto));
+
+        this.doInitialize();
+
+        vm.prank(ownerAddress);
+        this.addIntentProtocols(_single(intentProto));
+
+        vm.prank(ownerAddress);
+        this.disableAddingProtocols();
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        this.addIntentProtocols(_single(intentProto));
     }
 
     function test_SetMinimalBalance() public {

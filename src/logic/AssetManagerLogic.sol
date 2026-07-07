@@ -756,6 +756,7 @@ library AssetManagerLogic {
 
     function addIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
         external
+        onlyAddingProtocolsEnabled(logicStorage)
         onlyInitialized(logicStorage)
     {
         for (uint256 i = 0; i < intentProtocolAddresses.length; i++) {
