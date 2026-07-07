@@ -11,6 +11,7 @@ error InvalidIntentProtocol();
 error InvalidValidTo();
 error InvalidSwapData();
 error DisableRebalanceUntilTimestampTooEarly();
+error DisableRebalanceUntilTimestampTooLate();
 error RebalanceDisabled();
 error ETHBalanceNotEnough();
 error WETHBalanceNotEnough();

@@ -10,6 +10,7 @@ import {
     RebalanceDisabled,
     MinimalBalanceNotMet,
     DisableRebalanceUntilTimestampTooEarly,
+    DisableRebalanceUntilTimestampTooLate,
     ETHBalanceNotEnough
 } from "../../src/interfaces/IBittyV1AssetManager.sol";
 import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
@@ -549,6 +550,21 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         this.disableRebalanceUntilTimestamp(earlierTimestamp);
     }
 
+    function test_DisableRebalanceUntilTimestamp_AllowsExactlyFourYears() public {
+        this.doInitialize();
+
+        vm.prank(assetManagerAddress);
+        this.disableRebalanceUntilTimestamp(block.timestamp + 4 * 365 days);
+    }
+
+    function test_DisableRebalanceUntilTimestamp_RevertsBeyondFourYears() public {
+        this.doInitialize();
+
+        vm.expectRevert(DisableRebalanceUntilTimestampTooLate.selector);
+        vm.prank(assetManagerAddress);
+        this.disableRebalanceUntilTimestamp(block.timestamp + 4 * 365 days + 1);
+    }
+
     function test_DisableAddingAssets_RevertsWhenNotOwnerOrAssetManager() public {
         this.doInitialize();
         address stranger = makeAddr("stranger");
@@ -993,7 +1009,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
     function testFuzz_DisableRebalanceUntilTimestamp_cannotMovePrevTimestampEarlier(uint256 offset, uint256 reduction)
         public
     {
-        offset = bound(offset, 1, type(uint64).max);
+        offset = bound(offset, 2, 4 * 365 days);
         reduction = bound(reduction, 1, offset);
         this.doInitialize();
         uint256 first = block.timestamp + offset;

@@ -6,6 +6,7 @@ import {IBittyV1Guard, NotRegistered, Deprecated} from "guard-contracts/src/inte
 import {
     IBittyV1AssetManager,
     DisableRebalanceUntilTimestampTooEarly,
+    DisableRebalanceUntilTimestampTooLate,
     RebalanceDisabled,
     SellAmountMismatch,
     BuyAmountNotEnough,
@@ -48,6 +49,8 @@ library AssetManagerLogic {
     using EnumerableSet for EnumerableSet.AddressSet;
     using Address for address;
     using Clones for address;
+
+    uint256 constant REBALANCE_DISABLE_MAX_DURATION = 4 * 365 days;
 
     modifier onlyInitialized(AssetManagerStorage storage logicStorage) {
         if (!logicStorage.isInitialized) {
@@ -528,6 +531,9 @@ library AssetManagerLogic {
         }
         if (timestamp < logicStorage.rebalanceDisabledUntilTimestamp) {
             revert DisableRebalanceUntilTimestampTooEarly();
+        }
+        if (timestamp > block.timestamp + REBALANCE_DISABLE_MAX_DURATION) {
+            revert DisableRebalanceUntilTimestampTooLate();
         }
         logicStorage.rebalanceDisabledUntilTimestamp = timestamp;
     }
