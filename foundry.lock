@@ -18,12 +18,12 @@
     }
   },
   "lib/protocol-contracts": {
-    "rev": "591b339d776e19053ffea868b36849202ee6b590"
+    "rev": "5ab68a29c9f25c1e13af007fea15826b328ab712"
   },
   "lib/solmate": {
     "rev": "89365b880c4f3c786bdd453d4b8e8fe410344a69"
   },
   "lib/guard-contracts": {
-    "rev": "500824f269985d298e03daaada4416b8b74531"
+    "rev": "589d66eb817676f5e711656cc7c53a42029ea499"
   }
 }
