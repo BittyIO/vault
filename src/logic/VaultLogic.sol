@@ -158,6 +158,7 @@ library VaultLogic {
     {
         delete vaultStorage.receivers[name];
         delete vaultStorage.newReceiverProtectionTimestamps[name];
+        delete vaultStorage.lastReceiveTimestamps[name];
         emit IBittyV1Vault.ReceiverRemoved(name);
     }
 

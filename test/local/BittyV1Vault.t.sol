@@ -995,6 +995,24 @@ contract BittyV1VaultTest is Test {
         assertEq(weth.balanceOf(receiverAddr), 1 ether);
     }
 
+    function test_RemoveReceiver_clearsLastReceiveTimestampSoReAddCanPayImmediately() public {
+        _initializeVault();
+        vm.warp(1_000_000);
+        address receiverAddr = makeAddr("receiver");
+
+        _addReceiver("alice", receiverAddr, 1 ether, 2, VaultLogic.RECEIVER_MINIMAL_DURATION);
+        deal(address(weth), address(vault), 3 ether);
+        vault.payReceiver("alice");
+        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+
+        vm.prank(ownerAddress);
+        vault.removeReceiver("alice");
+        _addReceiver("alice", receiverAddr, 1 ether, 1, VaultLogic.RECEIVER_MINIMAL_DURATION);
+
+        vault.payReceiver("alice");
+        assertEq(weth.balanceOf(receiverAddr), 2 ether, "re-added receiver must be payable immediately");
+    }
+
     function test_PayReceiverAmount_revertTriggerEmpty() public {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
