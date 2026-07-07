@@ -165,16 +165,16 @@ library AssetManagerLogic {
         address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
-        if (!logicStorage.lendingProtocols.contains(lendingProtocol)) {
-            revert InvalidLendingProtocol();
-        }
         if (assetAddress == address(0)) {
             revert AddressZero();
         }
         if (amount == 0) {
             revert AmountIsZero();
         }
-        lendingProtocol = _cloneProtocol(logicStorage, lendingProtocol);
+        lendingProtocol = logicStorage.clonedProtocols[lendingProtocol];
+        if (lendingProtocol == address(0)) {
+            revert InvalidLendingProtocol();
+        }
         uint256 supplyAmount = IBittyV1LendingProtocol(lendingProtocol).getSuppliedBalance(assetAddress);
         if (supplyAmount < amount) {
             revert InsufficientBalance();
@@ -189,9 +189,6 @@ library AssetManagerLogic {
         onlyInitialized(logicStorage)
         returns (uint256)
     {
-        if (!logicStorage.lendingProtocols.contains(lendingProtocol)) {
-            revert InvalidLendingProtocol();
-        }
         address _clonedProtocol = logicStorage.clonedProtocols[lendingProtocol];
         if (_clonedProtocol == address(0)) {
             return 0;
@@ -230,16 +227,16 @@ library AssetManagerLogic {
         address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
-        if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
-            revert InvalidStakingProtocol();
-        }
         if (assetAddress == address(0)) {
             revert AddressZero();
         }
         if (amount == 0) {
             revert AmountIsZero();
         }
-        stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
+        stakingProtocol = logicStorage.clonedProtocols[stakingProtocol];
+        if (stakingProtocol == address(0)) {
+            revert InvalidStakingProtocol();
+        }
         uint256 stakingBalance = IBittyV1StakingProtocol(stakingProtocol).getStakedBalance(assetAddress);
         if (stakingBalance < amount) {
             revert InsufficientBalance();
@@ -254,9 +251,6 @@ library AssetManagerLogic {
         onlyInitialized(logicStorage)
         returns (uint256)
     {
-        if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
-            revert InvalidStakingProtocol();
-        }
         if (assetAddress == address(0)) {
             revert AddressZero();
         }
@@ -273,10 +267,6 @@ library AssetManagerLogic {
         onlyInitialized(logicStorage)
         returns (uint256[] memory)
     {
-        if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
-            revert InvalidStakingProtocol();
-        }
-
         address _clonedProtocol = logicStorage.clonedProtocols[stakingProtocol];
         if (_clonedProtocol == address(0)) {
             return new uint256[](0);
@@ -289,13 +279,13 @@ library AssetManagerLogic {
         address stakingProtocol,
         uint256[] memory requestIds
     ) external onlyInitialized(logicStorage) {
-        if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
-            revert InvalidStakingProtocol();
-        }
         if (requestIds.length == 0) {
             return;
         }
-        stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
+        stakingProtocol = logicStorage.clonedProtocols[stakingProtocol];
+        if (stakingProtocol == address(0)) {
+            revert InvalidStakingProtocol();
+        }
         IBittyV1StakingProtocol(stakingProtocol).claimUnstaked(requestIds);
     }
 
@@ -402,8 +392,8 @@ library AssetManagerLogic {
         external
         onlyInitialized(logicStorage)
     {
-        _checkAMMProtocol(logicStorage, ammProtocol);
-        address clone = _cloneProtocol(logicStorage, ammProtocol);
+        address clone = logicStorage.clonedProtocols[ammProtocol];
+        if (clone == address(0)) revert InvalidAMMProtocol();
         _approveNFTIfNeeded(clone);
         IBittyV1AMMProtocol(clone).removeLiquidity(data);
     }
@@ -412,8 +402,8 @@ library AssetManagerLogic {
         external
         onlyInitialized(logicStorage)
     {
-        _checkAMMProtocol(logicStorage, ammProtocol);
-        address clone = _cloneProtocol(logicStorage, ammProtocol);
+        address clone = logicStorage.clonedProtocols[ammProtocol];
+        if (clone == address(0)) revert InvalidAMMProtocol();
         _approveNFTIfNeeded(clone);
         IBittyV1AMMProtocol(clone).decreaseLiquidity(data);
     }
@@ -422,8 +412,8 @@ library AssetManagerLogic {
         external
         onlyInitialized(logicStorage)
     {
-        _checkAMMProtocol(logicStorage, ammProtocol);
-        address clone = _cloneProtocol(logicStorage, ammProtocol);
+        address clone = logicStorage.clonedProtocols[ammProtocol];
+        if (clone == address(0)) revert InvalidAMMProtocol();
         _approveNFTIfNeeded(clone);
         IBittyV1AMMProtocol(clone).claimAMMFees(data);
     }
@@ -625,7 +615,6 @@ library AssetManagerLogic {
         view
         returns (uint256)
     {
-        _checkAMMProtocol(logicStorage, ammProtocol);
         address clone = logicStorage.clonedProtocols[ammProtocol];
         if (clone == address(0)) return 0;
         return IBittyV1AMMProtocol(clone).getLiquidity(data);
@@ -720,7 +709,7 @@ library AssetManagerLogic {
         external
         onlyInitialized(logicStorage)
     {
-        if (!logicStorage.intentProtocols.contains(intentProtocol)) revert InvalidIntentProtocol();
+        if (logicStorage.clonedProtocols[intentProtocol] == address(0)) revert InvalidIntentProtocol();
 
         bytes32 orderId = abi.decode(data, (bytes32));
         if (logicStorage.intentOrderRecords[orderId].sellToken == address(0)) revert InvalidIntentProtocol();
@@ -735,10 +724,9 @@ library AssetManagerLogic {
         address intentProtocol,
         bytes32[] calldata orderDigests
     ) external {
-        if (!logicStorage.intentProtocols.contains(intentProtocol)) {
+        if (logicStorage.clonedProtocols[intentProtocol] == address(0)) {
             revert InvalidIntentProtocol();
         }
-        if (logicStorage.clonedProtocols[intentProtocol] == address(0)) revert InvalidIntentProtocol();
 
         for (uint256 i = 0; i < orderDigests.length; i++) {
             bytes32 orderId = orderDigests[i];
