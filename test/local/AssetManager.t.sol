@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {AmountIsZero, AddressZero} from "../../src/interfaces/IBittyV1Vault.sol";
+import {AmountIsZero, AddressZero, NotInitialized} from "../../src/interfaces/IBittyV1Vault.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {
     InvalidLendingProtocol,
@@ -10,7 +10,7 @@ import {
     RebalanceDisabled,
     MinimalBalanceNotMet,
     DisableRebalanceUntilTimestampTooEarly,
-    DisableRebalanceUntilTimestampTooLate,
+    DisableRebalanceUntilTimestampTooLong,
     ETHBalanceNotEnough
 } from "../../src/interfaces/IBittyV1AssetManager.sol";
 import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
@@ -183,6 +183,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         vm.prank(ownerAddress);
         vm.expectRevert(AddingProtocolsDisabled.selector);
         this.addIntentProtocols(_single(intentProto));
+    }
+
+    function test_CleanExpiredLimitOrders_revertNotInitialized() public {
+        vm.expectRevert(NotInitialized.selector);
+        this.cleanExpiredLimitOrders(makeAddr("intent"), new bytes32[](0));
     }
 
     function test_SetMinimalBalance() public {
@@ -564,7 +569,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
     function test_DisableRebalanceUntilTimestamp_RevertsBeyondFourYears() public {
         this.doInitialize();
 
-        vm.expectRevert(DisableRebalanceUntilTimestampTooLate.selector);
+        vm.expectRevert(DisableRebalanceUntilTimestampTooLong.selector);
         vm.prank(assetManagerAddress);
         this.disableRebalanceUntilTimestamp(block.timestamp + 4 * 365 days + 1);
     }

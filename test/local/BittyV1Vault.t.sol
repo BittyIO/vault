@@ -23,6 +23,7 @@ import {
     PayReceiverAmountTriggerEmpty,
     ReceiverTriggerError,
     InsufficientBalance,
+    NotInitialized,
     OwnerAndAssetManagerMustDiffer
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
@@ -1011,6 +1012,16 @@ contract BittyV1VaultTest is Test {
 
         vault.payReceiver("alice");
         assertEq(weth.balanceOf(receiverAddr), 2 ether, "re-added receiver must be payable immediately");
+    }
+
+    function test_PayReceiver_revertNotInitialized() public {
+        vm.expectRevert(NotInitialized.selector);
+        vault.payReceiver("alice");
+    }
+
+    function test_PayReceiverAmount_revertNotInitialized() public {
+        vm.expectRevert(NotInitialized.selector);
+        vault.payReceiverAmount("alice", 1);
     }
 
     function test_PayReceiverAmount_revertTriggerEmpty() public {

@@ -11,14 +11,12 @@ error InvalidIntentProtocol();
 error InvalidValidTo();
 error InvalidSwapData();
 error DisableRebalanceUntilTimestampTooEarly();
-error DisableRebalanceUntilTimestampTooLate();
+error DisableRebalanceUntilTimestampTooLong();
 error RebalanceDisabled();
 error ETHBalanceNotEnough();
 error WETHBalanceNotEnough();
 
 interface IBittyV1AssetManager {
-    // ============ Events ============
-
     event ETHWrapped(uint256 amount);
     event WETHUnwrapped(uint256 amount);
     event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
@@ -31,8 +29,6 @@ interface IBittyV1AssetManager {
     event AMMProtocolsRemoved(address[] protocols);
     event IntentProtocolsAdded(address[] protocols);
     event IntentProtocolsRemoved(address[] protocols);
-
-    // ============ Functions ============
 
     /**
      * @notice Turn the ETH to WETH.
@@ -69,8 +65,10 @@ interface IBittyV1AssetManager {
      */
     function getAMMProtocols() external view returns (address[] memory);
 
-    /// @notice Set the minimum balance that must remain in the vault after any sell of `assetAddress`.
-    ///         Use token decimals (e.g. 1e8 = 1 WBTC, 10 ether = 10 WETH). Zero disables the check.
+    /**
+     * @notice Set the minimum balance that must remain in the vault after any sell of `assetAddress`.
+     *         Use token decimals (e.g. 1e8 = 1 WBTC, 10 ether = 10 WETH). Zero disables the check.
+     */
     function setMinimalBalance(address assetAddress, uint256 minimalBalance) external;
 
     /**
@@ -142,8 +140,10 @@ interface IBittyV1AssetManager {
      */
     function claimUnstaked(address stakingProtocol, uint256[] memory requestIds) external;
 
-    /// @notice Exact-input market swap: sell exactly `sellAmount` of `from`, receive ≥ `buyAmountMin` of `to`.
-    /// @dev data = abi.encode(from, sellAmount, to, buyAmountMin, path)
+    /**
+     * @notice Exact-input market swap: sell exactly `sellAmount` of `from`, receive ≥ `buyAmountMin` of `to`.
+     * @dev data = abi.encode(from, sellAmount, to, buyAmountMin, path)
+     */
     function marketSell(
         address ammProtocol,
         address from,
@@ -153,9 +153,11 @@ interface IBittyV1AssetManager {
         bytes memory data
     ) external;
 
-    /// @notice Exact-output market swap: receive exactly `buyAmount` of `to`, spend ≤ `sellAmountMax` of `from`.
-    /// @dev data = abi.encode(from, sellAmountMax, to, buyAmount, reversedPath)
-    ///      reversedPath must be encoded in reverse order (to → ... → from) per Uniswap V3 exactOutput.
+    /**
+     * @notice Exact-output market swap: receive exactly `buyAmount` of `to`, spend ≤ `sellAmountMax` of `from`.
+     * @dev data = abi.encode(from, sellAmountMax, to, buyAmount, reversedPath)
+     *      reversedPath must be encoded in reverse order (to → ... → from) per Uniswap V3 exactOutput.
+     */
     function marketBuy(
         address ammProtocol,
         address from,
@@ -276,8 +278,10 @@ interface IBittyV1AssetManager {
 
     function removeIntentProtocols(address[] memory intentProtocolAddresses) external;
 
-    /// @notice Place a sell limit order: sell exactly `sellAmount` of `from`, receive ≥ `buyAmountMin` of `to`.
-    /// @return orderId use to cancel via cancelLimitOrder
+    /**
+     * @notice Place a sell limit order: sell exactly `sellAmount` of `from`, receive ≥ `buyAmountMin` of `to`.
+     * @return orderId use to cancel via cancelLimitOrder
+     */
     function limitSell(
         address intentProtocol,
         address from,
@@ -287,8 +291,10 @@ interface IBittyV1AssetManager {
         uint32 validTo
     ) external returns (bytes32 orderId);
 
-    /// @notice Place a buy limit order: receive exactly `buyAmount` of `to`, spend ≤ `sellAmountMax` of `from`.
-    /// @return orderId use to cancel via cancelLimitOrder
+    /**
+     * @notice Place a buy limit order: receive exactly `buyAmount` of `to`, spend ≤ `sellAmountMax` of `from`.
+     * @return orderId use to cancel via cancelLimitOrder
+     */
     function limitBuy(
         address intentProtocol,
         address from,
@@ -300,10 +306,12 @@ interface IBittyV1AssetManager {
 
     function cancelLimitOrder(address intentProtocol, bytes memory data) external;
 
-    function cleanExpiredOrders(address intentProtocol, bytes32[] calldata orderDigests) external;
+    function cleanExpiredLimitOrders(address intentProtocol, bytes32[] calldata orderDigests) external;
 
-    /// @notice Create a TWAP sell order: split totalSellAmount into n equal parts executed every partDuration seconds.
-    /// @return twapId use to cancel via cancelTwap
+    /**
+     * @notice Create a TWAP sell order: split totalSellAmount into n equal parts executed every partDuration seconds.
+     * @return twapId use to cancel via cancelTwapOrder
+     */
     function twapSell(
         address intentProtocol,
         address from,
@@ -315,14 +323,18 @@ interface IBittyV1AssetManager {
         uint256 span
     ) external returns (bytes32 twapId);
 
-    /// @notice Cancel an active TWAP and return unfilled sell tokens to the vault.
-    function cancelTwap(address intentProtocol, bytes32 twapId) external;
+    /**
+     * @notice Cancel an active TWAP and return unfilled sell tokens to the vault.
+     */
+    function cancelTwapOrder(address intentProtocol, bytes32 twapId) external;
 
-    /// @notice Create a TWAP buy order: spend sellAmountPerPart of `from` every partDuration seconds across n parts,
-    ///         receiving at least totalBuyAmount/n of `to` per part.
-    /// @param totalBuyAmount minimum total `to` tokens across all n parts (minPartLimit = totalBuyAmount/n)
-    /// @param sellAmountPerPart sell tokens per part (totalSellAmount = sellAmountPerPart * n)
-    /// @return twapId use to cancel via cancelTwap
+    /**
+     * @notice Create a TWAP buy order: spend sellAmountPerPart of `from` every partDuration seconds across n parts,
+     *         receiving at least totalBuyAmount/n of `to` per part.
+     * @param totalBuyAmount minimum total `to` tokens across all n parts (minPartLimit = totalBuyAmount/n)
+     * @param sellAmountPerPart sell tokens per part (totalSellAmount = sellAmountPerPart * n)
+     * @return twapId use to cancel via cancelTwapOrder
+     */
     function twapBuy(
         address intentProtocol,
         address from,

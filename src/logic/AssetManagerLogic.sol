@@ -6,7 +6,7 @@ import {IBittyV1Guard, NotRegistered, Deprecated} from "guard-contracts/src/inte
 import {
     IBittyV1AssetManager,
     DisableRebalanceUntilTimestampTooEarly,
-    DisableRebalanceUntilTimestampTooLate,
+    DisableRebalanceUntilTimestampTooLong,
     RebalanceDisabled,
     SellAmountMismatch,
     BuyAmountNotEnough,
@@ -175,9 +175,11 @@ library AssetManagerLogic {
         if (lendingProtocol == address(0)) {
             revert InvalidLendingProtocol();
         }
-        uint256 supplyAmount = IBittyV1LendingProtocol(lendingProtocol).getSuppliedBalance(assetAddress);
-        if (supplyAmount < amount) {
-            revert InsufficientBalance();
+        if (amount != type(uint256).max) {
+            uint256 supplyAmount = IBittyV1LendingProtocol(lendingProtocol).getSuppliedBalance(assetAddress);
+            if (supplyAmount < amount) {
+                revert InsufficientBalance();
+            }
         }
         _approveReceiptToken(lendingProtocol, assetAddress);
         IBittyV1LendingProtocol(lendingProtocol).withdraw(assetAddress, amount);
@@ -237,9 +239,11 @@ library AssetManagerLogic {
         if (stakingProtocol == address(0)) {
             revert InvalidStakingProtocol();
         }
-        uint256 stakingBalance = IBittyV1StakingProtocol(stakingProtocol).getStakedBalance(assetAddress);
-        if (stakingBalance < amount) {
-            revert InsufficientBalance();
+        if (amount != type(uint256).max) {
+            uint256 stakingBalance = IBittyV1StakingProtocol(stakingProtocol).getStakedBalance(assetAddress);
+            if (stakingBalance < amount) {
+                revert InsufficientBalance();
+            }
         }
         _approveReceiptToken(stakingProtocol, assetAddress);
         IBittyV1StakingProtocol(stakingProtocol).unstake(assetAddress, amount);
@@ -523,7 +527,7 @@ library AssetManagerLogic {
             revert DisableRebalanceUntilTimestampTooEarly();
         }
         if (timestamp > block.timestamp + REBALANCE_DISABLE_MAX_DURATION) {
-            revert DisableRebalanceUntilTimestampTooLate();
+            revert DisableRebalanceUntilTimestampTooLong();
         }
         logicStorage.rebalanceDisabledUntilTimestamp = timestamp;
     }
@@ -718,12 +722,13 @@ library AssetManagerLogic {
         emit IBittyV1IntentProtocol.OrderCancelled(orderId, address(this));
     }
 
-    /// @notice Permissionless cleanup of expired orders. Reverts if any order is still live.
-    function cleanExpiredOrders(
+    /// @notice Permissionless cleanup of expired limit orders (does not affect TWAP orders).
+    ///         Reverts if any order is still live.
+    function cleanExpiredLimitOrders(
         AssetManagerStorage storage logicStorage,
         address intentProtocol,
         bytes32[] calldata orderDigests
-    ) external {
+    ) external onlyInitialized(logicStorage) {
         if (logicStorage.clonedProtocols[intentProtocol] == address(0)) {
             revert InvalidIntentProtocol();
         }
@@ -849,7 +854,7 @@ library AssetManagerLogic {
         emit IBittyV1IntentProtocol.TwapCreated(twapId, address(this));
     }
 
-    function cancelTwap(AssetManagerStorage storage logicStorage, address intentProtocol, bytes32 twapId)
+    function cancelTwapOrder(AssetManagerStorage storage logicStorage, address intentProtocol, bytes32 twapId)
         external
         onlyInitialized(logicStorage)
     {
