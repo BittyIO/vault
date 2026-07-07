@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {AmountIsZero, AddressZero} from "../../src/interfaces/IBittyV1Vault.sol";
+import {AmountIsZero, AddressZero, NotInitialized} from "../../src/interfaces/IBittyV1Vault.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {
     InvalidLendingProtocol,
@@ -10,6 +10,7 @@ import {
     RebalanceDisabled,
     MinimalBalanceNotMet,
     DisableRebalanceUntilTimestampTooEarly,
+    DisableRebalanceUntilTimestampTooLong,
     ETHBalanceNotEnough
 } from "../../src/interfaces/IBittyV1AssetManager.sol";
 import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
@@ -20,7 +21,7 @@ import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {AddingAssetsDisabled} from "../../src/interfaces/IBittyV1Vault.sol";
+import {AddingAssetsDisabled, AddingProtocolsDisabled} from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
 import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
@@ -138,6 +139,55 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
             ammProtocols,
             intentProtocols
         );
+    }
+
+    function test_DisableAddingProtocols_BlocksAllProtocolTypesIncludingIntent() public {
+        address intentProto = makeAddr("intentProtocol");
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addIntentProtocols(_single(intentProto));
+
+        this.doInitialize();
+
+        vm.startPrank(ownerAddress);
+        this.disableAddingProtocols();
+        assertTrue(this.isAddingProtocolsDisabled(), "adding protocols must be locked");
+
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        this.addLendingProtocols(_single(address(aaveProtocol)));
+
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        this.addStakingProtocols(_single(address(lidoProtocol)));
+
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        this.addAMMProtocols(_single(address(uniswapV3Protocol)));
+
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        this.addIntentProtocols(_single(intentProto));
+
+        vm.stopPrank();
+    }
+
+    function test_DisableAddingProtocols_BlocksIntentEvenForRegisteredProtocol() public {
+        address intentProto = makeAddr("intentProtocolOnly");
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addIntentProtocols(_single(intentProto));
+
+        this.doInitialize();
+
+        vm.prank(ownerAddress);
+        this.addIntentProtocols(_single(intentProto));
+
+        vm.prank(ownerAddress);
+        this.disableAddingProtocols();
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        this.addIntentProtocols(_single(intentProto));
+    }
+
+    function test_CleanExpiredLimitOrders_revertNotInitialized() public {
+        vm.expectRevert(NotInitialized.selector);
+        this.cleanExpiredLimitOrders(makeAddr("intent"), new bytes32[](0));
     }
 
     function test_SetMinimalBalance() public {
@@ -320,12 +370,20 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         this.withdraw(address(aaveProtocol), address(mainnet.WETH), supplied);
     }
 
-    function test_WithdrawFromInvalidLendingProtocol() public {
+    function test_WithdrawWorksAfterLendingProtocolRemoved() public {
         this.doInitialize();
-        address invalidLendingProtocol = makeAddr("InvalidLendingProtocol");
-        vm.expectRevert(InvalidLendingProtocol.selector);
+        uint256 amount = 1 ether;
+        deal(mainnet.WETH, address(this), amount);
         vm.prank(assetManagerAddress);
-        this.withdraw(invalidLendingProtocol, address(mainnet.WETH), 1 ether);
+        this.supply(address(aaveProtocol), mainnet.WETH, amount);
+
+        vm.prank(ownerAddress);
+        this.removeLendingProtocols(_single(address(aaveProtocol)));
+
+        vm.prank(assetManagerAddress);
+        this.withdraw(address(aaveProtocol), mainnet.WETH, amount / 2);
+
+        assertGt(IERC20(mainnet.WETH).balanceOf(address(this)), 0, "withdraw returned funds after removal");
     }
 
     function test_GetBalance() public {
@@ -345,13 +403,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         assertApproxEqAbs(balance, depositAmount, 10);
     }
 
-    function test_GetBalance_InvalidLendingProtocol() public {
+    function test_GetBalance_UnusedLendingProtocol_ReturnsZero() public {
         this.doInitialize();
-        address invalidLendingProtocol = makeAddr("InvalidLendingProtocol");
-
-        vm.prank(assetManagerAddress);
-        vm.expectRevert(InvalidLendingProtocol.selector);
-        this.getSuppliedBalance(invalidLendingProtocol, address(mainnet.WETH));
+        assertEq(this.getSuppliedBalance(makeAddr("UnusedLendingProtocol"), address(mainnet.WETH)), 0);
     }
 
     function test_GetBalanceFromDeprecatedLendingProvider() public {
@@ -505,6 +559,21 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         this.disableRebalanceUntilTimestamp(earlierTimestamp);
     }
 
+    function test_DisableRebalanceUntilTimestamp_AllowsExactlyFourYears() public {
+        this.doInitialize();
+
+        vm.prank(assetManagerAddress);
+        this.disableRebalanceUntilTimestamp(block.timestamp + 4 * 365 days);
+    }
+
+    function test_DisableRebalanceUntilTimestamp_RevertsBeyondFourYears() public {
+        this.doInitialize();
+
+        vm.expectRevert(DisableRebalanceUntilTimestampTooLong.selector);
+        vm.prank(assetManagerAddress);
+        this.disableRebalanceUntilTimestamp(block.timestamp + 4 * 365 days + 1);
+    }
+
     function test_DisableAddingAssets_RevertsWhenNotOwnerOrAssetManager() public {
         this.doInitialize();
         address stranger = makeAddr("stranger");
@@ -612,10 +681,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         assertApproxEqAbs(this.getStakedBalance(address(lidoProtocol), mainnet.WETH), stakeAmount, 10);
     }
 
-    function test_GetStakingBalance_InvalidStakingProtocol() public {
+    function test_GetStakingBalance_UnusedStakingProtocol_ReturnsZero() public {
         this.doInitialize();
-        vm.expectRevert(InvalidStakingProtocol.selector);
-        this.getStakedBalance(makeAddr("InvalidStakingProtocol"), mainnet.WETH);
+        assertEq(this.getStakedBalance(makeAddr("UnusedStakingProtocol"), mainnet.WETH), 0);
     }
 
     function test_UnstakeSuccess() public {
@@ -668,13 +736,20 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         this.claimUnstaked(address(lidoProtocol), requestIds);
     }
 
-    function test_ClaimRevertInvalidStakingProtocol() public {
-        this.doInitialize();
-        uint256[] memory requestIds = new uint256[](1);
-        requestIds[0] = 1;
-        vm.expectRevert(InvalidStakingProtocol.selector);
+    function test_RemoveLiquidityWorksAfterAMMProtocolRemoved() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initializeWithMockAMM(mockAmm);
+
+        vm.prank(ownerAddress);
+        this.removeAMMProtocols(_single(address(mockAmm)));
+
+        bytes memory data = abi.encode(uint256(9));
         vm.prank(assetManagerAddress);
-        this.claimUnstaked(makeAddr("InvalidStakingProtocol"), requestIds);
+        this.removeLiquidity(address(mockAmm), data);
+
+        address clone = this.getClonedProvider(address(mockAmm));
+        assertEq(MockAMMProtocol(clone).removeLiquidityCallCount(), 1);
+        assertEq(MockAMMProtocol(clone).lastRemoveData(), data);
     }
 
     function test_ClaimEmptyRequestIds_doesNotRevert() public {
@@ -691,11 +766,22 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         this.unstake(address(lidoProtocol), mainnet.WETH, 0);
     }
 
-    function test_UnstakeRevertInvalidStakingProtocol() public {
+    function test_UnstakeWorksAfterStakingProtocolRemoved() public {
         this.doInitialize();
-        vm.expectRevert(InvalidStakingProtocol.selector);
+        uint256 amount = 1 ether;
+        deal(mainnet.WETH, address(this), amount);
         vm.prank(assetManagerAddress);
-        this.unstake(makeAddr("InvalidStakingProtocol"), mainnet.WETH, 1 ether);
+        this.stake(address(lidoProtocol), mainnet.WETH, amount);
+
+        vm.prank(ownerAddress);
+        this.removeStakingProtocols(_single(address(lidoProtocol)));
+
+        vm.prank(assetManagerAddress);
+        this.unstake(address(lidoProtocol), mainnet.WETH, amount / 2);
+
+        uint256[] memory ids =
+            IBittyV1StakingProtocol(this.getClonedProvider(address(lidoProtocol))).getUnstakeRequestIds();
+        assertEq(ids.length, 1, "unstake request created after removal");
     }
 
     function test_GetUnstakeRequestIds() public {
@@ -713,10 +799,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         assertEq(ids.length, 1);
     }
 
-    function test_GetUnstakeRequestIds_InvalidStakingProtocol() public {
+    function test_GetUnstakeRequestIds_UnusedStakingProtocol_ReturnsEmpty() public {
         this.doInitialize();
-        vm.expectRevert(InvalidStakingProtocol.selector);
-        this.getUnstakeRequestIds(makeAddr("InvalidStakingProtocol"));
+        assertEq(this.getUnstakeRequestIds(makeAddr("UnusedStakingProtocol")).length, 0);
     }
 
     function test_SupplyAllowanceIsMaxAfterFirstApproval() public {
@@ -830,8 +915,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         assertEq(MockAMMProtocol(clone).lastRemoveData(), data);
     }
 
-    function test_DecreaseLiquidityRevertInvalidAMMProtocolWhenNotCloned() public {
-        MockAMMProtocol mockAmm = new MockAMMProtocol();
+    function _initWithMockAMMNoClone(MockAMMProtocol mockAmm) internal {
         vm.startPrank(tx.origin);
         BittyV1Guard(guardAddress).addAMMProtocols(_single(address(mockAmm)));
         vm.stopPrank();
@@ -848,10 +932,55 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
             _single(address(mockAmm)),
             intentProtocols
         );
+    }
 
-        vm.expectRevert(InvalidAMMProtocol.selector);
+    function test_AddLiquidity_ClonesOnFirstUse() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initWithMockAMMNoClone(mockAmm);
+        assertEq(this.getClonedProvider(address(mockAmm)), address(0), "no clone before first use");
+
         vm.prank(assetManagerAddress);
-        this.decreaseLiquidity(address(mockAmm), "");
+        this.addLiquidity(address(mockAmm), address(0), 0, address(0), 0, "");
+
+        assertTrue(this.getClonedProvider(address(mockAmm)) != address(0), "addLiquidity must clone on first use");
+    }
+
+    function test_RemoveLiquidity_RevertsWithoutClone() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initWithMockAMMNoClone(mockAmm);
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        this.removeLiquidity(address(mockAmm), abi.encode(uint256(7)));
+    }
+
+    function test_DecreaseLiquidity_RevertsWithoutClone() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initWithMockAMMNoClone(mockAmm);
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        this.decreaseLiquidity(address(mockAmm), abi.encode(uint256(3)));
+    }
+
+    function test_ClaimAMMFees_RevertsWithoutClone() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initWithMockAMMNoClone(mockAmm);
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        this.claimAMMFees(address(mockAmm), "");
+    }
+
+    function test_ExitOps_RejectArbitraryUnregisteredProtocol() public {
+        this.doInitialize();
+        address attacker = makeAddr("maliciousProtocol");
+
+        vm.startPrank(assetManagerAddress);
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        this.removeLiquidity(attacker, abi.encode(uint256(1)));
+        vm.expectRevert(InvalidLendingProtocol.selector);
+        this.withdraw(attacker, mainnet.WETH, 1 ether);
+        vm.expectRevert(InvalidStakingProtocol.selector);
+        this.unstake(attacker, mainnet.WETH, 1 ether);
+        vm.stopPrank();
     }
 
     function test_DecreaseLiquidityRevertOnlyAssetManager() public {
@@ -902,7 +1031,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
     function testFuzz_DisableRebalanceUntilTimestamp_cannotMovePrevTimestampEarlier(uint256 offset, uint256 reduction)
         public
     {
-        offset = bound(offset, 1, type(uint64).max);
+        offset = bound(offset, 2, 4 * 365 days);
         reduction = bound(reduction, 1, offset);
         this.doInitialize();
         uint256 first = block.timestamp + offset;

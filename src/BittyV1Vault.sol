@@ -88,8 +88,11 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
     }
 
     function _grantRole(bytes32 role, address account) internal override returns (bool) {
-        if (role == ASSET_MANAGER_ROLE && account == defaultAdmin()) {
-            revert OwnerAndAssetManagerMustDiffer();
+        if (role == ASSET_MANAGER_ROLE) {
+            (address pendingAdmin,) = pendingDefaultAdmin();
+            if (account == defaultAdmin() || (pendingAdmin != address(0) && account == pendingAdmin)) {
+                revert OwnerAndAssetManagerMustDiffer();
+            }
         }
         return super._grantRole(role, account);
     }
@@ -197,8 +200,8 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         _assetManager.cancelLimitOrder(intentProtocol, data);
     }
 
-    function cleanExpiredOrders(address intentProtocol, bytes32[] calldata orderDigests) external override {
-        _assetManager.cleanExpiredOrders(intentProtocol, orderDigests);
+    function cleanExpiredLimitOrders(address intentProtocol, bytes32[] calldata orderDigests) external override {
+        _assetManager.cleanExpiredLimitOrders(intentProtocol, orderDigests);
     }
 
     function twapSell(
@@ -219,8 +222,8 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
             );
     }
 
-    function cancelTwap(address intentProtocol, bytes32 twapId) external override onlyRole(ASSET_MANAGER_ROLE) {
-        _assetManager.cancelTwap(intentProtocol, twapId);
+    function cancelTwapOrder(address intentProtocol, bytes32 twapId) external override onlyRole(ASSET_MANAGER_ROLE) {
+        _assetManager.cancelTwapOrder(intentProtocol, twapId);
     }
 
     function twapBuy(

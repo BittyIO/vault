@@ -158,6 +158,7 @@ library VaultLogic {
     {
         delete vaultStorage.receivers[name];
         delete vaultStorage.newReceiverProtectionTimestamps[name];
+        delete vaultStorage.lastReceiveTimestamps[name];
         emit IBittyV1Vault.ReceiverRemoved(name);
     }
 
@@ -172,7 +173,7 @@ library VaultLogic {
         emit IBittyV1Vault.NewReceiverProtectionSet(newReceiverProtection);
     }
 
-    function payReceiver(VaultStorage storage vaultStorage, string memory name) external {
+    function payReceiver(VaultStorage storage vaultStorage, string memory name) external onlyInitialized(vaultStorage) {
         IBittyV1Vault.Receiver storage receiver = vaultStorage.receivers[name];
         if (receiver.trigger != address(0) && msg.sender != receiver.trigger) {
             revert ReceiverTriggerError();
@@ -180,7 +181,10 @@ library VaultLogic {
         _payReceiver(vaultStorage, receiver, name, receiver.amount);
     }
 
-    function payReceiverAmount(VaultStorage storage vaultStorage, string memory name, uint256 amount) external {
+    function payReceiverAmount(VaultStorage storage vaultStorage, string memory name, uint256 amount)
+        external
+        onlyInitialized(vaultStorage)
+    {
         IBittyV1Vault.Receiver storage receiver = vaultStorage.receivers[name];
         if (receiver.amount < amount) {
             revert PayMoreThanReceiverAmount();

@@ -23,6 +23,7 @@ import {
     PayReceiverAmountTriggerEmpty,
     ReceiverTriggerError,
     InsufficientBalance,
+    NotInitialized,
     OwnerAndAssetManagerMustDiffer
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
@@ -995,6 +996,34 @@ contract BittyV1VaultTest is Test {
         assertEq(weth.balanceOf(receiverAddr), 1 ether);
     }
 
+    function test_RemoveReceiver_clearsLastReceiveTimestampSoReAddCanPayImmediately() public {
+        _initializeVault();
+        vm.warp(1_000_000);
+        address receiverAddr = makeAddr("receiver");
+
+        _addReceiver("alice", receiverAddr, 1 ether, 2, VaultLogic.RECEIVER_MINIMAL_DURATION);
+        deal(address(weth), address(vault), 3 ether);
+        vault.payReceiver("alice");
+        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+
+        vm.prank(ownerAddress);
+        vault.removeReceiver("alice");
+        _addReceiver("alice", receiverAddr, 1 ether, 1, VaultLogic.RECEIVER_MINIMAL_DURATION);
+
+        vault.payReceiver("alice");
+        assertEq(weth.balanceOf(receiverAddr), 2 ether, "re-added receiver must be payable immediately");
+    }
+
+    function test_PayReceiver_revertNotInitialized() public {
+        vm.expectRevert(NotInitialized.selector);
+        vault.payReceiver("alice");
+    }
+
+    function test_PayReceiverAmount_revertNotInitialized() public {
+        vm.expectRevert(NotInitialized.selector);
+        vault.payReceiverAmount("alice", 1);
+    }
+
     function test_PayReceiverAmount_revertTriggerEmpty() public {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
@@ -1594,6 +1623,28 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vm.expectRevert(OwnerAndAssetManagerMustDiffer.selector);
         vault.beginDefaultAdminTransfer(assetManagerAddress);
+    }
+
+    function test_GrantRole_CannotGiveAssetManagerToPendingDefaultAdmin() public {
+        _initializeVault();
+        bytes32 assetManagerRole = vault.ASSET_MANAGER_ROLE();
+        address newAdmin = makeAddr("newAdmin");
+
+        vm.prank(ownerAddress);
+        vault.beginDefaultAdminTransfer(newAdmin);
+        (address pending,) = vault.pendingDefaultAdmin();
+        assertEq(pending, newAdmin);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(OwnerAndAssetManagerMustDiffer.selector);
+        vault.grantRole(assetManagerRole, newAdmin);
+
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(newAdmin);
+        vault.acceptDefaultAdminTransfer();
+
+        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), newAdmin));
+        assertFalse(vault.hasRole(assetManagerRole, newAdmin));
     }
 
     function test_renounceDefaultAdmin_requiresTransferToZeroAndDelay() public {
