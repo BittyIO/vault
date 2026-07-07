@@ -384,10 +384,7 @@ library AssetManagerLogic {
     ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
         if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
-        address clone = logicStorage.clonedProtocols[ammProtocol];
-        if (clone == address(0)) {
-            revert InvalidAMMProtocol();
-        }
+        address clone = _cloneProtocol(logicStorage, ammProtocol);
         if (token0 != address(0) && amount0 > 0 && IERC20(token0).allowance(address(this), clone) < amount0) {
             IERC20(token0).forceApprove(clone, type(uint256).max);
         }
@@ -403,10 +400,7 @@ library AssetManagerLogic {
         onlyInitialized(logicStorage)
     {
         _checkAMMProtocol(logicStorage, ammProtocol);
-        address clone = logicStorage.clonedProtocols[ammProtocol];
-        if (clone == address(0)) {
-            revert InvalidAMMProtocol();
-        }
+        address clone = _cloneProtocol(logicStorage, ammProtocol);
         _approveNFTIfNeeded(clone);
         IBittyV1AMMProtocol(clone).removeLiquidity(data);
     }
@@ -416,10 +410,7 @@ library AssetManagerLogic {
         onlyInitialized(logicStorage)
     {
         _checkAMMProtocol(logicStorage, ammProtocol);
-        address clone = logicStorage.clonedProtocols[ammProtocol];
-        if (clone == address(0)) {
-            revert InvalidAMMProtocol();
-        }
+        address clone = _cloneProtocol(logicStorage, ammProtocol);
         _approveNFTIfNeeded(clone);
         IBittyV1AMMProtocol(clone).decreaseLiquidity(data);
     }
@@ -429,10 +420,7 @@ library AssetManagerLogic {
         onlyInitialized(logicStorage)
     {
         _checkAMMProtocol(logicStorage, ammProtocol);
-        address clone = logicStorage.clonedProtocols[ammProtocol];
-        if (clone == address(0)) {
-            revert InvalidAMMProtocol();
-        }
+        address clone = _cloneProtocol(logicStorage, ammProtocol);
         _approveNFTIfNeeded(clone);
         IBittyV1AMMProtocol(clone).claimAMMFees(data);
     }

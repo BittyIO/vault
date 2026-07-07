@@ -874,8 +874,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         assertEq(MockAMMProtocol(clone).lastRemoveData(), data);
     }
 
-    function test_DecreaseLiquidityRevertInvalidAMMProtocolWhenNotCloned() public {
-        MockAMMProtocol mockAmm = new MockAMMProtocol();
+    function _initWithMockAMMNoClone(MockAMMProtocol mockAmm) internal {
         vm.startPrank(tx.origin);
         BittyV1Guard(guardAddress).addAMMProtocols(_single(address(mockAmm)));
         vm.stopPrank();
@@ -892,10 +891,58 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
             _single(address(mockAmm)),
             intentProtocols
         );
+    }
 
-        vm.expectRevert(InvalidAMMProtocol.selector);
+    function test_AddLiquidity_ClonesOnFirstUse() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initWithMockAMMNoClone(mockAmm);
+        assertEq(this.getClonedProvider(address(mockAmm)), address(0), "no clone before first use");
+
         vm.prank(assetManagerAddress);
-        this.decreaseLiquidity(address(mockAmm), "");
+        this.addLiquidity(address(mockAmm), address(0), 0, address(0), 0, "");
+
+        assertTrue(this.getClonedProvider(address(mockAmm)) != address(0), "addLiquidity must clone on first use");
+    }
+
+    function test_RemoveLiquidity_ClonesOnFirstUse() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initWithMockAMMNoClone(mockAmm);
+        assertEq(this.getClonedProvider(address(mockAmm)), address(0), "no clone before first use");
+
+        bytes memory data = abi.encode(uint256(7));
+        vm.prank(assetManagerAddress);
+        this.removeLiquidity(address(mockAmm), data);
+
+        address clone = this.getClonedProvider(address(mockAmm));
+        assertTrue(clone != address(0), "removeLiquidity must clone on first use");
+        assertEq(MockAMMProtocol(clone).removeLiquidityCallCount(), 1);
+        assertEq(MockAMMProtocol(clone).lastRemoveData(), data);
+    }
+
+    function test_DecreaseLiquidity_ClonesOnFirstUse() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initWithMockAMMNoClone(mockAmm);
+        assertEq(this.getClonedProvider(address(mockAmm)), address(0), "no clone before first use");
+
+        bytes memory data = abi.encode(uint256(3));
+        vm.prank(assetManagerAddress);
+        this.decreaseLiquidity(address(mockAmm), data);
+
+        address clone = this.getClonedProvider(address(mockAmm));
+        assertTrue(clone != address(0), "decreaseLiquidity must clone on first use");
+        assertEq(MockAMMProtocol(clone).decreaseLiquidityCallCount(), 1);
+        assertEq(MockAMMProtocol(clone).lastDecreaseData(), data);
+    }
+
+    function test_ClaimAMMFees_ClonesOnFirstUse() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initWithMockAMMNoClone(mockAmm);
+        assertEq(this.getClonedProvider(address(mockAmm)), address(0), "no clone before first use");
+
+        vm.prank(assetManagerAddress);
+        this.claimAMMFees(address(mockAmm), "");
+
+        assertTrue(this.getClonedProvider(address(mockAmm)) != address(0), "claimAMMFees must clone on first use");
     }
 
     function test_DecreaseLiquidityRevertOnlyAssetManager() public {
