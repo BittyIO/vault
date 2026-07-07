@@ -1053,7 +1053,25 @@ contract BittyV1VaultTest is Test {
 
         vm.prank(trigger);
         vault.payReceiverAmount("alice", 0.5 ether);
-        assertEq(weth.balanceOf(receiverAddr), 1 ether, "transfers full configured receiver amount");
+
+        assertEq(weth.balanceOf(receiverAddr), 0.5 ether, "transfers requested partial amount");
+        assertEq(weth.balanceOf(address(vault)), 0.5 ether, "vault retains the remainder");
+    }
+
+    function test_PayReceiverAmount_partialAmountEmitsPaidAmount() public {
+        _initializeVault();
+        address receiverAddr = makeAddr("receiver");
+        address trigger = makeAddr("trigger");
+        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.prank(trigger);
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit IBittyV1Vault.ReceiverPaid("alice", receiverAddr, address(weth), 0.25 ether, 0);
+        vault.payReceiverAmount("alice", 0.25 ether);
+
+        assertEq(weth.balanceOf(receiverAddr), 0.25 ether);
     }
 
     function test_PayReceiverAmount_revertPayMoreThanReceiverAmount() public {
