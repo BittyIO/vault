@@ -858,8 +858,6 @@ library AssetManagerLogic {
         external
         onlyInitialized(logicStorage)
     {
-        if (!logicStorage.intentProtocols.contains(intentProtocol)) revert InvalidIntentProtocol();
-
         IntentOrderRecord memory record = logicStorage.intentOrderRecords[twapId];
         if (record.sellToken == address(0)) revert InvalidIntentProtocol();
 
