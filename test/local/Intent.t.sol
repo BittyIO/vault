@@ -21,7 +21,7 @@ import {MockIntentProtocol, MockIntentRegistry} from "../helpers/MockIntentProto
 /// @dev Exercises the vault intent subsystem (limit orders, TWAP, cancellation, EIP-1271)
 ///      using MockIntentProtocol as the instruction builder so no real CoW/UniswapX is needed.
 contract TestIntent is ProtocolTestSetup, BittyV1Vault {
-    BittyV1Guard internal guard;
+    BittyV1Guard internal guardContract;
     MockIntentRegistry internal registry;
     MockIntentProtocol internal mock; // register + approve targets set
     MockIntentProtocol internal mockSkip; // register + approve skipped
@@ -34,14 +34,14 @@ contract TestIntent is ProtocolTestSetup, BittyV1Vault {
     uint32 internal validTo;
 
     function setUp() public {
-        guard = new BittyV1Guard();
+        guardContract = new BittyV1Guard();
 
         vm.startPrank(tx.origin);
-        guard.addAssets(_pair(WETH, WBTC));
-        guard.addStableCoins(_pair(mainnet.USDT, USDC));
+        guardContract.addAssets(_pair(WETH, WBTC));
+        guardContract.addStableCoins(_pair(mainnet.USDT, USDC));
         vm.stopPrank();
 
-        setupMainnetForkProtocols(guard);
+        setupMainnetForkProtocols(guardContract);
 
         registry = new MockIntentRegistry();
         mock = new MockIntentProtocol(address(registry), false, false);
@@ -49,7 +49,7 @@ contract TestIntent is ProtocolTestSetup, BittyV1Vault {
 
         // register both intent protocols in the guard (tx.origin holds INTENT_MANAGER_ROLE)
         vm.prank(tx.origin);
-        guard.addIntentProtocols(_pair(address(mock), address(mockSkip)));
+        guardContract.addIntentProtocols(_pair(address(mock), address(mockSkip)));
 
         address[] memory vaultAssets = new address[](4);
         vaultAssets[0] = WETH;
@@ -65,7 +65,7 @@ contract TestIntent is ProtocolTestSetup, BittyV1Vault {
             tx.origin, // owner
             "intent-test",
             _single(address(this)), // asset manager = this
-            address(guard),
+            address(guardContract),
             WETH,
             vaultAssets,
             empty, // lending
@@ -142,7 +142,7 @@ contract TestIntent is ProtocolTestSetup, BittyV1Vault {
 
     function testLimitSellDeprecatedProtocol() public {
         vm.prank(tx.origin);
-        guard.deprecateIntentProtocols(_single(address(mock)));
+        guardContract.deprecateIntentProtocols(_single(address(mock)));
 
         vm.expectRevert(Deprecated.selector);
         this.limitSell(address(mock), WETH, USDC, 1 ether, 1000e6, validTo);
