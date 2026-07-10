@@ -79,6 +79,7 @@ contract TestVaultFork is Test {
 
         vaultImpl = new BittyV1Vault();
         factory = new BittyV1VaultFactory();
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(address(vaultImpl), address(guard), mainnet.WETH);
 
         assetManager = address(this);
