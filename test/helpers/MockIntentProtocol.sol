@@ -84,12 +84,7 @@ contract MockIntentProtocol is IBittyV1IntentProtocol {
         expiresAt = block.timestamp + n * partDuration;
     }
 
-    function buildCancelInstructions(bytes32 orderId)
-        external
-        view
-        override
-        returns (CancelInstructions memory instr)
-    {
+    function buildCancelInstructions(bytes32 orderId) external view override returns (CancelInstructions memory instr) {
         instr.cancelTarget = skipRegister ? address(0) : registry;
         instr.cancelCalldata = abi.encodeWithSignature("cancel(bytes32)", orderId);
         instr.approveTarget = skipApprove ? address(0) : registry;
