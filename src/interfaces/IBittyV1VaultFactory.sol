@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 error VaultAlreadyDeployed();
+error NotDeployer();
 
 interface IBittyV1VaultFactory {
     /**

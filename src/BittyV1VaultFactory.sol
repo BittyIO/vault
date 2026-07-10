@@ -6,7 +6,7 @@ import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {AddressZero} from "./interfaces/IBittyV1Vault.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {BittyV1Vault} from "./BittyV1Vault.sol";
-import {IBittyV1VaultFactory, VaultAlreadyDeployed} from "./interfaces/IBittyV1VaultFactory.sol";
+import {IBittyV1VaultFactory, VaultAlreadyDeployed, NotDeployer} from "./interfaces/IBittyV1VaultFactory.sol";
 
 /**
  * @title BittyV1VaultFactory
@@ -14,6 +14,13 @@ import {IBittyV1VaultFactory, VaultAlreadyDeployed} from "./interfaces/IBittyV1V
  *         allowing one owner to hold multiple vaults distinguished by name.
  */
 contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
+    // Only a transaction originated by this address may initialize the factory (set the
+    // implementation, guard and weth). tx.origin is used, not msg.sender, because the factory
+    // is deployed/initialized through a CREATE2 factory, so msg.sender is that factory, not the
+    // deployer EOA. Baked in as a constant so the factory's init code — and therefore its CREATE2
+    // address — is identical on every chain, while a squatter cannot set their own guard.
+    address public constant DEPLOYER = 0x12EE2de7BF086388B1D560eb95e7191Edfab9823;
+
     address public guardAddress;
     address public vaultImplementation;
     address public wethAddress;
@@ -25,6 +32,7 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
         override
         initializer
     {
+        if (tx.origin != DEPLOYER) revert NotDeployer();
         if (vaultImplementation_ == address(0)) revert AddressZero();
         if (guardAddress_ == address(0)) revert AddressZero();
         if (wethAddress_ == address(0)) revert AddressZero();

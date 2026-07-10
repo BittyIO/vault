@@ -8,7 +8,7 @@ import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {AddressZero} from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
-import {VaultAlreadyDeployed} from "../../src/interfaces/IBittyV1VaultFactory.sol";
+import {VaultAlreadyDeployed, NotDeployer} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {
@@ -107,6 +107,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function _initFactory() internal {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
     }
 
@@ -194,17 +195,32 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_factoryRevertsIfAddressZero() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         vm.expectRevert(AddressZero.selector);
         factory.initialize(address(0), guardAddress, wethAddress);
 
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         vm.expectRevert(AddressZero.selector);
         factory.initialize(vaultImplementation, address(0), wethAddress);
 
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         vm.expectRevert(AddressZero.selector);
         factory.initialize(vaultImplementation, guardAddress, address(0));
     }
 
+    function test_initializeOnlyByDeployer() public {
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker, attacker);
+        vm.expectRevert(NotDeployer.selector);
+        factory.initialize(vaultImplementation, guardAddress, wethAddress);
+
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
+        factory.initialize(vaultImplementation, guardAddress, wethAddress);
+        assertEq(factory.guardAddress(), guardAddress);
+    }
+
     function test_DeployVaultRevertsIfAddressNotRegistered() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address[] memory invalidAddressArray = new address[](1);
         invalidAddressArray[0] = makeAddr("invalidAddress");
@@ -259,6 +275,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployedVaultCanBeInitialized() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address vaultAddress = _newVault();
         BittyV1Vault vault = BittyV1Vault(payable(vaultAddress));
@@ -278,6 +295,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfVaultAlreadyExistsAtComputedAddress() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
 
         bytes32 salt = keccak256(abi.encodePacked(owner1, "main"));
@@ -297,11 +315,13 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_InitializeSuccess() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         assertEq(factory.guardAddress(), guardAddress, "BittyV1Guard address should be set");
     }
 
     function test_DeployVaultRevertsIfStableCoinNotRegistered() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address[] memory invalidStableCoinArray = new address[](1);
         invalidStableCoinArray[0] = makeAddr("invalidStableCoin");
@@ -319,6 +339,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfLendingProtocolNotRegistered() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address[] memory invalidLendingProviderArray = new address[](1);
         invalidLendingProviderArray[0] = makeAddr("invalidLendingProtocol");
@@ -336,6 +357,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfAMMProtocolNotRegistered() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address[] memory invalidAMMProviderArray = new address[](1);
         invalidAMMProviderArray[0] = makeAddr("invalidAMMProtocol");
@@ -353,6 +375,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfIntentProtocolNotRegistered() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address[] memory invalidIntentProviderArray = new address[](1);
         invalidIntentProviderArray[0] = makeAddr("invalidIntentProtocol");
@@ -370,6 +393,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultWithIntentProtocols() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address intentProtocol = makeAddr("intentProtocol");
         address[] memory selectedIntentProtocols = new address[](1);
@@ -396,6 +420,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultWithEmptyArrays() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
 
         address vault = factory.deployVault(owner1, "main");
@@ -404,6 +429,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultEmitsEvent() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
 
         address vault = _newVault();
@@ -417,6 +443,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_ComputeVaultAddressForDifferentowners() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address computed1 = factory.computeVaultAddress(owner1, "main");
         address computed2 = factory.computeVaultAddress(owner2, "main");
@@ -427,6 +454,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultWithMultipleAssets() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address[] memory multipleAssets = new address[](3);
         multipleAssets[0] = wbtcAddress;
@@ -453,6 +481,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultWithMultipleStableCoins() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address[] memory multipleStableCoins = new address[](3);
         multipleStableCoins[0] = usdtAddress;
@@ -487,6 +516,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultWithMultipleLendingProtocols() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address LendingProtocol1 = makeAddr("LendingProtocol1");
         address LendingProtocol2 = makeAddr("LendingProtocol2");
@@ -503,6 +533,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultWithMultipleAMMProtocols() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address swapProtocol1 = makeAddr("swapProtocol1");
         address swapProtocol2 = makeAddr("swapProtocol2");
@@ -528,6 +559,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfMultipleAssetsOneNotRegistered() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address[] memory mixedAssets = new address[](3);
         mixedAssets[0] = wbtcAddress;
@@ -548,6 +580,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfMultipleStableCoinsOneNotRegistered() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address[] memory mixedStableCoins = new address[](3);
         mixedStableCoins[0] = usdtAddress;
@@ -568,6 +601,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfMultipleLendingProtocolsOneNotRegistered() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address LendingProtocol1 = makeAddr("LendingProtocol1");
         address[] memory mixedLendingProtocols = new address[](2);
@@ -593,6 +627,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfMultipleAMMProtocolsOneNotRegistered() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         address swapProtocol1 = makeAddr("swapProtocol1");
         address[] memory mixedAMMProtocols = new address[](2);
@@ -618,6 +653,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultRevertsIfVaultAlreadyExistsAtComputedAddressForced() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
 
         bytes32 salt = keccak256(abi.encodePacked(owner1, "main"));
@@ -644,6 +680,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_ComputeAddressInternalFunction() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
 
         address addr1 = factory.computeVaultAddress(owner1, "main");
@@ -658,6 +695,7 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_DeployVaultSuccessWithAllValidParameters() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
 
         address vault = _newVault();
@@ -670,11 +708,13 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_InitializeSetsStateVariables() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
         assertEq(factory.guardAddress(), guardAddress, "BittyV1Guard address should be set");
     }
 
     function test_DeployVaultEmitsVaultDeployedEvent() public {
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
 
         address vault = _newVault();
