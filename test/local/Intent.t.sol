@@ -7,11 +7,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {AmountIsZero} from "../../src/interfaces/IBittyV1Vault.sol";
 import {InvalidIntentProtocol, InvalidValidTo} from "../../src/interfaces/IBittyV1AssetManager.sol";
 import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {
-    OrderNotExpired,
-    ActiveTwapExists,
-    IBittyV1IntentProtocol
-} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
+import {OrderNotExpired, IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
@@ -220,21 +216,26 @@ contract TestIntent is ProtocolTestSetup, BittyV1Vault {
 
     // ---------- TWAP ----------
 
-    function testTwapSellHappyPathAndActiveGuard() public {
+    function testTwapSellHappyPath() public {
         bytes32 twapId = this.twapSell(address(mock), WETH, USDC, 4 ether, 1000e6, 4, 300, 0);
         assertTrue(twapId != bytes32(0));
         assertEq(registry.registerCount(), 1);
 
-        // second TWAP on same sell token -> reverts
-        vm.expectRevert(abi.encodeWithSelector(ActiveTwapExists.selector, WETH));
-        this.twapSell(address(mock), WETH, USDC, 4 ether, 1000e6, 4, 300, 0);
-
-        // cancel frees the slot
         this.cancelTwapOrder(address(mock), twapId);
         assertEq(registry.cancelCount(), 1);
+    }
 
-        // now a fresh TWAP on WETH succeeds again
-        this.twapSell(address(mock), WETH, USDC, 4 ether, 1000e6, 4, 300, 0);
+    /**
+     * @dev The whole point of the change: two TWAPs on the SAME sell token now coexist — the old
+     *      one-per-token guard is gone. (The real CoWSwapV1Protocol also derives a per-block-timestamp
+     *      appData salt so their CoW part orders never collide; that's covered in the fork suite. The
+     *      mock builder has no salt, so here we vary the size to get distinct twapIds.)
+     */
+    function testTwapSellSameTokenCoexist() public {
+        bytes32 id1 = this.twapSell(address(mock), WETH, USDC, 4 ether, 1000e6, 4, 300, 0);
+        bytes32 id2 = this.twapSell(address(mock), WETH, USDC, 2 ether, 500e6, 4, 300, 0);
+        assertTrue(id1 != id2);
+        assertEq(registry.registerCount(), 2);
     }
 
     function testTwapSellAmountIsZero() public {
@@ -256,8 +257,10 @@ contract TestIntent is ProtocolTestSetup, BittyV1Vault {
         assertTrue(twapId != bytes32(0));
         assertEq(registry.registerCount(), 1);
 
-        vm.expectRevert(abi.encodeWithSelector(ActiveTwapExists.selector, WETH));
-        this.twapBuy(address(mock), WETH, USDC, 4000e6, 1 ether, 4, 300, 0);
+        // second TWAP on the same sell token coexists (per-token guard removed)
+        bytes32 twapId2 = this.twapBuy(address(mock), WETH, USDC, 2000e6, 1 ether, 4, 300, 0);
+        assertTrue(twapId2 != twapId);
+        assertEq(registry.registerCount(), 2);
     }
 
     function testTwapBuyAmountIsZero() public {

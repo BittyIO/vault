@@ -310,6 +310,8 @@ interface IBittyV1AssetManager {
 
     /**
      * @notice Create a TWAP sell order: split totalSellAmount into n equal parts executed every partDuration seconds.
+     *         The intent protocol derives a per-TWAP appData salt on-chain, so multiple TWAPs can share a sell token
+     *         without colliding at the CoW settlement layer while keeping the partner fee contract-enforced.
      * @return twapId use to cancel via cancelTwapOrder
      */
     function twapSell(

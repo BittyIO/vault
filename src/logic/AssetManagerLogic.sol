@@ -22,11 +22,7 @@ import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protoc
 import {IBittyV1LendingProtocol} from "protocol-contracts/src/interfaces/IBittyV1LendingProtocol.sol";
 import {IBittyV1StakingProtocol} from "protocol-contracts/src/interfaces/IBittyV1StakingProtocol.sol";
 import {IBittyV1AMMProtocol} from "protocol-contracts/src/interfaces/IBittyV1AMMProtocol.sol";
-import {
-    IBittyV1IntentProtocol,
-    OrderNotExpired,
-    ActiveTwapExists
-} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
+import {IBittyV1IntentProtocol, OrderNotExpired} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
@@ -781,10 +777,9 @@ library AssetManagerLogic {
         if (totalSellAmount == 0 || minPartLimit == 0 || n == 0 || partDuration == 0) revert AmountIsZero();
         _validateRebalance(logicStorage, vaultStorage, from, to, totalSellAmount);
 
-        // at most one active TWAP per sell token
-        if (logicStorage.activeTwapPerToken[from] != bytes32(0)) revert ActiveTwapExists(from);
-
         address clone = _cloneProtocol(logicStorage, intentProtocol);
+        // The protocol clone derives the per-TWAP appData salt on-chain (block.timestamp),
+        // so no salt is threaded through here — the fee stays contract-enforced.
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
 
         (IBittyV1IntentProtocol.OrderInstructions memory instr, uint256 expiresAt_) =
@@ -803,7 +798,6 @@ library AssetManagerLogic {
         }
 
         logicStorage.intentOrderRecords[twapId] = IntentOrderRecord({sellToken: instr.sellToken, expiresAt: expiresAt_});
-        logicStorage.activeTwapPerToken[instr.sellToken] = twapId;
 
         emit IBittyV1IntentProtocol.TwapCreated(twapId, address(this));
     }
@@ -827,9 +821,6 @@ library AssetManagerLogic {
         uint256 totalSellAmount = sellAmountPerPart * n;
         _validateRebalance(logicStorage, vaultStorage, from, to, totalSellAmount);
 
-        // at most one active TWAP per sell token
-        if (logicStorage.activeTwapPerToken[from] != bytes32(0)) revert ActiveTwapExists(from);
-
         address clone = _cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
 
@@ -849,7 +840,6 @@ library AssetManagerLogic {
         }
 
         logicStorage.intentOrderRecords[twapId] = IntentOrderRecord({sellToken: instr.sellToken, expiresAt: expiresAt_});
-        logicStorage.activeTwapPerToken[instr.sellToken] = twapId;
 
         emit IBittyV1IntentProtocol.TwapCreated(twapId, address(this));
     }
@@ -860,8 +850,6 @@ library AssetManagerLogic {
     {
         IntentOrderRecord memory record = logicStorage.intentOrderRecords[twapId];
         if (record.sellToken == address(0)) revert InvalidIntentProtocol();
-
-        delete logicStorage.activeTwapPerToken[record.sellToken];
 
         _executeCancel(logicStorage, intentProtocol, twapId);
 

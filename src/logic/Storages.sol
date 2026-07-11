@@ -29,7 +29,6 @@ struct AssetManagerStorage {
     uint256 rebalanceDisabledUntilTimestamp;
 
     mapping(bytes32 => IntentOrderRecord) intentOrderRecords;
-    mapping(address => bytes32) activeTwapPerToken;
 }
 
 struct VaultStorage {
