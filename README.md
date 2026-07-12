@@ -190,7 +190,7 @@ forge verify-contract \
 
 forge verify-contract \
   --chain sepolia \
-  {vaultLogicAddress} \
+  {assetManagerLogicAddress} \
   src/logic/AssetManagerLogic.sol:AssetManagerLogic \
   --libraries src/logic/VaultLogic.sol:VaultLogic:{vaultLogicAddress} \
   --etherscan-api-key $ETHERSCAN_API_KEY
