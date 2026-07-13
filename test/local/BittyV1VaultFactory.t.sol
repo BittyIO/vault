@@ -86,8 +86,9 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function _deployVault(address owner, string memory name, address assetManager) internal returns (address) {
+        // A vault is always owned by its deployer, so send the tx as `owner`.
+        vm.prank(owner);
         return factory.deployVaultWithSelected(
-            owner,
             name,
             _assetManagers(assetManager),
             vaultAssetAddresses,
@@ -226,7 +227,6 @@ contract BittyV1VaultFactoryTest is Test {
         invalidAddressArray[0] = makeAddr("invalidAddress");
         vm.expectRevert(NotRegistered.selector);
         factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             invalidAddressArray,
@@ -327,7 +327,6 @@ contract BittyV1VaultFactoryTest is Test {
         invalidStableCoinArray[0] = makeAddr("invalidStableCoin");
         vm.expectRevert(NotRegistered.selector);
         factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             invalidStableCoinArray,
@@ -345,7 +344,6 @@ contract BittyV1VaultFactoryTest is Test {
         invalidLendingProviderArray[0] = makeAddr("invalidLendingProtocol");
         vm.expectRevert(NotRegistered.selector);
         factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             vaultAssetAddresses,
@@ -363,7 +361,6 @@ contract BittyV1VaultFactoryTest is Test {
         invalidAMMProviderArray[0] = makeAddr("invalidAMMProtocol");
         vm.expectRevert(NotRegistered.selector);
         factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             vaultAssetAddresses,
@@ -381,7 +378,6 @@ contract BittyV1VaultFactoryTest is Test {
         invalidIntentProviderArray[0] = makeAddr("invalidIntentProtocol");
         vm.expectRevert(NotRegistered.selector);
         factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             vaultAssetAddresses,
@@ -402,8 +398,8 @@ contract BittyV1VaultFactoryTest is Test {
         vm.prank(tx.origin);
         IBittyV1Guard(guardAddress).addIntentProtocols(selectedIntentProtocols);
 
+        vm.prank(owner1);
         address vault = factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             vaultAssetAddresses,
@@ -423,7 +419,8 @@ contract BittyV1VaultFactoryTest is Test {
         vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
         factory.initialize(vaultImplementation, guardAddress, wethAddress);
 
-        address vault = factory.deployVault(owner1, "main");
+        vm.prank(owner1);
+        address vault = factory.deployVault("main");
 
         assertTrue(vault != address(0), "Vault should be deployed");
     }
@@ -466,8 +463,8 @@ contract BittyV1VaultFactoryTest is Test {
         vm.prank(tx.origin);
         IBittyV1Guard(guardAddress).addAssets(newAsset);
 
+        vm.prank(owner1);
         address vault = factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             multipleAssets,
@@ -501,8 +498,8 @@ contract BittyV1VaultFactoryTest is Test {
             deployAssets[assetAddresses.length + i] = multipleStableCoins[i];
         }
 
+        vm.prank(owner1);
         address vault = factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             deployAssets,
@@ -544,8 +541,8 @@ contract BittyV1VaultFactoryTest is Test {
         vm.prank(tx.origin);
         IBittyV1Guard(guardAddress).addAMMProtocols(multipleAMMProtocols);
 
+        vm.prank(owner1);
         address vault = factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             vaultAssetAddresses,
@@ -568,7 +565,6 @@ contract BittyV1VaultFactoryTest is Test {
 
         vm.expectRevert(NotRegistered.selector);
         factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             mixedAssets,
@@ -589,7 +585,6 @@ contract BittyV1VaultFactoryTest is Test {
 
         vm.expectRevert(NotRegistered.selector);
         factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             mixedStableCoins,
@@ -615,7 +610,6 @@ contract BittyV1VaultFactoryTest is Test {
 
         vm.expectRevert(NotRegistered.selector);
         factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             vaultAssetAddresses,
@@ -641,7 +635,6 @@ contract BittyV1VaultFactoryTest is Test {
 
         vm.expectRevert(NotRegistered.selector);
         factory.deployVaultWithSelected(
-            owner1,
             "main",
             _assetManagers(assetManagerAddress),
             vaultAssetAddresses,
@@ -738,10 +731,23 @@ contract BittyV1VaultFactoryTest is Test {
         assertTrue(BittyV1Vault(payable(vault)).hasRole(BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE(), owner1));
     }
 
-    function test_DeployVaultFor_revertOwnerZero() public {
+    function test_DeployVault_ownerIsAlwaysCaller() public {
         _initFactory();
-        vm.expectRevert(AddressZero.selector);
-        factory.deployVault(address(0), "main");
+        // The owner is the deployer and cannot be specified: an attacker deploying
+        // "main" gets their own vault, which cannot occupy the victim's deterministic
+        // address, so the pre-deploy asset-manager-injection vector is structurally
+        // impossible.
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        address attackerVault = factory.deployVault("main");
+        assertEq(attackerVault, factory.computeVaultAddress(attacker, "main"));
+
+        address victimVault = _deployVault(owner1, "main", assetManagerAddress);
+        assertTrue(attackerVault != victimVault, "attacker cannot occupy victim's vault address");
+
+        BittyV1Vault av = BittyV1Vault(payable(attackerVault));
+        assertTrue(av.hasRole(av.DEFAULT_ADMIN_ROLE(), attacker), "deployer is owner");
+        assertFalse(av.hasRole(av.DEFAULT_ADMIN_ROLE(), owner1), "victim is not owner");
     }
 
     function test_DeployVaultFor_revertVaultAlreadyDeployed() public {
@@ -788,8 +794,8 @@ contract BittyV1VaultFactoryTest is Test {
         assetManagers[0] = manager1;
         assetManagers[1] = manager2;
 
+        vm.prank(owner1);
         address vault = factory.deployVaultWithSelected(
-            owner1,
             "main",
             assetManagers,
             vaultAssetAddresses,
@@ -806,7 +812,8 @@ contract BittyV1VaultFactoryTest is Test {
 
     function test_DeployVaultAllSelected_usesAllGuardAssetsAndProtocols() public {
         _initFactory();
-        address vault = factory.deployVaultAllSelected(owner1, "main", _assetManagers(assetManagerAddress));
+        vm.prank(owner1);
+        address vault = factory.deployVaultAllSelected("main", _assetManagers(assetManagerAddress));
 
         BittyV1Vault vaultInstance = BittyV1Vault(payable(vault));
         assertTrue(vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), owner1));

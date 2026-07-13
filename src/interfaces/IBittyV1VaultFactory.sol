@@ -14,17 +14,15 @@ interface IBittyV1VaultFactory {
     function initialize(address vaultImplementation_, address guardAddress_, address wethAddress_) external;
 
     /**
-     * @notice Deploy a vault owned by owner.
-     * @param owner The address of the owner.
-     * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
+     * @notice Deploy a vault owned by the caller (msg.sender).
+     * @param name The name of the vault. The vault address is deterministic on (msg.sender, name).
      * @return vault The address of the deployed vault.
      */
-    function deployVault(address owner, string memory name) external returns (address vault);
+    function deployVault(string memory name) external returns (address vault);
 
     /**
-     * @notice Deploy a vault owned by owner, user select protocols and assets.
-     * @param owner The address of the owner.
-     * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
+     * @notice Deploy a vault owned by the caller (msg.sender), selecting protocols and assets.
+     * @param name The name of the vault. The vault address is deterministic on (msg.sender, name).
      * @param assetManagers The addresses of the asset managers (hot wallet / AI agents).
      * @param assetAddresses The addresses of the assets.
      * @param lendingProtocols The addresses of the lending protocols.
@@ -34,7 +32,6 @@ interface IBittyV1VaultFactory {
      * @return vault The address of the deployed vault.
      */
     function deployVaultWithSelected(
-        address owner,
         string memory name,
         address[] memory assetManagers,
         address[] memory assetAddresses,
@@ -45,15 +42,12 @@ interface IBittyV1VaultFactory {
     ) external returns (address vault);
 
     /**
-     * @notice Deploy a vault owned by owner, user select all assets and protocols.
-     * @param owner The address of the owner.
-     * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
+     * @notice Deploy a vault owned by the caller (msg.sender) with all guard assets and protocols.
+     * @param name The name of the vault. The vault address is deterministic on (msg.sender, name).
      * @param assetManagers The addresses of the asset managers (hot wallet / AI agents).
      * @return vault The address of the deployed vault.
      */
-    function deployVaultAllSelected(address owner, string memory name, address[] memory assetManagers)
-        external
-        returns (address vault);
+    function deployVaultAllSelected(string memory name, address[] memory assetManagers) external returns (address vault);
 
     /**
      * @notice Predict the vault address for a given (owner, name) pair.

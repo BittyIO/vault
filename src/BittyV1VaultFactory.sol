@@ -42,14 +42,14 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
     }
 
     /**
-     * @notice Deploy a clean vault owned by owner with name.
-     * @param owner The address of the owner.
-     * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
+     * @notice Deploy a clean vault owned by the caller (msg.sender).
+     * @param name The name of the vault. The vault address is deterministic on (msg.sender, name),
+     *             so one owner can hold multiple vaults distinguished by name.
      * @return vault The address of the deployed vault.
      */
-    function deployVault(address owner, string memory name) external override returns (address vault) {
+    function deployVault(string memory name) external override returns (address vault) {
         return _deployVault(
-            owner,
+            msg.sender,
             name,
             new address[](0),
             new address[](0),
@@ -61,9 +61,8 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
     }
 
     /**
-     * @notice Deploy a vault owned by owner, user select protocols and assets.
-     * @param owner The address of the owner.
-     * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
+     * @notice Deploy a vault owned by the caller (msg.sender), selecting protocols and assets.
+     * @param name The name of the vault. The vault address is deterministic on (msg.sender, name).
      * @param assetManagers The addresses of the asset managers (hot wallet / AI agents), can not be the owner.
      * @param assetAddresses Guard-registered assets and/or stable coins to add to the vault.
      * @param lendingProtocols The addresses of the lending protocols, must be registered in guard.
@@ -72,7 +71,6 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
      * @return vault The address of the deployed vault.
      */
     function deployVaultWithSelected(
-        address owner,
         string memory name,
         address[] memory assetManagers,
         address[] memory assetAddresses,
@@ -84,7 +82,7 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
         _checkGuard(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
 
         return _deployVault(
-            owner,
+            msg.sender,
             name,
             assetManagers,
             assetAddresses,
@@ -96,13 +94,12 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
     }
 
     /**
-     * @notice Deploy a vault owned by owner, user select all assets and protocols.
-     * @param owner The address of the owner.
-     * @param name The name of the vault, can not be address(0), better be a safe multi-sig address.
+     * @notice Deploy a vault owned by the caller (msg.sender) with all guard assets and protocols.
+     * @param name The name of the vault. The vault address is deterministic on (msg.sender, name).
      * @param assetManagers The addresses of the asset managers (hot wallet / AI agents).
      * @return vault The address of the deployed vault.
      */
-    function deployVaultAllSelected(address owner, string memory name, address[] memory assetManagers)
+    function deployVaultAllSelected(string memory name, address[] memory assetManagers)
         external
         override
         returns (address vault)
@@ -122,7 +119,7 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
             allAssetAddresses[assetAddresses.length + i] = stableCoinAddresses[i];
         }
         return _deployVault(
-            owner,
+            msg.sender,
             name,
             assetManagers,
             allAssetAddresses,
@@ -143,8 +140,10 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
         address[] memory ammProtocols,
         address[] memory intentProtocols
     ) internal returns (address vault) {
-        if (owner == address(0)) revert AddressZero();
-
+        // `owner` is always the caller (msg.sender): the deploy functions derive it and never
+        // accept it as input. This makes the vault's owner unforgeable — nobody can pre-deploy
+        // someone else's deterministic vault to inject a hostile asset manager or set an
+        // unrecoverable owner. msg.sender can never be the zero address, so no owner check is needed.
         bytes32 salt = keccak256(abi.encodePacked(owner, name));
         if (Clones.predictDeterministicAddress(vaultImplementation, salt, address(this)).code.length > 0) {
             revert VaultAlreadyDeployed();

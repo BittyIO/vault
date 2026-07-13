@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import {Test} from "forge-std/Test.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
+import {VaultAlreadyDeployed} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.sol";
@@ -83,8 +84,8 @@ contract TestVaultFork is Test {
         factory.initialize(address(vaultImpl), address(guard), mainnet.WETH);
 
         assetManager = address(this);
+        vm.prank(tx.origin);
         address vaultAddr = factory.deployVaultWithSelected(
-            tx.origin,
             "main",
             _assetManagers(assetManager),
             vaultAssets,
@@ -265,9 +266,9 @@ contract TestVaultFork is Test {
     }
 
     function test_FactoryRevertWhenVaultAlreadyDeployed() public {
-        vm.expectRevert();
+        vm.expectRevert(VaultAlreadyDeployed.selector);
+        vm.prank(tx.origin);
         factory.deployVaultWithSelected(
-            tx.origin,
             "main",
             _assetManagers(assetManager),
             vaultAssets,
@@ -421,8 +422,8 @@ contract TestVaultFork is Test {
     function test_DeployVault_customOwner() public {
         address customOwner = makeAddr("customVaultOwner");
         address customAssetManager = makeAddr("customAssetManager");
+        vm.prank(customOwner);
         address vaultAddr = factory.deployVaultWithSelected(
-            customOwner,
             "main",
             _assetManagers(customAssetManager),
             vaultAssets,
