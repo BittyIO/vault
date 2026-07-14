@@ -23,7 +23,7 @@ contract VaultForKidsForkTest is Test {
     uint256 internal constant EIGHTEEN_TIMESTAMP = 2348651757;
     uint256 internal constant PAY_AMOUNT_WBTC = 1e6;
     uint256 internal constant PAY_AMOUNT_WETH = 0.1 ether;
-    uint256 internal constant PAY_DURATION = 30 days;
+    uint256 internal constant PAY_INTERVAL = 30 days;
     uint8 internal constant PAY_COUNT = 120;
     string internal constant VAULT_NAME = "Treasury for Alice";
     string internal constant RECEIVER_NAME_WBTC = "WBTC for Alice";
@@ -91,7 +91,7 @@ contract VaultForKidsForkTest is Test {
             amount: amount_,
             paymentCount: type(uint8).max,
             startTimestamp: startTimestamp_,
-            durationTimestamp: PAY_DURATION,
+            paymentInterval: PAY_INTERVAL,
             isImmutable: false,
             payWithInsufficientBalance: true
         });
@@ -150,7 +150,7 @@ contract VaultForKidsForkTest is Test {
         vault.payReceiver(RECEIVER_NAME_WETH);
 
         for (uint256 i = 1; i <= PAY_COUNT; i++) {
-            vm.warp(EIGHTEEN_TIMESTAMP + i * PAY_DURATION);
+            vm.warp(EIGHTEEN_TIMESTAMP + i * PAY_INTERVAL);
             vm.prank(ALICE_ADDRESS);
             vault.payReceiver(RECEIVER_NAME_WBTC);
             vm.prank(ALICE_ADDRESS);

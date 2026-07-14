@@ -310,7 +310,7 @@ contract TestVaultFork is Test {
             amount: 100e6,
             paymentCount: 1,
             startTimestamp: block.timestamp,
-            durationTimestamp: 1 days,
+            paymentInterval: 1 days,
             isImmutable: false,
             payWithInsufficientBalance: false
         });
@@ -342,7 +342,7 @@ contract TestVaultFork is Test {
             amount: payAmount,
             paymentCount: 1,
             startTimestamp: block.timestamp,
-            durationTimestamp: 1 days,
+            paymentInterval: 1 days,
             isImmutable: false,
             payWithInsufficientBalance: false
         });
@@ -394,7 +394,7 @@ contract TestVaultFork is Test {
             amount: 0.5 ether,
             paymentCount: 1,
             startTimestamp: block.timestamp,
-            durationTimestamp: 0,
+            paymentInterval: 0,
             isImmutable: false,
             payWithInsufficientBalance: false
         });

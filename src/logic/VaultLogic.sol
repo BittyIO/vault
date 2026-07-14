@@ -11,6 +11,7 @@ import {
 } from "../interfaces/IBittyV1Vault.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {VaultStorage} from "./Storages.sol";
 import {
@@ -22,14 +23,17 @@ import {
     ReceiverTriggerError,
     ReceiverNotStartYet,
     ReceiverStartTimestampInPast,
-    ReceiverInDuration,
+    ReceiverInInterval,
     AddingAssetsDisabled,
-    ReceiverDurationTooShort,
+    ReceiverIntervalTooShort,
     AssetAddressNotContract,
     NewReceiverProtectionOutOfRange,
     ReceiverProtectionNotEnded,
     PayMoreThanReceiverAmount,
-    PayReceiverAmountTriggerEmpty
+    PayReceiverAmountTriggerEmpty,
+    QuickPayAssetNotStableCoin,
+    QuickPayExceedsMax,
+    QuickPayInInterval
 } from "../interfaces/IBittyV1Vault.sol";
 
 library VaultLogic {
@@ -37,14 +41,21 @@ library VaultLogic {
      * The vault will be drained by one attack in a very short time if no this protection.
      * @dev this is a protection for the vault.
      */
-    uint256 constant RECEIVER_MINIMAL_DURATION = 1 days;
+    uint256 constant RECEIVER_MINIMAL_INTERVAL = 1 days;
 
     /**
      * To protect the vault owner, the longer it is, the harder to attack the owner.
-     * The RECEIVER_NEW_PROTECTION_MIN is actually RECEIVER_MINIMAL_DURATION.
+     * The RECEIVER_NEW_PROTECTION_MIN is actually RECEIVER_MINIMAL_INTERVAL.
      * @dev this is a protection for the vault.
      */
     uint256 constant RECEIVER_NEW_PROTECTION_MAX = 30 days;
+
+    /**
+     * Default quick-pay per-payment cap (in whole tokens) and minimum interval. The owner
+     * can change both at any time via {setQuickPayLimit}.
+     */
+    uint256 constant QUICK_PAY_DEFAULT_MAX_WHOLE_TOKENS = 1000;
+    uint256 constant QUICK_PAY_DEFAULT_INTERVAL = 1 days;
 
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
@@ -77,6 +88,8 @@ library VaultLogic {
     {
         vaultStorage.guard = IBittyV1Guard(guardAddress);
         vaultStorage.isInitialized = true;
+        vaultStorage.quickPayMaxWholeTokens = QUICK_PAY_DEFAULT_MAX_WHOLE_TOKENS;
+        vaultStorage.quickPayInterval = QUICK_PAY_DEFAULT_INTERVAL;
     }
 
     function addReceiver(VaultStorage storage vaultStorage, string memory name, IBittyV1Vault.Receiver memory receiver)
@@ -147,8 +160,8 @@ library VaultLogic {
         if (receiver.paymentCount == 0) {
             revert ReceiverPaymentCountZero();
         }
-        if (receiver.paymentCount > 1 && receiver.durationTimestamp < RECEIVER_MINIMAL_DURATION) {
-            revert ReceiverDurationTooShort();
+        if (receiver.paymentCount > 1 && receiver.paymentInterval < RECEIVER_MINIMAL_INTERVAL) {
+            revert ReceiverIntervalTooShort();
         }
     }
 
@@ -171,6 +184,70 @@ library VaultLogic {
         }
         vaultStorage.newReceiverProtection = newReceiverProtection;
         emit IBittyV1Vault.NewReceiverProtectionSet(newReceiverProtection);
+    }
+
+    /**
+     * @notice Set the quick-pay per-payment cap (in whole tokens) and minimum interval.
+     * @dev Effective immediately. Access control (owner-only) is enforced by the facade.
+     */
+    function setQuickPayLimit(VaultStorage storage vaultStorage, uint256 maxWholeTokens, uint256 interval)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        vaultStorage.quickPayMaxWholeTokens = maxWholeTokens;
+        vaultStorage.quickPayInterval = interval;
+        emit IBittyV1Vault.QuickPayLimitSet(maxWholeTokens, interval);
+    }
+
+    /**
+     * @notice Send stablecoin from the vault's balance straight to `to`, without needing a
+     * registered receiver.
+     * @dev Rate-limited discretionary payment. Access control (a dedicated quick-pay role,
+     * separate from the owner) is enforced by the facade. The asset must be a stablecoin
+     * registered on this vault; `amount` may not exceed `quickPayMaxWholeTokens` scaled by
+     * the token's decimals; and at most one quick-pay is allowed per `quickPayInterval` on a
+     * single shared clock, bounding total outflow via this path. Paid from the vault's idle
+     * balance.
+     */
+    function quickPay(VaultStorage storage vaultStorage, address stableCoin, address to, uint256 amount)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        if (to == address(0)) {
+            revert AddressZero();
+        }
+        if (amount == 0) {
+            revert AmountIsZero();
+        }
+        if (!vaultStorage.stableCoins.contains(stableCoin)) {
+            revert QuickPayAssetNotStableCoin();
+        }
+
+        uint256 maxUnits = vaultStorage.quickPayMaxWholeTokens * (10 ** IERC20Metadata(stableCoin).decimals());
+        if (amount > maxUnits) {
+            revert QuickPayExceedsMax();
+        }
+
+        uint256 last = vaultStorage.lastQuickPayTimestamp;
+        if (last != 0 && block.timestamp - last < vaultStorage.quickPayInterval) {
+            revert QuickPayInInterval();
+        }
+
+        vaultStorage.lastQuickPayTimestamp = block.timestamp;
+        IERC20(stableCoin).safeTransfer(to, amount);
+        emit IBittyV1Vault.QuickPaid(stableCoin, to, amount);
+    }
+
+    function getQuickPayLimit(VaultStorage storage vaultStorage)
+        external
+        view
+        returns (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp)
+    {
+        return (
+            vaultStorage.quickPayMaxWholeTokens,
+            vaultStorage.quickPayInterval,
+            vaultStorage.lastQuickPayTimestamp
+        );
     }
 
     function payReceiver(VaultStorage storage vaultStorage, string memory name) external onlyInitialized(vaultStorage) {
@@ -215,7 +292,7 @@ library VaultLogic {
 
     /**
      * @dev Runs every eligibility check for a scheduled receiver payment and applies its
-     * state effects (advance the duration clock, clear the new-receiver time-lock, and
+     * state effects (advance the interval clock, clear the new-receiver time-lock, and
      * consume one payment) — but performs no token transfer. Shared by the normal
      * pay-from-vault-balance path and the on-behalf pay-from-yield path so both honour
      * identical rules and checks-effects-interactions ordering.
@@ -235,10 +312,10 @@ library VaultLogic {
             revert ReceiverNotStartYet();
         }
         if (
-            receiver.durationTimestamp != 0 && vaultStorage.lastReceiveTimestamps[name] > 0
-                && block.timestamp - vaultStorage.lastReceiveTimestamps[name] < receiver.durationTimestamp
+            receiver.paymentInterval != 0 && vaultStorage.lastReceiveTimestamps[name] > 0
+                && block.timestamp - vaultStorage.lastReceiveTimestamps[name] < receiver.paymentInterval
         ) {
-            revert ReceiverInDuration();
+            revert ReceiverInInterval();
         }
         if (vaultStorage.newReceiverProtectionTimestamps[name] > 0) {
             if (block.timestamp < vaultStorage.newReceiverProtectionTimestamps[name]) {

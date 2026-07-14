@@ -28,6 +28,10 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
     using VaultLogic for VaultStorage;
 
     bytes32 public constant ASSET_MANAGER_ROLE = keccak256("ASSET_MANAGER_ROLE");
+    // Dedicated role for discretionary quick-pay. Kept separate from DEFAULT_ADMIN_ROLE so the
+    // owner is not required to sign one-off stablecoin payouts — the owner grants this to a
+    // lower-trust spending address and only configures the caps.
+    bytes32 public constant QUICK_PAY_ROLE = keccak256("QUICK_PAY_ROLE");
     uint48 public constant OWNER_TRANSFER_DELAY = 1 days;
 
     string public vaultName;
@@ -478,6 +482,42 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         (address receiverAddress, address assetAddress, uint256 payAmount) =
             _vault.accrueReceiverPaymentOnBehalf(receiverName);
         _assetManager.withdrawTo(lendingProtocol, assetAddress, payAmount, receiverAddress);
+    }
+
+    // ============ Quick-pay ============
+
+    /**
+     * @notice Send stablecoin from the vault straight to any address. Callable by holders of
+     * {QUICK_PAY_ROLE} (a dedicated spending role, not the owner), subject to the per-payment
+     * cap and interval configured by the owner.
+     */
+    function quickPay(address stableCoin, address to, uint256 amount)
+        external
+        override
+        onlyRole(QUICK_PAY_ROLE)
+    {
+        _vault.quickPay(stableCoin, to, amount);
+    }
+
+    /**
+     * @notice Set the quick-pay per-payment cap (in whole tokens) and minimum interval.
+     * @dev Owner-only — the owner sets the guardrails; a separate {QUICK_PAY_ROLE} spends within them.
+     */
+    function setQuickPayLimit(uint256 maxWholeTokens, uint256 interval)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _vault.setQuickPayLimit(maxWholeTokens, interval);
+    }
+
+    function getQuickPayLimit()
+        external
+        view
+        override
+        returns (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp)
+    {
+        return _vault.getQuickPayLimit();
     }
 
     // ============ View ============

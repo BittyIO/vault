@@ -12,7 +12,7 @@ import {
     ReceiverNameAlreadyExists,
     ReceiverImmutable,
     ReceiverPaymentCountZero,
-    ReceiverDurationTooShort,
+    ReceiverIntervalTooShort,
     AssetAddressNotContract,
     NewReceiverProtectionOutOfRange,
     ReceiverProtectionNotEnded,
@@ -22,9 +22,13 @@ import {
     PayMoreThanReceiverAmount,
     PayReceiverAmountTriggerEmpty,
     ReceiverTriggerError,
-    ReceiverInDuration,
+    ReceiverInInterval,
     InsufficientBalance,
-    NotInitialized
+    NotInitialized,
+    AddressZero,
+    QuickPayAssetNotStableCoin,
+    QuickPayExceedsMax,
+    QuickPayInInterval
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -69,7 +73,7 @@ contract BittyV1VaultTest is Test {
         uint256 amount_,
         uint8 paymentCount_,
         uint256 startTimestamp_,
-        uint256 durationTimestamp_,
+        uint256 paymentInterval_,
         bool isImmutable_
     ) internal pure returns (IBittyV1Vault.Receiver memory) {
         return IBittyV1Vault.Receiver({
@@ -79,7 +83,7 @@ contract BittyV1VaultTest is Test {
             amount: amount_,
             paymentCount: paymentCount_,
             startTimestamp: startTimestamp_,
-            durationTimestamp: durationTimestamp_,
+            paymentInterval: paymentInterval_,
             isImmutable: isImmutable_,
             payWithInsufficientBalance: false
         });
@@ -417,7 +421,7 @@ contract BittyV1VaultTest is Test {
         vault.addReceiver("alice", r);
     }
 
-    function test_AddReceiverRevertDurationTooShortWhenPaymentCountGreaterThanOne() public {
+    function test_AddReceiverRevertIntervalTooShortWhenPaymentCountGreaterThanOne() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -437,11 +441,11 @@ contract BittyV1VaultTest is Test {
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.RECEIVER_MINIMAL_DURATION - 1,
+            VaultLogic.RECEIVER_MINIMAL_INTERVAL - 1,
             false
         );
         vm.prank(ownerAddress);
-        vm.expectRevert(ReceiverDurationTooShort.selector);
+        vm.expectRevert(ReceiverIntervalTooShort.selector);
         vault.addReceiver("alice", r);
     }
 
@@ -467,7 +471,7 @@ contract BittyV1VaultTest is Test {
         vault.updateReceiver("alice", r);
     }
 
-    function test_AddReceiverSuccessWithShortDurationWhenPaymentCountIsOne() public {
+    function test_AddReceiverSuccessWithShortIntervalWhenPaymentCountIsOne() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -486,7 +490,7 @@ contract BittyV1VaultTest is Test {
         vault.addReceiver("alice", r);
     }
 
-    function test_UpdateReceiverRevertDurationTooShortWhenPaymentCountGreaterThanOne() public {
+    function test_UpdateReceiverRevertIntervalTooShortWhenPaymentCountGreaterThanOne() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -506,19 +510,19 @@ contract BittyV1VaultTest is Test {
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.RECEIVER_MINIMAL_DURATION,
+            VaultLogic.RECEIVER_MINIMAL_INTERVAL,
             false
         );
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
-        r.durationTimestamp = VaultLogic.RECEIVER_MINIMAL_DURATION - 1;
+        r.paymentInterval = VaultLogic.RECEIVER_MINIMAL_INTERVAL - 1;
         vm.prank(ownerAddress);
-        vm.expectRevert(ReceiverDurationTooShort.selector);
+        vm.expectRevert(ReceiverIntervalTooShort.selector);
         vault.updateReceiver("alice", r);
     }
 
-    function test_UpdateReceiverSuccessWithShortDurationWhenPaymentCountIsOne() public {
+    function test_UpdateReceiverSuccessWithShortIntervalWhenPaymentCountIsOne() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -538,14 +542,14 @@ contract BittyV1VaultTest is Test {
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.RECEIVER_MINIMAL_DURATION,
+            VaultLogic.RECEIVER_MINIMAL_INTERVAL,
             false
         );
         vm.prank(ownerAddress);
         vault.addReceiver("alice", r);
 
         r.paymentCount = 1;
-        r.durationTimestamp = 0;
+        r.paymentInterval = 0;
         vm.prank(ownerAddress);
         vault.updateReceiver("alice", r);
     }
@@ -800,7 +804,7 @@ contract BittyV1VaultTest is Test {
         vault.payReceiver("alice");
     }
 
-    function test_PayReceiver_singlePaymentWithZeroDuration() public {
+    function test_PayReceiver_singlePaymentWithZeroInterval() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -850,7 +854,7 @@ contract BittyV1VaultTest is Test {
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.RECEIVER_MINIMAL_DURATION,
+            VaultLogic.RECEIVER_MINIMAL_INTERVAL,
             false
         );
         vm.prank(ownerAddress);
@@ -859,7 +863,7 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), 2 ether);
 
         vault.payReceiver("alice");
-        vm.warp(block.timestamp + VaultLogic.RECEIVER_MINIMAL_DURATION);
+        vm.warp(block.timestamp + VaultLogic.RECEIVER_MINIMAL_INTERVAL);
         vault.payReceiver("alice");
 
         assertEq(weth.balanceOf(receiverAddr), 2 ether, "receiver should have received 2 payments");
@@ -1008,14 +1012,14 @@ contract BittyV1VaultTest is Test {
         vm.warp(1_000_000);
         address receiverAddr = makeAddr("receiver");
 
-        _addReceiver("alice", receiverAddr, 1 ether, 2, VaultLogic.RECEIVER_MINIMAL_DURATION);
+        _addReceiver("alice", receiverAddr, 1 ether, 2, VaultLogic.RECEIVER_MINIMAL_INTERVAL);
         deal(address(weth), address(vault), 3 ether);
         vault.payReceiver("alice");
         assertEq(weth.balanceOf(receiverAddr), 1 ether);
 
         vm.prank(ownerAddress);
         vault.removeReceiver("alice");
-        _addReceiver("alice", receiverAddr, 1 ether, 1, VaultLogic.RECEIVER_MINIMAL_DURATION);
+        _addReceiver("alice", receiverAddr, 1 ether, 1, VaultLogic.RECEIVER_MINIMAL_INTERVAL);
 
         vault.payReceiver("alice");
         assertEq(weth.balanceOf(receiverAddr), 2 ether, "re-added receiver must be payable immediately");
@@ -1195,7 +1199,7 @@ contract BittyV1VaultTest is Test {
             amount: 1 ether,
             paymentCount: 1,
             startTimestamp: block.timestamp,
-            durationTimestamp: 0,
+            paymentInterval: 0,
             isImmutable: false,
             payWithInsufficientBalance: true
         });
@@ -1222,7 +1226,7 @@ contract BittyV1VaultTest is Test {
             amount: 1 ether,
             paymentCount: 1,
             startTimestamp: block.timestamp,
-            durationTimestamp: 0,
+            paymentInterval: 0,
             isImmutable: false,
             payWithInsufficientBalance: true
         });
@@ -1248,7 +1252,7 @@ contract BittyV1VaultTest is Test {
             amount: 1 ether,
             paymentCount: 3,
             startTimestamp: start,
-            durationTimestamp: VaultLogic.RECEIVER_MINIMAL_DURATION,
+            paymentInterval: VaultLogic.RECEIVER_MINIMAL_INTERVAL,
             isImmutable: false,
             payWithInsufficientBalance: true
         });
@@ -1260,11 +1264,11 @@ contract BittyV1VaultTest is Test {
         vault.payReceiver("alice");
         assertEq(weth.balanceOf(receiverAddr), 1 ether);
 
-        vm.warp(start + VaultLogic.RECEIVER_MINIMAL_DURATION + 1);
+        vm.warp(start + VaultLogic.RECEIVER_MINIMAL_INTERVAL + 1);
         vault.payReceiver("alice");
         assertEq(weth.balanceOf(receiverAddr), 1.5 ether, "second payout sends remaining 0.5 ether");
 
-        vm.warp(start + 2 * (VaultLogic.RECEIVER_MINIMAL_DURATION + 1));
+        vm.warp(start + 2 * (VaultLogic.RECEIVER_MINIMAL_INTERVAL + 1));
         vault.payReceiver("alice");
         assertEq(weth.balanceOf(receiverAddr), 1.5 ether, "third payout with zero balance sends nothing");
 
@@ -1342,7 +1346,7 @@ contract BittyV1VaultTest is Test {
     function test_PayReceiver_emitsReceiverPaidEvent() public {
         _initializeVault();
         address receiverAddr = makeAddr("receiver");
-        _addReceiver("alice", receiverAddr, 1 ether, 2, VaultLogic.RECEIVER_MINIMAL_DURATION);
+        _addReceiver("alice", receiverAddr, 1 ether, 2, VaultLogic.RECEIVER_MINIMAL_INTERVAL);
         deal(address(weth), address(vault), 1 ether);
 
         vm.expectEmit(true, true, true, true, address(vault));
@@ -1375,7 +1379,7 @@ contract BittyV1VaultTest is Test {
             amount: 1 ether,
             paymentCount: 1,
             startTimestamp: block.timestamp,
-            durationTimestamp: 0,
+            paymentInterval: 0,
             isImmutable: false,
             payWithInsufficientBalance: true
         });
@@ -1394,9 +1398,9 @@ contract BittyV1VaultTest is Test {
     function testFuzz_AddReceiver_validAmountAndCount(uint256 amount, uint8 paymentCount) public {
         vm.assume(amount > 0 && paymentCount > 0);
         _initializeVault();
-        uint256 duration = paymentCount > 1 ? VaultLogic.RECEIVER_MINIMAL_DURATION : 0;
+        uint256 interval = paymentCount > 1 ? VaultLogic.RECEIVER_MINIMAL_INTERVAL : 0;
         IBittyV1Vault.Receiver memory r = _makeReceiver(
-            makeAddr("r"), address(0), address(weth), amount, paymentCount, block.timestamp, duration, false
+            makeAddr("r"), address(0), address(weth), amount, paymentCount, block.timestamp, interval, false
         );
         vm.prank(ownerAddress);
         vault.addReceiver("r", r);
@@ -1465,7 +1469,7 @@ contract BittyV1VaultTest is Test {
             amount,
             paymentCount,
             start,
-            paymentCount > 1 ? VaultLogic.RECEIVER_MINIMAL_DURATION : 0,
+            paymentCount > 1 ? VaultLogic.RECEIVER_MINIMAL_INTERVAL : 0,
             false
         );
         vm.prank(ownerAddress);
@@ -1473,7 +1477,7 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), uint256(paymentCount) * amount);
         vault.payReceiver("r");
         for (uint8 i = 1; i < paymentCount; i++) {
-            vm.warp(start + uint256(i) * VaultLogic.RECEIVER_MINIMAL_DURATION);
+            vm.warp(start + uint256(i) * VaultLogic.RECEIVER_MINIMAL_INTERVAL);
             vault.payReceiver("r");
         }
         assertEq(weth.balanceOf(receiverAddr), uint256(paymentCount) * amount);
@@ -1515,7 +1519,7 @@ contract BittyV1VaultTest is Test {
             amount,
             paymentCount,
             start,
-            VaultLogic.RECEIVER_MINIMAL_DURATION,
+            VaultLogic.RECEIVER_MINIMAL_INTERVAL,
             false
         );
         vm.prank(ownerAddress);
@@ -1523,7 +1527,7 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), uint256(paymentCount) * amount);
         vault.payReceiver("r");
         for (uint8 i = 1; i < paymentCount; i++) {
-            vm.warp(start + uint256(i) * VaultLogic.RECEIVER_MINIMAL_DURATION);
+            vm.warp(start + uint256(i) * VaultLogic.RECEIVER_MINIMAL_INTERVAL);
             vault.payReceiver("r");
         }
         assertEq(weth.balanceOf(receiverAddr), uint256(paymentCount) * amount);
@@ -1536,10 +1540,10 @@ contract BittyV1VaultTest is Test {
         address receiverAddr,
         uint256 amount,
         uint8 paymentCount,
-        uint256 durationTimestamp
+        uint256 paymentInterval
     ) internal {
         IBittyV1Vault.Receiver memory r = _makeReceiver(
-            receiverAddr, address(0), address(weth), amount, paymentCount, block.timestamp, durationTimestamp, false
+            receiverAddr, address(0), address(weth), amount, paymentCount, block.timestamp, paymentInterval, false
         );
         vm.prank(ownerAddress);
         vault.addReceiver(name, r);
@@ -1551,10 +1555,10 @@ contract BittyV1VaultTest is Test {
         address trigger,
         uint256 amount,
         uint8 paymentCount,
-        uint256 durationTimestamp
+        uint256 paymentInterval
     ) internal {
         IBittyV1Vault.Receiver memory r = _makeReceiver(
-            receiverAddr, trigger, address(weth), amount, paymentCount, block.timestamp, durationTimestamp, false
+            receiverAddr, trigger, address(weth), amount, paymentCount, block.timestamp, paymentInterval, false
         );
         vm.prank(ownerAddress);
         vault.addReceiver(name, r);
@@ -1961,7 +1965,7 @@ contract BittyV1VaultTest is Test {
         assertEq(usdc.balanceOf(trigger), 0);
     }
 
-    function test_payReceiverFromStaking_enforcesDurationBetweenPayments() public {
+    function test_payReceiverFromStaking_enforcesIntervalBetweenPayments() public {
         _initializeVault();
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         MockStakingProtocol impl = new MockStakingProtocol();
@@ -1976,13 +1980,142 @@ contract BittyV1VaultTest is Test {
 
         vault.payReceiverFromStaking("rent", address(impl));
 
-        // A second payment within the duration window is rejected.
-        vm.expectRevert(ReceiverInDuration.selector);
+        // A second payment within the interval window is rejected.
+        vm.expectRevert(ReceiverInInterval.selector);
         vault.payReceiverFromStaking("rent", address(impl));
 
         // After the window it succeeds again.
         vm.warp(block.timestamp + 1 days + 1);
         vault.payReceiverFromStaking("rent", address(impl));
         assertEq(usdc.balanceOf(receiverAddr), 500e6);
+    }
+
+    // ─── Quick-pay ────────────────────────────────────────────────────────────
+
+    /// @dev Registers `usdc` as a vault stablecoin, funds the vault, and grants the
+    /// dedicated quick-pay role to `payer`.
+    function _setupQuickPay(MockERC20 usdc, address payer, uint256 fund) internal {
+        address[] memory toAdd = _arr(address(usdc));
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        vm.startPrank(ownerAddress);
+        vault.addAssets(toAdd);
+        vault.grantRole(vault.QUICK_PAY_ROLE(), payer);
+        vm.stopPrank();
+        usdc.mint(address(vault), fund);
+    }
+
+    function test_QuickPay_defaultsAreThousandTokensAndOneDay() public {
+        _initializeVault();
+        (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp) = vault.getQuickPayLimit();
+        assertEq(maxWholeTokens, 1000);
+        assertEq(interval, 1 days);
+        assertEq(lastTimestamp, 0);
+    }
+
+    function test_QuickPay_payerCanSendToAnyAddress() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        address payer = makeAddr("payer");
+        address to = makeAddr("oneOffRecipient");
+        _setupQuickPay(usdc, payer, 5_000e6);
+
+        vm.prank(payer);
+        vault.quickPay(address(usdc), to, 1_000e6);
+
+        assertEq(usdc.balanceOf(to), 1_000e6);
+        assertEq(usdc.balanceOf(address(vault)), 4_000e6);
+        (,, uint256 lastTimestamp) = vault.getQuickPayLimit();
+        assertEq(lastTimestamp, block.timestamp);
+    }
+
+    function test_QuickPay_onlyQuickPayRole() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        address payer = makeAddr("payer");
+        _setupQuickPay(usdc, payer, 5_000e6);
+
+        // The owner is deliberately NOT a quick-pay holder unless granted.
+        bytes32 quickPayRole = vault.QUICK_PAY_ROLE();
+        vm.prank(ownerAddress);
+        vm.expectRevert(_roleError(ownerAddress, quickPayRole));
+        vault.quickPay(address(usdc), makeAddr("to"), 100e6);
+    }
+
+    function test_QuickPay_revertsAboveCap() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        address payer = makeAddr("payer");
+        _setupQuickPay(usdc, payer, 5_000e6);
+
+        vm.prank(payer);
+        vm.expectRevert(QuickPayExceedsMax.selector);
+        vault.quickPay(address(usdc), makeAddr("to"), 1_000e6 + 1);
+    }
+
+    function test_QuickPay_revertsForUnregisteredStablecoin() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        MockERC20 other = new MockERC20("Other", "OTH", 6);
+        address payer = makeAddr("payer");
+        _setupQuickPay(usdc, payer, 5_000e6);
+        other.mint(address(vault), 5_000e6);
+
+        vm.prank(payer);
+        vm.expectRevert(QuickPayAssetNotStableCoin.selector);
+        vault.quickPay(address(other), makeAddr("to"), 100e6);
+    }
+
+    function test_QuickPay_enforcesIntervalOnSharedClock() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        address payer = makeAddr("payer");
+        _setupQuickPay(usdc, payer, 5_000e6);
+
+        vm.startPrank(payer);
+        vault.quickPay(address(usdc), makeAddr("a"), 100e6);
+
+        // Any second quick-pay within the interval is rejected, even to a different address.
+        vm.expectRevert(QuickPayInInterval.selector);
+        vault.quickPay(address(usdc), makeAddr("b"), 100e6);
+        vm.stopPrank();
+
+        // After the interval it succeeds again.
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(payer);
+        vault.quickPay(address(usdc), makeAddr("b"), 100e6);
+        assertEq(usdc.balanceOf(makeAddr("b")), 100e6);
+    }
+
+    function test_QuickPay_limitChangeTakesEffectImmediately() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        address payer = makeAddr("payer");
+        _setupQuickPay(usdc, payer, 10_000e6);
+
+        // Owner raises the cap and shortens the interval; both apply immediately.
+        vm.prank(ownerAddress);
+        vault.setQuickPayLimit(2_000, 1 hours);
+        (uint256 maxWholeTokens, uint256 interval,) = vault.getQuickPayLimit();
+        assertEq(maxWholeTokens, 2_000);
+        assertEq(interval, 1 hours);
+
+        vm.prank(payer);
+        vault.quickPay(address(usdc), makeAddr("to"), 2_000e6);
+        assertEq(usdc.balanceOf(makeAddr("to")), 2_000e6);
+
+        // New shorter interval is in force.
+        vm.warp(block.timestamp + 1 hours + 1);
+        vm.prank(payer);
+        vault.quickPay(address(usdc), makeAddr("to"), 1e6);
+    }
+
+    function test_QuickPay_setLimitOnlyOwner() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.setQuickPayLimit(5, 1 hours);
     }
 }

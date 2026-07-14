@@ -41,4 +41,10 @@ struct VaultStorage {
     EnumerableSet.AddressSet stableCoins;
     bool addingAssetsDisabled;
     uint256 newReceiverProtection;
+
+    // Owner discretionary quick-pay of stablecoin to arbitrary addresses, rate-limited by
+    // a per-payment cap (in whole tokens) and a single shared minimum interval.
+    uint256 quickPayMaxWholeTokens;
+    uint256 quickPayInterval;
+    uint256 lastQuickPayTimestamp;
 }

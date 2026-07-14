@@ -17,8 +17,8 @@ error ReceiverPaymentCountZero();
 error ReceiverTriggerError();
 error ReceiverNotStartYet();
 error ReceiverStartTimestampInPast();
-error ReceiverInDuration();
-error ReceiverDurationTooShort();
+error ReceiverInInterval();
+error ReceiverIntervalTooShort();
 error AssetAddressNotContract();
 error NewReceiverProtectionOutOfRange();
 error ReceiverProtectionNotEnded();
@@ -29,6 +29,11 @@ error OnlyReceiver();
 error AddingAssetsDisabled();
 error AddingProtocolsDisabled();
 error OwnerAndAssetManagerMustDiffer();
+
+// quick-pay errors
+error QuickPayAssetNotStableCoin();
+error QuickPayExceedsMax();
+error QuickPayInInterval();
 
 /**
  * @title IBittyV1Vault
@@ -65,6 +70,8 @@ interface IBittyV1Vault {
         uint256 amount,
         uint8 remainingPaymentCount
     );
+    event QuickPaid(address indexed stableCoin, address indexed to, uint256 amount);
+    event QuickPayLimitSet(uint256 maxWholeTokens, uint256 interval);
 
     struct Receiver {
         // a more complex receiver contract can be implemented for advanced users out of this repo
@@ -75,7 +82,7 @@ interface IBittyV1Vault {
         uint256 amount;
         uint8 paymentCount;
         uint256 startTimestamp;
-        uint256 durationTimestamp;
+        uint256 paymentInterval;
         bool isImmutable;
         // if this is true, then the payment will not revert if the balance is insufficient
         bool payWithInsufficientBalance;
@@ -220,5 +227,40 @@ interface IBittyV1Vault {
      * @param lendingProtocol The lending protocol to withdraw from.
      */
     function payReceiverFromLending(string memory name, address lendingProtocol) external;
+
+    /**
+     * @notice Send stablecoin from the vault's balance directly to any address (a one-off
+     * payment that does not require registering a receiver).
+     * @dev Callable by holders of the dedicated quick-pay role (QUICK_PAY_ROLE) — separate
+     * from the owner so the owner is not burdened with routine payouts. Rate-limited: the
+     * asset must be a stablecoin registered on this vault, `amount` may not exceed the
+     * configured per-payment cap, and at most one quick-pay may occur per configured interval
+     * (a single shared clock across all recipients). Paid from the vault's idle balance.
+     * @param stableCoin The stablecoin to send.
+     * @param to The recipient address.
+     * @param amount The amount to send, in the stablecoin's smallest units.
+     */
+    function quickPay(address stableCoin, address to, uint256 amount) external;
+
+    /**
+     * @notice Set the quick-pay per-payment cap and minimum interval.
+     * @dev Owner-only. Changes take effect immediately. `maxWholeTokens` is denominated in
+     * whole tokens (e.g. 1000 means 1000 units of the stablecoin, scaled by its decimals
+     * at pay time). Defaults are 1000 whole tokens and 1 day.
+     * @param maxWholeTokens The maximum whole-token amount per quick-pay.
+     * @param interval The minimum number of seconds between quick-pays.
+     */
+    function setQuickPayLimit(uint256 maxWholeTokens, uint256 interval) external;
+
+    /**
+     * @notice Get the current quick-pay limits and the last quick-pay timestamp.
+     * @return maxWholeTokens The per-payment cap in whole tokens.
+     * @return interval The minimum seconds between quick-pays.
+     * @return lastTimestamp The timestamp of the last quick-pay (0 if none yet).
+     */
+    function getQuickPayLimit()
+        external
+        view
+        returns (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp);
 }
 
