@@ -6,13 +6,7 @@ import {
 } from "openzeppelin-contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import {IBittyV1AssetManager} from "./interfaces/IBittyV1AssetManager.sol";
 import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {
-    IBittyV1Vault,
-    ReceiverNotFound,
-    OnlyReceiver,
-    OwnerAndAssetManagerMustDiffer,
-    AddressZero
-} from "./interfaces/IBittyV1Vault.sol";
+import {IBittyV1Vault, ReceiverNotFound, OnlyReceiver, AddressZero} from "./interfaces/IBittyV1Vault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
@@ -24,7 +18,7 @@ import {IERC1271} from "openzeppelin-contracts/contracts/interfaces/IERC1271.sol
  * @notice
  * @dev
  *
- * Role hierarchy:
+ * Best practices:
  * - DEFAULT_ADMIN_ROLE: hardware wallet / multi-sig. Owns all config and irreversible ops.
  *   Managed via {AccessControlDefaultAdminRulesUpgradeable} (2-step transfer + delay).
  * - ASSET_MANAGER_ROLE: hot wallet / AI agent. Executes yield and trading operations only.
@@ -61,7 +55,6 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         __AccessControlDefaultAdminRules_init(OWNER_TRANSFER_DELAY, owner);
 
         for (uint256 i = 0; i < assetManagers.length; i++) {
-            if (assetManagers[i] == owner) revert OwnerAndAssetManagerMustDiffer();
             if (assetManagers[i] != address(0)) {
                 _grantRole(ASSET_MANAGER_ROLE, assetManagers[i]);
             }
@@ -85,23 +78,6 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         if (intentProtocols.length > 0) {
             _assetManager.addIntentProtocols(intentProtocols);
         }
-    }
-
-    function _grantRole(bytes32 role, address account) internal override returns (bool) {
-        if (role == ASSET_MANAGER_ROLE) {
-            (address pendingAdmin,) = pendingDefaultAdmin();
-            if (account == defaultAdmin() || (pendingAdmin != address(0) && account == pendingAdmin)) {
-                revert OwnerAndAssetManagerMustDiffer();
-            }
-        }
-        return super._grantRole(role, account);
-    }
-
-    function beginDefaultAdminTransfer(address newAdmin) public override onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (newAdmin != address(0) && hasRole(ASSET_MANAGER_ROLE, newAdmin)) {
-            revert OwnerAndAssetManagerMustDiffer();
-        }
-        super.beginDefaultAdminTransfer(newAdmin);
     }
 
     function setName(string memory newName) external override onlyRole(DEFAULT_ADMIN_ROLE) {

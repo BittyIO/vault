@@ -23,8 +23,7 @@ import {
     PayReceiverAmountTriggerEmpty,
     ReceiverTriggerError,
     InsufficientBalance,
-    NotInitialized,
-    OwnerAndAssetManagerMustDiffer
+    NotInitialized
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -130,8 +129,9 @@ contract BittyV1VaultTest is Test {
         assertEq(address(vault).balance, amount);
     }
 
-    function test_InitErrorOwnerAndAssetManagerSameAddress() public {
-        vm.expectRevert(OwnerAndAssetManagerMustDiffer.selector);
+    function test_InitAllowsOwnerAsAssetManager() public {
+        // The owner may also be an asset manager so a single wallet can operate
+        // the vault.
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -144,6 +144,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0)
         );
+        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), ownerAddress));
+        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
     }
 
     function test_InitSucceedsWithDifferentAssetManager() public {
@@ -186,13 +188,12 @@ contract BittyV1VaultTest is Test {
         assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), manager2));
     }
 
-    function test_InitRevertsWhenAnyAssetManagerIsOwner() public {
+    function test_InitAllowsOwnerAmongAssetManagers() public {
         address manager1 = makeAddr("manager1");
         address[] memory assetManagers = new address[](2);
         assetManagers[0] = manager1;
         assetManagers[1] = ownerAddress;
 
-        vm.expectRevert(OwnerAndAssetManagerMustDiffer.selector);
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -205,14 +206,17 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0)
         );
+
+        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), manager1));
+        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), ownerAddress));
     }
 
-    function test_GrantRoleRevertsIfOwnerGrantsAssetManagerRoleToSelf() public {
+    function test_GrantRoleAllowsOwnerAsAssetManager() public {
         _initializeVault();
         bytes32 assetManagerRole = vault.ASSET_MANAGER_ROLE();
         vm.prank(ownerAddress);
-        vm.expectRevert(OwnerAndAssetManagerMustDiffer.selector);
         vault.grantRole(assetManagerRole, ownerAddress);
+        assertTrue(vault.hasRole(assetManagerRole, ownerAddress));
     }
 
     function test_GrantRoleRevertsIfAssetManagerGrantedAdminRole() public {
@@ -1617,15 +1621,17 @@ contract BittyV1VaultTest is Test {
         assertFalse(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
     }
 
-    function test_beginDefaultAdminTransfer_revertsToAssetManager() public {
+    function test_beginDefaultAdminTransfer_allowsAssetManager() public {
         _initializeVault();
 
         vm.prank(ownerAddress);
-        vm.expectRevert(OwnerAndAssetManagerMustDiffer.selector);
         vault.beginDefaultAdminTransfer(assetManagerAddress);
+
+        (address pending,) = vault.pendingDefaultAdmin();
+        assertEq(pending, assetManagerAddress);
     }
 
-    function test_GrantRole_CannotGiveAssetManagerToPendingDefaultAdmin() public {
+    function test_GrantRole_CanGiveAssetManagerToPendingDefaultAdmin() public {
         _initializeVault();
         bytes32 assetManagerRole = vault.ASSET_MANAGER_ROLE();
         address newAdmin = makeAddr("newAdmin");
@@ -1636,15 +1642,15 @@ contract BittyV1VaultTest is Test {
         assertEq(pending, newAdmin);
 
         vm.prank(ownerAddress);
-        vm.expectRevert(OwnerAndAssetManagerMustDiffer.selector);
         vault.grantRole(assetManagerRole, newAdmin);
+        assertTrue(vault.hasRole(assetManagerRole, newAdmin));
 
         vm.warp(block.timestamp + 1 days + 1);
         vm.prank(newAdmin);
         vault.acceptDefaultAdminTransfer();
 
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), newAdmin));
-        assertFalse(vault.hasRole(assetManagerRole, newAdmin));
+        assertTrue(vault.hasRole(assetManagerRole, newAdmin));
     }
 
     function test_renounceDefaultAdmin_requiresTransferToZeroAndDelay() public {
