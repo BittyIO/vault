@@ -258,9 +258,6 @@ interface IBittyV1Vault {
      * @return interval The minimum seconds between quick-pays.
      * @return lastTimestamp The timestamp of the last quick-pay (0 if none yet).
      */
-    function getQuickPayLimit()
-        external
-        view
-        returns (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp);
+    function getQuickPayLimit() external view returns (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp);
 }
 

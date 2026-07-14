@@ -491,11 +491,7 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
      * {QUICK_PAY_ROLE} (a dedicated spending role, not the owner), subject to the per-payment
      * cap and interval configured by the owner.
      */
-    function quickPay(address stableCoin, address to, uint256 amount)
-        external
-        override
-        onlyRole(QUICK_PAY_ROLE)
-    {
+    function quickPay(address stableCoin, address to, uint256 amount) external override onlyRole(QUICK_PAY_ROLE) {
         _vault.quickPay(stableCoin, to, amount);
     }
 
@@ -503,11 +499,7 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
      * @notice Set the quick-pay per-payment cap (in whole tokens) and minimum interval.
      * @dev Owner-only — the owner sets the guardrails; a separate {QUICK_PAY_ROLE} spends within them.
      */
-    function setQuickPayLimit(uint256 maxWholeTokens, uint256 interval)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function setQuickPayLimit(uint256 maxWholeTokens, uint256 interval) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.setQuickPayLimit(maxWholeTokens, interval);
     }
 

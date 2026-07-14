@@ -243,11 +243,7 @@ library VaultLogic {
         view
         returns (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp)
     {
-        return (
-            vaultStorage.quickPayMaxWholeTokens,
-            vaultStorage.quickPayInterval,
-            vaultStorage.lastQuickPayTimestamp
-        );
+        return (vaultStorage.quickPayMaxWholeTokens, vaultStorage.quickPayInterval, vaultStorage.lastQuickPayTimestamp);
     }
 
     function payReceiver(VaultStorage storage vaultStorage, string memory name) external onlyInitialized(vaultStorage) {
