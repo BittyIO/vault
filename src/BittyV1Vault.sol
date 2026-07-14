@@ -455,6 +455,31 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         _vault.payReceiverAmount(receiverName, amount);
     }
 
+    /**
+     * @notice Pay a receiver its full scheduled amount straight out of a staked position.
+     * @dev The reserve keeps earning yield until payment time, and the unstaked asset is
+     * delivered directly to the configured receiver in a single step. The recipient is
+     * hard-sourced from the receiver config (not a parameter), so funds can only ever reach
+     * a configured receiver, never an arbitrary address. Authorization mirrors
+     * {payReceiver} (the receiver's trigger, or anyone if unset).
+     */
+    function payReceiverFromStaking(string memory receiverName, address stakingProtocol) external override {
+        (address receiverAddress, address assetAddress, uint256 payAmount) =
+            _vault.accrueReceiverPaymentOnBehalf(receiverName);
+        _assetManager.unstakeTo(stakingProtocol, assetAddress, payAmount, receiverAddress);
+    }
+
+    /**
+     * @notice Pay a receiver its full scheduled amount straight out of a supplied (lending)
+     * position. See {payReceiverFromStaking} for the recipient-safety guarantees — they
+     * apply identically here.
+     */
+    function payReceiverFromLending(string memory receiverName, address lendingProtocol) external override {
+        (address receiverAddress, address assetAddress, uint256 payAmount) =
+            _vault.accrueReceiverPaymentOnBehalf(receiverName);
+        _assetManager.withdrawTo(lendingProtocol, assetAddress, payAmount, receiverAddress);
+    }
+
     // ============ View ============
 
     function name() external view override returns (string memory) {

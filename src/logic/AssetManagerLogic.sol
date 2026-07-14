@@ -181,6 +181,44 @@ library AssetManagerLogic {
         IBittyV1LendingProtocol(lendingProtocol).withdraw(assetAddress, amount);
     }
 
+    /**
+     * @notice Withdraw a supplied asset straight to `recipient`, bypassing the vault.
+     * @dev Used by the vault's on-behalf receiver payments so the asset is delivered
+     * directly to the configured receiver in a single step. The caller (the vault facade)
+     * is responsible for restricting `recipient` to a configured receiver address — this
+     * library must never be reached with an arbitrary recipient.
+     * @return delivered The amount of `assetAddress` delivered to `recipient`.
+     */
+    function withdrawTo(
+        AssetManagerStorage storage logicStorage,
+        address lendingProtocol,
+        address assetAddress,
+        uint256 amount,
+        address recipient
+    ) external onlyInitialized(logicStorage) returns (uint256 delivered) {
+        if (assetAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (recipient == address(0)) {
+            revert AddressZero();
+        }
+        if (amount == 0) {
+            revert AmountIsZero();
+        }
+        lendingProtocol = logicStorage.clonedProtocols[lendingProtocol];
+        if (lendingProtocol == address(0)) {
+            revert InvalidLendingProtocol();
+        }
+        if (amount != type(uint256).max) {
+            uint256 supplyAmount = IBittyV1LendingProtocol(lendingProtocol).getSuppliedBalance(assetAddress);
+            if (supplyAmount < amount) {
+                revert InsufficientBalance();
+            }
+        }
+        _approveReceiptToken(lendingProtocol, assetAddress);
+        return IBittyV1LendingProtocol(lendingProtocol).withdrawTo(assetAddress, amount, recipient);
+    }
+
     function getSuppliedBalance(AssetManagerStorage storage logicStorage, address lendingProtocol, address assetAddress)
         external
         view
@@ -243,6 +281,44 @@ library AssetManagerLogic {
         }
         _approveReceiptToken(stakingProtocol, assetAddress);
         IBittyV1StakingProtocol(stakingProtocol).unstake(assetAddress, amount);
+    }
+
+    /**
+     * @notice Unstake a staked asset straight to `recipient`, bypassing the vault.
+     * @dev Used by the vault's on-behalf receiver payments so the asset is delivered
+     * directly to the configured receiver in a single step. The caller (the vault facade)
+     * is responsible for restricting `recipient` to a configured receiver address — this
+     * library must never be reached with an arbitrary recipient. Reverts for staking protocols that settle asynchronously.
+     * @return delivered The amount of `assetAddress` delivered to `recipient`.
+     */
+    function unstakeTo(
+        AssetManagerStorage storage logicStorage,
+        address stakingProtocol,
+        address assetAddress,
+        uint256 amount,
+        address recipient
+    ) external onlyInitialized(logicStorage) returns (uint256 delivered) {
+        if (assetAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (recipient == address(0)) {
+            revert AddressZero();
+        }
+        if (amount == 0) {
+            revert AmountIsZero();
+        }
+        stakingProtocol = logicStorage.clonedProtocols[stakingProtocol];
+        if (stakingProtocol == address(0)) {
+            revert InvalidStakingProtocol();
+        }
+        if (amount != type(uint256).max) {
+            uint256 stakingBalance = IBittyV1StakingProtocol(stakingProtocol).getStakedBalance(assetAddress);
+            if (stakingBalance < amount) {
+                revert InsufficientBalance();
+            }
+        }
+        _approveReceiptToken(stakingProtocol, assetAddress);
+        return IBittyV1StakingProtocol(stakingProtocol).unstakeTo(assetAddress, amount, recipient);
     }
 
     function getStakedBalance(AssetManagerStorage storage logicStorage, address stakingProtocol, address assetAddress)

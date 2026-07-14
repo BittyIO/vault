@@ -204,6 +204,27 @@ library VaultLogic {
         string memory name,
         uint256 payAmount
     ) internal {
+        _accrueReceiverPayment(vaultStorage, receiver, name);
+        uint256 paidAmount = _transferMoney(
+            receiver.assetAddress, payAmount, receiver.receiverAddress, receiver.payWithInsufficientBalance
+        );
+        emit IBittyV1Vault.ReceiverPaid(
+            name, receiver.receiverAddress, receiver.assetAddress, paidAmount, receiver.paymentCount
+        );
+    }
+
+    /**
+     * @dev Runs every eligibility check for a scheduled receiver payment and applies its
+     * state effects (advance the duration clock, clear the new-receiver time-lock, and
+     * consume one payment) — but performs no token transfer. Shared by the normal
+     * pay-from-vault-balance path and the on-behalf pay-from-yield path so both honour
+     * identical rules and checks-effects-interactions ordering.
+     */
+    function _accrueReceiverPayment(
+        VaultStorage storage vaultStorage,
+        IBittyV1Vault.Receiver storage receiver,
+        string memory name
+    ) internal {
         if (receiver.amount == 0) {
             revert ReceiverNotFound();
         }
@@ -228,12 +249,35 @@ library VaultLogic {
         }
         vaultStorage.lastReceiveTimestamps[name] = block.timestamp;
         receiver.paymentCount = receiver.paymentCount - 1;
-        uint256 paidAmount = _transferMoney(
-            receiver.assetAddress, payAmount, receiver.receiverAddress, receiver.payWithInsufficientBalance
-        );
-        emit IBittyV1Vault.ReceiverPaid(
-            name, receiver.receiverAddress, receiver.assetAddress, paidAmount, receiver.paymentCount
-        );
+    }
+
+    /**
+     * @notice Accrue a scheduled receiver payment that will be settled by pulling the
+     * asset directly out of a yield position (paid on-behalf, so the asset is delivered
+     * to the receiver without ever touching this vault — see {payReceiverFromStaking} /
+     * {payReceiverFromLending}).
+     * @dev Enforces the same trigger authorization as {payReceiver} and runs all
+     * eligibility checks + state effects up front (checks-effects-interactions), then
+     * returns the details the facade needs to perform the on-behalf withdrawal. The
+     * yield adapter delivers exactly `payAmount`, so {ReceiverPaid} is emitted here.
+     * @return receiverAddress The configured receiver that must receive the funds.
+     * @return assetAddress The asset the receiver is paid in.
+     * @return payAmount The full scheduled payment amount to pull from the yield position.
+     */
+    function accrueReceiverPaymentOnBehalf(VaultStorage storage vaultStorage, string memory name)
+        external
+        onlyInitialized(vaultStorage)
+        returns (address receiverAddress, address assetAddress, uint256 payAmount)
+    {
+        IBittyV1Vault.Receiver storage receiver = vaultStorage.receivers[name];
+        if (receiver.trigger != address(0) && msg.sender != receiver.trigger) {
+            revert ReceiverTriggerError();
+        }
+        payAmount = receiver.amount;
+        _accrueReceiverPayment(vaultStorage, receiver, name);
+        receiverAddress = receiver.receiverAddress;
+        assetAddress = receiver.assetAddress;
+        emit IBittyV1Vault.ReceiverPaid(name, receiverAddress, assetAddress, payAmount, receiver.paymentCount);
     }
 
     function _transferMoney(

@@ -201,5 +201,24 @@ interface IBittyV1Vault {
      * @dev Trigger must be set to execute it, otherwise it may cause some unexpected issues.
      */
     function payReceiverAmount(string memory name, uint256 amount) external;
+
+    /**
+     * @notice Pay a receiver its full scheduled amount directly out of a staked position.
+     * @dev The unstaked asset is delivered on-behalf straight to the configured receiver
+     * in a single step. The recipient is taken from the receiver config, never a parameter
+     * — funds can only reach a configured receiver. Authorization mirrors {payReceiver}.
+     * Only synchronous staking protocols are supported.
+     * @param name The name of the receiver.
+     * @param stakingProtocol The staking protocol to unstake from.
+     */
+    function payReceiverFromStaking(string memory name, address stakingProtocol) external;
+
+    /**
+     * @notice Pay a receiver its full scheduled amount directly out of a supplied (lending)
+     * position. Same recipient-safety guarantees as {payReceiverFromStaking}.
+     * @param name The name of the receiver.
+     * @param lendingProtocol The lending protocol to withdraw from.
+     */
+    function payReceiverFromLending(string memory name, address lendingProtocol) external;
 }
 

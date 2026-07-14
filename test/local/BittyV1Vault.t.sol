@@ -22,11 +22,14 @@ import {
     PayMoreThanReceiverAmount,
     PayReceiverAmountTriggerEmpty,
     ReceiverTriggerError,
+    ReceiverInDuration,
     InsufficientBalance,
     NotInitialized
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {MockStakingProtocol} from "../helpers/MockStakingProtocol.sol";
+import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
@@ -1837,5 +1840,149 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vm.expectRevert(NotRegistered.selector);
         vault.removeAssets(toRemove);
+    }
+
+    // ============ Pay receiver directly from yield (on-behalf) ============
+
+    function _arr(address a) internal pure returns (address[] memory arr) {
+        arr = new address[](1);
+        arr[0] = a;
+    }
+
+    /// @dev Registers a staking mock in the guard + vault, funds the vault, and stakes it.
+    function _setupStakedReserve(MockERC20 usdc, MockStakingProtocol impl, uint256 stakeAmount) internal {
+        vm.prank(ownerAddress);
+        BittyV1Guard(guardAddress).addStakingProtocols(_arr(address(impl)));
+        vm.prank(ownerAddress);
+        vault.addStakingProtocols(_arr(address(impl)));
+
+        usdc.mint(address(vault), stakeAmount);
+        vm.prank(assetManagerAddress);
+        vault.stake(address(impl), address(usdc), stakeAmount);
+    }
+
+    /// @dev Registers a lending mock in the guard + vault, funds the vault, and supplies it.
+    function _setupSuppliedReserve(MockERC20 usdc, MockLendingProtocol impl, uint256 supplyAmount) internal {
+        vm.prank(ownerAddress);
+        BittyV1Guard(guardAddress).addLendingProtocols(_arr(address(impl)));
+        vm.prank(ownerAddress);
+        vault.addLendingProtocols(_arr(address(impl)));
+
+        usdc.mint(address(vault), supplyAmount);
+        vm.prank(assetManagerAddress);
+        vault.supply(address(impl), address(usdc), supplyAmount);
+    }
+
+    function test_payReceiverFromStaking_deliversDirectlyToReceiver() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        MockStakingProtocol impl = new MockStakingProtocol();
+        address receiverAddr = makeAddr("rentReceiver");
+
+        uint256 stakeAmount = 1_000e6;
+        uint256 payAmount = 250e6;
+        _setupStakedReserve(usdc, impl, stakeAmount);
+
+        vm.prank(ownerAddress);
+        vault.addReceiver(
+            "rent", _makeReceiver(receiverAddr, address(0), address(usdc), payAmount, 3, block.timestamp, 1 days, false)
+        );
+
+        // Anyone may trigger a triggerless receiver payment.
+        vm.prank(makeAddr("caller"));
+        vault.payReceiverFromStaking("rent", address(impl));
+
+        // Funds land on the configured receiver, and never on the vault.
+        assertEq(usdc.balanceOf(receiverAddr), payAmount);
+        assertEq(usdc.balanceOf(address(vault)), 0);
+
+        // The yield position paid the exact amount, straight to the receiver.
+        address clone = vault.getClone(address(impl));
+        assertEq(MockStakingProtocol(clone).lastUnstakeRecipient(), receiverAddr);
+        assertEq(MockStakingProtocol(clone).lastUnstakeAmount(), payAmount);
+        assertEq(vault.getStakedBalance(address(impl), address(usdc)), stakeAmount - payAmount);
+    }
+
+    function test_payReceiverFromLending_deliversDirectlyToReceiver() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        address receiverAddr = makeAddr("payrollReceiver");
+
+        uint256 supplyAmount = 800e6;
+        uint256 payAmount = 300e6;
+        _setupSuppliedReserve(usdc, impl, supplyAmount);
+
+        vm.prank(ownerAddress);
+        vault.addReceiver(
+            "payroll",
+            _makeReceiver(receiverAddr, address(0), address(usdc), payAmount, 2, block.timestamp, 1 days, false)
+        );
+
+        vm.prank(makeAddr("caller"));
+        vault.payReceiverFromLending("payroll", address(impl));
+
+        assertEq(usdc.balanceOf(receiverAddr), payAmount);
+        assertEq(usdc.balanceOf(address(vault)), 0);
+
+        address clone = vault.getClone(address(impl));
+        assertEq(MockLendingProtocol(clone).lastWithdrawRecipient(), receiverAddr);
+        assertEq(MockLendingProtocol(clone).lastWithdrawAmount(), payAmount);
+        assertEq(vault.getSuppliedBalance(address(impl), address(usdc)), supplyAmount - payAmount);
+    }
+
+    function test_payReceiverFromStaking_honoursTriggerRestriction() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        MockStakingProtocol impl = new MockStakingProtocol();
+        address receiverAddr = makeAddr("rentReceiver");
+        address trigger = makeAddr("trigger");
+
+        _setupStakedReserve(usdc, impl, 1_000e6);
+
+        vm.prank(ownerAddress);
+        vault.addReceiver(
+            "rent", _makeReceiver(receiverAddr, trigger, address(usdc), 250e6, 3, block.timestamp, 1 days, false)
+        );
+
+        // A stranger cannot pull the payment when a trigger is set.
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(ReceiverTriggerError.selector);
+        vault.payReceiverFromStaking("rent", address(impl));
+
+        // No funds moved on the failed attempt.
+        assertEq(usdc.balanceOf(receiverAddr), 0);
+        assertEq(vault.getStakedBalance(address(impl), address(usdc)), 1_000e6);
+
+        // The configured trigger can, and the money still only goes to the receiver.
+        vm.prank(trigger);
+        vault.payReceiverFromStaking("rent", address(impl));
+        assertEq(usdc.balanceOf(receiverAddr), 250e6);
+        assertEq(usdc.balanceOf(trigger), 0);
+    }
+
+    function test_payReceiverFromStaking_enforcesDurationBetweenPayments() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        MockStakingProtocol impl = new MockStakingProtocol();
+        address receiverAddr = makeAddr("rentReceiver");
+
+        _setupStakedReserve(usdc, impl, 1_000e6);
+
+        vm.prank(ownerAddress);
+        vault.addReceiver(
+            "rent", _makeReceiver(receiverAddr, address(0), address(usdc), 250e6, 3, block.timestamp, 1 days, false)
+        );
+
+        vault.payReceiverFromStaking("rent", address(impl));
+
+        // A second payment within the duration window is rejected.
+        vm.expectRevert(ReceiverInDuration.selector);
+        vault.payReceiverFromStaking("rent", address(impl));
+
+        // After the window it succeeds again.
+        vm.warp(block.timestamp + 1 days + 1);
+        vault.payReceiverFromStaking("rent", address(impl));
+        assertEq(usdc.balanceOf(receiverAddr), 500e6);
     }
 }
