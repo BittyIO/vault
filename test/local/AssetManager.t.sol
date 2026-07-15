@@ -9,9 +9,11 @@ import {
     InvalidAMMProtocol,
     RebalanceDisabled,
     MinimalBalanceNotMet,
+    TradeSizeExceeded,
+    TradeInInterval,
+    TradeMustTouchStableCoin,
     DisableRebalanceUntilTimestampTooEarly,
-    DisableRebalanceUntilTimestampTooLong,
-    ETHBalanceNotEnough
+    DisableRebalanceUntilTimestampTooLong
 } from "../../src/interfaces/IBittyV1AssetManager.sol";
 import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1LendingProtocol} from "protocol-contracts/src/interfaces/IBittyV1LendingProtocol.sol";
@@ -20,7 +22,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
-import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {BittyV1VaultHarness} from "../helpers/BittyV1VaultHarness.sol";
 import {AddingAssetsDisabled, AddingProtocolsDisabled} from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
@@ -28,7 +30,7 @@ import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
 import {MockAMMProtocol} from "../helpers/MockAMMProtocol.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 
-contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
+contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     using Clones for address;
 
     address public guardAddress;
@@ -112,7 +114,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
             lendingProtocols,
             stakingProtocols,
             _single(address(mockAmm)),
-            intentProtocols
+            intentProtocols,
+            address(0)
         );
         _cloneProtocolForTest(address(mockAmm));
     }
@@ -137,7 +140,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
             lendingProtocols,
             stakingProtocols,
             ammProtocols,
-            intentProtocols
+            intentProtocols,
+            address(0)
         );
     }
 
@@ -240,26 +244,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         this.withdraw(address(aaveProtocol), address(0), 1 ether);
     }
 
-    function test_revertETHToWETH() public {
-        this.doInitialize();
-        address stranger = makeAddr("stranger");
-        vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, ASSET_MANAGER_ROLE));
-        this.ETHToWETH(1 ether);
-    }
-
-    function test_ETHToWETHSuccess() public {
-        this.doInitialize();
-        uint256 wethBefore = IERC20(mainnet.WETH).balanceOf(address(this));
-        uint256 amount = 1 ether;
-        vm.deal(address(this), amount);
-        vm.prank(assetManagerAddress);
-        this.ETHToWETH(amount);
-        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)) - wethBefore, amount, 10);
-    }
-
-    /// @dev Regression: plain ETH sends must not revert (BittyV1Vault.receive). Matches wallet "Send ETH" (empty calldata).
-    function test_ethDeposit_viaReceive_thenETHToWETH() public {
+    /// @dev A plain ETH send (empty calldata, matching a wallet "Send ETH") is auto-wrapped to WETH
+    ///      by BittyV1Vault.receive(), leaving the vault holding WETH and no native ETH.
+    function test_ethDeposit_viaReceive_autoWrapsToWETH() public {
         this.doInitialize();
 
         uint256 amount = 0.1 ether;
@@ -272,25 +259,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         (bool success, bytes memory returnData) = address(this).call{value: amount}("");
 
         assertTrue(success, string(returnData));
-        assertEq(address(this).balance - ethBefore, amount);
-        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), wethBefore);
-
-        uint256 ethAfterDeposit = address(this).balance;
-        vm.prank(assetManagerAddress);
-        this.ETHToWETH(amount);
-
-        assertEq(address(this).balance, ethAfterDeposit - amount);
-        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), wethBefore + amount);
-    }
-
-    function test_ETHToWETH_revertsWhenEthBalanceInsufficient() public {
-        this.doInitialize();
-
-        vm.deal(address(this), 0.5 ether);
-
-        vm.prank(assetManagerAddress);
-        vm.expectRevert(ETHBalanceNotEnough.selector);
-        this.ETHToWETH(1 ether);
+        assertEq(address(this).balance, ethBefore);
+        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)) - wethBefore, amount);
     }
 
     function test_SupplyRevertInvalidLendingProtocol() public {
@@ -452,6 +422,29 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         );
     }
 
+    function test_MinimalBalance_CountsSuppliedPosition() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 10 ether);
+
+        // Supply 8 WETH to Aave → spot 2, supplied ~8, total ~10.
+        vm.prank(assetManagerAddress);
+        this.supply(address(aaveProtocol), mainnet.WETH, 8 ether);
+
+        vm.prank(ownerAddress);
+        this.setMinimalBalance(mainnet.WETH, 4 ether);
+
+        uint256 sellAmount = 1 ether;
+        uint256 buyAmountMin = 1;
+        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
+
+        // Spot alone (2 → 1 after the sell) is below the 4-WETH floor, so spot-only accounting would
+        // revert MinimalBalanceNotMet; counting the ~8 supplied lets the total clear the floor.
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+
+        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), 1 ether, 10, "spot WETH after sell");
+    }
+
     function test_RebalanceFromCheck_MinimalBalanceNotMet_WhenSellExceedsBalance() public {
         this.doInitialize();
 
@@ -495,6 +488,104 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), fromBalance - sellAmount, 10);
     }
 
+    function test_SetTradeLimit_RevertsForNonOwner() public {
+        this.doInitialize();
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        this.setTradeLimit(assetManagerAddress, 1 hours, 1000);
+    }
+
+    function test_SetTradeLimit_RevertsAddressZero() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddressZero.selector);
+        this.setTradeLimit(address(0), 1 hours, 1000);
+    }
+
+    function test_TradeLimit_SizeCap_RevertsWhenStableLegExceeds() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 10 ether);
+
+        // Cap the stablecoin leg to 1,000 whole USDT (6 decimals → 1_000e6 raw units).
+        vm.prank(ownerAddress);
+        this.setTradeLimit(assetManagerAddress, 0, 1000);
+
+        // USDT is the buy leg; the declared floor (1_001e6) exceeds the 1_000e6 cap.
+        uint256 buyAmountMin = 1_001 * 1e6;
+        bytes memory swapData = encodeWethToUsdtSwap(1 ether, buyAmountMin);
+
+        vm.expectRevert(TradeSizeExceeded.selector);
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 1 ether, buyAmountMin, swapData);
+    }
+
+    function test_TradeLimit_SizeCap_SucceedsWhenStableLegUnderCap() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 10 ether);
+
+        vm.prank(ownerAddress);
+        this.setTradeLimit(assetManagerAddress, 0, 1000);
+
+        uint256 sellAmount = 0.01 ether;
+        uint256 buyAmountMin = 1;
+        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
+
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+    }
+
+    function test_TradeLimit_SizeCap_RevertsWhenNeitherLegStable() public {
+        this.doInitialize();
+
+        vm.prank(ownerAddress);
+        this.setTradeLimit(assetManagerAddress, 0, 1000);
+
+        // WETH → WBTC: neither token is a stablecoin, so the size is not measurable in dollars.
+        vm.expectRevert(TradeMustTouchStableCoin.selector);
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, WBTC, 1 ether, 1, "");
+    }
+
+    function test_TradeLimit_Interval_ThrottlesSecondTrade() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 10 ether);
+
+        vm.prank(ownerAddress);
+        this.setTradeLimit(assetManagerAddress, 1 hours, 0);
+
+        uint256 sellAmount = 0.01 ether;
+        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, 1);
+
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+
+        vm.expectRevert(TradeInInterval.selector);
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+    }
+
+    function test_TradeLimit_IsPerAssetManager() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 10 ether);
+
+        // A throttle set for a different manager must not restrict this asset manager.
+        vm.prank(ownerAddress);
+        this.setTradeLimit(makeAddr("otherManager"), 1 hours, 1);
+
+        uint256 sellAmount = 0.01 ether;
+        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, 1);
+
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+    }
+
     function test_CheckRebalanceDisabledUntilTimestamp_RevertsWhenBeforeTimestamp() public {
         this.doInitialize();
 
@@ -529,7 +620,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         vm.prank(assetManagerAddress);
         this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
-        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
+        // ~0: the AMM refunds a wei or two of dust ETH, which receive() wraps back into WETH.
+        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), 0, 100);
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_SucceedsWhenNeverDisabled() public {
@@ -543,7 +635,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         vm.prank(assetManagerAddress);
         this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
-        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
+        // ~0: the AMM refunds a wei or two of dust ETH, which receive() wraps back into WETH.
+        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), 0, 100);
     }
 
     function test_DisableRebalanceUntilTimestampTooEarly_RevertsWhenNewTimestampEarlier() public {
@@ -593,7 +686,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
             lendingProtocols,
             stakingProtocols,
             ammProtocols,
-            intentProtocols
+            intentProtocols,
+            address(0)
         );
 
         MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
@@ -930,7 +1024,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
             lendingProtocols,
             stakingProtocols,
             _single(address(mockAmm)),
-            intentProtocols
+            intentProtocols,
+            address(0)
         );
     }
 

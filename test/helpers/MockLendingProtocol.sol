@@ -9,7 +9,7 @@ import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initia
 
 /// @dev Minimal cloneable lending mock used by the local vault tests. It holds the supplied
 /// asset 1:1 and records the recipient of the last on-behalf withdraw so tests can assert
-/// funds are delivered only to the configured receiver.
+/// funds are delivered only to the configured scheduledPayment.
 contract MockLendingProtocol is IBittyV1LendingProtocol, Ownable, Initializable {
     using SafeERC20 for IERC20;
 

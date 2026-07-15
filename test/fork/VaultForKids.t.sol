@@ -4,13 +4,9 @@ pragma solidity ^0.8.34;
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
-import {
-    IBittyV1Vault,
-    ReceiverNotStartYet,
-    OnlyReceiver,
-    AddingAssetsDisabled
-} from "../../src/interfaces/IBittyV1Vault.sol";
+import {IBittyV1Vault, ScheduledPaymentNotStartYet} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 
@@ -26,8 +22,8 @@ contract VaultForKidsForkTest is Test {
     uint256 internal constant PAY_INTERVAL = 30 days;
     uint8 internal constant PAY_COUNT = 120;
     string internal constant VAULT_NAME = "Treasury for Alice";
-    string internal constant RECEIVER_NAME_WBTC = "WBTC for Alice";
-    string internal constant RECEIVER_NAME_WETH = "WETH for Alice";
+    string internal constant SCHEDULED_PAYMENT_NAME_WBTC = "WBTC for Alice";
+    string internal constant SCHEDULED_PAYMENT_NAME_WETH = "WETH for Alice";
 
     BittyV1VaultFactory public factory;
     BittyV1Vault public vaultImpl;
@@ -56,9 +52,10 @@ contract VaultForKidsForkTest is Test {
         vm.stopPrank();
 
         vaultImpl = new BittyV1Vault();
+        BittyV1VaultDeFiFacet defiFacet = new BittyV1VaultDeFiFacet();
         factory = new BittyV1VaultFactory();
         vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(address(vaultImpl), address(guard), mainnet.WETH);
+        factory.initialize(address(vaultImpl), address(defiFacet), address(guard), mainnet.WETH);
 
         parentOwner = address(this);
     }
@@ -79,13 +76,14 @@ contract VaultForKidsForkTest is Test {
         vault = BittyV1Vault(payable(vaultAddr));
     }
 
-    function _makeReceiver(address receiverAddress_, address assetAddress_, uint256 amount_, uint256 startTimestamp_)
-        internal
-        pure
-        returns (IBittyV1Vault.Receiver memory)
-    {
-        return IBittyV1Vault.Receiver({
-            receiverAddress: receiverAddress_,
+    function _makeScheduledPayment(
+        address scheduledPaymentAddress_,
+        address assetAddress_,
+        uint256 amount_,
+        uint256 startTimestamp_
+    ) internal pure returns (IBittyV1Vault.ScheduledPayment memory) {
+        return IBittyV1Vault.ScheduledPayment({
+            scheduledPaymentAddress: scheduledPaymentAddress_,
             trigger: address(0),
             assetAddress: assetAddress_,
             amount: amount_,
@@ -99,7 +97,7 @@ contract VaultForKidsForkTest is Test {
 
     /// @dev Steps from file comments:
     /// 1. Vault limited to WBTC and WETH (deployed through BittyV1VaultFactory on mainnet fork).
-    /// 2. Two receivers pay kids at their 18th birthday.
+    /// 2. Two scheduledPayments pay kids at their 18th birthday.
     /// 3. Parent renounces admin (no on-chain owner).
     /// 4. After the 18th birthday, kids redirect payouts to a new address.
     function test_vaultForKids_fullLifecycle() public {
@@ -109,21 +107,21 @@ contract VaultForKidsForkTest is Test {
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner));
 
         // Step 2: scheduled gifts at 18th birthday
-        IBittyV1Vault.Receiver memory wbtcReceiver =
-            _makeReceiver(ALICE_ADDRESS, WBTC, PAY_AMOUNT_WBTC, EIGHTEEN_TIMESTAMP);
-        IBittyV1Vault.Receiver memory wethReceiver =
-            _makeReceiver(ALICE_ADDRESS, mainnet.WETH, PAY_AMOUNT_WETH, EIGHTEEN_TIMESTAMP);
+        IBittyV1Vault.ScheduledPayment memory wbtcScheduledPayment =
+            _makeScheduledPayment(ALICE_ADDRESS, WBTC, PAY_AMOUNT_WBTC, EIGHTEEN_TIMESTAMP);
+        IBittyV1Vault.ScheduledPayment memory wethScheduledPayment =
+            _makeScheduledPayment(ALICE_ADDRESS, mainnet.WETH, PAY_AMOUNT_WETH, EIGHTEEN_TIMESTAMP);
 
-        vault.addReceiver(RECEIVER_NAME_WBTC, wbtcReceiver);
-        vault.addReceiver(RECEIVER_NAME_WETH, wethReceiver);
+        vault.addScheduledPayment(SCHEDULED_PAYMENT_NAME_WBTC, wbtcScheduledPayment);
+        vault.addScheduledPayment(SCHEDULED_PAYMENT_NAME_WETH, wethScheduledPayment);
 
         uint256 totalWBTCBalance = PAY_COUNT * PAY_AMOUNT_WBTC + 1e5;
         uint256 totalWETHBalance = PAY_COUNT * PAY_AMOUNT_WETH + 0.01 ether;
         deal(WBTC, address(vault), totalWBTCBalance);
         deal(mainnet.WETH, address(vault), totalWETHBalance);
 
-        vm.expectRevert(ReceiverNotStartYet.selector);
-        vault.payReceiver(RECEIVER_NAME_WBTC);
+        vm.expectRevert(ScheduledPaymentNotStartYet.selector);
+        vault.payScheduled(SCHEDULED_PAYMENT_NAME_WBTC);
 
         // Step 3: parent gives up vault admin — no account holds DEFAULT_ADMIN_ROLE afterward
         vm.startPrank(parentOwner);
@@ -135,26 +133,26 @@ contract VaultForKidsForkTest is Test {
         assertFalse(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner));
 
         vm.expectRevert();
-        vault.addReceiver(RECEIVER_NAME_WBTC, wbtcReceiver);
+        vault.addScheduledPayment(SCHEDULED_PAYMENT_NAME_WBTC, wbtcScheduledPayment);
 
         // Step 4: after age 18, kids move gifts to personal wallets and claim
         vm.warp(EIGHTEEN_TIMESTAMP);
 
         vm.prank(ALICE_ADDRESS);
         address newAddress = makeAddr("newAddress");
-        vault.changeReceiverAddress(RECEIVER_NAME_WBTC, newAddress);
+        vault.changeScheduledPaymentAddress(SCHEDULED_PAYMENT_NAME_WBTC, newAddress);
         vm.prank(ALICE_ADDRESS);
-        vault.changeReceiverAddress(RECEIVER_NAME_WETH, newAddress);
+        vault.changeScheduledPaymentAddress(SCHEDULED_PAYMENT_NAME_WETH, newAddress);
 
-        vault.payReceiver(RECEIVER_NAME_WBTC);
-        vault.payReceiver(RECEIVER_NAME_WETH);
+        vault.payScheduled(SCHEDULED_PAYMENT_NAME_WBTC);
+        vault.payScheduled(SCHEDULED_PAYMENT_NAME_WETH);
 
         for (uint256 i = 1; i <= PAY_COUNT; i++) {
             vm.warp(EIGHTEEN_TIMESTAMP + i * PAY_INTERVAL);
             vm.prank(ALICE_ADDRESS);
-            vault.payReceiver(RECEIVER_NAME_WBTC);
+            vault.payScheduled(SCHEDULED_PAYMENT_NAME_WBTC);
             vm.prank(ALICE_ADDRESS);
-            vault.payReceiver(RECEIVER_NAME_WETH);
+            vault.payScheduled(SCHEDULED_PAYMENT_NAME_WETH);
         }
         assertEq(IERC20(WBTC).balanceOf(newAddress), totalWBTCBalance);
         assertEq(IERC20(mainnet.WETH).balanceOf(newAddress), totalWETHBalance);

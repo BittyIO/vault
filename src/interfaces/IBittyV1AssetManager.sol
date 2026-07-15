@@ -4,6 +4,9 @@ pragma solidity ^0.8.34;
 error SellAmountMismatch();
 error BuyAmountNotEnough();
 error MinimalBalanceNotMet();
+error TradeSizeExceeded();
+error TradeInInterval();
+error TradeMustTouchStableCoin();
 error InvalidLendingProtocol();
 error InvalidStakingProtocol();
 error InvalidAMMProtocol();
@@ -13,13 +16,10 @@ error InvalidSwapData();
 error DisableRebalanceUntilTimestampTooEarly();
 error DisableRebalanceUntilTimestampTooLong();
 error RebalanceDisabled();
-error ETHBalanceNotEnough();
-error WETHBalanceNotEnough();
 
 interface IBittyV1AssetManager {
-    event ETHWrapped(uint256 amount);
-    event WETHUnwrapped(uint256 amount);
     event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
+    event TradeLimitSet(address indexed assetManager, uint256 interval, uint256 maxStableCoinSize);
     event RebalanceDisabledUntil(uint256 timestamp);
     event LendingProtocolsAdded(address[] protocols);
     event LendingProtocolsRemoved(address[] protocols);
@@ -29,20 +29,6 @@ interface IBittyV1AssetManager {
     event AMMProtocolsRemoved(address[] protocols);
     event IntentProtocolsAdded(address[] protocols);
     event IntentProtocolsRemoved(address[] protocols);
-
-    /**
-     * @notice Turn the ETH to WETH.
-     * @dev Turn the ETH to WETH.
-     * @param amount The amount of ETH to turn.
-     */
-    function ETHToWETH(uint256 amount) external;
-
-    /**
-     * @notice Turn the WETH to ETH.
-     * @dev Turn the WETH to ETH.
-     * @param amount The amount of WETH to turn.
-     */
-    function WETHToETH(uint256 amount) external;
 
     /**
      * @notice Get the yield providers.
@@ -70,6 +56,19 @@ interface IBittyV1AssetManager {
      *         Use token decimals (e.g. 1e8 = 1 WBTC, 10 ether = 10 WETH). Zero disables the check.
      */
     function setMinimalBalance(address assetAddress, uint256 minimalBalance) external;
+
+    /**
+     * @notice Set per-asset-manager trade guardrails. Owner-only.
+     * @dev `interval` is the minimum seconds between that manager's trades (marketSell/Buy, limit,
+     * TWAP); 0 disables the throttle. `maxStableCoinSize` caps the stablecoin leg of each trade in
+     * whole tokens (no decimals, e.g. 10000 = 10,000 USDC); 0 disables the cap. When a cap is set,
+     * every trade must have a stablecoin as either the sell or buy token (so the size is measurable in
+     * dollars), else it reverts.
+     * @param assetManager The asset-manager address the limits apply to.
+     * @param interval Minimum seconds between trades.
+     * @param maxStableCoinSize Max stablecoin per trade in whole tokens (no decimals).
+     */
+    function setTradeLimit(address assetManager, uint256 interval, uint256 maxStableCoinSize) external;
 
     /**
      * @notice Supply the asset to the lending provider.
