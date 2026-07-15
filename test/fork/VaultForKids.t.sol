@@ -5,12 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
-import {
-    IBittyV1Vault,
-    ReceiverNotStartYet,
-    OnlyReceiver,
-    AddingAssetsDisabled
-} from "../../src/interfaces/IBittyV1Vault.sol";
+import {IBittyV1Vault, ReceiverNotStartYet} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 

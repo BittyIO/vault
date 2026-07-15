@@ -25,7 +25,6 @@ import {
     ReceiverInInterval,
     InsufficientBalance,
     NotInitialized,
-    AddressZero,
     QuickPayAssetNotStableCoin,
     QuickPayExceedsMax,
     QuickPayInInterval

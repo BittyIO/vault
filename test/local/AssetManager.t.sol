@@ -452,6 +452,29 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         );
     }
 
+    function test_MinimalBalance_CountsSuppliedPosition() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 10 ether);
+
+        // Supply 8 WETH to Aave → spot 2, supplied ~8, total ~10.
+        vm.prank(assetManagerAddress);
+        this.supply(address(aaveProtocol), mainnet.WETH, 8 ether);
+
+        vm.prank(ownerAddress);
+        this.setMinimalBalance(mainnet.WETH, 4 ether);
+
+        uint256 sellAmount = 1 ether;
+        uint256 buyAmountMin = 1;
+        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
+
+        // Spot alone (2 → 1 after the sell) is below the 4-WETH floor, so spot-only accounting would
+        // revert MinimalBalanceNotMet; counting the ~8 supplied lets the total clear the floor.
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+
+        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), 1 ether, 10, "spot WETH after sell");
+    }
+
     function test_RebalanceFromCheck_MinimalBalanceNotMet_WhenSellExceedsBalance() public {
         this.doInitialize();
 

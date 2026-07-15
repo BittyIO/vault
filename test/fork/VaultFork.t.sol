@@ -14,7 +14,6 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
 import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Protocol.sol";
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
-import {IBittyV1AssetManager} from "../../src/interfaces/IBittyV1AssetManager.sol";
 
 /// @notice Mainnet fork integration tests for BittyV1Vault with real Aave and Lido providers.
 contract TestVaultFork is Test {

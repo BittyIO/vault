@@ -3,7 +3,6 @@ pragma solidity ^0.8.34;
 
 import "forge-std/console.sol";
 import {Test} from "forge-std/Test.sol";
-import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {AddressZero} from "../../src/interfaces/IBittyV1Vault.sol";

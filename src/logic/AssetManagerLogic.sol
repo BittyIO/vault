@@ -4,7 +4,6 @@ pragma solidity ^0.8.34;
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IBittyV1Guard, NotRegistered, Deprecated} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {
-    IBittyV1AssetManager,
     DisableRebalanceUntilTimestampTooEarly,
     DisableRebalanceUntilTimestampTooLong,
     RebalanceDisabled,
@@ -345,6 +344,39 @@ library AssetManagerLogic {
         return IERC20(assetAddress).balanceOf(address(this));
     }
 
+    /**
+     * @notice The vault's total economic holding of `assetAddress`: the spot balance plus every
+     * supplied (lending) and staked position denominated in the asset. So a minimal-balance reserve
+     * counts assets that are earning yield, not just idle spot.
+     * @dev Per-protocol views are queried through try/catch because they revert for assets a protocol
+     * does not support (e.g. Lido's InvalidAsset); an unsupported/empty position contributes 0.
+     */
+    function _totalBalance(AssetManagerStorage storage logicStorage, address assetAddress)
+        private
+        view
+        returns (uint256 total)
+    {
+        total = _addressBalance(assetAddress);
+
+        uint256 lendingCount = logicStorage.lendingProtocols.length();
+        for (uint256 i = 0; i < lendingCount; i++) {
+            address clone = logicStorage.clonedProtocols[logicStorage.lendingProtocols.at(i)];
+            if (clone == address(0)) continue;
+            try IBittyV1LendingProtocol(clone).getSuppliedBalance(assetAddress) returns (uint256 supplied) {
+                total += supplied;
+            } catch {}
+        }
+
+        uint256 stakingCount = logicStorage.stakingProtocols.length();
+        for (uint256 i = 0; i < stakingCount; i++) {
+            address clone = logicStorage.clonedProtocols[logicStorage.stakingProtocols.at(i)];
+            if (clone == address(0)) continue;
+            try IBittyV1StakingProtocol(clone).getStakedBalance(assetAddress) returns (uint256 staked) {
+                total += staked;
+            } catch {}
+        }
+    }
+
     function _checkAMMProtocol(AssetManagerStorage storage logicStorage, address ammProtocol) private view {
         if (!logicStorage.ammProtocols.contains(ammProtocol)) {
             revert InvalidAMMProtocol();
@@ -378,7 +410,9 @@ library AssetManagerLogic {
         _checkRebalanceDisabledUntilTimestamp(logicStorage);
         uint256 minBal = logicStorage.minimalBalances[from];
         if (minBal > 0) {
-            uint256 bal = _addressBalance(from);
+            // Count spot + supplied + staked so the reserve floor is on the vault's total holding of
+            // `from`, not just idle spot (the sell itself still draws from spot, checked in the swap).
+            uint256 bal = _totalBalance(logicStorage, from);
             if (bal < sellAmount || bal - sellAmount < minBal) revert MinimalBalanceNotMet();
         }
     }
