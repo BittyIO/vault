@@ -484,6 +484,15 @@ library AssetManagerLogic {
      * The assets and AMM protocol are still validated, and delivery is verified on `recipient`. The
      * caller (the vault facade) restricts `recipient` to a configured receiver.
      */
+    /**
+     * @notice Owner-scheduled on-behalf payment: buy exactly `buyAmount` of `to` for ≤ `sellAmountMax`
+     * of `from` and deliver it straight to `recipient` (a configured receiver).
+     * @dev Unlike {marketBuy} this bypasses the asset-manager rebalance guards (rebalance-disabled +
+     * minimal balance) — the receiver schedule is set by the owner, which outranks those asset-manager
+     * restrictions, so a payment goes through even if it would drop `from` below its minimal balance.
+     * The assets and AMM protocol are still validated, and delivery is verified on `recipient`. The
+     * caller (the vault facade) restricts `recipient` to a configured receiver.
+     */
     function buyForReceiver(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,

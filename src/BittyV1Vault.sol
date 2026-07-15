@@ -99,8 +99,6 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         uint256 buyAmountMin,
         bytes memory data
     ) external override onlyRole(ASSET_MANAGER_ROLE) {
-        _vault.checkAsset(from);
-        _vault.checkAsset(to);
         _assetManager.marketSell(_vault, ammProtocol, from, to, sellAmount, buyAmountMin, data);
     }
 
@@ -112,8 +110,6 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         uint256 sellAmountMax,
         bytes memory data
     ) external override onlyRole(ASSET_MANAGER_ROLE) {
-        _vault.checkAsset(from);
-        _vault.checkAsset(to);
         _assetManager.marketBuy(_vault, ammProtocol, from, to, buyAmount, sellAmountMax, data);
     }
 
@@ -154,8 +150,6 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         uint256 buyAmountMin,
         uint32 validTo
     ) external override onlyRole(ASSET_MANAGER_ROLE) returns (bytes32 orderId) {
-        _vault.checkAsset(from);
-        _vault.checkAsset(to);
         return _assetManager.limitSell(_vault, intentProtocol, from, to, sellAmount, buyAmountMin, validTo);
     }
 
@@ -167,8 +161,6 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         uint256 sellAmountMax,
         uint32 validTo
     ) external override onlyRole(ASSET_MANAGER_ROLE) returns (bytes32 orderId) {
-        _vault.checkAsset(from);
-        _vault.checkAsset(to);
         return _assetManager.limitBuy(_vault, intentProtocol, from, to, buyAmount, sellAmountMax, validTo);
     }
 
@@ -194,12 +186,9 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         uint256 partDuration,
         uint256 span
     ) external override onlyRole(ASSET_MANAGER_ROLE) returns (bytes32 twapId) {
-        _vault.checkAsset(from);
-        _vault.checkAsset(to);
-        return
-            _assetManager.twapSell(
-                _vault, intentProtocol, from, to, totalSellAmount, minPartLimit, n, partDuration, span
-            );
+        return _assetManager.twapSell(
+            _vault, intentProtocol, from, to, totalSellAmount, minPartLimit, n, partDuration, span
+        );
     }
 
     function cancelTwapOrder(address intentProtocol, bytes32 twapId) external override onlyRole(ASSET_MANAGER_ROLE) {
@@ -216,8 +205,6 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         uint256 partDuration,
         uint256 span
     ) external override onlyRole(ASSET_MANAGER_ROLE) returns (bytes32 twapId) {
-        _vault.checkAsset(from);
-        _vault.checkAsset(to);
         return _assetManager.twapBuy(
             _vault, intentProtocol, from, to, totalBuyAmount, sellAmountPerPart, n, partDuration, span
         );
@@ -505,9 +492,6 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
     ) external override {
         (address receiverAddress, address assetAddress, uint256 payAmount) =
             _vault.accrueReceiverPaymentOnBehalf(receiverName);
-        // buyForReceiver buys exactly `payAmount` of the receiver's asset and delivers it straight to
-        // the configured receiver, bypassing the asset-manager rebalance guards (the owner-set receiver
-        // schedule outranks them, so a payment goes through even below the minimal balance).
         _assetManager.buyForReceiver(
             _vault, ammProtocol, fromAsset, assetAddress, payAmount, sellAmountMax, receiverAddress, data
         );
