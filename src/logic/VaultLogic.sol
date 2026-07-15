@@ -54,8 +54,8 @@ library VaultLogic {
      * Default quick-pay per-payment cap (in whole tokens) and minimum interval. The owner
      * can change both at any time via {setQuickPayLimit}.
      */
-    uint256 constant QUICK_PAY_DEFAULT_MAX_WHOLE_TOKENS = 1000;
-    uint256 constant QUICK_PAY_DEFAULT_INTERVAL = 1 days;
+    uint64 constant QUICK_PAY_DEFAULT_MAX_WHOLE_TOKENS = 1000;
+    uint64 constant QUICK_PAY_DEFAULT_INTERVAL = 1 days;
 
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
@@ -194,8 +194,8 @@ library VaultLogic {
         external
         onlyInitialized(vaultStorage)
     {
-        vaultStorage.quickPayMaxWholeTokens = maxWholeTokens;
-        vaultStorage.quickPayInterval = interval;
+        vaultStorage.quickPayMaxWholeTokens = uint64(maxWholeTokens);
+        vaultStorage.quickPayInterval = uint64(interval);
         emit IBittyV1Vault.QuickPayLimitSet(maxWholeTokens, interval);
     }
 
@@ -233,7 +233,7 @@ library VaultLogic {
             revert QuickPayInInterval();
         }
 
-        vaultStorage.lastQuickPayTimestamp = block.timestamp;
+        vaultStorage.lastQuickPayTimestamp = uint128(block.timestamp);
         IERC20(stableCoin).safeTransfer(to, amount);
         emit IBittyV1Vault.QuickPaid(stableCoin, to, amount);
     }

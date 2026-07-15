@@ -9,6 +9,9 @@ import {
     InvalidAMMProtocol,
     RebalanceDisabled,
     MinimalBalanceNotMet,
+    TradeSizeExceeded,
+    TradeInInterval,
+    TradeMustTouchStableCoin,
     DisableRebalanceUntilTimestampTooEarly,
     DisableRebalanceUntilTimestampTooLong,
     ETHBalanceNotEnough
@@ -516,6 +519,104 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
         assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), fromBalance - sellAmount, 10);
+    }
+
+    function test_SetTradeLimit_RevertsForNonOwner() public {
+        this.doInitialize();
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        this.setTradeLimit(assetManagerAddress, 1 hours, 1000);
+    }
+
+    function test_SetTradeLimit_RevertsAddressZero() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddressZero.selector);
+        this.setTradeLimit(address(0), 1 hours, 1000);
+    }
+
+    function test_TradeLimit_SizeCap_RevertsWhenStableLegExceeds() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 10 ether);
+
+        // Cap the stablecoin leg to 1,000 whole USDT (6 decimals → 1_000e6 raw units).
+        vm.prank(ownerAddress);
+        this.setTradeLimit(assetManagerAddress, 0, 1000);
+
+        // USDT is the buy leg; the declared floor (1_001e6) exceeds the 1_000e6 cap.
+        uint256 buyAmountMin = 1_001 * 1e6;
+        bytes memory swapData = encodeWethToUsdtSwap(1 ether, buyAmountMin);
+
+        vm.expectRevert(TradeSizeExceeded.selector);
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 1 ether, buyAmountMin, swapData);
+    }
+
+    function test_TradeLimit_SizeCap_SucceedsWhenStableLegUnderCap() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 10 ether);
+
+        vm.prank(ownerAddress);
+        this.setTradeLimit(assetManagerAddress, 0, 1000);
+
+        uint256 sellAmount = 0.01 ether;
+        uint256 buyAmountMin = 1;
+        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
+
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+    }
+
+    function test_TradeLimit_SizeCap_RevertsWhenNeitherLegStable() public {
+        this.doInitialize();
+
+        vm.prank(ownerAddress);
+        this.setTradeLimit(assetManagerAddress, 0, 1000);
+
+        // WETH → WBTC: neither token is a stablecoin, so the size is not measurable in dollars.
+        vm.expectRevert(TradeMustTouchStableCoin.selector);
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, WBTC, 1 ether, 1, "");
+    }
+
+    function test_TradeLimit_Interval_ThrottlesSecondTrade() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 10 ether);
+
+        vm.prank(ownerAddress);
+        this.setTradeLimit(assetManagerAddress, 1 hours, 0);
+
+        uint256 sellAmount = 0.01 ether;
+        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, 1);
+
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+
+        vm.expectRevert(TradeInInterval.selector);
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+    }
+
+    function test_TradeLimit_IsPerAssetManager() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 10 ether);
+
+        // A throttle set for a different manager must not restrict this asset manager.
+        vm.prank(ownerAddress);
+        this.setTradeLimit(makeAddr("otherManager"), 1 hours, 1);
+
+        uint256 sellAmount = 0.01 ether;
+        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, 1);
+
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+        vm.prank(assetManagerAddress);
+        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_RevertsWhenBeforeTimestamp() public {

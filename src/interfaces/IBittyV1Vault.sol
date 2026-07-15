@@ -76,16 +76,16 @@ interface IBittyV1Vault {
     struct Receiver {
         // a more complex receiver contract can be implemented for advanced users out of this repo
         address receiverAddress;
+        uint8 paymentCount;
+        bool isImmutable;
+        // if this is true, then the payment will not revert if the balance is insufficient
+        bool payWithInsufficientBalance;
         // if this is not address(0), then only this trigger address can trigger the payment
         address trigger;
         address assetAddress;
         uint256 amount;
-        uint8 paymentCount;
         uint256 startTimestamp;
         uint256 paymentInterval;
-        bool isImmutable;
-        // if this is true, then the payment will not revert if the balance is insufficient
-        bool payWithInsufficientBalance;
     }
 
     /**

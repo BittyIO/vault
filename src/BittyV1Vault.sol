@@ -290,6 +290,15 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         emit MinimalBalanceSet(assetAddress, newMinimalBalance);
     }
 
+    function setTradeLimit(address assetManager, uint256 interval, uint256 maxStableCoinSize)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _assetManager.setTradeLimit(assetManager, interval, maxStableCoinSize);
+        emit TradeLimitSet(assetManager, interval, maxStableCoinSize);
+    }
+
     function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyRole(ASSET_MANAGER_ROLE) {
         _assetManager.disableRebalanceUntilTimestamp(timestamp);
         emit RebalanceDisabledUntil(timestamp);
