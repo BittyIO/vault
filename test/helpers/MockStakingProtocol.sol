@@ -30,11 +30,7 @@ contract MockStakingProtocol is IBittyV1StakingProtocol, Ownable, Initializable 
         return IERC20(asset).balanceOf(address(this));
     }
 
-    function unstake(address asset, uint256 amount) external override onlyOwner {
-        _unstake(asset, amount, msg.sender);
-    }
-
-    function unstakeTo(address asset, uint256 amount, address recipient) external override onlyOwner returns (uint256) {
+    function unstake(address asset, uint256 amount, address recipient) external override onlyOwner returns (uint256) {
         return _unstake(asset, amount, recipient);
     }
 

@@ -155,41 +155,14 @@ library AssetManagerLogic {
         IBittyV1LendingProtocol(lendingProtocol).supply(assetAddress, amount);
     }
 
-    function withdraw(
-        AssetManagerStorage storage logicStorage,
-        address lendingProtocol,
-        address assetAddress,
-        uint256 amount
-    ) external onlyInitialized(logicStorage) {
-        if (assetAddress == address(0)) {
-            revert AddressZero();
-        }
-        if (amount == 0) {
-            revert AmountIsZero();
-        }
-        lendingProtocol = logicStorage.clonedProtocols[lendingProtocol];
-        if (lendingProtocol == address(0)) {
-            revert InvalidLendingProtocol();
-        }
-        if (amount != type(uint256).max) {
-            uint256 supplyAmount = IBittyV1LendingProtocol(lendingProtocol).getSuppliedBalance(assetAddress);
-            if (supplyAmount < amount) {
-                revert InsufficientBalance();
-            }
-        }
-        _approveReceiptToken(lendingProtocol, assetAddress);
-        IBittyV1LendingProtocol(lendingProtocol).withdraw(assetAddress, amount);
-    }
-
     /**
-     * @notice Withdraw a supplied asset straight to `recipient`, bypassing the vault.
-     * @dev Used by the vault's on-behalf receiver payments so the asset is delivered
-     * directly to the configured receiver in a single step. The caller (the vault facade)
-     * is responsible for restricting `recipient` to a configured receiver address — this
-     * library must never be reached with an arbitrary recipient.
+     * @notice Withdraw a supplied asset, delivered to `recipient`.
+     * @dev Pass the vault as `recipient` for a normal withdrawal, or a configured receiver for an
+     * on-behalf payment so the asset is delivered directly in a single step. The caller (the vault
+     * facade) is responsible for restricting `recipient` to the vault or a configured receiver.
      * @return delivered The amount of `assetAddress` delivered to `recipient`.
      */
-    function withdrawTo(
+    function withdraw(
         AssetManagerStorage storage logicStorage,
         address lendingProtocol,
         address assetAddress,
@@ -199,9 +172,6 @@ library AssetManagerLogic {
         if (assetAddress == address(0)) {
             revert AddressZero();
         }
-        if (recipient == address(0)) {
-            revert AddressZero();
-        }
         if (amount == 0) {
             revert AmountIsZero();
         }
@@ -216,7 +186,7 @@ library AssetManagerLogic {
             }
         }
         _approveReceiptToken(lendingProtocol, assetAddress);
-        return IBittyV1LendingProtocol(lendingProtocol).withdrawTo(assetAddress, amount, recipient);
+        return IBittyV1LendingProtocol(lendingProtocol).withdraw(assetAddress, amount, recipient);
     }
 
     function getSuppliedBalance(AssetManagerStorage storage logicStorage, address lendingProtocol, address assetAddress)
@@ -257,41 +227,15 @@ library AssetManagerLogic {
         IBittyV1StakingProtocol(stakingProtocol).stake(assetAddress, amount);
     }
 
-    function unstake(
-        AssetManagerStorage storage logicStorage,
-        address stakingProtocol,
-        address assetAddress,
-        uint256 amount
-    ) external onlyInitialized(logicStorage) {
-        if (assetAddress == address(0)) {
-            revert AddressZero();
-        }
-        if (amount == 0) {
-            revert AmountIsZero();
-        }
-        stakingProtocol = logicStorage.clonedProtocols[stakingProtocol];
-        if (stakingProtocol == address(0)) {
-            revert InvalidStakingProtocol();
-        }
-        if (amount != type(uint256).max) {
-            uint256 stakingBalance = IBittyV1StakingProtocol(stakingProtocol).getStakedBalance(assetAddress);
-            if (stakingBalance < amount) {
-                revert InsufficientBalance();
-            }
-        }
-        _approveReceiptToken(stakingProtocol, assetAddress);
-        IBittyV1StakingProtocol(stakingProtocol).unstake(assetAddress, amount);
-    }
-
     /**
-     * @notice Unstake a staked asset straight to `recipient`, bypassing the vault.
-     * @dev Used by the vault's on-behalf receiver payments so the asset is delivered
-     * directly to the configured receiver in a single step. The caller (the vault facade)
-     * is responsible for restricting `recipient` to a configured receiver address — this
-     * library must never be reached with an arbitrary recipient. Reverts for staking protocols that settle asynchronously.
+     * @notice Unstake a staked asset, delivered to `recipient`.
+     * @dev Pass the vault as `recipient` for a normal unstake, or a configured receiver for an
+     * on-behalf payment so the asset is delivered directly in a single step. The caller (the vault
+     * facade) is responsible for restricting `recipient` to the vault or a configured receiver.
+     * Reverts for staking protocols that settle asynchronously when `recipient` is not the vault.
      * @return delivered The amount of `assetAddress` delivered to `recipient`.
      */
-    function unstakeTo(
+    function unstake(
         AssetManagerStorage storage logicStorage,
         address stakingProtocol,
         address assetAddress,
@@ -301,9 +245,6 @@ library AssetManagerLogic {
         if (assetAddress == address(0)) {
             revert AddressZero();
         }
-        if (recipient == address(0)) {
-            revert AddressZero();
-        }
         if (amount == 0) {
             revert AmountIsZero();
         }
@@ -318,7 +259,7 @@ library AssetManagerLogic {
             }
         }
         _approveReceiptToken(stakingProtocol, assetAddress);
-        return IBittyV1StakingProtocol(stakingProtocol).unstakeTo(assetAddress, amount, recipient);
+        return IBittyV1StakingProtocol(stakingProtocol).unstake(assetAddress, amount, recipient);
     }
 
     function getStakedBalance(AssetManagerStorage storage logicStorage, address stakingProtocol, address assetAddress)
@@ -494,6 +435,10 @@ library AssetManagerLogic {
         IBittyV1AMMProtocol(clone).claimAMMFees(data);
     }
 
+    /**
+     * @notice Asset-manager rebalance: sell exactly `sellAmount` of `from` for ≥ `buyAmountMin` of
+     * `to`, back into the vault. Subject to the rebalance guards (rebalance-disabled + minimal balance).
+     */
     function marketSell(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
@@ -507,9 +452,13 @@ library AssetManagerLogic {
         _checkAMMProtocol(logicStorage, ammProtocol);
         if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
         _validateRebalance(logicStorage, vaultStorage, from, to, sellAmount);
-        _swapExactIn(logicStorage, ammProtocol, from, sellAmount, to, buyAmountMin, data);
+        _swapExactIn(logicStorage, ammProtocol, from, sellAmount, to, buyAmountMin, address(this), data);
     }
 
+    /**
+     * @notice Asset-manager rebalance: buy exactly `buyAmount` of `to` for ≤ `sellAmountMax` of `from`,
+     * back into the vault. Subject to the rebalance guards (rebalance-disabled + minimal balance).
+     */
     function marketBuy(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
@@ -523,7 +472,34 @@ library AssetManagerLogic {
         _checkAMMProtocol(logicStorage, ammProtocol);
         if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
         _validateRebalance(logicStorage, vaultStorage, from, to, sellAmountMax);
-        _swapExactOut(logicStorage, ammProtocol, from, sellAmountMax, to, buyAmount, data);
+        _swapExactOut(logicStorage, ammProtocol, from, sellAmountMax, to, buyAmount, address(this), data);
+    }
+
+    /**
+     * @notice Owner-scheduled on-behalf payment: buy exactly `buyAmount` of `to` for ≤ `sellAmountMax`
+     * of `from` and deliver it straight to `recipient` (a configured receiver).
+     * @dev Unlike {marketBuy} this bypasses the asset-manager rebalance guards (rebalance-disabled +
+     * minimal balance) — the receiver schedule is set by the owner, which outranks those asset-manager
+     * restrictions, so a payment goes through even if it would drop `from` below its minimal balance.
+     * The assets and AMM protocol are still validated, and delivery is verified on `recipient`. The
+     * caller (the vault facade) restricts `recipient` to a configured receiver.
+     */
+    function buyForReceiver(
+        AssetManagerStorage storage logicStorage,
+        VaultStorage storage vaultStorage,
+        address ammProtocol,
+        address from,
+        address to,
+        uint256 buyAmount,
+        uint256 sellAmountMax,
+        address recipient,
+        bytes memory data
+    ) external onlyInitialized(logicStorage) {
+        _checkAMMProtocol(logicStorage, ammProtocol);
+        if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
+        VaultLogic.checkAsset(vaultStorage, from);
+        VaultLogic.checkAsset(vaultStorage, to);
+        _swapExactOut(logicStorage, ammProtocol, from, sellAmountMax, to, buyAmount, recipient, data);
     }
 
     function _swapExactIn(
@@ -533,6 +509,7 @@ library AssetManagerLogic {
         uint256 sellAmount,
         address toAssetAddress,
         uint256 buyAmountMin,
+        address recipient,
         bytes memory data
     ) private {
         if (sellAmount == 0 || buyAmountMin == 0) revert AmountIsZero();
@@ -545,16 +522,19 @@ library AssetManagerLogic {
 
         uint256 sellAssetBalanceBefore = _addressBalance(sellAssetAddress);
         if (sellAssetBalanceBefore < sellAmount) revert InsufficientBalance();
-        uint256 buyAssetBalanceBefore = _addressBalance(toAssetAddress);
+
+        uint256 recipientBuyBalanceBefore = IERC20(toAssetAddress).balanceOf(recipient);
 
         ammProtocol = _cloneProtocol(logicStorage, ammProtocol);
         if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmount) {
             IERC20(sellAssetAddress).forceApprove(ammProtocol, type(uint256).max);
         }
-        IBittyV1AMMProtocol(ammProtocol).swap(data);
+        IBittyV1AMMProtocol(ammProtocol).swap(data, recipient);
 
         if (_addressBalance(sellAssetAddress) != sellAssetBalanceBefore - sellAmount) revert SellAmountMismatch();
-        if (_addressBalance(toAssetAddress) - buyAssetBalanceBefore < buyAmountMin) revert BuyAmountNotEnough();
+        if (IERC20(toAssetAddress).balanceOf(recipient) - recipientBuyBalanceBefore < buyAmountMin) {
+            revert BuyAmountNotEnough();
+        }
     }
 
     function _swapExactOut(
@@ -564,6 +544,7 @@ library AssetManagerLogic {
         uint256 sellAmountMax,
         address toAssetAddress,
         uint256 buyAmount,
+        address recipient,
         bytes memory data
     ) private {
         if (buyAmount == 0 || sellAmountMax == 0) revert AmountIsZero();
@@ -576,16 +557,19 @@ library AssetManagerLogic {
 
         uint256 sellAssetBalanceBefore = _addressBalance(sellAssetAddress);
         if (sellAssetBalanceBefore < sellAmountMax) revert InsufficientBalance();
-        uint256 buyAssetBalanceBefore = _addressBalance(toAssetAddress);
+
+        uint256 recipientBuyBalanceBefore = IERC20(toAssetAddress).balanceOf(recipient);
 
         ammProtocol = _cloneProtocol(logicStorage, ammProtocol);
         if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmountMax) {
             IERC20(sellAssetAddress).forceApprove(ammProtocol, type(uint256).max);
         }
-        IBittyV1AMMProtocol(ammProtocol).swapExactOut(data);
+        IBittyV1AMMProtocol(ammProtocol).swapExactOut(data, recipient);
 
         if (sellAssetBalanceBefore - _addressBalance(sellAssetAddress) > sellAmountMax) revert SellAmountMismatch();
-        if (_addressBalance(toAssetAddress) - buyAssetBalanceBefore < buyAmount) revert BuyAmountNotEnough();
+        if (IERC20(toAssetAddress).balanceOf(recipient) - recipientBuyBalanceBefore < buyAmount) {
+            revert BuyAmountNotEnough();
+        }
     }
 
     function disableRebalanceUntilTimestamp(AssetManagerStorage storage logicStorage, uint256 timestamp)
@@ -761,7 +745,7 @@ library AssetManagerLogic {
         bytes memory data = abi.encode(sellAssetAddress, sellAmount, toAssetAddress, buyAmountMin, validTo, isSellOrder);
 
         IBittyV1IntentProtocol.OrderInstructions memory instr =
-            IBittyV1IntentProtocol(clone).buildLimitOrderInstructions(data);
+            IBittyV1IntentProtocol(clone).buildLimitOrderInstructions(data, address(this));
         orderId = instr.orderId;
 
         if (instr.registerTarget != address(0)) {
@@ -794,8 +778,10 @@ library AssetManagerLogic {
         emit IBittyV1IntentProtocol.OrderCancelled(orderId, address(this));
     }
 
-    /// @notice Permissionless cleanup of expired limit orders (does not affect TWAP orders).
-    ///         Reverts if any order is still live.
+    /**
+     * @notice Permissionless cleanup of expired limit orders (does not affect TWAP orders).
+     *         Reverts if any order is still live.
+     */
     function cleanExpiredLimitOrders(
         AssetManagerStorage storage logicStorage,
         address intentProtocol,
@@ -854,8 +840,6 @@ library AssetManagerLogic {
         _validateRebalance(logicStorage, vaultStorage, from, to, totalSellAmount);
 
         address clone = _cloneProtocol(logicStorage, intentProtocol);
-        // The protocol clone derives the per-TWAP appData salt on-chain (block.timestamp),
-        // so no salt is threaded through here — the fee stays contract-enforced.
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
 
         (IBittyV1IntentProtocol.OrderInstructions memory instr, uint256 expiresAt_) =

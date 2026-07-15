@@ -30,16 +30,7 @@ contract MockLendingProtocol is IBittyV1LendingProtocol, Ownable, Initializable 
         return IERC20(asset).balanceOf(address(this));
     }
 
-    function withdraw(address asset, uint256 amount) external override onlyOwner {
-        _withdraw(asset, amount, msg.sender);
-    }
-
-    function withdrawTo(address asset, uint256 amount, address recipient)
-        external
-        override
-        onlyOwner
-        returns (uint256)
-    {
+    function withdraw(address asset, uint256 amount, address recipient) external override onlyOwner returns (uint256) {
         return _withdraw(asset, amount, recipient);
     }
 

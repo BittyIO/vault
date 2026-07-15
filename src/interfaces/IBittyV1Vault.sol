@@ -229,6 +229,25 @@ interface IBittyV1Vault {
     function payReceiverFromLending(string memory name, address lendingProtocol) external;
 
     /**
+     * @notice Pay a receiver its full scheduled amount by swapping a vault asset into the receiver's
+     * asset and delivering it directly (exact-output; the receiver gets exactly its scheduled amount).
+     * Same recipient-safety guarantees as {payReceiverFromStaking} — the recipient is the configured
+     * receiver, never a parameter.
+     * @param name The name of the receiver.
+     * @param ammProtocol The AMM protocol to route the swap through.
+     * @param fromAsset The vault asset spent to buy the receiver's asset.
+     * @param sellAmountMax The maximum amount of `fromAsset` to spend.
+     * @param data abi.encode(fromAsset, sellAmountMax, receiverAsset, payAmount, reversedPath).
+     */
+    function payReceiverFromSwap(
+        string memory name,
+        address ammProtocol,
+        address fromAsset,
+        uint256 sellAmountMax,
+        bytes memory data
+    ) external;
+
+    /**
      * @notice Send stablecoin from the vault's balance directly to any address (a one-off
      * payment that does not require registering a receiver).
      * @dev Callable by holders of the dedicated quick-pay role (QUICK_PAY_ROLE) — separate

@@ -47,15 +47,19 @@ contract MockIntentProtocol is IBittyV1IntentProtocol {
         validHash[hash] = ok;
     }
 
-    function buildLimitOrderInstructions(bytes memory data)
+    function buildLimitOrderInstructions(bytes memory data, address recipient)
         external
         view
         override
         returns (OrderInstructions memory instr)
     {
+        return _buildLimit(data, keccak256(abi.encode(data, recipient)));
+    }
+
+    function _buildLimit(bytes memory data, bytes32 orderId) internal view returns (OrderInstructions memory instr) {
         (address sellToken, uint256 sellAmount,,,,) =
             abi.decode(data, (address, uint256, address, uint256, uint32, bool));
-        instr.orderId = keccak256(data);
+        instr.orderId = orderId;
         instr.sellToken = sellToken;
         instr.sellAmount = sellAmount;
         instr.approveTarget = skipApprove ? address(0) : registry;

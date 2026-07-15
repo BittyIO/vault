@@ -246,7 +246,7 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         override
         onlyRole(ASSET_MANAGER_ROLE)
     {
-        _assetManager.withdraw(lendingProtocol, assetAddress, amount);
+        _assetManager.withdraw(lendingProtocol, assetAddress, amount, address(this));
     }
 
     function getSuppliedBalance(address lendingProtocol, address assetAddress)
@@ -273,7 +273,7 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
         override
         onlyRole(ASSET_MANAGER_ROLE)
     {
-        _assetManager.unstake(stakingProtocol, asset, amount);
+        _assetManager.unstake(stakingProtocol, asset, amount, address(this));
     }
 
     function getStakedBalance(address stakingProtocol, address asset) external view override returns (uint256) {
@@ -470,7 +470,7 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
     function payReceiverFromStaking(string memory receiverName, address stakingProtocol) external override {
         (address receiverAddress, address assetAddress, uint256 payAmount) =
             _vault.accrueReceiverPaymentOnBehalf(receiverName);
-        _assetManager.unstakeTo(stakingProtocol, assetAddress, payAmount, receiverAddress);
+        _assetManager.unstake(stakingProtocol, assetAddress, payAmount, receiverAddress);
     }
 
     /**
@@ -481,7 +481,36 @@ contract BittyV1Vault is IBittyV1Vault, IBittyV1AssetManager, AccessControlDefau
     function payReceiverFromLending(string memory receiverName, address lendingProtocol) external override {
         (address receiverAddress, address assetAddress, uint256 payAmount) =
             _vault.accrueReceiverPaymentOnBehalf(receiverName);
-        _assetManager.withdrawTo(lendingProtocol, assetAddress, payAmount, receiverAddress);
+        _assetManager.withdraw(lendingProtocol, assetAddress, payAmount, receiverAddress);
+    }
+
+    /**
+     * @notice Pay a receiver its full scheduled amount by swapping a vault asset into the receiver's
+     * asset and delivering it directly. The swap buys exactly the scheduled amount (exact-output,
+     * spending ≤ `sellAmountMax` of `fromAsset`) and settles it straight to the configured receiver in
+     * a single step. As with {payReceiverFromLending}/{payReceiverFromStaking}, the recipient is
+     * hard-sourced from the receiver config, so funds can only ever reach a configured receiver.
+     * @param receiverName  The configured receiver to pay.
+     * @param ammProtocol   The AMM protocol to route the swap through.
+     * @param fromAsset     The vault asset spent to buy the receiver's asset.
+     * @param sellAmountMax The maximum amount of `fromAsset` to spend (slippage bound).
+     * @param data          abi.encode(fromAsset, sellAmountMax, receiverAsset, payAmount, reversedPath).
+     */
+    function payReceiverFromSwap(
+        string memory receiverName,
+        address ammProtocol,
+        address fromAsset,
+        uint256 sellAmountMax,
+        bytes memory data
+    ) external override {
+        (address receiverAddress, address assetAddress, uint256 payAmount) =
+            _vault.accrueReceiverPaymentOnBehalf(receiverName);
+        // buyForReceiver buys exactly `payAmount` of the receiver's asset and delivers it straight to
+        // the configured receiver, bypassing the asset-manager rebalance guards (the owner-set receiver
+        // schedule outranks them, so a payment goes through even below the minimal balance).
+        _assetManager.buyForReceiver(
+            _vault, ammProtocol, fromAsset, assetAddress, payAmount, sellAmountMax, receiverAddress, data
+        );
     }
 
     // ============ Quick-pay ============

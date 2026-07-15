@@ -34,6 +34,7 @@ import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockStakingProtocol} from "../helpers/MockStakingProtocol.sol";
 import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
+import {MockAMMProtocol} from "../helpers/MockAMMProtocol.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
@@ -1892,15 +1893,13 @@ contract BittyV1VaultTest is Test {
             "rent", _makeReceiver(receiverAddr, address(0), address(usdc), payAmount, 3, block.timestamp, 1 days, false)
         );
 
-        // Anyone may trigger a triggerless receiver payment.
+        // Triggerless receiver → callable by anyone.
         vm.prank(makeAddr("caller"));
         vault.payReceiverFromStaking("rent", address(impl));
 
-        // Funds land on the configured receiver, and never on the vault.
         assertEq(usdc.balanceOf(receiverAddr), payAmount);
         assertEq(usdc.balanceOf(address(vault)), 0);
 
-        // The yield position paid the exact amount, straight to the receiver.
         address clone = vault.getClone(address(impl));
         assertEq(MockStakingProtocol(clone).lastUnstakeRecipient(), receiverAddr);
         assertEq(MockStakingProtocol(clone).lastUnstakeAmount(), payAmount);
@@ -1935,6 +1934,87 @@ contract BittyV1VaultTest is Test {
         assertEq(vault.getSuppliedBalance(address(impl), address(usdc)), supplyAmount - payAmount);
     }
 
+    function test_payReceiverFromSwap_deliversDirectlyToReceiver() public {
+        _initializeVault();
+        MockERC20 fromAsset = new MockERC20("Wrapped Ether", "WETH", 18);
+        MockERC20 payAsset = new MockERC20("USD Coin", "USDC", 6);
+        MockAMMProtocol amm = new MockAMMProtocol();
+        address receiverAddr = makeAddr("swapReceiver");
+
+        vm.startPrank(ownerAddress);
+        BittyV1Guard(guardAddress).addAssets(_arr(address(fromAsset)));
+        BittyV1Guard(guardAddress).addAssets(_arr(address(payAsset)));
+        vault.addAssets(_arr(address(fromAsset)));
+        vault.addAssets(_arr(address(payAsset)));
+        BittyV1Guard(guardAddress).addAMMProtocols(_arr(address(amm)));
+        vault.addAMMProtocols(_arr(address(amm)));
+        vm.stopPrank();
+
+        uint256 sellAmountMax = 1 ether;
+        uint256 payAmount = 300e6;
+        fromAsset.mint(address(vault), sellAmountMax);
+
+        vm.prank(ownerAddress);
+        vault.addReceiver(
+            "payroll",
+            _makeReceiver(receiverAddr, address(0), address(payAsset), payAmount, 2, block.timestamp, 1 days, false)
+        );
+
+        bytes memory data = abi.encode(address(fromAsset), sellAmountMax, address(payAsset), payAmount, bytes(""));
+
+        // Triggerless receiver → callable by anyone.
+        vm.prank(makeAddr("caller"));
+        vault.payReceiverFromSwap("payroll", address(amm), address(fromAsset), sellAmountMax, data);
+
+        assertEq(payAsset.balanceOf(receiverAddr), payAmount, "receiver paid exactly the scheduled amount");
+        assertEq(payAsset.balanceOf(address(vault)), 0, "vault holds none of the bought asset");
+        assertEq(fromAsset.balanceOf(address(vault)), 0, "vault spent the sell asset");
+
+        address clone = vault.getClone(address(amm));
+        assertEq(MockAMMProtocol(clone).lastSwapRecipient(), receiverAddr, "swap delivered to the receiver");
+        assertEq(MockAMMProtocol(clone).lastSwapBuyAmount(), payAmount);
+    }
+
+    function test_payReceiverFromSwap_bypassesMinimalBalanceGuard() public {
+        _initializeVault();
+        MockERC20 fromAsset = new MockERC20("Wrapped Ether", "WETH", 18);
+        MockERC20 payAsset = new MockERC20("USD Coin", "USDC", 6);
+        MockAMMProtocol amm = new MockAMMProtocol();
+        address receiverAddr = makeAddr("swapReceiver2");
+
+        vm.startPrank(ownerAddress);
+        BittyV1Guard(guardAddress).addAssets(_arr(address(fromAsset)));
+        BittyV1Guard(guardAddress).addAssets(_arr(address(payAsset)));
+        vault.addAssets(_arr(address(fromAsset)));
+        vault.addAssets(_arr(address(payAsset)));
+        BittyV1Guard(guardAddress).addAMMProtocols(_arr(address(amm)));
+        vault.addAMMProtocols(_arr(address(amm)));
+        vm.stopPrank();
+
+        uint256 sellAmountMax = 1 ether;
+        uint256 payAmount = 300e6;
+        fromAsset.mint(address(vault), 2 ether);
+
+        // Post-swap balance (2 - 1 = 1) breaches this minimum. An asset-manager marketBuy would revert
+        // MinimalBalanceNotMet, but the owner-scheduled receiver payment outranks the guard.
+        vm.prank(ownerAddress);
+        vault.setMinimalBalance(address(fromAsset), 1.5 ether);
+
+        vm.prank(ownerAddress);
+        vault.addReceiver(
+            "payroll",
+            _makeReceiver(receiverAddr, address(0), address(payAsset), payAmount, 2, block.timestamp, 1 days, false)
+        );
+
+        bytes memory data = abi.encode(address(fromAsset), sellAmountMax, address(payAsset), payAmount, bytes(""));
+
+        vm.prank(makeAddr("caller"));
+        vault.payReceiverFromSwap("payroll", address(amm), address(fromAsset), sellAmountMax, data);
+
+        assertEq(payAsset.balanceOf(receiverAddr), payAmount, "receiver paid despite minimal-balance guard");
+        assertEq(fromAsset.balanceOf(address(vault)), 1 ether, "vault dropped below its minimal balance");
+    }
+
     function test_payReceiverFromStaking_honoursTriggerRestriction() public {
         _initializeVault();
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
@@ -1949,16 +2029,13 @@ contract BittyV1VaultTest is Test {
             "rent", _makeReceiver(receiverAddr, trigger, address(usdc), 250e6, 3, block.timestamp, 1 days, false)
         );
 
-        // A stranger cannot pull the payment when a trigger is set.
         vm.prank(makeAddr("stranger"));
         vm.expectRevert(ReceiverTriggerError.selector);
         vault.payReceiverFromStaking("rent", address(impl));
 
-        // No funds moved on the failed attempt.
         assertEq(usdc.balanceOf(receiverAddr), 0);
         assertEq(vault.getStakedBalance(address(impl), address(usdc)), 1_000e6);
 
-        // The configured trigger can, and the money still only goes to the receiver.
         vm.prank(trigger);
         vault.payReceiverFromStaking("rent", address(impl));
         assertEq(usdc.balanceOf(receiverAddr), 250e6);
@@ -1980,11 +2057,9 @@ contract BittyV1VaultTest is Test {
 
         vault.payReceiverFromStaking("rent", address(impl));
 
-        // A second payment within the interval window is rejected.
         vm.expectRevert(ReceiverInInterval.selector);
         vault.payReceiverFromStaking("rent", address(impl));
 
-        // After the window it succeeds again.
         vm.warp(block.timestamp + 1 days + 1);
         vault.payReceiverFromStaking("rent", address(impl));
         assertEq(usdc.balanceOf(receiverAddr), 500e6);
@@ -2075,12 +2150,11 @@ contract BittyV1VaultTest is Test {
         vm.startPrank(payer);
         vault.quickPay(address(usdc), makeAddr("a"), 100e6);
 
-        // Any second quick-pay within the interval is rejected, even to a different address.
+        // The interval is a single shared clock, so a different recipient is still blocked.
         vm.expectRevert(QuickPayInInterval.selector);
         vault.quickPay(address(usdc), makeAddr("b"), 100e6);
         vm.stopPrank();
 
-        // After the interval it succeeds again.
         vm.warp(block.timestamp + 1 days + 1);
         vm.prank(payer);
         vault.quickPay(address(usdc), makeAddr("b"), 100e6);
@@ -2093,7 +2167,6 @@ contract BittyV1VaultTest is Test {
         address payer = makeAddr("payer");
         _setupQuickPay(usdc, payer, 10_000e6);
 
-        // Owner raises the cap and shortens the interval; both apply immediately.
         vm.prank(ownerAddress);
         vault.setQuickPayLimit(2_000, 1 hours);
         (uint256 maxWholeTokens, uint256 interval,) = vault.getQuickPayLimit();
@@ -2104,7 +2177,7 @@ contract BittyV1VaultTest is Test {
         vault.quickPay(address(usdc), makeAddr("to"), 2_000e6);
         assertEq(usdc.balanceOf(makeAddr("to")), 2_000e6);
 
-        // New shorter interval is in force.
+        // The 1-hour interval (not the old 1-day) now governs the next payment.
         vm.warp(block.timestamp + 1 hours + 1);
         vm.prank(payer);
         vault.quickPay(address(usdc), makeAddr("to"), 1e6);
