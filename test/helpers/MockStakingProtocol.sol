@@ -9,7 +9,7 @@ import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initia
 
 /// @dev Minimal cloneable staking mock used by the local vault tests. It holds the staked
 /// asset 1:1 and records the recipient of the last on-behalf unstake so tests can assert
-/// funds are delivered only to the configured receiver.
+/// funds are delivered only to the configured scheduledPayment.
 contract MockStakingProtocol is IBittyV1StakingProtocol, Ownable, Initializable {
     using SafeERC20 for IERC20;
 

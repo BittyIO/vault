@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
-import {IERC1271} from "openzeppelin-contracts/contracts/interfaces/IERC1271.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {AmountIsZero} from "../../src/interfaces/IBittyV1Vault.sol";
 import {InvalidIntentProtocol, InvalidValidTo} from "../../src/interfaces/IBittyV1AssetManager.sol";
@@ -10,13 +9,13 @@ import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1
 import {OrderNotExpired} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
-import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {BittyV1VaultHarness} from "../helpers/BittyV1VaultHarness.sol";
 import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
 import {MockIntentProtocol, MockIntentRegistry} from "../helpers/MockIntentProtocol.sol";
 
 /// @dev Exercises the vault intent subsystem (limit orders, TWAP, cancellation, EIP-1271)
 ///      using MockIntentProtocol as the instruction builder so no real CoW/UniswapX is needed.
-contract TestIntent is ProtocolTestSetup, BittyV1Vault {
+contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
     BittyV1Guard internal guardContract;
     MockIntentRegistry internal registry;
     MockIntentProtocol internal mock; // register + approve targets set
@@ -67,7 +66,8 @@ contract TestIntent is ProtocolTestSetup, BittyV1Vault {
             empty, // lending
             empty, // staking
             empty, // amm
-            intents
+            intents,
+            address(0)
         );
 
         // add the second (skip) protocol to the vault set (owner-only)
@@ -320,10 +320,6 @@ contract TestIntent is ProtocolTestSetup, BittyV1Vault {
     }
 
     // ---------- EIP-1271 ----------
-
-    function testSupportsInterface() public view {
-        assertTrue(this.supportsInterface(type(IERC1271).interfaceId));
-    }
 
     function testIsValidSignature() public {
         // create a clone so isValidSignature has something to delegate to

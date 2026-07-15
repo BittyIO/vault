@@ -24,19 +24,22 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
     address public guardAddress;
     address public vaultImplementation;
     address public wethAddress;
+    address public defiFacetAddress;
 
     event VaultDeployed(address indexed vault, address indexed owner, string name);
 
-    function initialize(address vaultImplementation_, address guardAddress_, address wethAddress_)
+    function initialize(address vaultImplementation_, address defiFacet_, address guardAddress_, address wethAddress_)
         external
         override
         initializer
     {
         if (tx.origin != DEPLOYER) revert NotDeployer();
         if (vaultImplementation_ == address(0)) revert AddressZero();
+        if (defiFacet_ == address(0)) revert AddressZero();
         if (guardAddress_ == address(0)) revert AddressZero();
         if (wethAddress_ == address(0)) revert AddressZero();
         vaultImplementation = vaultImplementation_;
+        defiFacetAddress = defiFacet_;
         guardAddress = guardAddress_;
         wethAddress = wethAddress_;
     }
@@ -161,7 +164,8 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
                 lendingProtocols,
                 stakingProtocols,
                 ammProtocols,
-                intentProtocols
+                intentProtocols,
+                defiFacetAddress
             );
 
         emit VaultDeployed(vault, owner, name);

@@ -38,8 +38,6 @@ import {
     AlreadyInitialized,
     AddingProtocolsDisabled
 } from "../interfaces/IBittyV1Vault.sol";
-import {WETH} from "solmate/tokens/WETH.sol";
-import {ETHBalanceNotEnough, WETHBalanceNotEnough} from "../interfaces/IBittyV1AssetManager.sol";
 import {AssetManagerStorage, VaultStorage, IntentOrderRecord, TradeLimit} from "./Storages.sol";
 import {VaultLogic} from "./VaultLogic.sol";
 
@@ -72,7 +70,7 @@ library AssetManagerLogic {
         _;
     }
 
-    function initialize(AssetManagerStorage storage logicStorage, address guardAddress, address wethAddress)
+    function initialize(AssetManagerStorage storage logicStorage, address guardAddress)
         external
         onlyNotInitialized(logicStorage)
     {
@@ -80,7 +78,6 @@ library AssetManagerLogic {
             revert AddressZero();
         }
         logicStorage.guard = IBittyV1Guard(guardAddress);
-        logicStorage.weth = wethAddress;
         logicStorage.isInitialized = true;
     }
 
@@ -101,28 +98,6 @@ library AssetManagerLogic {
         IBittyV1Protocol(clonedProtocol).initialize(address(this));
         logicStorage.clonedProtocols[protocol] = clonedProtocol;
         return clonedProtocol;
-    }
-
-    function ETHToWETH(AssetManagerStorage storage logicStorage, uint256 amount)
-        external
-        onlyInitialized(logicStorage)
-    {
-        uint256 ethBalance = address(this).balance;
-        if (ethBalance < amount) {
-            revert ETHBalanceNotEnough();
-        }
-        WETH(payable(logicStorage.weth)).deposit{value: amount}();
-    }
-
-    function WETHToETH(AssetManagerStorage storage logicStorage, uint256 amount)
-        external
-        onlyInitialized(logicStorage)
-    {
-        uint256 wethBalance = IERC20(logicStorage.weth).balanceOf(address(this));
-        if (wethBalance < amount) {
-            revert WETHBalanceNotEnough();
-        }
-        WETH(payable(logicStorage.weth)).withdraw(amount);
     }
 
     function setMinimalBalance(AssetManagerStorage storage logicStorage, address assetAddress, uint256 minimalBalance)
@@ -172,9 +147,9 @@ library AssetManagerLogic {
 
     /**
      * @notice Withdraw a supplied asset, delivered to `recipient`.
-     * @dev Pass the vault as `recipient` for a normal withdrawal, or a configured receiver for an
+     * @dev Pass the vault as `recipient` for a normal withdrawal, or a configured scheduledPayment for an
      * on-behalf payment so the asset is delivered directly in a single step. The caller (the vault
-     * facade) is responsible for restricting `recipient` to the vault or a configured receiver.
+     * facade) is responsible for restricting `recipient` to the vault or a configured scheduledPayment.
      * @return delivered The amount of `assetAddress` delivered to `recipient`.
      */
     function withdraw(
@@ -244,9 +219,9 @@ library AssetManagerLogic {
 
     /**
      * @notice Unstake a staked asset, delivered to `recipient`.
-     * @dev Pass the vault as `recipient` for a normal unstake, or a configured receiver for an
+     * @dev Pass the vault as `recipient` for a normal unstake, or a configured scheduledPayment for an
      * on-behalf payment so the asset is delivered directly in a single step. The caller (the vault
-     * facade) is responsible for restricting `recipient` to the vault or a configured receiver.
+     * facade) is responsible for restricting `recipient` to the vault or a configured scheduledPayment.
      * Reverts for staking protocols that settle asynchronously when `recipient` is not the vault.
      * @return delivered The amount of `assetAddress` delivered to `recipient`.
      */
@@ -561,23 +536,23 @@ library AssetManagerLogic {
 
     /**
      * @notice Owner-scheduled on-behalf payment: buy exactly `buyAmount` of `to` for ≤ `sellAmountMax`
-     * of `from` and deliver it straight to `recipient` (a configured receiver).
+     * of `from` and deliver it straight to `recipient` (a configured scheduledPayment).
      * @dev Unlike {marketBuy} this bypasses the asset-manager rebalance guards (rebalance-disabled +
-     * minimal balance) — the receiver schedule is set by the owner, which outranks those asset-manager
+     * minimal balance) — the scheduledPayment schedule is set by the owner, which outranks those asset-manager
      * restrictions, so a payment goes through even if it would drop `from` below its minimal balance.
      * The assets and AMM protocol are still validated, and delivery is verified on `recipient`. The
-     * caller (the vault facade) restricts `recipient` to a configured receiver.
+     * caller (the vault facade) restricts `recipient` to a configured scheduledPayment.
      */
     /**
      * @notice Owner-scheduled on-behalf payment: buy exactly `buyAmount` of `to` for ≤ `sellAmountMax`
-     * of `from` and deliver it straight to `recipient` (a configured receiver).
+     * of `from` and deliver it straight to `recipient` (a configured scheduledPayment).
      * @dev Unlike {marketBuy} this bypasses the asset-manager rebalance guards (rebalance-disabled +
-     * minimal balance) — the receiver schedule is set by the owner, which outranks those asset-manager
+     * minimal balance) — the scheduledPayment schedule is set by the owner, which outranks those asset-manager
      * restrictions, so a payment goes through even if it would drop `from` below its minimal balance.
      * The assets and AMM protocol are still validated, and delivery is verified on `recipient`. The
-     * caller (the vault facade) restricts `recipient` to a configured receiver.
+     * caller (the vault facade) restricts `recipient` to a configured scheduledPayment.
      */
-    function buyForReceiver(
+    function buyForScheduledPayment(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address ammProtocol,
@@ -624,7 +599,10 @@ library AssetManagerLogic {
         }
         IBittyV1AMMProtocol(ammProtocol).swap(data, recipient);
 
-        if (_addressBalance(sellAssetAddress) != sellAssetBalanceBefore - sellAmount) revert SellAmountMismatch();
+        // Guard against the AMM pulling more than the authorized sellAmount. A slightly-higher
+        // ending balance is fine and expected: protocols can refund dust ETH to the vault, which
+        // receive() wraps into WETH (matches _swapExactOut's over-spend check below).
+        if (sellAssetBalanceBefore - _addressBalance(sellAssetAddress) > sellAmount) revert SellAmountMismatch();
         if (IERC20(toAssetAddress).balanceOf(recipient) - recipientBuyBalanceBefore < buyAmountMin) {
             revert BuyAmountNotEnough();
         }

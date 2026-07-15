@@ -13,8 +13,7 @@ import {
     TradeInInterval,
     TradeMustTouchStableCoin,
     DisableRebalanceUntilTimestampTooEarly,
-    DisableRebalanceUntilTimestampTooLong,
-    ETHBalanceNotEnough
+    DisableRebalanceUntilTimestampTooLong
 } from "../../src/interfaces/IBittyV1AssetManager.sol";
 import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1LendingProtocol} from "protocol-contracts/src/interfaces/IBittyV1LendingProtocol.sol";
@@ -23,7 +22,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
-import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {BittyV1VaultHarness} from "../helpers/BittyV1VaultHarness.sol";
 import {AddingAssetsDisabled, AddingProtocolsDisabled} from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
@@ -31,7 +30,7 @@ import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
 import {MockAMMProtocol} from "../helpers/MockAMMProtocol.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 
-contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
+contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     using Clones for address;
 
     address public guardAddress;
@@ -115,7 +114,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
             lendingProtocols,
             stakingProtocols,
             _single(address(mockAmm)),
-            intentProtocols
+            intentProtocols,
+            address(0)
         );
         _cloneProtocolForTest(address(mockAmm));
     }
@@ -140,7 +140,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
             lendingProtocols,
             stakingProtocols,
             ammProtocols,
-            intentProtocols
+            intentProtocols,
+            address(0)
         );
     }
 
@@ -243,26 +244,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         this.withdraw(address(aaveProtocol), address(0), 1 ether);
     }
 
-    function test_revertETHToWETH() public {
-        this.doInitialize();
-        address stranger = makeAddr("stranger");
-        vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, ASSET_MANAGER_ROLE));
-        this.ETHToWETH(1 ether);
-    }
-
-    function test_ETHToWETHSuccess() public {
-        this.doInitialize();
-        uint256 wethBefore = IERC20(mainnet.WETH).balanceOf(address(this));
-        uint256 amount = 1 ether;
-        vm.deal(address(this), amount);
-        vm.prank(assetManagerAddress);
-        this.ETHToWETH(amount);
-        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)) - wethBefore, amount, 10);
-    }
-
-    /// @dev Regression: plain ETH sends must not revert (BittyV1Vault.receive). Matches wallet "Send ETH" (empty calldata).
-    function test_ethDeposit_viaReceive_thenETHToWETH() public {
+    /// @dev A plain ETH send (empty calldata, matching a wallet "Send ETH") is auto-wrapped to WETH
+    ///      by BittyV1Vault.receive(), leaving the vault holding WETH and no native ETH.
+    function test_ethDeposit_viaReceive_autoWrapsToWETH() public {
         this.doInitialize();
 
         uint256 amount = 0.1 ether;
@@ -275,25 +259,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         (bool success, bytes memory returnData) = address(this).call{value: amount}("");
 
         assertTrue(success, string(returnData));
-        assertEq(address(this).balance - ethBefore, amount);
-        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), wethBefore);
-
-        uint256 ethAfterDeposit = address(this).balance;
-        vm.prank(assetManagerAddress);
-        this.ETHToWETH(amount);
-
-        assertEq(address(this).balance, ethAfterDeposit - amount);
-        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), wethBefore + amount);
-    }
-
-    function test_ETHToWETH_revertsWhenEthBalanceInsufficient() public {
-        this.doInitialize();
-
-        vm.deal(address(this), 0.5 ether);
-
-        vm.prank(assetManagerAddress);
-        vm.expectRevert(ETHBalanceNotEnough.selector);
-        this.ETHToWETH(1 ether);
+        assertEq(address(this).balance, ethBefore);
+        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)) - wethBefore, amount);
     }
 
     function test_SupplyRevertInvalidLendingProtocol() public {
@@ -653,7 +620,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         vm.prank(assetManagerAddress);
         this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
-        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
+        // ~0: the AMM refunds a wei or two of dust ETH, which receive() wraps back into WETH.
+        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), 0, 100);
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_SucceedsWhenNeverDisabled() public {
@@ -667,7 +635,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
         vm.prank(assetManagerAddress);
         this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
 
-        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
+        // ~0: the AMM refunds a wei or two of dust ETH, which receive() wraps back into WETH.
+        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), 0, 100);
     }
 
     function test_DisableRebalanceUntilTimestampTooEarly_RevertsWhenNewTimestampEarlier() public {
@@ -717,7 +686,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
             lendingProtocols,
             stakingProtocols,
             ammProtocols,
-            intentProtocols
+            intentProtocols,
+            address(0)
         );
 
         MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
@@ -1054,7 +1024,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1Vault {
             lendingProtocols,
             stakingProtocols,
             _single(address(mockAmm)),
-            intentProtocols
+            intentProtocols,
+            address(0)
         );
     }
 

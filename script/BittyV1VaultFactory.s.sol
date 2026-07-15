@@ -39,7 +39,7 @@ contract BittyV1VaultFactory is DeployScript {
 
         BittyV1VaultFactoryImplementation factory = BittyV1VaultFactoryImplementation(factoryAddr);
         if (factory.vaultImplementation() == address(0)) {
-            factory.initialize(vaultImpl, getAddress("BITTY_GUARD"), getAddress("WETH"));
+            factory.initialize(vaultImpl, getAddress("DEFI_FACET"), getAddress("BITTY_GUARD"), getAddress("WETH"));
         }
 
         console2.log("BittyV1VaultFactory deployed at", factoryAddr);

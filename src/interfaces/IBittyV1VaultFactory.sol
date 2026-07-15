@@ -8,10 +8,12 @@ interface IBittyV1VaultFactory {
     /**
      * @notice Initialize the factory.
      * @param vaultImplementation_ The address of the vault implementation.
+     * @param defiFacet_ The address of the shared DeFi facet the vaults forward to.
      * @param guardAddress_ The address of the guard.
      * @param wethAddress_ The address of the weth.
      */
-    function initialize(address vaultImplementation_, address guardAddress_, address wethAddress_) external;
+    function initialize(address vaultImplementation_, address defiFacet_, address guardAddress_, address wethAddress_)
+        external;
 
     /**
      * @notice Deploy a vault owned by the caller (msg.sender).

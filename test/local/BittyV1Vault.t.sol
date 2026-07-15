@@ -4,30 +4,39 @@ pragma solidity ^0.8.34;
 import {Test} from "forge-std/Test.sol";
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
+import {IVaultFull} from "../helpers/IVaultFull.sol";
 import {VaultLogic} from "../../src/logic/VaultLogic.sol";
 import {
     IBittyV1Vault,
+    AddressZero,
     AmountIsZero,
-    ReceiverNotFound,
-    ReceiverNameAlreadyExists,
-    ReceiverImmutable,
-    ReceiverPaymentCountZero,
-    ReceiverIntervalTooShort,
+    ScheduledPaymentNotFound,
+    ScheduledPaymentNameAlreadyExists,
+    ScheduledPaymentImmutable,
+    ScheduledPaymentPaymentCountZero,
+    ScheduledPaymentIntervalTooShort,
     AssetAddressNotContract,
-    NewReceiverProtectionOutOfRange,
-    ReceiverProtectionNotEnded,
-    OnlyReceiver,
-    ReceiverNotStartYet,
-    ReceiverStartTimestampInPast,
-    PayMoreThanReceiverAmount,
-    PayReceiverAmountTriggerEmpty,
-    ReceiverTriggerError,
-    ReceiverInInterval,
+    NewAddressProtectionOutOfRange,
+    NewAddressProtectionCannotDecrease,
+    AddressProtectionNotEnded,
+    OnlyScheduledPayment,
+    ScheduledPaymentNotStartYet,
+    ScheduledPaymentStartTimestampInPast,
+    PayMoreThanScheduledPaymentAmount,
+    PayScheduledPaymentAmountTriggerEmpty,
+    ScheduledPaymentTriggerError,
+    ScheduledPaymentInInterval,
     InsufficientBalance,
     NotInitialized,
-    QuickPayAssetNotStableCoin,
-    QuickPayExceedsMax,
-    QuickPayInInterval
+    MicroPaymentAssetNotStableCoin,
+    MicroPaymentExceedsMax,
+    MicroPaymentInInterval,
+    MicroPaymentPayerNotConfigured,
+    MicroPaymentLimitOutOfRange,
+    WhitelistedRecipientNotFound,
+    WhitelistedRecipientNameAlreadyExists,
+    WhitelistedRecipientAssetNotAllowed
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -44,6 +53,7 @@ import {Initializable} from "openzeppelin-contracts-upgradeable/proxy/utils/Init
 
 contract BittyV1VaultTest is Test {
     BittyV1Vault public vault;
+    address public defiFacet;
     WETH public weth;
     address public guardAddress;
     address public ownerAddress;
@@ -51,6 +61,7 @@ contract BittyV1VaultTest is Test {
 
     function setUp() public {
         weth = new WETH();
+        defiFacet = address(new BittyV1VaultDeFiFacet());
         vault = new BittyV1Vault();
         guardAddress = address(new BittyV1Guard());
         ownerAddress = tx.origin;
@@ -66,8 +77,8 @@ contract BittyV1VaultTest is Test {
         return abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, account, role);
     }
 
-    function _makeReceiver(
-        address receiverAddress_,
+    function _makeScheduledPayment(
+        address scheduledPaymentAddress_,
         address trigger_,
         address assetAddress_,
         uint256 amount_,
@@ -75,9 +86,9 @@ contract BittyV1VaultTest is Test {
         uint256 startTimestamp_,
         uint256 paymentInterval_,
         bool isImmutable_
-    ) internal pure returns (IBittyV1Vault.Receiver memory) {
-        return IBittyV1Vault.Receiver({
-            receiverAddress: receiverAddress_,
+    ) internal pure returns (IBittyV1Vault.ScheduledPayment memory) {
+        return IBittyV1Vault.ScheduledPayment({
+            scheduledPaymentAddress: scheduledPaymentAddress_,
             trigger: trigger_,
             assetAddress: assetAddress_,
             amount: amount_,
@@ -122,7 +133,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
 
         address depositor = makeAddr("ethDepositor");
@@ -132,8 +144,10 @@ contract BittyV1VaultTest is Test {
         vm.prank(depositor);
         (bool success,) = address(vault).call{value: amount}("");
 
+        // Once WETH is configured, receive() auto-wraps: the vault holds WETH, not native ETH.
         assertTrue(success);
-        assertEq(address(vault).balance, amount);
+        assertEq(address(vault).balance, 0);
+        assertEq(weth.balanceOf(address(vault)), amount);
     }
 
     function test_InitAllowsOwnerAsAssetManager() public {
@@ -149,7 +163,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
         assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), ownerAddress));
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
@@ -166,7 +181,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
         assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), assetManagerAddress));
     }
@@ -188,7 +204,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
 
         assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), manager1));
@@ -211,7 +228,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
 
         assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), manager1));
@@ -238,7 +256,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
         vm.prank(ownerAddress);
@@ -257,7 +276,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         vault.initialize(
@@ -270,11 +290,12 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
     }
 
-    function test_AddReceiverSuccess() public {
+    function test_AddScheduledPaymentSuccess() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -285,16 +306,18 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
-        address receiverAddr = makeAddr("receiver");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
+        );
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
     }
 
-    function test_AddReceiverRevertDuplicateName() public {
+    function test_AddScheduledPaymentRevertDuplicateName() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -305,18 +328,20 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
+        );
         vm.startPrank(ownerAddress);
-        vault.addReceiver("alice", r);
-        vm.expectRevert(ReceiverNameAlreadyExists.selector);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
+        vm.expectRevert(ScheduledPaymentNameAlreadyExists.selector);
+        vault.addScheduledPayment("alice", r);
         vm.stopPrank();
     }
 
-    function test_AddReceiverSuccessSameNameAfterRemoveReceiver() public {
+    function test_AddScheduledPaymentSuccessSameNameAfterRemoveScheduledPayment() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -327,18 +352,20 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
+        );
         vm.startPrank(ownerAddress);
-        vault.addReceiver("alice", r);
-        vault.removeReceiver("alice");
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
+        vault.removeScheduledPayment("alice");
+        vault.addScheduledPayment("alice", r);
         vm.stopPrank();
     }
 
-    function test_AddReceiverRevertUnauthorized() public {
+    function test_AddScheduledPaymentRevertUnauthorized() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -349,18 +376,20 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        bytes32 _receiverRole = vault.DEFAULT_ADMIN_ROLE();
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
+        );
+        bytes32 _scheduledPaymentRole = vault.DEFAULT_ADMIN_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, _receiverRole));
-        vault.addReceiver("alice", r);
+        vm.expectRevert(_roleError(stranger, _scheduledPaymentRole));
+        vault.addScheduledPayment("alice", r);
     }
 
-    function test_AddReceiverRevertAssetAddressNotContract() public {
+    function test_AddScheduledPaymentRevertAssetAddressNotContract() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -371,17 +400,18 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
-        IBittyV1Vault.Receiver memory r = _makeReceiver(
-            makeAddr("receiver"), address(0), makeAddr("eoaAsset"), 1 ether, 1, block.timestamp, 0, false
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), makeAddr("eoaAsset"), 1 ether, 1, block.timestamp, 0, false
         );
         vm.prank(ownerAddress);
         vm.expectRevert(AssetAddressNotContract.selector);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
     }
 
-    function test_AddReceiverRevertAmountZero() public {
+    function test_AddScheduledPaymentRevertAmountZero() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -392,16 +422,18 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 0, 1, block.timestamp, 0, false);
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 0, 1, block.timestamp, 0, false
+        );
         vm.prank(ownerAddress);
         vm.expectRevert(AmountIsZero.selector);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
     }
 
-    function test_AddReceiverRevertPaymentCountZero() public {
+    function test_AddScheduledPaymentRevertPaymentCountZero() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -412,16 +444,18 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 0, block.timestamp, 0, false);
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 0, block.timestamp, 0, false
+        );
         vm.prank(ownerAddress);
-        vm.expectRevert(ReceiverPaymentCountZero.selector);
-        vault.addReceiver("alice", r);
+        vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
+        vault.addScheduledPayment("alice", r);
     }
 
-    function test_AddReceiverRevertIntervalTooShortWhenPaymentCountGreaterThanOne() public {
+    function test_AddScheduledPaymentRevertIntervalTooShortWhenPaymentCountGreaterThanOne() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -432,46 +466,48 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
-        IBittyV1Vault.Receiver memory r = _makeReceiver(
-            makeAddr("receiver"),
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"),
             address(0),
             address(weth),
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.RECEIVER_MINIMAL_INTERVAL - 1,
+            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL - 1,
             false
         );
         vm.prank(ownerAddress);
-        vm.expectRevert(ReceiverIntervalTooShort.selector);
-        vault.addReceiver("alice", r);
+        vm.expectRevert(ScheduledPaymentIntervalTooShort.selector);
+        vault.addScheduledPayment("alice", r);
     }
 
-    function test_AddReceiverRevertStartTimestampInPast() public {
+    function test_AddScheduledPaymentRevertStartTimestampInPast() public {
         _initializeVault();
-        IBittyV1Vault.Receiver memory r = _makeReceiver(
-            makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp - 1, 1 days, false
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp - 1, 1 days, false
         );
         vm.prank(ownerAddress);
-        vm.expectRevert(ReceiverStartTimestampInPast.selector);
-        vault.addReceiver("alice", r);
+        vm.expectRevert(ScheduledPaymentStartTimestampInPast.selector);
+        vault.addScheduledPayment("alice", r);
     }
 
-    function test_UpdateReceiverAllowsPastStartTimestamp() public {
+    function test_UpdateScheduledPaymentAllowsPastStartTimestamp() public {
         _initializeVault();
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
+        );
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
         r.startTimestamp = block.timestamp - 1;
         vm.prank(ownerAddress);
-        vault.updateReceiver("alice", r);
+        vault.updateScheduledPayment("alice", r);
     }
 
-    function test_AddReceiverSuccessWithShortIntervalWhenPaymentCountIsOne() public {
+    function test_AddScheduledPaymentSuccessWithShortIntervalWhenPaymentCountIsOne() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -482,15 +518,17 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
+        );
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
     }
 
-    function test_UpdateReceiverRevertIntervalTooShortWhenPaymentCountGreaterThanOne() public {
+    function test_UpdateScheduledPaymentRevertIntervalTooShortWhenPaymentCountGreaterThanOne() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -501,28 +539,29 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
-        IBittyV1Vault.Receiver memory r = _makeReceiver(
-            makeAddr("receiver"),
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"),
             address(0),
             address(weth),
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.RECEIVER_MINIMAL_INTERVAL,
+            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
             false
         );
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
-        r.paymentInterval = VaultLogic.RECEIVER_MINIMAL_INTERVAL - 1;
+        r.paymentInterval = VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL - 1;
         vm.prank(ownerAddress);
-        vm.expectRevert(ReceiverIntervalTooShort.selector);
-        vault.updateReceiver("alice", r);
+        vm.expectRevert(ScheduledPaymentIntervalTooShort.selector);
+        vault.updateScheduledPayment("alice", r);
     }
 
-    function test_UpdateReceiverSuccessWithShortIntervalWhenPaymentCountIsOne() public {
+    function test_UpdateScheduledPaymentSuccessWithShortIntervalWhenPaymentCountIsOne() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -533,28 +572,29 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
-        IBittyV1Vault.Receiver memory r = _makeReceiver(
-            makeAddr("receiver"),
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"),
             address(0),
             address(weth),
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.RECEIVER_MINIMAL_INTERVAL,
+            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
             false
         );
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
         r.paymentCount = 1;
         r.paymentInterval = 0;
         vm.prank(ownerAddress);
-        vault.updateReceiver("alice", r);
+        vault.updateScheduledPayment("alice", r);
     }
 
-    function test_UpdateReceiverSuccess() public {
+    function test_UpdateScheduledPaymentSuccess() public {
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -565,635 +605,708 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
-        address receiverAddr = makeAddr("receiver");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 2, block.timestamp, 1 days, false);
-        vm.startPrank(ownerAddress);
-        vault.addReceiver("alice", r);
-        r.amount = 2 ether;
-        vault.updateReceiver("alice", r);
-        vm.stopPrank();
-    }
-
-    function test_UpdateReceiverRevertNotFound() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(ownerAddress);
-        vm.expectRevert(ReceiverNotFound.selector);
-        vault.updateReceiver("nonexistent", r);
-    }
-
-    function test_UpdateReceiverRevertImmutable() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true);
-        vm.startPrank(ownerAddress);
-        vault.addReceiver("alice", r);
-        r.amount = 2 ether;
-        vm.expectRevert(ReceiverImmutable.selector);
-        vault.updateReceiver("alice", r);
-        vm.stopPrank();
-    }
-
-    function test_UpdateReceiverRevertOnlyOwner() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
-        r.amount = 2 ether;
-        bytes32 _receiverRole = vault.DEFAULT_ADMIN_ROLE();
-        address stranger = makeAddr("stranger");
-        vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, _receiverRole));
-        vault.updateReceiver("alice", r);
-    }
-
-    function test_RemoveReceiverSuccess() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.startPrank(ownerAddress);
-        vault.addReceiver("alice", r);
-        vault.removeReceiver("alice");
-        vm.stopPrank();
-        vm.expectRevert(ReceiverNotFound.selector);
-        vault.payReceiver("alice");
-    }
-
-    function test_RemoveReceiverRevertOnlyOwner() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(makeAddr("receiver"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
-        bytes32 _receiverRole = vault.DEFAULT_ADMIN_ROLE();
-        address stranger = makeAddr("stranger");
-        vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, _receiverRole));
-        vault.removeReceiver("alice");
-    }
-
-    function test_ChangeReceiverAddressSuccess() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        address alice = makeAddr("alice");
-        address bob = makeAddr("bob");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
-        vm.prank(alice);
-        vault.changeReceiverAddress("alice", bob);
-    }
-
-    function test_ChangeReceiverAddressRevertReceiverNotFound() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        vm.expectRevert(ReceiverNotFound.selector);
-        vault.changeReceiverAddress("nonexistent", makeAddr("attacker"));
-    }
-
-    function test_ChangeReceiverAddressRevertOnlyReceiver() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        address alice = makeAddr("alice");
-        address bob = makeAddr("bob");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
-        vm.prank(makeAddr("stranger"));
-        vm.expectRevert(OnlyReceiver.selector);
-        vault.changeReceiverAddress("alice", bob);
-    }
-
-    function test_ChangeReceiverAddressRevertReceiverImmutable() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        address alice = makeAddr("alice");
-        address bob = makeAddr("bob");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true);
-        vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
-        vm.prank(alice);
-        vm.expectRevert(ReceiverImmutable.selector);
-        vault.changeReceiverAddress("alice", bob);
-    }
-
-    function test_PayReceiver_revertReceiverNotStartYet() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        uint256 futureStartTimestamp = block.timestamp + 100;
-        IBittyV1Vault.Receiver memory r = _makeReceiver(
-            makeAddr("receiver"), address(0), address(weth), 1 ether, 1, futureStartTimestamp, 1 days, false
-        );
-        vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
-
-        vm.expectRevert(ReceiverNotStartYet.selector);
-        vault.payReceiver("alice");
-    }
-
-    function test_PayReceiver_singlePaymentWithZeroInterval() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        address receiverAddr = makeAddr("receiver");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
-
-        deal(address(weth), address(vault), 1 ether);
-
-        vault.payReceiver("alice");
-        assertEq(weth.balanceOf(receiverAddr), 1 ether);
-
-        vm.expectRevert(ReceiverPaymentCountZero.selector);
-        vault.payReceiver("alice");
-    }
-
-    function test_PayReceiver_receiverStorageUpdatedSoPaymentCountEnforced() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
-        address receiverAddr = makeAddr("receiver");
-        vm.warp(1000);
-        IBittyV1Vault.Receiver memory r = _makeReceiver(
-            receiverAddr,
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr,
             address(0),
             address(weth),
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.RECEIVER_MINIMAL_INTERVAL,
+            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+            false
+        );
+        vm.startPrank(ownerAddress);
+        vault.addScheduledPayment("alice", r);
+        r.amount = 2 ether;
+        vault.updateScheduledPayment("alice", r);
+        vm.stopPrank();
+    }
+
+    function test_UpdateScheduledPaymentRevertNotFound() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet
+        );
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
+        );
+        vm.prank(ownerAddress);
+        vm.expectRevert(ScheduledPaymentNotFound.selector);
+        vault.updateScheduledPayment("nonexistent", r);
+    }
+
+    function test_UpdateScheduledPaymentRevertImmutable() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet
+        );
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true
+        );
+        vm.startPrank(ownerAddress);
+        vault.addScheduledPayment("alice", r);
+        r.amount = 2 ether;
+        vm.expectRevert(ScheduledPaymentImmutable.selector);
+        vault.updateScheduledPayment("alice", r);
+        vm.stopPrank();
+    }
+
+    function test_UpdateScheduledPaymentRevertOnlyOwner() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet
+        );
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
+        );
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("alice", r);
+        r.amount = 2 ether;
+        bytes32 _scheduledPaymentRole = vault.DEFAULT_ADMIN_ROLE();
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, _scheduledPaymentRole));
+        vault.updateScheduledPayment("alice", r);
+    }
+
+    function test_RemoveScheduledPaymentSuccess() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet
+        );
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
+        );
+        vm.startPrank(ownerAddress);
+        vault.addScheduledPayment("alice", r);
+        vault.removeScheduledPayment("alice");
+        vm.stopPrank();
+        vm.expectRevert(ScheduledPaymentNotFound.selector);
+        vault.payScheduled("alice");
+    }
+
+    function test_RemoveScheduledPaymentRevertOnlyOwner() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet
+        );
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
+        );
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("alice", r);
+        bytes32 _scheduledPaymentRole = vault.DEFAULT_ADMIN_ROLE();
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, _scheduledPaymentRole));
+        vault.removeScheduledPayment("alice");
+    }
+
+    function test_ChangeScheduledPaymentAddressSuccess() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet
+        );
+        address alice = makeAddr("alice");
+        address bob = makeAddr("bob");
+        IBittyV1Vault.ScheduledPayment memory r =
+            _makeScheduledPayment(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("alice", r);
+        vm.prank(alice);
+        vault.changeScheduledPaymentAddress("alice", bob);
+    }
+
+    function test_ChangeScheduledPaymentAddressRevertScheduledPaymentNotFound() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet
+        );
+        vm.expectRevert(ScheduledPaymentNotFound.selector);
+        vault.changeScheduledPaymentAddress("nonexistent", makeAddr("attacker"));
+    }
+
+    function test_ChangeScheduledPaymentAddressRevertOnlyScheduledPayment() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet
+        );
+        address alice = makeAddr("alice");
+        address bob = makeAddr("bob");
+        IBittyV1Vault.ScheduledPayment memory r =
+            _makeScheduledPayment(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("alice", r);
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(OnlyScheduledPayment.selector);
+        vault.changeScheduledPaymentAddress("alice", bob);
+    }
+
+    function test_ChangeScheduledPaymentAddressRevertScheduledPaymentImmutable() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet
+        );
+        address alice = makeAddr("alice");
+        address bob = makeAddr("bob");
+        IBittyV1Vault.ScheduledPayment memory r =
+            _makeScheduledPayment(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true);
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("alice", r);
+        vm.prank(alice);
+        vm.expectRevert(ScheduledPaymentImmutable.selector);
+        vault.changeScheduledPaymentAddress("alice", bob);
+    }
+
+    function test_PayScheduledPayment_revertScheduledPaymentNotStartYet() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet
+        );
+        uint256 futureStartTimestamp = block.timestamp + 100;
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, futureStartTimestamp, 1 days, false
+        );
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("alice", r);
+
+        vm.expectRevert(ScheduledPaymentNotStartYet.selector);
+        vault.payScheduled("alice");
+    }
+
+    function test_PayScheduledPayment_singlePaymentWithZeroInterval() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet
+        );
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
+        );
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("alice", r);
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vault.payScheduled("alice");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
+
+        vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
+        vault.payScheduled("alice");
+    }
+
+    function test_PayScheduledPayment_scheduledPaymentStorageUpdatedSoPaymentCountEnforced() public {
+        vault.initialize(
+            ownerAddress,
+            "test vault",
+            _assetManagers(assetManagerAddress),
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet
+        );
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
+        vm.warp(1000);
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr,
+            address(0),
+            address(weth),
+            1 ether,
+            2,
+            block.timestamp,
+            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
             false
         );
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
         deal(address(weth), address(vault), 2 ether);
 
-        vault.payReceiver("alice");
-        vm.warp(block.timestamp + VaultLogic.RECEIVER_MINIMAL_INTERVAL);
-        vault.payReceiver("alice");
+        vault.payScheduled("alice");
+        vm.warp(block.timestamp + VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+        vault.payScheduled("alice");
 
-        assertEq(weth.balanceOf(receiverAddr), 2 ether, "receiver should have received 2 payments");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 2 ether, "scheduledPayment should have received 2 payments");
 
-        vm.expectRevert(ReceiverPaymentCountZero.selector);
-        vault.payReceiver("alice");
+        vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
+        vault.payScheduled("alice");
     }
 
-    function test_SetNewReceiverProtectionRevertUnauthorizedWhenNotInitialized() public {
+    function test_SetNewAddressProtectionRevertUnauthorizedWhenNotInitialized() public {
         vm.expectRevert(); // no roles granted before initialize, AccessControl fires first
-        vault.setNewReceiverProtection(1 days);
+        vault.setNewAddressProtection(1 days);
     }
 
-    function test_SetNewReceiverProtectionRevertUnauthorized() public {
+    function test_SetNewAddressProtectionRevertUnauthorized() public {
         _initializeVault();
         bytes32 _adminRole = vault.DEFAULT_ADMIN_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _adminRole));
-        vault.setNewReceiverProtection(1 days);
+        vault.setNewAddressProtection(1 days);
     }
 
-    function test_SetNewReceiverProtectionRevertOutOfRange() public {
+    function test_SetNewAddressProtectionRevertOutOfRange() public {
         _initializeVault();
         vm.prank(ownerAddress);
-        vm.expectRevert(NewReceiverProtectionOutOfRange.selector);
-        vault.setNewReceiverProtection(VaultLogic.RECEIVER_NEW_PROTECTION_MAX + 1);
+        vm.expectRevert(NewAddressProtectionOutOfRange.selector);
+        vault.setNewAddressProtection(VaultLogic.NEW_ADDRESS_PROTECTION_MAX + 1);
     }
 
-    function test_SetNewReceiverProtectionSuccessAtMax() public {
+    function test_SetNewAddressProtectionRevertCannotDisable() public {
+        _initializeVault();
+        // A compromised owner must not be able to drop protection to 0 and drain immediately.
+        vm.prank(ownerAddress);
+        vm.expectRevert(NewAddressProtectionOutOfRange.selector);
+        vault.setNewAddressProtection(0);
+    }
+
+    function test_SetNewAddressProtectionRevertBelowMin() public {
         _initializeVault();
         vm.prank(ownerAddress);
-        vault.setNewReceiverProtection(VaultLogic.RECEIVER_NEW_PROTECTION_MAX);
+        vm.expectRevert(NewAddressProtectionOutOfRange.selector);
+        vault.setNewAddressProtection(VaultLogic.NEW_ADDRESS_PROTECTION_MIN - 1);
     }
 
-    function test_PayReceiver_revertReceiverProtectionNotEnded() public {
+    function test_SetNewAddressProtectionSuccessAtMin() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vault.setNewAddressProtection(VaultLogic.NEW_ADDRESS_PROTECTION_MIN);
+    }
+
+    function test_SetNewAddressProtectionSuccessAtMax() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vault.setNewAddressProtection(VaultLogic.NEW_ADDRESS_PROTECTION_MAX);
+    }
+
+    function test_SetNewAddressProtectionCanIncrease() public {
+        _initializeVault();
+        vm.startPrank(ownerAddress);
+        vault.setNewAddressProtection(2 days);
+        vault.setNewAddressProtection(2 days); // equal is a no-op, allowed
+        vault.setNewAddressProtection(5 days); // raising is allowed
+        vm.stopPrank();
+    }
+
+    function test_SetNewAddressProtectionRevertCannotDecrease() public {
+        _initializeVault();
+        // A compromised owner key must not be able to weaken an already-configured window.
+        vm.startPrank(ownerAddress);
+        vault.setNewAddressProtection(10 days);
+        vm.expectRevert(NewAddressProtectionCannotDecrease.selector);
+        vault.setNewAddressProtection(5 days);
+        vm.stopPrank();
+    }
+
+    function test_PayScheduledPayment_revertAddressProtectionNotEnded() public {
         _initializeVault();
         uint256 protection = 3 days;
         vm.prank(ownerAddress);
-        vault.setNewReceiverProtection(protection);
+        vault.setNewAddressProtection(protection);
 
-        address receiverAddr = makeAddr("receiver");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
+        );
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
         deal(address(weth), address(vault), 1 ether);
 
-        vm.expectRevert(ReceiverProtectionNotEnded.selector);
-        vault.payReceiver("alice");
+        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vault.payScheduled("alice");
     }
 
-    function test_PayReceiver_successAfterReceiverProtectionEnds() public {
+    function test_PayScheduledPayment_successAfterScheduledPaymentProtectionEnds() public {
         _initializeVault();
         uint256 protection = 3 days;
         vm.prank(ownerAddress);
-        vault.setNewReceiverProtection(protection);
+        vault.setNewAddressProtection(protection);
 
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         uint256 addedAt = block.timestamp;
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
+        );
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.warp(addedAt + protection);
-        vault.payReceiver("alice");
-        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+        vault.payScheduled("alice");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
     }
 
-    function test_PayReceiver_noProtectionWhenProtectionIsZero() public {
+    function test_PayScheduledPayment_noProtectionWhenProtectionIsZero() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
+        );
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
         deal(address(weth), address(vault), 1 ether);
 
-        vault.payReceiver("alice");
-        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+        vault.payScheduled("alice");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
     }
 
-    function test_PayReceiver_protectionOnlyAppliesToReceiversAddedWhileEnabled() public {
+    function test_PayScheduledPayment_protectionOnlyAppliesToScheduledPaymentsAddedWhileEnabled() public {
         _initializeVault();
-        address aliceReceiver = makeAddr("aliceReceiver");
-        address bobReceiver = makeAddr("bobReceiver");
+        address aliceScheduledPayment = makeAddr("aliceScheduledPayment");
+        address bobScheduledPayment = makeAddr("bobScheduledPayment");
 
+        // bob is added before protection is ever enabled (default-0, opt-in), so it is unprotected.
+        IBittyV1Vault.ScheduledPayment memory bob = _makeScheduledPayment(
+            bobScheduledPayment, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
+        );
         vm.prank(ownerAddress);
-        vault.setNewReceiverProtection(2 days);
+        vault.addScheduledPayment("bob", bob);
 
-        IBittyV1Vault.Receiver memory alice =
-            _makeReceiver(aliceReceiver, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        // Enabling protection only time-locks addresses introduced from now on.
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", alice);
+        vault.setNewAddressProtection(2 days);
 
+        IBittyV1Vault.ScheduledPayment memory alice = _makeScheduledPayment(
+            aliceScheduledPayment, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
+        );
         vm.prank(ownerAddress);
-        vault.setNewReceiverProtection(0);
-
-        IBittyV1Vault.Receiver memory bob =
-            _makeReceiver(bobReceiver, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vm.prank(ownerAddress);
-        vault.addReceiver("bob", bob);
+        vault.addScheduledPayment("alice", alice);
 
         deal(address(weth), address(vault), 2 ether);
 
-        vm.expectRevert(ReceiverProtectionNotEnded.selector);
-        vault.payReceiver("alice");
+        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vault.payScheduled("alice");
 
-        vault.payReceiver("bob");
-        assertEq(weth.balanceOf(bobReceiver), 1 ether);
+        vault.payScheduled("bob");
+        assertEq(weth.balanceOf(bobScheduledPayment), 1 ether);
     }
 
-    function test_RemoveReceiver_clearsProtectionSoReAddCanPayAfterProtection() public {
+    function test_RemoveScheduledPayment_clearsProtectionSoReAddCanPayAfterProtection() public {
         _initializeVault();
         uint256 protection = 1 days;
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
 
         vm.prank(ownerAddress);
-        vault.setNewReceiverProtection(protection);
+        vault.setNewAddressProtection(protection);
 
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
+        );
         vm.startPrank(ownerAddress);
-        vault.addReceiver("alice", r);
-        vault.removeReceiver("alice");
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
+        vault.removeScheduledPayment("alice");
+        vault.addScheduledPayment("alice", r);
         vm.stopPrank();
 
         deal(address(weth), address(vault), 1 ether);
 
-        vm.expectRevert(ReceiverProtectionNotEnded.selector);
-        vault.payReceiver("alice");
+        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vault.payScheduled("alice");
 
         vm.warp(block.timestamp + protection);
-        vault.payReceiver("alice");
-        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+        vault.payScheduled("alice");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
     }
 
-    function test_RemoveReceiver_clearsLastReceiveTimestampSoReAddCanPayImmediately() public {
+    function test_RemoveScheduledPayment_clearsLastReceiveTimestampSoReAddCanPayImmediately() public {
         _initializeVault();
         vm.warp(1_000_000);
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
 
-        _addReceiver("alice", receiverAddr, 1 ether, 2, VaultLogic.RECEIVER_MINIMAL_INTERVAL);
+        _addScheduledPayment("alice", scheduledPaymentAddr, 1 ether, 2, VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
         deal(address(weth), address(vault), 3 ether);
-        vault.payReceiver("alice");
-        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+        vault.payScheduled("alice");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
 
         vm.prank(ownerAddress);
-        vault.removeReceiver("alice");
-        _addReceiver("alice", receiverAddr, 1 ether, 1, VaultLogic.RECEIVER_MINIMAL_INTERVAL);
+        vault.removeScheduledPayment("alice");
+        _addScheduledPayment("alice", scheduledPaymentAddr, 1 ether, 1, VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
 
-        vault.payReceiver("alice");
-        assertEq(weth.balanceOf(receiverAddr), 2 ether, "re-added receiver must be payable immediately");
+        vault.payScheduled("alice");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 2 ether, "re-added scheduledPayment must be payable immediately");
     }
 
-    function test_PayReceiver_revertNotInitialized() public {
+    function test_PayScheduledPayment_revertNotInitialized() public {
         vm.expectRevert(NotInitialized.selector);
-        vault.payReceiver("alice");
+        vault.payScheduled("alice");
     }
 
-    function test_PayReceiverAmount_revertNotInitialized() public {
+    function test_PayScheduledPaymentAmount_revertNotInitialized() public {
         vm.expectRevert(NotInitialized.selector);
-        vault.payReceiverAmount("alice", 1);
+        vault.payScheduledAmount("alice", 1);
     }
 
-    function test_PayReceiverAmount_revertTriggerEmpty() public {
+    function test_PayScheduledPaymentAmount_revertTriggerEmpty() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
-        _addReceiver("alice", receiverAddr, 1 ether, 1, 0);
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
+        _addScheduledPayment("alice", scheduledPaymentAddr, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
-        vm.expectRevert(PayReceiverAmountTriggerEmpty.selector);
-        vault.payReceiverAmount("alice", 1 ether);
+        vm.expectRevert(PayScheduledPaymentAmountTriggerEmpty.selector);
+        vault.payScheduledAmount("alice", 1 ether);
     }
 
-    function test_PayReceiverAmount_revertWhenCallerIsNotTrigger() public {
+    function test_PayScheduledPaymentAmount_revertWhenCallerIsNotTrigger() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
         address attacker = makeAddr("attacker");
-        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
+        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(attacker);
-        vm.expectRevert(ReceiverTriggerError.selector);
-        vault.payReceiverAmount("alice", 1 ether);
+        vm.expectRevert(ScheduledPaymentTriggerError.selector);
+        vault.payScheduledAmount("alice", 1 ether);
 
-        assertEq(weth.balanceOf(receiverAddr), 0);
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 0);
 
         vm.prank(trigger);
-        vault.payReceiverAmount("alice", 1 ether);
-        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+        vault.payScheduledAmount("alice", 1 ether);
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
     }
 
-    function test_PayReceiverAmount_successWhenAmountEqualsReceiverAmount() public {
+    function test_PayScheduledPaymentAmount_successWhenAmountEqualsScheduledPaymentAmount() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
+        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
-        vault.payReceiverAmount("alice", 1 ether);
-        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+        vault.payScheduledAmount("alice", 1 ether);
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
 
         vm.prank(trigger);
-        vm.expectRevert(ReceiverPaymentCountZero.selector);
-        vault.payReceiverAmount("alice", 1 ether);
+        vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
+        vault.payScheduledAmount("alice", 1 ether);
     }
 
-    function test_PayReceiverAmount_successWhenAmountLessThanReceiverAmount() public {
+    function test_PayScheduledPaymentAmount_successWhenAmountLessThanScheduledPaymentAmount() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
+        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
-        vault.payReceiverAmount("alice", 0.5 ether);
+        vault.payScheduledAmount("alice", 0.5 ether);
 
-        assertEq(weth.balanceOf(receiverAddr), 0.5 ether, "transfers requested partial amount");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 0.5 ether, "transfers requested partial amount");
         assertEq(weth.balanceOf(address(vault)), 0.5 ether, "vault retains the remainder");
     }
 
-    function test_PayReceiverAmount_partialAmountEmitsPaidAmount() public {
+    function test_PayScheduledPaymentAmount_partialAmountEmitsPaidAmount() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
+        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
         vm.expectEmit(true, true, true, true, address(vault));
-        emit IBittyV1Vault.ReceiverPaid("alice", receiverAddr, address(weth), 0.25 ether, 0);
-        vault.payReceiverAmount("alice", 0.25 ether);
+        emit IBittyV1Vault.ScheduledPaymentPaid("alice", scheduledPaymentAddr, address(weth), 0.25 ether, 0);
+        vault.payScheduledAmount("alice", 0.25 ether);
 
-        assertEq(weth.balanceOf(receiverAddr), 0.25 ether);
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 0.25 ether);
     }
 
-    function test_PayReceiverAmount_revertPayMoreThanReceiverAmount() public {
+    function test_PayScheduledPaymentAmount_revertPayMoreThanScheduledPaymentAmount() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
+        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
-        vm.expectRevert(PayMoreThanReceiverAmount.selector);
-        vault.payReceiverAmount("alice", 1 ether + 1);
+        vm.expectRevert(PayMoreThanScheduledPaymentAmount.selector);
+        vault.payScheduledAmount("alice", 1 ether + 1);
     }
 
-    function test_PayReceiverAmount_revertReceiverNotStartYet() public {
+    function test_PayScheduledPaymentAmount_revertScheduledPaymentNotStartYet() public {
         _initializeVault();
         uint256 futureStart = block.timestamp + 100;
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, trigger, address(weth), 1 ether, 1, futureStart, 0, false);
+        IBittyV1Vault.ScheduledPayment memory r =
+            _makeScheduledPayment(scheduledPaymentAddr, trigger, address(weth), 1 ether, 1, futureStart, 0, false);
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
-        vm.expectRevert(ReceiverNotStartYet.selector);
-        vault.payReceiverAmount("alice", 1 ether);
+        vm.expectRevert(ScheduledPaymentNotStartYet.selector);
+        vault.payScheduledAmount("alice", 1 ether);
     }
 
-    function test_PayReceiverAmount_revertReceiverProtectionNotEnded() public {
+    function test_PayScheduledPaymentAmount_revertAddressProtectionNotEnded() public {
         _initializeVault();
         vm.prank(ownerAddress);
-        vault.setNewReceiverProtection(2 days);
+        vault.setNewAddressProtection(2 days);
 
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
+        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
-        vm.expectRevert(ReceiverProtectionNotEnded.selector);
-        vault.payReceiverAmount("alice", 1 ether);
+        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vault.payScheduledAmount("alice", 1 ether);
     }
 
-    function test_PayReceiverAmount_revertInsufficientBalance() public {
+    function test_PayScheduledPaymentAmount_revertInsufficientBalance() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
+        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 0.5 ether);
 
         vm.prank(trigger);
         vm.expectRevert(InsufficientBalance.selector);
-        vault.payReceiverAmount("alice", 1 ether);
+        vault.payScheduledAmount("alice", 1 ether);
     }
 
-    function test_PayReceiver_revertInsufficientBalance_whenPayWithInsufficientBalanceFalse() public {
+    function test_PayScheduledPayment_revertInsufficientBalance_whenPayWithInsufficientBalanceFalse() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
+        );
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
         deal(address(weth), address(vault), 0.5 ether);
 
         vm.expectRevert(InsufficientBalance.selector);
-        vault.payReceiver("alice");
-        assertEq(weth.balanceOf(receiverAddr), 0, "no partial transfer on revert");
+        vault.payScheduled("alice");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 0, "no partial transfer on revert");
     }
 
-    function test_PayReceiver_paysAvailableBalance_whenPayWithInsufficientBalanceTrue() public {
+    function test_PayScheduledPayment_paysAvailableBalance_whenPayWithInsufficientBalanceTrue() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         uint256 vaultBalance = 0.5 ether;
-        IBittyV1Vault.Receiver memory r = IBittyV1Vault.Receiver({
-            receiverAddress: receiverAddr,
+        IBittyV1Vault.ScheduledPayment memory r = IBittyV1Vault.ScheduledPayment({
+            scheduledPaymentAddress: scheduledPaymentAddr,
             trigger: address(0),
             assetAddress: address(weth),
             amount: 1 ether,
@@ -1204,23 +1317,23 @@ contract BittyV1VaultTest is Test {
             payWithInsufficientBalance: true
         });
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
         deal(address(weth), address(vault), vaultBalance);
 
-        vault.payReceiver("alice");
+        vault.payScheduled("alice");
 
-        assertEq(weth.balanceOf(receiverAddr), vaultBalance, "transfers entire vault balance");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), vaultBalance, "transfers entire vault balance");
         assertEq(weth.balanceOf(address(vault)), 0);
-        vm.expectRevert(ReceiverPaymentCountZero.selector);
-        vault.payReceiver("alice");
+        vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
+        vault.payScheduled("alice");
     }
 
-    function test_PayReceiver_paysFullAmount_whenPayWithInsufficientBalanceTrueAndBalanceSufficient() public {
+    function test_PayScheduledPayment_paysFullAmount_whenPayWithInsufficientBalanceTrueAndBalanceSufficient() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
-        IBittyV1Vault.Receiver memory r = IBittyV1Vault.Receiver({
-            receiverAddress: receiverAddr,
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
+        IBittyV1Vault.ScheduledPayment memory r = IBittyV1Vault.ScheduledPayment({
+            scheduledPaymentAddress: scheduledPaymentAddr,
             trigger: address(0),
             assetAddress: address(weth),
             amount: 1 ether,
@@ -1231,149 +1344,159 @@ contract BittyV1VaultTest is Test {
             payWithInsufficientBalance: true
         });
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
         deal(address(weth), address(vault), 1 ether);
 
-        vault.payReceiver("alice");
+        vault.payScheduled("alice");
 
-        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
         assertEq(weth.balanceOf(address(vault)), 0);
     }
 
-    function test_PayReceiver_partialPaymentsAcrossMultiplePayouts_whenPayWithInsufficientBalanceTrue() public {
+    function test_PayScheduledPayment_partialPaymentsAcrossMultiplePayouts_whenPayWithInsufficientBalanceTrue() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         uint256 start = block.timestamp;
-        IBittyV1Vault.Receiver memory r = IBittyV1Vault.Receiver({
-            receiverAddress: receiverAddr,
+        IBittyV1Vault.ScheduledPayment memory r = IBittyV1Vault.ScheduledPayment({
+            scheduledPaymentAddress: scheduledPaymentAddr,
             trigger: address(0),
             assetAddress: address(weth),
             amount: 1 ether,
             paymentCount: 3,
             startTimestamp: start,
-            paymentInterval: VaultLogic.RECEIVER_MINIMAL_INTERVAL,
+            paymentInterval: VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
             isImmutable: false,
             payWithInsufficientBalance: true
         });
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
         deal(address(weth), address(vault), 1.5 ether);
 
-        vault.payReceiver("alice");
-        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+        vault.payScheduled("alice");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
 
-        vm.warp(start + VaultLogic.RECEIVER_MINIMAL_INTERVAL + 1);
-        vault.payReceiver("alice");
-        assertEq(weth.balanceOf(receiverAddr), 1.5 ether, "second payout sends remaining 0.5 ether");
+        vm.warp(start + VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL + 1);
+        vault.payScheduled("alice");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1.5 ether, "second payout sends remaining 0.5 ether");
 
-        vm.warp(start + 2 * (VaultLogic.RECEIVER_MINIMAL_INTERVAL + 1));
-        vault.payReceiver("alice");
-        assertEq(weth.balanceOf(receiverAddr), 1.5 ether, "third payout with zero balance sends nothing");
+        vm.warp(start + 2 * (VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL + 1));
+        vault.payScheduled("alice");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1.5 ether, "third payout with zero balance sends nothing");
 
-        vm.expectRevert(ReceiverPaymentCountZero.selector);
-        vault.payReceiver("alice");
+        vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
+        vault.payScheduled("alice");
     }
 
-    // ─── Receiver Events ──────────────────────────────────────────────────────
+    // ─── ScheduledPayment Events ──────────────────────────────────────────────────────
 
-    function test_AddReceiver_emitsReceiverAddedEvent() public {
+    function test_AddScheduledPayment_emitsScheduledPaymentAddedEvent() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
+        );
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit IBittyV1Vault.ReceiverAdded("alice", r);
+        emit IBittyV1Vault.ScheduledPaymentAdded("alice", r);
 
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
     }
 
-    function test_UpdateReceiver_emitsReceiverUpdatedEvent() public {
+    function test_UpdateScheduledPayment_emitsScheduledPaymentUpdatedEvent() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
+        );
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
 
-        IBittyV1Vault.Receiver memory updated =
-            _makeReceiver(receiverAddr, address(0), address(weth), 2 ether, 2, block.timestamp, 2 days, false);
+        IBittyV1Vault.ScheduledPayment memory updated = _makeScheduledPayment(
+            scheduledPaymentAddr,
+            address(0),
+            address(weth),
+            2 ether,
+            2,
+            block.timestamp,
+            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+            false
+        );
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit IBittyV1Vault.ReceiverUpdated("alice", updated);
+        emit IBittyV1Vault.ScheduledPaymentUpdated("alice", updated);
 
         vm.prank(ownerAddress);
-        vault.updateReceiver("alice", updated);
+        vault.updateScheduledPayment("alice", updated);
     }
 
-    function test_RemoveReceiver_emitsReceiverRemovedEvent() public {
+    function test_RemoveScheduledPayment_emitsScheduledPaymentRemovedEvent() public {
         _initializeVault();
-        _addReceiver("alice", makeAddr("receiver"), 1 ether, 1, 0);
+        _addScheduledPayment("alice", makeAddr("scheduledPayment"), 1 ether, 1, 0);
 
         vm.expectEmit(true, false, false, false, address(vault));
-        emit IBittyV1Vault.ReceiverRemoved("alice");
+        emit IBittyV1Vault.ScheduledPaymentRemoved("alice");
 
         vm.prank(ownerAddress);
-        vault.removeReceiver("alice");
+        vault.removeScheduledPayment("alice");
     }
 
-    function test_ChangeReceiverAddress_emitsReceiverAddressChangedEvent() public {
+    function test_ChangeScheduledPaymentAddress_emitsScheduledPaymentAddressChangedEvent() public {
         _initializeVault();
         address alice = makeAddr("alice");
         address bob = makeAddr("bob");
-        _addReceiver("alice", alice, 1 ether, 1, 0);
+        _addScheduledPayment("alice", alice, 1 ether, 1, 0);
 
         vm.expectEmit(true, true, true, false, address(vault));
-        emit IBittyV1Vault.ReceiverAddressChanged("alice", alice, bob);
+        emit IBittyV1Vault.ScheduledPaymentAddressChanged("alice", alice, bob);
         vm.prank(alice);
-        vault.changeReceiverAddress("alice", bob);
+        vault.changeScheduledPaymentAddress("alice", bob);
     }
 
-    function test_SetNewReceiverProtection_emitsNewReceiverProtectionSetEvent() public {
+    function test_SetNewAddressProtection_emitsNewAddressProtectionSetEvent() public {
         _initializeVault();
         uint256 protection = 1 days;
 
         vm.expectEmit(false, false, false, true, address(vault));
-        emit IBittyV1Vault.NewReceiverProtectionSet(protection);
+        emit IBittyV1Vault.NewAddressProtectionSet(protection);
 
         vm.prank(ownerAddress);
-        vault.setNewReceiverProtection(protection);
+        vault.setNewAddressProtection(protection);
     }
 
-    function test_PayReceiver_emitsReceiverPaidEvent() public {
+    function test_PayScheduledPayment_emitsScheduledPaymentPaidEvent() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
-        _addReceiver("alice", receiverAddr, 1 ether, 2, VaultLogic.RECEIVER_MINIMAL_INTERVAL);
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
+        _addScheduledPayment("alice", scheduledPaymentAddr, 1 ether, 2, VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
         deal(address(weth), address(vault), 1 ether);
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit IBittyV1Vault.ReceiverPaid("alice", receiverAddr, address(weth), 1 ether, 1);
+        emit IBittyV1Vault.ScheduledPaymentPaid("alice", scheduledPaymentAddr, address(weth), 1 ether, 1);
 
-        vault.payReceiver("alice");
+        vault.payScheduled("alice");
     }
 
-    function test_PayReceiverAmount_emitsReceiverPaidEvent() public {
+    function test_PayScheduledPaymentAmount_emitsScheduledPaymentPaidEvent() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addReceiverWithTrigger("alice", receiverAddr, trigger, 1 ether, 1, 0);
+        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
         vm.expectEmit(true, true, true, true, address(vault));
-        emit IBittyV1Vault.ReceiverPaid("alice", receiverAddr, address(weth), 1 ether, 0);
-        vault.payReceiverAmount("alice", 1 ether);
+        emit IBittyV1Vault.ScheduledPaymentPaid("alice", scheduledPaymentAddr, address(weth), 1 ether, 0);
+        vault.payScheduledAmount("alice", 1 ether);
     }
 
-    function test_PayReceiver_emitsReceiverPaidEvent_withPartialBalance() public {
+    function test_PayScheduledPayment_emitsScheduledPaymentPaidEvent_withPartialBalance() public {
         _initializeVault();
-        address receiverAddr = makeAddr("receiver");
+        address scheduledPaymentAddr = makeAddr("scheduledPayment");
         uint256 vaultBalance = 0.5 ether;
-        IBittyV1Vault.Receiver memory r = IBittyV1Vault.Receiver({
-            receiverAddress: receiverAddr,
+        IBittyV1Vault.ScheduledPayment memory r = IBittyV1Vault.ScheduledPayment({
+            scheduledPaymentAddress: scheduledPaymentAddr,
             trigger: address(0),
             assetAddress: address(weth),
             amount: 1 ether,
@@ -1384,184 +1507,202 @@ contract BittyV1VaultTest is Test {
             payWithInsufficientBalance: true
         });
         vm.prank(ownerAddress);
-        vault.addReceiver("alice", r);
+        vault.addScheduledPayment("alice", r);
         deal(address(weth), address(vault), vaultBalance);
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit IBittyV1Vault.ReceiverPaid("alice", receiverAddr, address(weth), vaultBalance, 0);
+        emit IBittyV1Vault.ScheduledPaymentPaid("alice", scheduledPaymentAddr, address(weth), vaultBalance, 0);
 
-        vault.payReceiver("alice");
+        vault.payScheduled("alice");
     }
 
     // ─── Fuzz Tests ───────────────────────────────────────────────────────────
 
-    function testFuzz_AddReceiver_validAmountAndCount(uint256 amount, uint8 paymentCount) public {
+    function testFuzz_AddScheduledPayment_validAmountAndCount(uint256 amount, uint8 paymentCount) public {
         vm.assume(amount > 0 && paymentCount > 0);
         _initializeVault();
-        uint256 interval = paymentCount > 1 ? VaultLogic.RECEIVER_MINIMAL_INTERVAL : 0;
-        IBittyV1Vault.Receiver memory r = _makeReceiver(
+        uint256 interval = paymentCount > 1 ? VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL : 0;
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("r"), address(0), address(weth), amount, paymentCount, block.timestamp, interval, false
         );
         vm.prank(ownerAddress);
-        vault.addReceiver("r", r);
+        vault.addScheduledPayment("r", r);
     }
 
-    function testFuzz_SetNewReceiverProtection_withinBounds(uint256 protection) public {
-        vm.assume(protection <= VaultLogic.RECEIVER_NEW_PROTECTION_MAX);
+    function testFuzz_SetNewAddressProtection_withinBounds(uint256 protection) public {
+        protection = bound(protection, VaultLogic.NEW_ADDRESS_PROTECTION_MIN, VaultLogic.NEW_ADDRESS_PROTECTION_MAX);
         _initializeVault();
         vm.prank(ownerAddress);
-        vault.setNewReceiverProtection(protection);
+        vault.setNewAddressProtection(protection);
     }
 
-    function testFuzz_SetNewReceiverProtection_rejectsAboveMax(uint256 protection) public {
-        vm.assume(protection > VaultLogic.RECEIVER_NEW_PROTECTION_MAX);
+    function testFuzz_SetNewAddressProtection_rejectsAboveMax(uint256 protection) public {
+        vm.assume(protection > VaultLogic.NEW_ADDRESS_PROTECTION_MAX);
         _initializeVault();
         vm.prank(ownerAddress);
-        vm.expectRevert(NewReceiverProtectionOutOfRange.selector);
-        vault.setNewReceiverProtection(protection);
+        vm.expectRevert(NewAddressProtectionOutOfRange.selector);
+        vault.setNewAddressProtection(protection);
     }
 
-    function testFuzz_ReceiverProtection_blocksDuringWindow(uint256 protection, uint256 elapsed) public {
-        protection = bound(protection, 1, VaultLogic.RECEIVER_NEW_PROTECTION_MAX);
+    function testFuzz_SetNewAddressProtection_rejectsBelowMin(uint256 protection) public {
+        protection = bound(protection, 0, VaultLogic.NEW_ADDRESS_PROTECTION_MIN - 1);
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(NewAddressProtectionOutOfRange.selector);
+        vault.setNewAddressProtection(protection);
+    }
+
+    function testFuzz_ScheduledPaymentProtection_blocksDuringWindow(uint256 protection, uint256 elapsed) public {
+        protection = bound(protection, VaultLogic.NEW_ADDRESS_PROTECTION_MIN, VaultLogic.NEW_ADDRESS_PROTECTION_MAX);
         elapsed = bound(elapsed, 0, protection - 1);
         _initializeVault();
         vm.prank(ownerAddress);
-        vault.setNewReceiverProtection(protection);
-        address receiverAddr = makeAddr("r");
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vault.setNewAddressProtection(protection);
+        address scheduledPaymentAddr = makeAddr("r");
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
+        );
         vm.prank(ownerAddress);
-        vault.addReceiver("r", r);
+        vault.addScheduledPayment("r", r);
         deal(address(weth), address(vault), 1 ether);
         vm.warp(block.timestamp + elapsed);
-        vm.expectRevert(ReceiverProtectionNotEnded.selector);
-        vault.payReceiver("r");
+        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vault.payScheduled("r");
     }
 
-    function testFuzz_ReceiverProtection_allowsAfterWindow(uint256 protection, uint256 extra) public {
-        protection = bound(protection, 1, VaultLogic.RECEIVER_NEW_PROTECTION_MAX);
+    function testFuzz_ScheduledPaymentProtection_allowsAfterWindow(uint256 protection, uint256 extra) public {
+        protection = bound(protection, VaultLogic.NEW_ADDRESS_PROTECTION_MIN, VaultLogic.NEW_ADDRESS_PROTECTION_MAX);
         extra = bound(extra, 0, 365 days);
         _initializeVault();
         vm.prank(ownerAddress);
-        vault.setNewReceiverProtection(protection);
-        address receiverAddr = makeAddr("r");
+        vault.setNewAddressProtection(protection);
+        address scheduledPaymentAddr = makeAddr("r");
         uint256 addedAt = block.timestamp;
-        IBittyV1Vault.Receiver memory r =
-            _makeReceiver(receiverAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
+        );
         vm.prank(ownerAddress);
-        vault.addReceiver("r", r);
+        vault.addScheduledPayment("r", r);
         deal(address(weth), address(vault), 1 ether);
         vm.warp(addedAt + protection + extra);
-        vault.payReceiver("r");
-        assertEq(weth.balanceOf(receiverAddr), 1 ether);
+        vault.payScheduled("r");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
     }
 
-    function testFuzz_PayReceiver_allPaymentsComplete(uint8 paymentCount) public {
+    function testFuzz_PayScheduledPayment_allPaymentsComplete(uint8 paymentCount) public {
         paymentCount = uint8(bound(uint256(paymentCount), 1, 10));
         _initializeVault();
-        address receiverAddr = makeAddr("r");
+        address scheduledPaymentAddr = makeAddr("r");
         uint256 amount = 0.1 ether;
         uint256 start = block.timestamp;
-        IBittyV1Vault.Receiver memory r = _makeReceiver(
-            receiverAddr,
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr,
             address(0),
             address(weth),
             amount,
             paymentCount,
             start,
-            paymentCount > 1 ? VaultLogic.RECEIVER_MINIMAL_INTERVAL : 0,
+            paymentCount > 1 ? VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL : 0,
             false
         );
         vm.prank(ownerAddress);
-        vault.addReceiver("r", r);
+        vault.addScheduledPayment("r", r);
         deal(address(weth), address(vault), uint256(paymentCount) * amount);
-        vault.payReceiver("r");
+        vault.payScheduled("r");
         for (uint8 i = 1; i < paymentCount; i++) {
-            vm.warp(start + uint256(i) * VaultLogic.RECEIVER_MINIMAL_INTERVAL);
-            vault.payReceiver("r");
+            vm.warp(start + uint256(i) * VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+            vault.payScheduled("r");
         }
-        assertEq(weth.balanceOf(receiverAddr), uint256(paymentCount) * amount);
-        vm.expectRevert(ReceiverPaymentCountZero.selector);
-        vault.payReceiver("r");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), uint256(paymentCount) * amount);
+        vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
+        vault.payScheduled("r");
     }
 
     // ─── Stress Tests ─────────────────────────────────────────────────────────
 
-    function test_stress_fiftyReceivers_addAndPayAll() public {
+    function test_stress_fiftyScheduledPayments_addAndPayAll() public {
         _initializeVault();
         uint256 n = 50;
         uint256 amount = 0.01 ether;
         deal(address(weth), address(vault), n * amount);
-        address[] memory receivers = new address[](n);
+        address[] memory scheduledPayments = new address[](n);
         for (uint256 i = 0; i < n; i++) {
-            receivers[i] = makeAddr(string.concat("r", Strings.toString(i)));
-            IBittyV1Vault.Receiver memory r =
-                _makeReceiver(receivers[i], address(0), address(weth), amount, 1, block.timestamp, 0, false);
+            scheduledPayments[i] = makeAddr(string.concat("r", Strings.toString(i)));
+            IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+                scheduledPayments[i], address(0), address(weth), amount, 1, block.timestamp, 0, false
+            );
             vm.prank(ownerAddress);
-            vault.addReceiver(string.concat("r", Strings.toString(i)), r);
+            vault.addScheduledPayment(string.concat("r", Strings.toString(i)), r);
         }
         for (uint256 i = 0; i < n; i++) {
-            vault.payReceiver(string.concat("r", Strings.toString(i)));
-            assertEq(weth.balanceOf(receivers[i]), amount);
+            vault.payScheduled(string.concat("r", Strings.toString(i)));
+            assertEq(weth.balanceOf(scheduledPayments[i]), amount);
         }
     }
 
     function test_stress_twentySequentialPayments() public {
         _initializeVault();
-        address receiverAddr = makeAddr("r");
+        address scheduledPaymentAddr = makeAddr("r");
         uint8 paymentCount = 20;
         uint256 amount = 0.05 ether;
         uint256 start = block.timestamp;
-        IBittyV1Vault.Receiver memory r = _makeReceiver(
-            receiverAddr,
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr,
             address(0),
             address(weth),
             amount,
             paymentCount,
             start,
-            VaultLogic.RECEIVER_MINIMAL_INTERVAL,
+            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
             false
         );
         vm.prank(ownerAddress);
-        vault.addReceiver("r", r);
+        vault.addScheduledPayment("r", r);
         deal(address(weth), address(vault), uint256(paymentCount) * amount);
-        vault.payReceiver("r");
+        vault.payScheduled("r");
         for (uint8 i = 1; i < paymentCount; i++) {
-            vm.warp(start + uint256(i) * VaultLogic.RECEIVER_MINIMAL_INTERVAL);
-            vault.payReceiver("r");
+            vm.warp(start + uint256(i) * VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+            vault.payScheduled("r");
         }
-        assertEq(weth.balanceOf(receiverAddr), uint256(paymentCount) * amount);
-        vm.expectRevert(ReceiverPaymentCountZero.selector);
-        vault.payReceiver("r");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), uint256(paymentCount) * amount);
+        vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
+        vault.payScheduled("r");
     }
 
-    function _addReceiver(
+    function _addScheduledPayment(
         string memory name,
-        address receiverAddr,
+        address scheduledPaymentAddr,
         uint256 amount,
         uint8 paymentCount,
         uint256 paymentInterval
     ) internal {
-        IBittyV1Vault.Receiver memory r = _makeReceiver(
-            receiverAddr, address(0), address(weth), amount, paymentCount, block.timestamp, paymentInterval, false
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr,
+            address(0),
+            address(weth),
+            amount,
+            paymentCount,
+            block.timestamp,
+            paymentInterval,
+            false
         );
         vm.prank(ownerAddress);
-        vault.addReceiver(name, r);
+        vault.addScheduledPayment(name, r);
     }
 
-    function _addReceiverWithTrigger(
+    function _addScheduledPaymentWithTrigger(
         string memory name,
-        address receiverAddr,
+        address scheduledPaymentAddr,
         address trigger,
         uint256 amount,
         uint8 paymentCount,
         uint256 paymentInterval
     ) internal {
-        IBittyV1Vault.Receiver memory r = _makeReceiver(
-            receiverAddr, trigger, address(weth), amount, paymentCount, block.timestamp, paymentInterval, false
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            scheduledPaymentAddr, trigger, address(weth), amount, paymentCount, block.timestamp, paymentInterval, false
         );
         vm.prank(ownerAddress);
-        vault.addReceiver(name, r);
+        vault.addScheduledPayment(name, r);
     }
 
     function _initializeVault() internal {
@@ -1575,7 +1716,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
     }
 
@@ -1697,7 +1839,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            defiFacet
         );
         assertEq(vault.vaultName(), "");
     }
@@ -1846,7 +1989,7 @@ contract BittyV1VaultTest is Test {
         vault.removeAssets(toRemove);
     }
 
-    // ============ Pay receiver directly from yield (on-behalf) ============
+    // ============ Pay scheduledPayment directly from yield (on-behalf) ============
 
     function _arr(address a) internal pure returns (address[] memory arr) {
         arr = new address[](1);
@@ -1858,11 +2001,11 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         BittyV1Guard(guardAddress).addStakingProtocols(_arr(address(impl)));
         vm.prank(ownerAddress);
-        vault.addStakingProtocols(_arr(address(impl)));
+        IVaultFull(payable(address(vault))).addStakingProtocols(_arr(address(impl)));
 
         usdc.mint(address(vault), stakeAmount);
         vm.prank(assetManagerAddress);
-        vault.stake(address(impl), address(usdc), stakeAmount);
+        IVaultFull(payable(address(vault))).stake(address(impl), address(usdc), stakeAmount);
     }
 
     /// @dev Registers a lending mock in the guard + vault, funds the vault, and supplies it.
@@ -1870,75 +2013,99 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         BittyV1Guard(guardAddress).addLendingProtocols(_arr(address(impl)));
         vm.prank(ownerAddress);
-        vault.addLendingProtocols(_arr(address(impl)));
+        IVaultFull(payable(address(vault))).addLendingProtocols(_arr(address(impl)));
 
         usdc.mint(address(vault), supplyAmount);
         vm.prank(assetManagerAddress);
-        vault.supply(address(impl), address(usdc), supplyAmount);
+        IVaultFull(payable(address(vault))).supply(address(impl), address(usdc), supplyAmount);
     }
 
-    function test_payReceiverFromStaking_deliversDirectlyToReceiver() public {
+    function test_payScheduledFromStaking_deliversDirectlyToScheduledPayment() public {
         _initializeVault();
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         MockStakingProtocol impl = new MockStakingProtocol();
-        address receiverAddr = makeAddr("rentReceiver");
+        address scheduledPaymentAddr = makeAddr("rentScheduledPayment");
 
         uint256 stakeAmount = 1_000e6;
         uint256 payAmount = 250e6;
         _setupStakedReserve(usdc, impl, stakeAmount);
 
         vm.prank(ownerAddress);
-        vault.addReceiver(
-            "rent", _makeReceiver(receiverAddr, address(0), address(usdc), payAmount, 3, block.timestamp, 1 days, false)
+        vault.addScheduledPayment(
+            "rent",
+            _makeScheduledPayment(
+                scheduledPaymentAddr,
+                address(0),
+                address(usdc),
+                payAmount,
+                3,
+                block.timestamp,
+                VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+                false
+            )
         );
 
-        // Triggerless receiver → callable by anyone.
+        // Triggerless scheduledPayment → callable by anyone.
         vm.prank(makeAddr("caller"));
-        vault.payReceiverFromStaking("rent", address(impl));
+        vault.payScheduledFromStaking("rent", address(impl));
 
-        assertEq(usdc.balanceOf(receiverAddr), payAmount);
+        assertEq(usdc.balanceOf(scheduledPaymentAddr), payAmount);
         assertEq(usdc.balanceOf(address(vault)), 0);
 
-        address clone = vault.getClone(address(impl));
-        assertEq(MockStakingProtocol(clone).lastUnstakeRecipient(), receiverAddr);
+        address clone = IVaultFull(payable(address(vault))).getClone(address(impl));
+        assertEq(MockStakingProtocol(clone).lastUnstakeRecipient(), scheduledPaymentAddr);
         assertEq(MockStakingProtocol(clone).lastUnstakeAmount(), payAmount);
-        assertEq(vault.getStakedBalance(address(impl), address(usdc)), stakeAmount - payAmount);
+        assertEq(
+            IVaultFull(payable(address(vault))).getStakedBalance(address(impl), address(usdc)), stakeAmount - payAmount
+        );
     }
 
-    function test_payReceiverFromLending_deliversDirectlyToReceiver() public {
+    function test_payScheduledFromLending_deliversDirectlyToScheduledPayment() public {
         _initializeVault();
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         MockLendingProtocol impl = new MockLendingProtocol();
-        address receiverAddr = makeAddr("payrollReceiver");
+        address scheduledPaymentAddr = makeAddr("payrollScheduledPayment");
 
         uint256 supplyAmount = 800e6;
         uint256 payAmount = 300e6;
         _setupSuppliedReserve(usdc, impl, supplyAmount);
 
         vm.prank(ownerAddress);
-        vault.addReceiver(
+        vault.addScheduledPayment(
             "payroll",
-            _makeReceiver(receiverAddr, address(0), address(usdc), payAmount, 2, block.timestamp, 1 days, false)
+            _makeScheduledPayment(
+                scheduledPaymentAddr,
+                address(0),
+                address(usdc),
+                payAmount,
+                2,
+                block.timestamp,
+                VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+                false
+            )
         );
 
         vm.prank(makeAddr("caller"));
-        vault.payReceiverFromLending("payroll", address(impl));
+        vault.payScheduledFromLending("payroll", address(impl));
 
-        assertEq(usdc.balanceOf(receiverAddr), payAmount);
+        assertEq(usdc.balanceOf(scheduledPaymentAddr), payAmount);
         assertEq(usdc.balanceOf(address(vault)), 0);
 
-        address clone = vault.getClone(address(impl));
-        assertEq(MockLendingProtocol(clone).lastWithdrawRecipient(), receiverAddr);
+        address clone = IVaultFull(payable(address(vault))).getClone(address(impl));
+        assertEq(MockLendingProtocol(clone).lastWithdrawRecipient(), scheduledPaymentAddr);
         assertEq(MockLendingProtocol(clone).lastWithdrawAmount(), payAmount);
-        assertEq(vault.getSuppliedBalance(address(impl), address(usdc)), supplyAmount - payAmount);
+        assertEq(
+            IVaultFull(payable(address(vault))).getSuppliedBalance(address(impl), address(usdc)),
+            supplyAmount - payAmount
+        );
     }
 
-    function test_payReceiverFromSwap_deliversDirectlyToReceiver() public {
+    function test_payScheduledFromSwap_deliversDirectlyToScheduledPayment() public {
         _initializeVault();
         MockERC20 fromAsset = new MockERC20("Wrapped Ether", "WETH", 18);
         MockERC20 payAsset = new MockERC20("USD Coin", "USDC", 6);
         MockAMMProtocol amm = new MockAMMProtocol();
-        address receiverAddr = makeAddr("swapReceiver");
+        address scheduledPaymentAddr = makeAddr("swapScheduledPayment");
 
         vm.startPrank(ownerAddress);
         BittyV1Guard(guardAddress).addAssets(_arr(address(fromAsset)));
@@ -1946,7 +2113,7 @@ contract BittyV1VaultTest is Test {
         vault.addAssets(_arr(address(fromAsset)));
         vault.addAssets(_arr(address(payAsset)));
         BittyV1Guard(guardAddress).addAMMProtocols(_arr(address(amm)));
-        vault.addAMMProtocols(_arr(address(amm)));
+        IVaultFull(payable(address(vault))).addAMMProtocols(_arr(address(amm)));
         vm.stopPrank();
 
         uint256 sellAmountMax = 1 ether;
@@ -1954,32 +2121,45 @@ contract BittyV1VaultTest is Test {
         fromAsset.mint(address(vault), sellAmountMax);
 
         vm.prank(ownerAddress);
-        vault.addReceiver(
+        vault.addScheduledPayment(
             "payroll",
-            _makeReceiver(receiverAddr, address(0), address(payAsset), payAmount, 2, block.timestamp, 1 days, false)
+            _makeScheduledPayment(
+                scheduledPaymentAddr,
+                address(0),
+                address(payAsset),
+                payAmount,
+                2,
+                block.timestamp,
+                VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+                false
+            )
         );
 
         bytes memory data = abi.encode(address(fromAsset), sellAmountMax, address(payAsset), payAmount, bytes(""));
 
-        // Triggerless receiver → callable by anyone.
+        // Triggerless scheduledPayment → callable by anyone.
         vm.prank(makeAddr("caller"));
-        vault.payReceiverFromSwap("payroll", address(amm), address(fromAsset), sellAmountMax, data);
+        vault.payScheduledFromSwap("payroll", address(amm), address(fromAsset), sellAmountMax, data);
 
-        assertEq(payAsset.balanceOf(receiverAddr), payAmount, "receiver paid exactly the scheduled amount");
+        assertEq(
+            payAsset.balanceOf(scheduledPaymentAddr), payAmount, "scheduledPayment paid exactly the scheduled amount"
+        );
         assertEq(payAsset.balanceOf(address(vault)), 0, "vault holds none of the bought asset");
         assertEq(fromAsset.balanceOf(address(vault)), 0, "vault spent the sell asset");
 
-        address clone = vault.getClone(address(amm));
-        assertEq(MockAMMProtocol(clone).lastSwapRecipient(), receiverAddr, "swap delivered to the receiver");
+        address clone = IVaultFull(payable(address(vault))).getClone(address(amm));
+        assertEq(
+            MockAMMProtocol(clone).lastSwapRecipient(), scheduledPaymentAddr, "swap delivered to the scheduledPayment"
+        );
         assertEq(MockAMMProtocol(clone).lastSwapBuyAmount(), payAmount);
     }
 
-    function test_payReceiverFromSwap_bypassesMinimalBalanceGuard() public {
+    function test_payScheduledFromSwap_bypassesMinimalBalanceGuard() public {
         _initializeVault();
         MockERC20 fromAsset = new MockERC20("Wrapped Ether", "WETH", 18);
         MockERC20 payAsset = new MockERC20("USD Coin", "USDC", 6);
         MockAMMProtocol amm = new MockAMMProtocol();
-        address receiverAddr = makeAddr("swapReceiver2");
+        address scheduledPaymentAddr = makeAddr("swapScheduledPayment2");
 
         vm.startPrank(ownerAddress);
         BittyV1Guard(guardAddress).addAssets(_arr(address(fromAsset)));
@@ -1987,7 +2167,7 @@ contract BittyV1VaultTest is Test {
         vault.addAssets(_arr(address(fromAsset)));
         vault.addAssets(_arr(address(payAsset)));
         BittyV1Guard(guardAddress).addAMMProtocols(_arr(address(amm)));
-        vault.addAMMProtocols(_arr(address(amm)));
+        IVaultFull(payable(address(vault))).addAMMProtocols(_arr(address(amm)));
         vm.stopPrank();
 
         uint256 sellAmountMax = 1 ether;
@@ -1995,199 +2175,648 @@ contract BittyV1VaultTest is Test {
         fromAsset.mint(address(vault), 2 ether);
 
         // Post-swap balance (2 - 1 = 1) breaches this minimum. An asset-manager marketBuy would revert
-        // MinimalBalanceNotMet, but the owner-scheduled receiver payment outranks the guard.
+        // MinimalBalanceNotMet, but the owner-scheduled scheduledPayment payment outranks the guard.
         vm.prank(ownerAddress);
-        vault.setMinimalBalance(address(fromAsset), 1.5 ether);
+        IVaultFull(payable(address(vault))).setMinimalBalance(address(fromAsset), 1.5 ether);
 
         vm.prank(ownerAddress);
-        vault.addReceiver(
+        vault.addScheduledPayment(
             "payroll",
-            _makeReceiver(receiverAddr, address(0), address(payAsset), payAmount, 2, block.timestamp, 1 days, false)
+            _makeScheduledPayment(
+                scheduledPaymentAddr,
+                address(0),
+                address(payAsset),
+                payAmount,
+                2,
+                block.timestamp,
+                VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+                false
+            )
         );
 
         bytes memory data = abi.encode(address(fromAsset), sellAmountMax, address(payAsset), payAmount, bytes(""));
 
         vm.prank(makeAddr("caller"));
-        vault.payReceiverFromSwap("payroll", address(amm), address(fromAsset), sellAmountMax, data);
+        vault.payScheduledFromSwap("payroll", address(amm), address(fromAsset), sellAmountMax, data);
 
-        assertEq(payAsset.balanceOf(receiverAddr), payAmount, "receiver paid despite minimal-balance guard");
+        assertEq(
+            payAsset.balanceOf(scheduledPaymentAddr), payAmount, "scheduledPayment paid despite minimal-balance guard"
+        );
         assertEq(fromAsset.balanceOf(address(vault)), 1 ether, "vault dropped below its minimal balance");
     }
 
-    function test_payReceiverFromStaking_honoursTriggerRestriction() public {
+    function test_payScheduledFromStaking_honoursTriggerRestriction() public {
         _initializeVault();
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         MockStakingProtocol impl = new MockStakingProtocol();
-        address receiverAddr = makeAddr("rentReceiver");
+        address scheduledPaymentAddr = makeAddr("rentScheduledPayment");
         address trigger = makeAddr("trigger");
 
         _setupStakedReserve(usdc, impl, 1_000e6);
 
         vm.prank(ownerAddress);
-        vault.addReceiver(
-            "rent", _makeReceiver(receiverAddr, trigger, address(usdc), 250e6, 3, block.timestamp, 1 days, false)
+        vault.addScheduledPayment(
+            "rent",
+            _makeScheduledPayment(
+                scheduledPaymentAddr,
+                trigger,
+                address(usdc),
+                250e6,
+                3,
+                block.timestamp,
+                VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+                false
+            )
         );
 
         vm.prank(makeAddr("stranger"));
-        vm.expectRevert(ReceiverTriggerError.selector);
-        vault.payReceiverFromStaking("rent", address(impl));
+        vm.expectRevert(ScheduledPaymentTriggerError.selector);
+        vault.payScheduledFromStaking("rent", address(impl));
 
-        assertEq(usdc.balanceOf(receiverAddr), 0);
-        assertEq(vault.getStakedBalance(address(impl), address(usdc)), 1_000e6);
+        assertEq(usdc.balanceOf(scheduledPaymentAddr), 0);
+        assertEq(IVaultFull(payable(address(vault))).getStakedBalance(address(impl), address(usdc)), 1_000e6);
 
         vm.prank(trigger);
-        vault.payReceiverFromStaking("rent", address(impl));
-        assertEq(usdc.balanceOf(receiverAddr), 250e6);
+        vault.payScheduledFromStaking("rent", address(impl));
+        assertEq(usdc.balanceOf(scheduledPaymentAddr), 250e6);
         assertEq(usdc.balanceOf(trigger), 0);
     }
 
-    function test_payReceiverFromStaking_enforcesIntervalBetweenPayments() public {
+    function test_payScheduledFromStaking_enforcesIntervalBetweenPayments() public {
         _initializeVault();
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         MockStakingProtocol impl = new MockStakingProtocol();
-        address receiverAddr = makeAddr("rentReceiver");
+        address scheduledPaymentAddr = makeAddr("rentScheduledPayment");
 
         _setupStakedReserve(usdc, impl, 1_000e6);
 
         vm.prank(ownerAddress);
-        vault.addReceiver(
-            "rent", _makeReceiver(receiverAddr, address(0), address(usdc), 250e6, 3, block.timestamp, 1 days, false)
+        vault.addScheduledPayment(
+            "rent",
+            _makeScheduledPayment(
+                scheduledPaymentAddr,
+                address(0),
+                address(usdc),
+                250e6,
+                3,
+                block.timestamp,
+                VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+                false
+            )
         );
 
-        vault.payReceiverFromStaking("rent", address(impl));
+        vault.payScheduledFromStaking("rent", address(impl));
 
-        vm.expectRevert(ReceiverInInterval.selector);
-        vault.payReceiverFromStaking("rent", address(impl));
+        vm.expectRevert(ScheduledPaymentInInterval.selector);
+        vault.payScheduledFromStaking("rent", address(impl));
 
-        vm.warp(block.timestamp + 1 days + 1);
-        vault.payReceiverFromStaking("rent", address(impl));
-        assertEq(usdc.balanceOf(receiverAddr), 500e6);
+        vm.warp(block.timestamp + VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL + 1);
+        vault.payScheduledFromStaking("rent", address(impl));
+        assertEq(usdc.balanceOf(scheduledPaymentAddr), 500e6);
     }
 
-    // ─── Quick-pay ────────────────────────────────────────────────────────────
+    // ─── Micro-payment ────────────────────────────────────────────────────────────
 
-    /// @dev Registers `usdc` as a vault stablecoin, funds the vault, and grants the
-    /// dedicated quick-pay role to `payer`.
-    function _setupQuickPay(MockERC20 usdc, address payer, uint256 fund) internal {
+    /// @dev Registers `usdc` as a vault stablecoin, funds the vault, grants the dedicated
+    /// micro-payment role to `payer`, and configures `payer`'s cap at 1000 whole tokens / 1 day.
+    function _setupMicroPayment(MockERC20 usdc, address payer, uint256 fund) internal {
         address[] memory toAdd = _arr(address(usdc));
         vm.prank(tx.origin);
         BittyV1Guard(guardAddress).addStableCoins(toAdd);
         vm.startPrank(ownerAddress);
         vault.addAssets(toAdd);
-        vault.grantRole(vault.QUICK_PAY_ROLE(), payer);
+        vault.grantRole(vault.MICRO_PAYMENT_ROLE(), payer);
+        vault.setMicroPaymentLimit(payer, 1000, 1 days);
         vm.stopPrank();
         usdc.mint(address(vault), fund);
     }
 
-    function test_QuickPay_defaultsAreThousandTokensAndOneDay() public {
+    function test_MicroPayment_unconfiguredPayerHasNoLimit() public {
         _initializeVault();
-        (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp) = vault.getQuickPayLimit();
+        // There is no vault-level default: a payer starts with an all-zero limit until the owner
+        // configures its address.
+        address payer = makeAddr("payer");
+        (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp) = vault.getMicroPaymentLimit(payer);
+        assertEq(maxWholeTokens, 0);
+        assertEq(interval, 0);
+        assertEq(lastTimestamp, 0);
+    }
+
+    function test_MicroPayment_getReturnsConfiguredLimit() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        address payer = makeAddr("payer");
+        _setupMicroPayment(usdc, payer, 5_000e6);
+        (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp) = vault.getMicroPaymentLimit(payer);
         assertEq(maxWholeTokens, 1000);
         assertEq(interval, 1 days);
         assertEq(lastTimestamp, 0);
     }
 
-    function test_QuickPay_payerCanSendToAnyAddress() public {
+    function test_MicroPayment_unconfiguredPayerCannotPay() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        address[] memory toAdd = _arr(address(usdc));
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        address payer = makeAddr("payer");
+        vm.startPrank(ownerAddress);
+        vault.addAssets(toAdd);
+        // Role granted, but the owner never configured a cap for this address.
+        vault.grantRole(vault.MICRO_PAYMENT_ROLE(), payer);
+        vm.stopPrank();
+        usdc.mint(address(vault), 5_000e6);
+
+        vm.prank(payer);
+        vm.expectRevert(MicroPaymentPayerNotConfigured.selector);
+        vault.payMicro(address(usdc), makeAddr("to"), 1e6);
+    }
+
+    function test_MicroPayment_payerCanSendToAnyAddress() public {
         _initializeVault();
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         address payer = makeAddr("payer");
         address to = makeAddr("oneOffRecipient");
-        _setupQuickPay(usdc, payer, 5_000e6);
+        _setupMicroPayment(usdc, payer, 5_000e6);
 
         vm.prank(payer);
-        vault.quickPay(address(usdc), to, 1_000e6);
+        vault.payMicro(address(usdc), to, 1_000e6);
 
         assertEq(usdc.balanceOf(to), 1_000e6);
         assertEq(usdc.balanceOf(address(vault)), 4_000e6);
-        (,, uint256 lastTimestamp) = vault.getQuickPayLimit();
+        (,, uint256 lastTimestamp) = vault.getMicroPaymentLimit(payer);
         assertEq(lastTimestamp, block.timestamp);
     }
 
-    function test_QuickPay_onlyQuickPayRole() public {
+    function test_MicroPayment_onlyMicroPaymentRole() public {
         _initializeVault();
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         address payer = makeAddr("payer");
-        _setupQuickPay(usdc, payer, 5_000e6);
+        _setupMicroPayment(usdc, payer, 5_000e6);
 
-        // The owner is deliberately NOT a quick-pay holder unless granted.
-        bytes32 quickPayRole = vault.QUICK_PAY_ROLE();
+        // The owner is deliberately NOT a micro-payment holder unless granted.
+        bytes32 microPaymentRole = vault.MICRO_PAYMENT_ROLE();
         vm.prank(ownerAddress);
-        vm.expectRevert(_roleError(ownerAddress, quickPayRole));
-        vault.quickPay(address(usdc), makeAddr("to"), 100e6);
+        vm.expectRevert(_roleError(ownerAddress, microPaymentRole));
+        vault.payMicro(address(usdc), makeAddr("to"), 100e6);
     }
 
-    function test_QuickPay_revertsAboveCap() public {
+    function test_MicroPayment_revertsAboveCap() public {
         _initializeVault();
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         address payer = makeAddr("payer");
-        _setupQuickPay(usdc, payer, 5_000e6);
+        _setupMicroPayment(usdc, payer, 5_000e6);
 
         vm.prank(payer);
-        vm.expectRevert(QuickPayExceedsMax.selector);
-        vault.quickPay(address(usdc), makeAddr("to"), 1_000e6 + 1);
+        vm.expectRevert(MicroPaymentExceedsMax.selector);
+        vault.payMicro(address(usdc), makeAddr("to"), 1_000e6 + 1);
     }
 
-    function test_QuickPay_revertsForUnregisteredStablecoin() public {
+    function test_MicroPayment_revertsForUnregisteredStablecoin() public {
         _initializeVault();
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         MockERC20 other = new MockERC20("Other", "OTH", 6);
         address payer = makeAddr("payer");
-        _setupQuickPay(usdc, payer, 5_000e6);
+        _setupMicroPayment(usdc, payer, 5_000e6);
         other.mint(address(vault), 5_000e6);
 
         vm.prank(payer);
-        vm.expectRevert(QuickPayAssetNotStableCoin.selector);
-        vault.quickPay(address(other), makeAddr("to"), 100e6);
+        vm.expectRevert(MicroPaymentAssetNotStableCoin.selector);
+        vault.payMicro(address(other), makeAddr("to"), 100e6);
     }
 
-    function test_QuickPay_enforcesIntervalOnSharedClock() public {
+    function test_MicroPayment_enforcesIntervalPerPayer() public {
         _initializeVault();
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         address payer = makeAddr("payer");
-        _setupQuickPay(usdc, payer, 5_000e6);
+        _setupMicroPayment(usdc, payer, 5_000e6);
 
         vm.startPrank(payer);
-        vault.quickPay(address(usdc), makeAddr("a"), 100e6);
+        vault.payMicro(address(usdc), makeAddr("a"), 100e6);
 
-        // The interval is a single shared clock, so a different recipient is still blocked.
-        vm.expectRevert(QuickPayInInterval.selector);
-        vault.quickPay(address(usdc), makeAddr("b"), 100e6);
+        // The interval is on the payer's own clock, so this payer paying a different recipient is
+        // still blocked until its interval elapses.
+        vm.expectRevert(MicroPaymentInInterval.selector);
+        vault.payMicro(address(usdc), makeAddr("b"), 100e6);
         vm.stopPrank();
 
         vm.warp(block.timestamp + 1 days + 1);
         vm.prank(payer);
-        vault.quickPay(address(usdc), makeAddr("b"), 100e6);
+        vault.payMicro(address(usdc), makeAddr("b"), 100e6);
         assertEq(usdc.balanceOf(makeAddr("b")), 100e6);
     }
 
-    function test_QuickPay_limitChangeTakesEffectImmediately() public {
+    function test_MicroPayment_perPayerClocksAndCapsAreIndependent() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        address alice = makeAddr("alicePayer");
+        address bob = makeAddr("bobPayer");
+        _setupMicroPayment(usdc, alice, 10_000e6); // alice: 1000 whole tokens / 1 day
+        // bob is a second payer with his own, smaller cap (both within the hard bounds).
+        vm.startPrank(ownerAddress);
+        vault.grantRole(vault.MICRO_PAYMENT_ROLE(), bob);
+        vault.setMicroPaymentLimit(bob, 500, 1 days);
+        vm.stopPrank();
+
+        // alice pays and is then blocked by her own 1-day interval.
+        vm.prank(alice);
+        vault.payMicro(address(usdc), makeAddr("x"), 500e6);
+        vm.prank(alice);
+        vm.expectRevert(MicroPaymentInInterval.selector);
+        vault.payMicro(address(usdc), makeAddr("x"), 500e6);
+
+        // bob's clock is independent: he can pay immediately, up to his own cap.
+        vm.prank(bob);
+        vault.payMicro(address(usdc), makeAddr("y"), 500e6);
+        assertEq(usdc.balanceOf(makeAddr("y")), 500e6);
+
+        // bob exceeds his own smaller cap even though alice's larger cap does not apply to him.
+        vm.prank(bob);
+        vm.expectRevert(MicroPaymentExceedsMax.selector);
+        vault.payMicro(address(usdc), makeAddr("y"), 500e6 + 1);
+    }
+
+    function test_MicroPayment_limitChangeTakesEffectImmediately() public {
         _initializeVault();
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         address payer = makeAddr("payer");
-        _setupQuickPay(usdc, payer, 10_000e6);
+        _setupMicroPayment(usdc, payer, 10_000e6);
+        // Fixed literal base: chained `block.timestamp + X` warps are miscompiled under via_ir.
+        uint256 base = 1_000_000;
+        vm.warp(base);
 
         vm.prank(ownerAddress);
-        vault.setQuickPayLimit(2_000, 1 hours);
-        (uint256 maxWholeTokens, uint256 interval,) = vault.getQuickPayLimit();
-        assertEq(maxWholeTokens, 2_000);
-        assertEq(interval, 1 hours);
+        vault.setMicroPaymentLimit(payer, 500, 2 days);
+        (uint256 maxWholeTokens, uint256 interval,) = vault.getMicroPaymentLimit(payer);
+        assertEq(maxWholeTokens, 500);
+        assertEq(interval, 2 days);
 
+        // The new lower cap applies immediately.
         vm.prank(payer);
-        vault.quickPay(address(usdc), makeAddr("to"), 2_000e6);
-        assertEq(usdc.balanceOf(makeAddr("to")), 2_000e6);
+        vault.payMicro(address(usdc), makeAddr("to"), 500e6);
+        assertEq(usdc.balanceOf(makeAddr("to")), 500e6);
 
-        // The 1-hour interval (not the old 1-day) now governs the next payment.
-        vm.warp(block.timestamp + 1 hours + 1);
+        // The new 2-day interval (not the old 1-day) now governs: still blocked one day later.
+        vm.warp(base + 1 days + 1);
         vm.prank(payer);
-        vault.quickPay(address(usdc), makeAddr("to"), 1e6);
+        vm.expectRevert(MicroPaymentInInterval.selector);
+        vault.payMicro(address(usdc), makeAddr("to"), 1e6);
+
+        // After the full 2 days it succeeds.
+        vm.warp(base + 2 days + 1);
+        vm.prank(payer);
+        vault.payMicro(address(usdc), makeAddr("to"), 1e6);
     }
 
-    function test_QuickPay_setLimitOnlyOwner() public {
+    function test_MicroPayment_setLimitRevertsAboveHardCap() public {
+        _initializeVault();
+        address payer = makeAddr("payer");
+        vm.prank(ownerAddress);
+        vm.expectRevert(MicroPaymentLimitOutOfRange.selector);
+        vault.setMicroPaymentLimit(payer, 1001, 1 days);
+    }
+
+    function test_MicroPayment_setLimitRevertsBelowMinInterval() public {
+        _initializeVault();
+        address payer = makeAddr("payer");
+        vm.prank(ownerAddress);
+        vm.expectRevert(MicroPaymentLimitOutOfRange.selector);
+        vault.setMicroPaymentLimit(payer, 500, 1 days - 1);
+    }
+
+    function test_MicroPayment_setLimitAtHardCapSucceeds() public {
+        _initializeVault();
+        address payer = makeAddr("payer");
+        vm.prank(ownerAddress);
+        vault.setMicroPaymentLimit(payer, 1000, 1 days);
+        (uint256 maxWholeTokens, uint256 interval,) = vault.getMicroPaymentLimit(payer);
+        assertEq(maxWholeTokens, 1000);
+        assertEq(interval, 1 days);
+    }
+
+    function test_MicroPayment_disablePayerBypassesIntervalFloor() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        address payer = makeAddr("payer");
+        _setupMicroPayment(usdc, payer, 5_000e6);
+
+        // Disabling (cap 0) is allowed with interval 0 despite the floor, and blocks the payer.
+        vm.prank(ownerAddress);
+        vault.setMicroPaymentLimit(payer, 0, 0);
+        vm.prank(payer);
+        vm.expectRevert(MicroPaymentPayerNotConfigured.selector);
+        vault.payMicro(address(usdc), makeAddr("to"), 1e6);
+    }
+
+    function test_MicroPayment_setLimitOnlyOwner() public {
         _initializeVault();
         address stranger = makeAddr("stranger");
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, adminRole));
-        vault.setQuickPayLimit(5, 1 hours);
+        vault.setMicroPaymentLimit(makeAddr("payer"), 5, 1 hours);
+    }
+
+    // ─── Unlimited scheduled payment ───────────────────────────────────────────
+
+    function test_ScheduledPayment_maxPaymentCountIsUnlimited() public {
+        _initializeVault();
+        address to = makeAddr("unlimited");
+        uint256 amount = 0.01 ether;
+        uint256 start = block.timestamp;
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            to,
+            address(0),
+            address(weth),
+            amount,
+            type(uint8).max,
+            start,
+            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+            false
+        );
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("u", r);
+
+        // Pay 260 times — well past the 255 uint8 ceiling. A decrementing count would revert at 256.
+        uint256 payments = 260;
+        deal(address(weth), address(vault), payments * amount);
+        vault.payScheduled("u");
+        for (uint256 i = 1; i < payments; i++) {
+            vm.warp(start + i * VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+            vault.payScheduled("u");
+        }
+        assertEq(weth.balanceOf(to), payments * amount);
+    }
+
+    // ─── Whitelisted recipients ────────────────────────────────────────────────
+
+    function test_WhitelistedRecipient_addAndGet() public {
+        _initializeVault();
+        address to = makeAddr("wlr");
+        vm.prank(ownerAddress);
+        vault.addWhitelistedRecipient("bob", to, address(weth));
+
+        (address recipient, address allowedAsset) = vault.getWhitelistedRecipient("bob");
+        assertEq(recipient, to);
+        assertEq(allowedAsset, address(weth));
+    }
+
+    function test_WhitelistedRecipient_addRevertsOnDuplicate() public {
+        _initializeVault();
+        vm.startPrank(ownerAddress);
+        vault.addWhitelistedRecipient("bob", makeAddr("a"), address(0));
+        vm.expectRevert(WhitelistedRecipientNameAlreadyExists.selector);
+        vault.addWhitelistedRecipient("bob", makeAddr("b"), address(0));
+        vm.stopPrank();
+    }
+
+    function test_WhitelistedRecipient_addRevertsOnZeroRecipient() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddressZero.selector);
+        vault.addWhitelistedRecipient("bob", address(0), address(0));
+    }
+
+    function test_WhitelistedRecipient_updateChangesEntry() public {
+        _initializeVault();
+        address to1 = makeAddr("to1");
+        address to2 = makeAddr("to2");
+        vm.startPrank(ownerAddress);
+        vault.addWhitelistedRecipient("bob", to1, address(weth));
+        vault.updateWhitelistedRecipient("bob", to2, address(0));
+        vm.stopPrank();
+
+        (address recipient, address allowedAsset) = vault.getWhitelistedRecipient("bob");
+        assertEq(recipient, to2);
+        assertEq(allowedAsset, address(0));
+    }
+
+    function test_WhitelistedRecipient_updateRevertsWhenNotFound() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(WhitelistedRecipientNotFound.selector);
+        vault.updateWhitelistedRecipient("ghost", makeAddr("to"), address(0));
+    }
+
+    function test_WhitelistedRecipient_anyAssetWhenAllowedAssetZero() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        address to = makeAddr("wlr");
+        vm.prank(ownerAddress);
+        vault.addWhitelistedRecipient("bob", to, address(0));
+
+        deal(address(weth), address(vault), 1 ether);
+        usdc.mint(address(vault), 5_000e6);
+
+        vm.startPrank(ownerAddress);
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient("bob", address(usdc), 5_000e6);
+        vm.stopPrank();
+
+        assertEq(weth.balanceOf(to), 1 ether);
+        assertEq(usdc.balanceOf(to), 5_000e6);
+    }
+
+    function test_WhitelistedRecipient_restrictsToAllowedAsset() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        address to = makeAddr("wlr");
+        vm.prank(ownerAddress);
+        vault.addWhitelistedRecipient("bob", to, address(weth));
+
+        deal(address(weth), address(vault), 1 ether);
+        usdc.mint(address(vault), 5_000e6);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(WhitelistedRecipientAssetNotAllowed.selector);
+        vault.sendToWhitelistedRecipient("bob", address(usdc), 5_000e6);
+
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        assertEq(weth.balanceOf(to), 1 ether);
+    }
+
+    function test_WhitelistedRecipient_revertsWhenNotFound() public {
+        _initializeVault();
+        deal(address(weth), address(vault), 1 ether);
+        vm.prank(ownerAddress);
+        vm.expectRevert(WhitelistedRecipientNotFound.selector);
+        vault.sendToWhitelistedRecipient("ghost", address(weth), 1 ether);
+    }
+
+    function test_WhitelistedRecipient_remove() public {
+        _initializeVault();
+        address to = makeAddr("wlr");
+        vm.startPrank(ownerAddress);
+        vault.addWhitelistedRecipient("bob", to, address(0));
+        vault.removeWhitelistedRecipient("bob");
+        vm.stopPrank();
+
+        (address recipient,) = vault.getWhitelistedRecipient("bob");
+        assertEq(recipient, address(0));
+
+        deal(address(weth), address(vault), 1 ether);
+        vm.prank(ownerAddress);
+        vm.expectRevert(WhitelistedRecipientNotFound.selector);
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+    }
+
+    function test_WhitelistedRecipient_removeRevertsWhenNotFound() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(WhitelistedRecipientNotFound.selector);
+        vault.removeWhitelistedRecipient("ghost");
+    }
+
+    function test_WhitelistedRecipient_onlyOwner() public {
+        _initializeVault();
+        address stranger = makeAddr("stranger");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+
+        vm.startPrank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.addWhitelistedRecipient("bob", makeAddr("to"), address(0));
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.updateWhitelistedRecipient("bob", makeAddr("to"), address(0));
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.removeWhitelistedRecipient("bob");
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1);
+        vm.stopPrank();
+    }
+
+    // ─── New-address protection shared by scheduled payments and whitelisted recipients ─────────
+
+    function test_WhitelistedRecipient_protectionBlocksThenAllowsAfterWindow() public {
+        _initializeVault();
+        uint256 protection = 3 days;
+        address to = makeAddr("wlr");
+
+        vm.startPrank(ownerAddress);
+        vault.setNewAddressProtection(protection);
+        vault.addWhitelistedRecipient("bob", to, address(weth));
+        vm.stopPrank();
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+
+        vm.warp(block.timestamp + protection);
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        assertEq(weth.balanceOf(to), 1 ether);
+    }
+
+    function test_WhitelistedRecipient_noProtectionWhenDisabled() public {
+        _initializeVault();
+        address to = makeAddr("wlr");
+        vm.prank(ownerAddress);
+        vault.addWhitelistedRecipient("bob", to, address(weth));
+
+        deal(address(weth), address(vault), 1 ether);
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        assertEq(weth.balanceOf(to), 1 ether);
+    }
+
+    function test_WhitelistedRecipient_removeClearsProtectionAndReAddReArms() public {
+        _initializeVault();
+        uint256 protection = 2 days;
+        address to = makeAddr("wlr");
+
+        vm.startPrank(ownerAddress);
+        vault.setNewAddressProtection(protection);
+        vault.addWhitelistedRecipient("bob", to, address(weth));
+        vault.removeWhitelistedRecipient("bob");
+        // Re-adding arms a fresh window from now.
+        vault.addWhitelistedRecipient("bob", to, address(weth));
+        vm.stopPrank();
+
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+
+        vm.warp(block.timestamp + protection);
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        assertEq(weth.balanceOf(to), 1 ether);
+    }
+
+    function test_AddressProtection_protectedScheduledAddressCannotBePaidViaWhitelist() public {
+        _initializeVault();
+        uint256 protection = 5 days;
+        address shared = makeAddr("sharedPayee");
+
+        vm.prank(ownerAddress);
+        vault.setNewAddressProtection(protection);
+
+        // Introduce `shared` as a scheduled payment — it is time-locked.
+        IBittyV1Vault.ScheduledPayment memory r =
+            _makeScheduledPayment(shared, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("alice", r);
+
+        // Whitelisting the SAME address under a new name does not escape the shared lock.
+        vm.prank(ownerAddress);
+        vault.addWhitelistedRecipient("bob", shared, address(weth));
+
+        deal(address(weth), address(vault), 2 ether);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+
+        // The scheduled path is blocked too.
+        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vault.payScheduled("alice");
+
+        // After the window both paths are payable.
+        vm.warp(block.timestamp + protection);
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        vault.payScheduled("alice");
+        assertEq(weth.balanceOf(shared), 2 ether);
+    }
+
+    function test_AddressProtection_reIntroducingLaterOnlyExtendsSharedLock() public {
+        _initializeVault();
+        uint256 protection = 10 days;
+        address shared = makeAddr("sharedPayee");
+        // Use a fixed literal base rather than a `block.timestamp`-derived local: under via_ir such a
+        // local can be re-aliased to the timestamp opcode and re-read after warps, corrupting the math.
+        uint256 base = 1_000_000;
+        vm.warp(base);
+
+        vm.startPrank(ownerAddress);
+        vault.setNewAddressProtection(protection);
+        IBittyV1Vault.ScheduledPayment memory r =
+            _makeScheduledPayment(shared, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        vault.addScheduledPayment("alice", r);
+        vm.stopPrank();
+        // Scheduled add arms the shared lock: unlocks at base + 10d.
+
+        // Re-introduce the same address via whitelist 3 days later: the shared lock is pushed out
+        // (max), never pulled in, so it now unlocks at the later deadline (base + 3d + 10d = base + 13d).
+        vm.warp(base + 3 days);
+        vm.prank(ownerAddress);
+        vault.addWhitelistedRecipient("bob", shared, address(weth));
+
+        deal(address(weth), address(vault), 1 ether);
+
+        // Past the original 10-day deadline but before the extended 13-day one — still blocked.
+        vm.warp(base + 10 days + 1);
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+
+        // After the extended deadline — payable.
+        vm.warp(base + 13 days);
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        assertEq(weth.balanceOf(shared), 1 ether);
     }
 }

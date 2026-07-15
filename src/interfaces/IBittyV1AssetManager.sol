@@ -16,12 +16,8 @@ error InvalidSwapData();
 error DisableRebalanceUntilTimestampTooEarly();
 error DisableRebalanceUntilTimestampTooLong();
 error RebalanceDisabled();
-error ETHBalanceNotEnough();
-error WETHBalanceNotEnough();
 
 interface IBittyV1AssetManager {
-    event ETHWrapped(uint256 amount);
-    event WETHUnwrapped(uint256 amount);
     event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
     event TradeLimitSet(address indexed assetManager, uint256 interval, uint256 maxStableCoinSize);
     event RebalanceDisabledUntil(uint256 timestamp);
@@ -33,20 +29,6 @@ interface IBittyV1AssetManager {
     event AMMProtocolsRemoved(address[] protocols);
     event IntentProtocolsAdded(address[] protocols);
     event IntentProtocolsRemoved(address[] protocols);
-
-    /**
-     * @notice Turn the ETH to WETH.
-     * @dev Turn the ETH to WETH.
-     * @param amount The amount of ETH to turn.
-     */
-    function ETHToWETH(uint256 amount) external;
-
-    /**
-     * @notice Turn the WETH to ETH.
-     * @dev Turn the WETH to ETH.
-     * @param amount The amount of WETH to turn.
-     */
-    function WETHToETH(uint256 amount) external;
 
     /**
      * @notice Get the yield providers.
