@@ -8,6 +8,8 @@ import {IBittyV1Vault} from "../interfaces/IBittyV1Vault.sol";
 struct IntentOrderRecord {
     address sellToken; // address(0) = no record
     uint96 expiresAt; // packs with sellToken into one slot; timestamp fits easily
+    // Amount of sellToken this open order reserves; released from committedIntentSell on cancel/expiry.
+    uint256 reservedSell;
 }
 
 // Per-asset-manager trade guardrail (owner-set). Packed into a single 256-bit slot so the whole
@@ -41,6 +43,11 @@ struct AssetManagerStorage {
     uint64 rebalanceDisabledUntilTimestamp;
 
     mapping(bytes32 => IntentOrderRecord) intentOrderRecords;
+
+    // Sum of sellToken still committed to open (unfilled, unexpired) limit/TWAP orders. Non-instant
+    // orders leave their tokens in the vault until settlement, so the balance check must subtract this
+    // or several orders each pass in isolation yet together breach the minimal balance / oversell.
+    mapping(address => uint256) committedIntentSell;
 }
 
 struct PendingSend {
