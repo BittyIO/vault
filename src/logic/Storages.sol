@@ -43,9 +43,8 @@ struct AssetManagerStorage {
     mapping(bytes32 => IntentOrderRecord) intentOrderRecords;
 }
 
-// A one-off send proposed by a payment manager, awaiting owner approval before it executes.
 struct PendingSend {
-    address proposer; // the payment manager who proposed it; address(0) = slot empty
+    address proposer; // address(0) = slot empty
     address recipient;
     address asset;
     uint256 amount;
@@ -61,10 +60,14 @@ struct VaultStorage {
     // the other feature to pay it early.
     mapping(address => uint256) newAddressProtectionTimestamps;
     IBittyV1Guard guard;
+    // A payment whose asset is address(0) means "pay in ETH": direct-balance paths unwrap this WETH.
+    address weth;
     EnumerableSet.AddressSet assets;
     EnumerableSet.AddressSet stableCoins;
     bool addingAssetsDisabled;
     bool sendingDisabled;
+    // Reentrancy lock for native-ETH payouts (the only path that .call's an arbitrary recipient).
+    bool payingEth;
     // Time-lock window (seconds) applied to every newly added scheduled payment AND newly added
     // whitelisted recipient: the address cannot be paid until the window elapses, giving the owner
     // time to notice and remove a malicious/mistaken entry.
@@ -79,7 +82,6 @@ struct VaultStorage {
     mapping(string => address) scheduledPaymentPendingProposer;
     mapping(string => address) whitelistedRecipientPendingProposer;
 
-    // Payment-manager-proposed one-off sends awaiting owner approval, keyed by an incrementing id.
     mapping(uint256 => PendingSend) pendingSends;
     uint256 nextPendingSendId;
 }

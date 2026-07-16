@@ -29,8 +29,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
 
     string public vaultName;
 
-    address internal _weth;
-
     // Payment creation (scheduled payments, whitelisted recipients, one-off sends) is callable by the
     // owner or a payment manager. Owner actions take effect immediately; payment-manager actions are
     // stored pending until the owner approves them.
@@ -72,7 +70,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
      *      or when WETH is unset (pre-initialize), so those transfers are simply accepted as ETH.
      */
     receive() external payable {
-        address weth = _weth;
+        address weth = _vault.weth;
         if (msg.value > 0 && weth != address(0) && msg.sender != weth) {
             WETH(payable(weth)).deposit{value: msg.value}();
         }
@@ -109,7 +107,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
     ) public initializer {
         if (owner == address(0)) revert AddressZero();
         _defiFacet = defiFacet;
-        _weth = weth;
+        _vault.weth = weth;
         vaultName = initialName;
         __AccessControl_init();
         __AccessControlDefaultAdminRules_init(OWNER_TRANSFER_DELAY, owner);
@@ -256,7 +254,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
     function payScheduledFromStaking(string memory scheduledPaymentName, address stakingProtocol) external {
         (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
             _vault.accrueScheduledPaymentOnBehalf(scheduledPaymentName);
-        _assetManager.unstake(stakingProtocol, assetAddress, payAmount, scheduledPaymentAddress);
+        _assetManager.unstake(stakingProtocol, _payoutAsset(assetAddress), payAmount, scheduledPaymentAddress);
     }
 
     /**
@@ -267,7 +265,12 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
     function payScheduledFromLending(string memory scheduledPaymentName, address lendingProtocol) external {
         (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
             _vault.accrueScheduledPaymentOnBehalf(scheduledPaymentName);
-        _assetManager.withdraw(lendingProtocol, assetAddress, payAmount, scheduledPaymentAddress);
+        _assetManager.withdraw(lendingProtocol, _payoutAsset(assetAddress), payAmount, scheduledPaymentAddress);
+    }
+
+    // An ETH (address(0)) scheduled payment is delivered as WETH out of the yield-position paths.
+    function _payoutAsset(address assetAddress) private view returns (address) {
+        return assetAddress == address(0) ? _vault.weth : assetAddress;
     }
 
     /**
@@ -292,7 +295,14 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
         (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
             _vault.accrueScheduledPaymentOnBehalf(scheduledPaymentName);
         _assetManager.buyForScheduledPayment(
-            _vault, ammProtocol, fromAsset, assetAddress, payAmount, sellAmountMax, scheduledPaymentAddress, data
+            _vault,
+            ammProtocol,
+            fromAsset,
+            _payoutAsset(assetAddress),
+            payAmount,
+            sellAmountMax,
+            scheduledPaymentAddress,
+            data
         );
     }
 
@@ -435,7 +445,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
     }
 
     function wethAddress() external view returns (address) {
-        return _weth;
+        return _vault.weth;
     }
 
     function getAssets() external view returns (address[] memory) {

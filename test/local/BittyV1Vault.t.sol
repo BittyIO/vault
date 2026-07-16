@@ -38,7 +38,8 @@ import {
     NotProposalOwner,
     PendingSendNotFound,
     SendingDisabled,
-    OwnerAndManagerMustDiffer
+    OwnerAndManagerMustDiffer,
+    TransferFailed
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -52,6 +53,34 @@ import {
     IAccessControlDefaultAdminRules
 } from "openzeppelin-contracts/contracts/access/extensions/IAccessControlDefaultAdminRules.sol";
 import {Initializable} from "openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
+
+/// @dev On receiving native ETH, tries to reenter payScheduled once (swallowing any revert), to prove
+/// a reentering recipient cannot double-pay.
+contract ReentrantEthReceiver {
+    BittyV1Vault public vault;
+    string public name;
+    bool private armed;
+
+    function arm(BittyV1Vault v, string calldata n) external {
+        vault = v;
+        name = n;
+        armed = true;
+    }
+
+    receive() external payable {
+        if (armed) {
+            armed = false;
+            try vault.payScheduled(name) {} catch {}
+        }
+    }
+}
+
+/// @dev Has code but no payable receive/fallback, so a native-ETH transfer to it returns false.
+contract RejectEthReceiver {
+    function ping() external pure returns (bool) {
+        return true;
+    }
+}
 
 contract BittyV1VaultTest is Test {
     BittyV1Vault public vault;
@@ -2851,5 +2880,146 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vm.expectRevert(AddressZero.selector);
         vault.updateWhitelistedRecipient("w", address(0), address(0));
+    }
+
+    // Fund the vault with real (ETH-backed) WETH so unwrap-to-ETH works, unlike a bare `deal`.
+    function _fundVaultWeth(uint256 amount) internal {
+        vm.deal(address(this), amount);
+        weth.deposit{value: amount}();
+        weth.transfer(address(vault), amount);
+    }
+
+    // ─── ETH payouts (asset address(0) = pay native ETH) ────────────────────────
+
+    function test_ETH_ownerSendUnwrapsWethToNativeEth() public {
+        _initializeVault();
+        _fundVaultWeth(5 ether);
+        address to = makeAddr("payee");
+        assertEq(to.balance, 0);
+
+        vm.prank(ownerAddress);
+        vault.send(to, address(0), 2 ether);
+
+        assertEq(to.balance, 2 ether);
+        assertEq(weth.balanceOf(address(vault)), 3 ether);
+    }
+
+    function test_ETH_scheduledPaysNativeEth() public {
+        _initializeVault();
+        _fundVaultWeth(5 ether);
+        address to = makeAddr("payee");
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment(
+            "p", _makeScheduledPayment(to, address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
+        );
+
+        vault.payScheduled("p");
+        assertEq(to.balance, 1 ether);
+        assertEq(weth.balanceOf(address(vault)), 4 ether);
+    }
+
+    function test_ETH_scheduledPartialPayWithInsufficientBalance() public {
+        _initializeVault();
+        _fundVaultWeth(0.4 ether); // less than the 1 ETH scheduled
+        address to = makeAddr("payee");
+        IBittyV1Vault.ScheduledPayment memory r =
+            _makeScheduledPayment(to, address(0), address(0), 1 ether, 1, block.timestamp, 0, false);
+        r.payWithInsufficientBalance = true;
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("p", r);
+
+        vault.payScheduled("p");
+        assertEq(to.balance, 0.4 ether); // paid what the vault had
+        assertEq(weth.balanceOf(address(vault)), 0);
+    }
+
+    function test_ETH_whitelistedPaysNativeEth() public {
+        _initializeVault();
+        _fundVaultWeth(5 ether);
+        address to = makeAddr("payee");
+        vm.prank(ownerAddress);
+        vault.addWhitelistedRecipient("w", to, address(0)); // allowedAsset = any
+
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient("w", address(0), 2 ether);
+        assertEq(to.balance, 2 ether);
+    }
+
+    function test_ETH_paymentManagerSendProposalPaysEth() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        _fundVaultWeth(5 ether);
+        address to = makeAddr("payee");
+
+        vm.prank(pm);
+        vault.send(to, address(0), 2 ether); // proposal, no transfer
+        assertEq(to.balance, 0);
+
+        vm.prank(ownerAddress);
+        vault.approveSend(0);
+        assertEq(to.balance, 2 ether);
+    }
+
+    function test_ETH_scheduledFromStakingDeliversWeth() public {
+        _initializeVault();
+        MockStakingProtocol impl = new MockStakingProtocol();
+        address to = makeAddr("payee");
+
+        vm.prank(ownerAddress);
+        BittyV1Guard(guardAddress).addStakingProtocols(_arr(address(impl)));
+        vm.prank(ownerAddress);
+        IVaultFull(payable(address(vault))).addStakingProtocols(_arr(address(impl)));
+        _fundVaultWeth(5 ether);
+        vm.prank(assetManagerAddress);
+        IVaultFull(payable(address(vault))).stake(address(impl), address(weth), 5 ether);
+
+        // ETH scheduled payment (asset address(0))
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment(
+            "p", _makeScheduledPayment(to, address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
+        );
+
+        vault.payScheduledFromStaking("p", address(impl));
+        // Yield-delivery paths deliver WETH, not native ETH.
+        assertEq(weth.balanceOf(to), 1 ether);
+        assertEq(to.balance, 0);
+    }
+
+    function test_ETH_reentrantRecipientCannotDoublePay() public {
+        _initializeVault();
+        _fundVaultWeth(5 ether);
+        ReentrantEthReceiver attacker = new ReentrantEthReceiver();
+
+        vm.startPrank(ownerAddress);
+        vault.addScheduledPayment(
+            "p", _makeScheduledPayment(address(attacker), address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
+        );
+        vault.addScheduledPayment(
+            "q", _makeScheduledPayment(address(attacker), address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
+        );
+        vm.stopPrank();
+        // Reentering a *different*, independently-due ETH payment reaches _payOut while payingEth is
+        // still set, so the reentry hits the ReentrantCall guard instead of double-paying.
+        attacker.arm(vault, "q");
+
+        vault.payScheduled("p");
+        // "p" paid once; the reentrant "q" payout reverted and was swallowed, so it never sent.
+        assertEq(address(attacker).balance, 1 ether);
+        assertEq(weth.balanceOf(address(vault)), 4 ether);
+    }
+
+    function test_ETH_paymentToRejectingRecipientReverts() public {
+        _initializeVault();
+        _fundVaultWeth(5 ether);
+        RejectEthReceiver rejecter = new RejectEthReceiver();
+
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment(
+            "p", _makeScheduledPayment(address(rejecter), address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
+        );
+
+        vm.expectRevert(TransferFailed.selector);
+        vault.payScheduled("p");
     }
 }
