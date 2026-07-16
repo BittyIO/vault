@@ -8,6 +8,7 @@ error TransferFailed();
 error NotInitialized();
 error AlreadyInitialized();
 error InsufficientBalance();
+error ReentrantCall();
 
 // scheduledPayment errors
 error ScheduledPaymentNotFound();

@@ -7,13 +7,16 @@ import {
     AddressZero,
     AmountIsZero,
     NotInitialized,
-    InsufficientBalance
+    InsufficientBalance,
+    TransferFailed,
+    ReentrantCall
 } from "../interfaces/IBittyV1Vault.sol";
 import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
 import {IBittyV1PaymentManager} from "../interfaces/IBittyV1PaymentManager.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {WETH} from "solmate/tokens/WETH.sol";
 import {VaultStorage, PendingSend} from "./Storages.sol";
 import {
     IBittyV1Vault,
@@ -106,10 +109,7 @@ library VaultLogic {
         if (vaultStorage.sendingDisabled) {
             revert SendingDisabled();
         }
-        if (asset == address(0)) {
-            // send ETH to the recipient
-        }
-        IERC20(asset).safeTransfer(recipient, amount);
+        _payOut(vaultStorage, asset, amount, recipient);
     }
 
     function disableSending(VaultStorage storage vaultStorage) external onlyInitialized(vaultStorage) {
@@ -151,7 +151,7 @@ library VaultLogic {
             revert SendingDisabled();
         }
         delete vaultStorage.pendingSends[id];
-        IERC20(ps.asset).safeTransfer(ps.recipient, ps.amount);
+        _payOut(vaultStorage, ps.asset, ps.amount, ps.recipient);
         emit IBittyV1Owner.SendApproved(id, ps.recipient, ps.asset, ps.amount);
     }
 
@@ -188,8 +188,7 @@ library VaultLogic {
         }
         _checkScheduledPayment(scheduledPayment);
         vaultStorage.scheduledPayments[name] = scheduledPayment;
-        // Created by a payment manager: mark pending (msg.sender is preserved through delegatecall).
-        // Owner creations stay approved (proposer left at address(0)).
+        // msg.sender (the proposing payment manager) survives the delegatecall from the facade.
         if (!byOwner) {
             vaultStorage.scheduledPaymentPendingProposer[name] = msg.sender;
         }
@@ -245,7 +244,8 @@ library VaultLogic {
         if (scheduledPayment.scheduledPaymentAddress == address(0)) {
             revert AddressZero();
         }
-        if (scheduledPayment.assetAddress.code.length == 0) {
+        // assetAddress address(0) is the "pay in ETH" sentinel; any other asset must be a contract.
+        if (scheduledPayment.assetAddress != address(0) && scheduledPayment.assetAddress.code.length == 0) {
             revert AssetAddressNotContract();
         }
         if (scheduledPayment.amount == 0) {
@@ -450,7 +450,7 @@ library VaultLogic {
             revert WhitelistedRecipientAssetNotAllowed();
         }
         _clearAddressProtection(vaultStorage, entry.recipient);
-        IERC20(asset).safeTransfer(entry.recipient, amount);
+        _payOut(vaultStorage, asset, amount, entry.recipient);
         emit IBittyV1Owner.WhitelistedRecipientPaid(name, entry.recipient, asset, amount);
     }
 
@@ -499,6 +499,7 @@ library VaultLogic {
     ) internal {
         _accrueScheduledPayment(vaultStorage, scheduledPayment, name);
         uint256 paidAmount = _transferMoney(
+            vaultStorage,
             scheduledPayment.assetAddress,
             payAmount,
             scheduledPayment.scheduledPaymentAddress,
@@ -584,18 +585,44 @@ library VaultLogic {
     }
 
     function _transferMoney(
+        VaultStorage storage vaultStorage,
         address erc20Address,
         uint256 amount,
         address scheduledPaymentAddress,
         bool payWithInsufficientBalance
     ) internal returns (uint256 paidAmount) {
-        IERC20 asset = IERC20(erc20Address);
-        uint256 balance = asset.balanceOf(address(this));
+        // address(0) asset = pay in ETH; the vault holds it as WETH, so measure the balance in WETH.
+        address balanceToken = erc20Address == address(0) ? vaultStorage.weth : erc20Address;
+        uint256 balance = IERC20(balanceToken).balanceOf(address(this));
         if (!payWithInsufficientBalance && balance < amount) {
             revert InsufficientBalance();
         }
         paidAmount = balance < amount ? balance : amount;
-        asset.safeTransfer(scheduledPaymentAddress, paidAmount);
+        _payOut(vaultStorage, erc20Address, paidAmount, scheduledPaymentAddress);
+    }
+
+    /**
+     * @dev `asset == address(0)` pays native ETH by unwrapping WETH — the only payout that .call's an
+     * arbitrary recipient, hence the reentrancy guard.
+     */
+    function _payOut(VaultStorage storage vaultStorage, address asset, uint256 amount, address to) internal {
+        if (amount == 0) {
+            return;
+        }
+        if (asset == address(0)) {
+            if (vaultStorage.payingEth) {
+                revert ReentrantCall();
+            }
+            vaultStorage.payingEth = true;
+            WETH(payable(vaultStorage.weth)).withdraw(amount);
+            (bool ok,) = to.call{value: amount}("");
+            if (!ok) {
+                revert TransferFailed();
+            }
+            vaultStorage.payingEth = false;
+        } else {
+            IERC20(asset).safeTransfer(to, amount);
+        }
     }
 
     function addAssets(VaultStorage storage vaultStorage, address[] memory assetAddresses)
