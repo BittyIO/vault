@@ -67,7 +67,7 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         _assetManager.claimAMMFees(ammProtocol, data);
     }
 
-    function getLiquidity(address ammProtocol, bytes memory data) external view override returns (uint256) {
+    function getLiquidity(address ammProtocol, bytes memory data) external view returns (uint256) {
         return _assetManager.getLiquidity(ammProtocol, data);
     }
 
@@ -103,7 +103,7 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         _assetManager.cancelLimitOrder(intentProtocol, data);
     }
 
-    function cleanExpiredLimitOrders(address intentProtocol, bytes32[] calldata orderDigests) external override {
+    function cleanExpiredLimitOrders(address intentProtocol, bytes32[] calldata orderDigests) external {
         _assetManager.cleanExpiredLimitOrders(intentProtocol, orderDigests);
     }
 
@@ -141,7 +141,7 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         );
     }
 
-    function getIntentProtocols() external view override returns (address[] memory) {
+    function getIntentProtocols() external view returns (address[] memory) {
         return _assetManager.getIntentProtocols();
     }
 
@@ -167,12 +167,7 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         _assetManager.withdraw(lendingProtocol, assetAddress, amount, address(this));
     }
 
-    function getSuppliedBalance(address lendingProtocol, address assetAddress)
-        external
-        view
-        override
-        returns (uint256)
-    {
+    function getSuppliedBalance(address lendingProtocol, address assetAddress) external view returns (uint256) {
         return _assetManager.getSuppliedBalance(lendingProtocol, assetAddress);
     }
 
@@ -194,11 +189,11 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         _assetManager.unstake(stakingProtocol, asset, amount, address(this));
     }
 
-    function getStakedBalance(address stakingProtocol, address asset) external view override returns (uint256) {
+    function getStakedBalance(address stakingProtocol, address asset) external view returns (uint256) {
         return _assetManager.getStakedBalance(stakingProtocol, asset);
     }
 
-    function getUnstakeRequestIds(address stakingProtocol) external view override returns (uint256[] memory) {
+    function getUnstakeRequestIds(address stakingProtocol) external view returns (uint256[] memory) {
         return _assetManager.getUnstakeRequestIds(stakingProtocol);
     }
 
@@ -210,106 +205,22 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         _assetManager.claimUnstaked(stakingProtocol, requestIds);
     }
 
-    // ============ Rebalance config ============
-
-    function setMinimalBalance(address assetAddress, uint256 newMinimalBalance)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.setMinimalBalance(assetAddress, newMinimalBalance);
-        emit MinimalBalanceSet(assetAddress, newMinimalBalance);
-    }
-
-    function setTradeLimit(address assetManager, uint256 interval, uint256 maxStableCoinSize)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.setTradeLimit(assetManager, interval, maxStableCoinSize);
-        emit TradeLimitSet(assetManager, interval, maxStableCoinSize);
-    }
+    // ============ Rebalance ============
 
     function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyRole(ASSET_MANAGER_ROLE) {
         _assetManager.disableRebalanceUntilTimestamp(timestamp);
         emit RebalanceDisabledUntil(timestamp);
     }
 
-    // ============ Protocol config ============
-
-    function addLendingProtocols(address[] memory lendingProtocolAddresses)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.addLendingProtocols(lendingProtocolAddresses);
-        emit LendingProtocolsAdded(lendingProtocolAddresses);
-    }
-
-    function removeLendingProtocols(address[] memory lendingProtocolAddresses)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.removeLendingProtocols(lendingProtocolAddresses);
-        emit LendingProtocolsRemoved(lendingProtocolAddresses);
-    }
-
-    function addStakingProtocols(address[] memory stakingProtocolAddresses)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.addStakingProtocols(stakingProtocolAddresses);
-        emit StakingProtocolsAdded(stakingProtocolAddresses);
-    }
-
-    function removeStakingProtocols(address[] memory stakingProtocolAddresses)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.removeStakingProtocols(stakingProtocolAddresses);
-        emit StakingProtocolsRemoved(stakingProtocolAddresses);
-    }
-
-    function addAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.addAMMProtocols(ammProtocolAddresses);
-        emit AMMProtocolsAdded(ammProtocolAddresses);
-    }
-
-    function removeAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.removeAMMProtocols(ammProtocolAddresses);
-        emit AMMProtocolsRemoved(ammProtocolAddresses);
-    }
-
-    function addIntentProtocols(address[] memory intentProtocolAddresses)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.addIntentProtocols(intentProtocolAddresses);
-        emit IntentProtocolsAdded(intentProtocolAddresses);
-    }
-
-    function removeIntentProtocols(address[] memory intentProtocolAddresses)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.removeIntentProtocols(intentProtocolAddresses);
-        emit IntentProtocolsRemoved(intentProtocolAddresses);
-    }
-
-    function getLendingProtocols() external view override returns (address[] memory) {
+    function getLendingProtocols() external view returns (address[] memory) {
         return _assetManager.getLendingProtocols();
     }
 
-    function getStakingProtocols() external view override returns (address[] memory) {
+    function getStakingProtocols() external view returns (address[] memory) {
         return _assetManager.getStakingProtocols();
     }
 
-    function getAMMProtocols() external view override returns (address[] memory) {
+    function getAMMProtocols() external view returns (address[] memory) {
         return _assetManager.getAMMProtocols();
     }
 

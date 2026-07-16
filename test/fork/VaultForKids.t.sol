@@ -135,27 +135,19 @@ contract VaultForKidsForkTest is Test {
         vm.expectRevert();
         vault.addScheduledPayment(SCHEDULED_PAYMENT_NAME_WBTC, wbtcScheduledPayment);
 
-        // Step 4: after age 18, kids move gifts to personal wallets and claim
+        // Step 4: after age 18, the scheduled gifts pay out to the kids' configured addresses.
         vm.warp(EIGHTEEN_TIMESTAMP);
-
-        vm.prank(ALICE_ADDRESS);
-        address newAddress = makeAddr("newAddress");
-        vault.changeScheduledPaymentAddress(SCHEDULED_PAYMENT_NAME_WBTC, newAddress);
-        vm.prank(ALICE_ADDRESS);
-        vault.changeScheduledPaymentAddress(SCHEDULED_PAYMENT_NAME_WETH, newAddress);
 
         vault.payScheduled(SCHEDULED_PAYMENT_NAME_WBTC);
         vault.payScheduled(SCHEDULED_PAYMENT_NAME_WETH);
 
         for (uint256 i = 1; i <= PAY_COUNT; i++) {
             vm.warp(EIGHTEEN_TIMESTAMP + i * PAY_INTERVAL);
-            vm.prank(ALICE_ADDRESS);
             vault.payScheduled(SCHEDULED_PAYMENT_NAME_WBTC);
-            vm.prank(ALICE_ADDRESS);
             vault.payScheduled(SCHEDULED_PAYMENT_NAME_WETH);
         }
-        assertEq(IERC20(WBTC).balanceOf(newAddress), totalWBTCBalance);
-        assertEq(IERC20(mainnet.WETH).balanceOf(newAddress), totalWETHBalance);
+        assertEq(IERC20(WBTC).balanceOf(ALICE_ADDRESS), totalWBTCBalance);
+        assertEq(IERC20(mainnet.WETH).balanceOf(ALICE_ADDRESS), totalWETHBalance);
         assertEq(IERC20(WBTC).balanceOf(address(vault)), 0);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
     }

@@ -43,15 +43,6 @@ struct AssetManagerStorage {
     mapping(bytes32 => IntentOrderRecord) intentOrderRecords;
 }
 
-// Per-micro-payer guardrail (owner-set), keyed by the MICRO_PAYMENT_ROLE holder's address. Packed
-// into a single 256-bit slot so the whole config is one SLOAD and the per-payment lastTimestamp write
-// is a warm SSTORE to that slot. A payer with no configured cap (maxWholeTokens == 0) cannot pay.
-struct MicroPaymentLimit {
-    uint64 maxWholeTokens; // max stablecoin per payment in whole tokens, no decimals (0 = payer disabled)
-    uint64 interval; // min seconds between this payer's micro-payments
-    uint128 lastTimestamp; // written on every payment by this payer
-}
-
 struct VaultStorage {
     bool isInitialized;
     mapping(string => IBittyV1Vault.ScheduledPayment) scheduledPayments;
@@ -65,16 +56,11 @@ struct VaultStorage {
     EnumerableSet.AddressSet assets;
     EnumerableSet.AddressSet stableCoins;
     bool addingAssetsDisabled;
+    bool sendingDisabled;
     // Time-lock window (seconds) applied to every newly added scheduled payment AND newly added
     // whitelisted recipient: the address cannot be paid until the window elapses, giving the owner
     // time to notice and remove a malicious/mistaken entry.
     uint256 newAddressProtection;
-
-    // Owner discretionary micro-payment of stablecoin to arbitrary addresses, rate-limited PER
-    // micro-payer: each MICRO_PAYMENT_ROLE holder has its own cap, interval and clock, keyed by the
-    // payer's address, so a compromised payer key can only drain within that one payer's budget and
-    // only the payer the owner configured can spend.
-    mapping(address => MicroPaymentLimit) microPaymentLimits;
 
     // Owner-curated payees the owner can pay any amount on demand, keyed by name.
     mapping(string => IBittyV1Vault.WhitelistedRecipient) whitelistedRecipients;

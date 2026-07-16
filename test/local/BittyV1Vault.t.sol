@@ -6,6 +6,7 @@ import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {IVaultFull} from "../helpers/IVaultFull.sol";
+import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {VaultLogic} from "../../src/logic/VaultLogic.sol";
 import {
     IBittyV1Vault,
@@ -20,7 +21,6 @@ import {
     NewAddressProtectionOutOfRange,
     NewAddressProtectionCannotDecrease,
     AddressProtectionNotEnded,
-    OnlyScheduledPayment,
     ScheduledPaymentNotStartYet,
     ScheduledPaymentStartTimestampInPast,
     PayMoreThanScheduledPaymentAmount,
@@ -29,11 +29,6 @@ import {
     ScheduledPaymentInInterval,
     InsufficientBalance,
     NotInitialized,
-    MicroPaymentAssetNotStableCoin,
-    MicroPaymentExceedsMax,
-    MicroPaymentInInterval,
-    MicroPaymentPayerNotConfigured,
-    MicroPaymentLimitOutOfRange,
     WhitelistedRecipientNotFound,
     WhitelistedRecipientNameAlreadyExists,
     WhitelistedRecipientAssetNotAllowed
@@ -751,98 +746,6 @@ contract BittyV1VaultTest is Test {
         vault.removeScheduledPayment("alice");
     }
 
-    function test_ChangeScheduledPaymentAddressSuccess() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            defiFacet
-        );
-        address alice = makeAddr("alice");
-        address bob = makeAddr("bob");
-        IBittyV1Vault.ScheduledPayment memory r =
-            _makeScheduledPayment(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
-        vm.prank(alice);
-        vault.changeScheduledPaymentAddress("alice", bob);
-    }
-
-    function test_ChangeScheduledPaymentAddressRevertScheduledPaymentNotFound() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            defiFacet
-        );
-        vm.expectRevert(ScheduledPaymentNotFound.selector);
-        vault.changeScheduledPaymentAddress("nonexistent", makeAddr("attacker"));
-    }
-
-    function test_ChangeScheduledPaymentAddressRevertOnlyScheduledPayment() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            defiFacet
-        );
-        address alice = makeAddr("alice");
-        address bob = makeAddr("bob");
-        IBittyV1Vault.ScheduledPayment memory r =
-            _makeScheduledPayment(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false);
-        vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
-        vm.prank(makeAddr("stranger"));
-        vm.expectRevert(OnlyScheduledPayment.selector);
-        vault.changeScheduledPaymentAddress("alice", bob);
-    }
-
-    function test_ChangeScheduledPaymentAddressRevertScheduledPaymentImmutable() public {
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            defiFacet
-        );
-        address alice = makeAddr("alice");
-        address bob = makeAddr("bob");
-        IBittyV1Vault.ScheduledPayment memory r =
-            _makeScheduledPayment(alice, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true);
-        vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
-        vm.prank(alice);
-        vm.expectRevert(ScheduledPaymentImmutable.selector);
-        vault.changeScheduledPaymentAddress("alice", bob);
-    }
-
     function test_PayScheduledPayment_revertScheduledPaymentNotStartYet() public {
         vault.initialize(
             ownerAddress,
@@ -1399,7 +1302,7 @@ contract BittyV1VaultTest is Test {
         );
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit IBittyV1Vault.ScheduledPaymentAdded("alice", r);
+        emit IBittyV1Owner.ScheduledPaymentAdded("alice", r);
 
         vm.prank(ownerAddress);
         vault.addScheduledPayment("alice", r);
@@ -1426,7 +1329,7 @@ contract BittyV1VaultTest is Test {
         );
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit IBittyV1Vault.ScheduledPaymentUpdated("alice", updated);
+        emit IBittyV1Owner.ScheduledPaymentUpdated("alice", updated);
 
         vm.prank(ownerAddress);
         vault.updateScheduledPayment("alice", updated);
@@ -1437,22 +1340,10 @@ contract BittyV1VaultTest is Test {
         _addScheduledPayment("alice", makeAddr("scheduledPayment"), 1 ether, 1, 0);
 
         vm.expectEmit(true, false, false, false, address(vault));
-        emit IBittyV1Vault.ScheduledPaymentRemoved("alice");
+        emit IBittyV1Owner.ScheduledPaymentRemoved("alice");
 
         vm.prank(ownerAddress);
         vault.removeScheduledPayment("alice");
-    }
-
-    function test_ChangeScheduledPaymentAddress_emitsScheduledPaymentAddressChangedEvent() public {
-        _initializeVault();
-        address alice = makeAddr("alice");
-        address bob = makeAddr("bob");
-        _addScheduledPayment("alice", alice, 1 ether, 1, 0);
-
-        vm.expectEmit(true, true, true, false, address(vault));
-        emit IBittyV1Vault.ScheduledPaymentAddressChanged("alice", alice, bob);
-        vm.prank(alice);
-        vault.changeScheduledPaymentAddress("alice", bob);
     }
 
     function test_SetNewAddressProtection_emitsNewAddressProtectionSetEvent() public {
@@ -1460,7 +1351,7 @@ contract BittyV1VaultTest is Test {
         uint256 protection = 1 days;
 
         vm.expectEmit(false, false, false, true, address(vault));
-        emit IBittyV1Vault.NewAddressProtectionSet(protection);
+        emit IBittyV1Owner.NewAddressProtectionSet(protection);
 
         vm.prank(ownerAddress);
         vault.setNewAddressProtection(protection);
@@ -2275,248 +2166,6 @@ contract BittyV1VaultTest is Test {
         assertEq(usdc.balanceOf(scheduledPaymentAddr), 500e6);
     }
 
-    // ─── Micro-payment ────────────────────────────────────────────────────────────
-
-    /// @dev Registers `usdc` as a vault stablecoin, funds the vault, grants the dedicated
-    /// micro-payment role to `payer`, and configures `payer`'s cap at 1000 whole tokens / 1 day.
-    function _setupMicroPayment(MockERC20 usdc, address payer, uint256 fund) internal {
-        address[] memory toAdd = _arr(address(usdc));
-        vm.prank(tx.origin);
-        BittyV1Guard(guardAddress).addStableCoins(toAdd);
-        vm.startPrank(ownerAddress);
-        vault.addAssets(toAdd);
-        vault.grantRole(vault.MICRO_PAYMENT_ROLE(), payer);
-        vault.setMicroPaymentLimit(payer, 1000, 1 days);
-        vm.stopPrank();
-        usdc.mint(address(vault), fund);
-    }
-
-    function test_MicroPayment_unconfiguredPayerHasNoLimit() public {
-        _initializeVault();
-        // There is no vault-level default: a payer starts with an all-zero limit until the owner
-        // configures its address.
-        address payer = makeAddr("payer");
-        (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp) = vault.getMicroPaymentLimit(payer);
-        assertEq(maxWholeTokens, 0);
-        assertEq(interval, 0);
-        assertEq(lastTimestamp, 0);
-    }
-
-    function test_MicroPayment_getReturnsConfiguredLimit() public {
-        _initializeVault();
-        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
-        address payer = makeAddr("payer");
-        _setupMicroPayment(usdc, payer, 5_000e6);
-        (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp) = vault.getMicroPaymentLimit(payer);
-        assertEq(maxWholeTokens, 1000);
-        assertEq(interval, 1 days);
-        assertEq(lastTimestamp, 0);
-    }
-
-    function test_MicroPayment_unconfiguredPayerCannotPay() public {
-        _initializeVault();
-        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
-        address[] memory toAdd = _arr(address(usdc));
-        vm.prank(tx.origin);
-        BittyV1Guard(guardAddress).addStableCoins(toAdd);
-        address payer = makeAddr("payer");
-        vm.startPrank(ownerAddress);
-        vault.addAssets(toAdd);
-        // Role granted, but the owner never configured a cap for this address.
-        vault.grantRole(vault.MICRO_PAYMENT_ROLE(), payer);
-        vm.stopPrank();
-        usdc.mint(address(vault), 5_000e6);
-
-        vm.prank(payer);
-        vm.expectRevert(MicroPaymentPayerNotConfigured.selector);
-        vault.payMicro(address(usdc), makeAddr("to"), 1e6);
-    }
-
-    function test_MicroPayment_payerCanSendToAnyAddress() public {
-        _initializeVault();
-        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
-        address payer = makeAddr("payer");
-        address to = makeAddr("oneOffRecipient");
-        _setupMicroPayment(usdc, payer, 5_000e6);
-
-        vm.prank(payer);
-        vault.payMicro(address(usdc), to, 1_000e6);
-
-        assertEq(usdc.balanceOf(to), 1_000e6);
-        assertEq(usdc.balanceOf(address(vault)), 4_000e6);
-        (,, uint256 lastTimestamp) = vault.getMicroPaymentLimit(payer);
-        assertEq(lastTimestamp, block.timestamp);
-    }
-
-    function test_MicroPayment_onlyMicroPaymentRole() public {
-        _initializeVault();
-        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
-        address payer = makeAddr("payer");
-        _setupMicroPayment(usdc, payer, 5_000e6);
-
-        // The owner is deliberately NOT a micro-payment holder unless granted.
-        bytes32 microPaymentRole = vault.MICRO_PAYMENT_ROLE();
-        vm.prank(ownerAddress);
-        vm.expectRevert(_roleError(ownerAddress, microPaymentRole));
-        vault.payMicro(address(usdc), makeAddr("to"), 100e6);
-    }
-
-    function test_MicroPayment_revertsAboveCap() public {
-        _initializeVault();
-        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
-        address payer = makeAddr("payer");
-        _setupMicroPayment(usdc, payer, 5_000e6);
-
-        vm.prank(payer);
-        vm.expectRevert(MicroPaymentExceedsMax.selector);
-        vault.payMicro(address(usdc), makeAddr("to"), 1_000e6 + 1);
-    }
-
-    function test_MicroPayment_revertsForUnregisteredStablecoin() public {
-        _initializeVault();
-        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
-        MockERC20 other = new MockERC20("Other", "OTH", 6);
-        address payer = makeAddr("payer");
-        _setupMicroPayment(usdc, payer, 5_000e6);
-        other.mint(address(vault), 5_000e6);
-
-        vm.prank(payer);
-        vm.expectRevert(MicroPaymentAssetNotStableCoin.selector);
-        vault.payMicro(address(other), makeAddr("to"), 100e6);
-    }
-
-    function test_MicroPayment_enforcesIntervalPerPayer() public {
-        _initializeVault();
-        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
-        address payer = makeAddr("payer");
-        _setupMicroPayment(usdc, payer, 5_000e6);
-
-        vm.startPrank(payer);
-        vault.payMicro(address(usdc), makeAddr("a"), 100e6);
-
-        // The interval is on the payer's own clock, so this payer paying a different recipient is
-        // still blocked until its interval elapses.
-        vm.expectRevert(MicroPaymentInInterval.selector);
-        vault.payMicro(address(usdc), makeAddr("b"), 100e6);
-        vm.stopPrank();
-
-        vm.warp(block.timestamp + 1 days + 1);
-        vm.prank(payer);
-        vault.payMicro(address(usdc), makeAddr("b"), 100e6);
-        assertEq(usdc.balanceOf(makeAddr("b")), 100e6);
-    }
-
-    function test_MicroPayment_perPayerClocksAndCapsAreIndependent() public {
-        _initializeVault();
-        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
-        address alice = makeAddr("alicePayer");
-        address bob = makeAddr("bobPayer");
-        _setupMicroPayment(usdc, alice, 10_000e6); // alice: 1000 whole tokens / 1 day
-        // bob is a second payer with his own, smaller cap (both within the hard bounds).
-        vm.startPrank(ownerAddress);
-        vault.grantRole(vault.MICRO_PAYMENT_ROLE(), bob);
-        vault.setMicroPaymentLimit(bob, 500, 1 days);
-        vm.stopPrank();
-
-        // alice pays and is then blocked by her own 1-day interval.
-        vm.prank(alice);
-        vault.payMicro(address(usdc), makeAddr("x"), 500e6);
-        vm.prank(alice);
-        vm.expectRevert(MicroPaymentInInterval.selector);
-        vault.payMicro(address(usdc), makeAddr("x"), 500e6);
-
-        // bob's clock is independent: he can pay immediately, up to his own cap.
-        vm.prank(bob);
-        vault.payMicro(address(usdc), makeAddr("y"), 500e6);
-        assertEq(usdc.balanceOf(makeAddr("y")), 500e6);
-
-        // bob exceeds his own smaller cap even though alice's larger cap does not apply to him.
-        vm.prank(bob);
-        vm.expectRevert(MicroPaymentExceedsMax.selector);
-        vault.payMicro(address(usdc), makeAddr("y"), 500e6 + 1);
-    }
-
-    function test_MicroPayment_limitChangeTakesEffectImmediately() public {
-        _initializeVault();
-        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
-        address payer = makeAddr("payer");
-        _setupMicroPayment(usdc, payer, 10_000e6);
-        // Fixed literal base: chained `block.timestamp + X` warps are miscompiled under via_ir.
-        uint256 base = 1_000_000;
-        vm.warp(base);
-
-        vm.prank(ownerAddress);
-        vault.setMicroPaymentLimit(payer, 500, 2 days);
-        (uint256 maxWholeTokens, uint256 interval,) = vault.getMicroPaymentLimit(payer);
-        assertEq(maxWholeTokens, 500);
-        assertEq(interval, 2 days);
-
-        // The new lower cap applies immediately.
-        vm.prank(payer);
-        vault.payMicro(address(usdc), makeAddr("to"), 500e6);
-        assertEq(usdc.balanceOf(makeAddr("to")), 500e6);
-
-        // The new 2-day interval (not the old 1-day) now governs: still blocked one day later.
-        vm.warp(base + 1 days + 1);
-        vm.prank(payer);
-        vm.expectRevert(MicroPaymentInInterval.selector);
-        vault.payMicro(address(usdc), makeAddr("to"), 1e6);
-
-        // After the full 2 days it succeeds.
-        vm.warp(base + 2 days + 1);
-        vm.prank(payer);
-        vault.payMicro(address(usdc), makeAddr("to"), 1e6);
-    }
-
-    function test_MicroPayment_setLimitRevertsAboveHardCap() public {
-        _initializeVault();
-        address payer = makeAddr("payer");
-        vm.prank(ownerAddress);
-        vm.expectRevert(MicroPaymentLimitOutOfRange.selector);
-        vault.setMicroPaymentLimit(payer, 1001, 1 days);
-    }
-
-    function test_MicroPayment_setLimitRevertsBelowMinInterval() public {
-        _initializeVault();
-        address payer = makeAddr("payer");
-        vm.prank(ownerAddress);
-        vm.expectRevert(MicroPaymentLimitOutOfRange.selector);
-        vault.setMicroPaymentLimit(payer, 500, 1 days - 1);
-    }
-
-    function test_MicroPayment_setLimitAtHardCapSucceeds() public {
-        _initializeVault();
-        address payer = makeAddr("payer");
-        vm.prank(ownerAddress);
-        vault.setMicroPaymentLimit(payer, 1000, 1 days);
-        (uint256 maxWholeTokens, uint256 interval,) = vault.getMicroPaymentLimit(payer);
-        assertEq(maxWholeTokens, 1000);
-        assertEq(interval, 1 days);
-    }
-
-    function test_MicroPayment_disablePayerBypassesIntervalFloor() public {
-        _initializeVault();
-        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
-        address payer = makeAddr("payer");
-        _setupMicroPayment(usdc, payer, 5_000e6);
-
-        // Disabling (cap 0) is allowed with interval 0 despite the floor, and blocks the payer.
-        vm.prank(ownerAddress);
-        vault.setMicroPaymentLimit(payer, 0, 0);
-        vm.prank(payer);
-        vm.expectRevert(MicroPaymentPayerNotConfigured.selector);
-        vault.payMicro(address(usdc), makeAddr("to"), 1e6);
-    }
-
-    function test_MicroPayment_setLimitOnlyOwner() public {
-        _initializeVault();
-        address stranger = makeAddr("stranger");
-        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
-        vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, adminRole));
-        vault.setMicroPaymentLimit(makeAddr("payer"), 5, 1 hours);
-    }
-
     // ─── Unlimited scheduled payment ───────────────────────────────────────────
 
     function test_ScheduledPayment_maxPaymentCountIsUnlimited() public {
@@ -2707,6 +2356,48 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
+    }
+
+    // Regression: the address-keyed protection deadline is shared, so removing one of two entries
+    // pointing at the same address must NOT clear the lock for the remaining one.
+    function test_AddressProtection_notBypassableViaTwoWhitelistNames() public {
+        _initializeVault();
+        uint256 protection = 7 days;
+        address payee = makeAddr("payee");
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.startPrank(ownerAddress);
+        vault.setNewAddressProtection(protection);
+        vault.addWhitelistedRecipient("a", payee, address(0));
+        vault.addWhitelistedRecipient("b", payee, address(0)); // same payee under a 2nd name
+        vault.removeWhitelistedRecipient("b"); // must not clear the shared lock for "a"
+        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vault.sendToWhitelistedRecipient("a", address(weth), 1 ether);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + protection);
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient("a", address(weth), 1 ether);
+        assertEq(weth.balanceOf(payee), 1 ether);
+    }
+
+    // Regression: same bypass across features (scheduled payment + whitelist on one address).
+    function test_AddressProtection_notBypassableCrossFeature() public {
+        _initializeVault();
+        uint256 protection = 7 days;
+        address payee = makeAddr("payee");
+        deal(address(weth), address(vault), 1 ether);
+
+        vm.startPrank(ownerAddress);
+        vault.setNewAddressProtection(protection);
+        vault.addWhitelistedRecipient("wl", payee, address(0));
+        IBittyV1Vault.ScheduledPayment memory sp =
+            _makeScheduledPayment(payee, address(0), address(weth), 0.1 ether, 1, block.timestamp, 0, false);
+        vault.addScheduledPayment("sp", sp);
+        vault.removeScheduledPayment("sp"); // must not clear protection[payee]
+        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vault.sendToWhitelistedRecipient("wl", address(weth), 1 ether);
+        vm.stopPrank();
     }
 
     function test_WhitelistedRecipient_noProtectionWhenDisabled() public {

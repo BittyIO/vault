@@ -28,7 +28,6 @@ abstract contract BittyV1VaultBase is AccessControlDefaultAdminRulesUpgradeable 
     using VaultLogic for VaultStorage;
 
     bytes32 public constant ASSET_MANAGER_ROLE = keccak256("ASSET_MANAGER_ROLE");
-    bytes32 public constant MICRO_PAYMENT_ROLE = keccak256("MICRO_PAYMENT_ROLE");
 
     uint48 public constant OWNER_TRANSFER_DELAY = 1 days;
 

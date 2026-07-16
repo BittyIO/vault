@@ -3,20 +3,16 @@ pragma solidity ^0.8.34;
 
 import {WETH} from "solmate/tokens/WETH.sol";
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
-import {
-    IBittyV1Vault,
-    ScheduledPaymentNotFound,
-    OnlyScheduledPayment,
-    AddressZero
-} from "./interfaces/IBittyV1Vault.sol";
+import {IBittyV1Owner} from "./interfaces/IBittyV1Owner.sol";
+import {IBittyV1Vault, AddressZero} from "./interfaces/IBittyV1Vault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
 
 /**
  * @title BittyV1Vault
- * @notice The core custody + payments contract: asset allowlist, scheduled payments, whitelisted
- *         recipients and micro-payments. Asset-management (trading, yield, protocols) lives in
+ * @notice The core custody + payments contract: asset allowlist, scheduled payments and whitelisted
+ *         recipients. Asset-management (trading, yield, protocols) lives in
  *         {BittyV1VaultDeFiFacet}, reached through this contract's fallback.
  * @dev
  * Best practices:
@@ -24,7 +20,7 @@ import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
  *   Managed via {AccessControlDefaultAdminRulesUpgradeable} (2-step transfer + delay).
  * - ASSET_MANAGER_ROLE: hot wallet / AI agent. Executes yield and trading operations only.
  */
-contract BittyV1Vault is BittyV1VaultBase, IBittyV1Vault {
+contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner {
     using AssetManagerLogic for AssetManagerStorage;
 
     using VaultLogic for VaultStorage;
@@ -132,7 +128,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Vault {
         emit AssetsLocked();
     }
 
-    function isAddingAssetsDisabled() external view override returns (bool) {
+    function isAddingAssetsDisabled() external view returns (bool) {
         return _vault.addingAssetsDisabled;
     }
 
@@ -143,8 +139,22 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Vault {
         emit ProtocolsLocked();
     }
 
-    function isAddingProtocolsDisabled() external view override returns (bool) {
+    function isAddingProtocolsDisabled() external view returns (bool) {
         return _assetManager.addingProtocolsDisabled;
+    }
+
+    // ============ Sending ============
+
+    function send(address recipient, address asset, uint256 amount) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.send(recipient, asset, amount);
+    }
+
+    function disableSending() external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.disableSending();
+    }
+
+    function isSendingDisabled() external view returns (bool) {
+        return _vault.sendingDisabled;
     }
 
     // ============ ScheduledPayments ============
@@ -172,21 +182,11 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Vault {
         _vault.setNewAddressProtection(newAddressProtection);
     }
 
-    function changeScheduledPaymentAddress(string memory scheduledPaymentName, address newScheduledPaymentAddress)
-        external
-        override
-    {
-        address oldScheduledPaymentAddress = _vault.getScheduledPaymentAddress(scheduledPaymentName);
-        if (oldScheduledPaymentAddress == address(0)) revert ScheduledPaymentNotFound();
-        if (oldScheduledPaymentAddress != msg.sender) revert OnlyScheduledPayment();
-        _vault.changeScheduledPaymentAddress(scheduledPaymentName, newScheduledPaymentAddress);
-    }
-
-    function payScheduled(string memory scheduledPaymentName) external override {
+    function payScheduled(string memory scheduledPaymentName) external {
         _vault.payScheduled(scheduledPaymentName);
     }
 
-    function payScheduledAmount(string memory scheduledPaymentName, uint256 amount) external override {
+    function payScheduledAmount(string memory scheduledPaymentName, uint256 amount) external {
         _vault.payScheduledAmount(scheduledPaymentName, amount);
     }
 
@@ -198,7 +198,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Vault {
      * a configured scheduledPayment, never an arbitrary address. Authorization mirrors
      * {payScheduled} (the scheduledPayment's trigger, or anyone if unset).
      */
-    function payScheduledFromStaking(string memory scheduledPaymentName, address stakingProtocol) external override {
+    function payScheduledFromStaking(string memory scheduledPaymentName, address stakingProtocol) external {
         (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
             _vault.accrueScheduledPaymentOnBehalf(scheduledPaymentName);
         _assetManager.unstake(stakingProtocol, assetAddress, payAmount, scheduledPaymentAddress);
@@ -209,7 +209,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Vault {
      * position. See {payScheduledFromStaking} for the recipient-safety guarantees — they
      * apply identically here.
      */
-    function payScheduledFromLending(string memory scheduledPaymentName, address lendingProtocol) external override {
+    function payScheduledFromLending(string memory scheduledPaymentName, address lendingProtocol) external {
         (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
             _vault.accrueScheduledPaymentOnBehalf(scheduledPaymentName);
         _assetManager.withdraw(lendingProtocol, assetAddress, payAmount, scheduledPaymentAddress);
@@ -233,7 +233,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Vault {
         address fromAsset,
         uint256 sellAmountMax,
         bytes memory data
-    ) external override {
+    ) external {
         (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
             _vault.accrueScheduledPaymentOnBehalf(scheduledPaymentName);
         _assetManager.buyForScheduledPayment(
@@ -241,81 +241,137 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Vault {
         );
     }
 
-    // ============ Micro-payment ============
-
-    /**
-     * @notice Send stablecoin from the vault straight to any address. Callable by holders of
-     * {MICRO_PAYMENT_ROLE} (a dedicated spending role, not the owner), subject to the per-payment
-     * cap and interval configured by the owner.
-     */
-    function payMicro(address stableCoin, address to, uint256 amount) external override onlyRole(MICRO_PAYMENT_ROLE) {
-        _vault.payMicro(stableCoin, to, amount);
-    }
-
-    /**
-     * @notice Set a specific micro-payer's per-payment cap (in whole tokens) and minimum interval.
-     * @dev Owner-only — the owner sets each payer's guardrails; a separate {MICRO_PAYMENT_ROLE} holder
-     * spends within the cap configured for its own address (0 disables that payer).
-     */
-    function setMicroPaymentLimit(address payer, uint256 maxWholeTokens, uint256 interval)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _vault.setMicroPaymentLimit(payer, maxWholeTokens, interval);
-    }
-
-    function getMicroPaymentLimit(address payer)
-        external
-        view
-        override
-        returns (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp)
-    {
-        return _vault.getMicroPaymentLimit(payer);
-    }
-
     // ============ Whitelisted recipients (DEFAULT_ADMIN_ROLE) ============
 
-    function addWhitelistedRecipient(string memory name, address recipient, address allowedAsset)
+    function addWhitelistedRecipient(string memory recipientName, address recipient, address allowedAsset)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _vault.addWhitelistedRecipient(name, recipient, allowedAsset);
+        _vault.addWhitelistedRecipient(recipientName, recipient, allowedAsset);
     }
 
-    function updateWhitelistedRecipient(string memory name, address recipient, address allowedAsset)
+    function updateWhitelistedRecipient(string memory recipientName, address recipient, address allowedAsset)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _vault.updateWhitelistedRecipient(name, recipient, allowedAsset);
+        _vault.updateWhitelistedRecipient(recipientName, recipient, allowedAsset);
     }
 
-    function removeWhitelistedRecipient(string memory name) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.removeWhitelistedRecipient(name);
+    function removeWhitelistedRecipient(string memory recipientName) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.removeWhitelistedRecipient(recipientName);
     }
 
-    function sendToWhitelistedRecipient(string memory name, address asset, uint256 amount)
+    function sendToWhitelistedRecipient(string memory recipientName, address asset, uint256 amount)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _vault.sendToWhitelistedRecipient(name, asset, amount);
+        _vault.sendToWhitelistedRecipient(recipientName, asset, amount);
     }
 
-    function getWhitelistedRecipient(string memory name)
+    function getWhitelistedRecipient(string memory recipientName)
         external
         view
-        override
         returns (address recipient, address allowedAsset)
     {
-        return _vault.getWhitelistedRecipient(name);
+        return _vault.getWhitelistedRecipient(recipientName);
+    }
+
+    // ============ Protocol management & asset-manager guardrails (DEFAULT_ADMIN_ROLE) ============
+
+    /**
+     * @notice Set the minimum balance that must remain after any sell of `assetAddress` (0 disables).
+     */
+    function setMinimalBalance(address assetAddress, uint256 newMinimalBalance)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _assetManager.setMinimalBalance(assetAddress, newMinimalBalance);
+        emit MinimalBalanceSet(assetAddress, newMinimalBalance);
+    }
+
+    /**
+     * @notice Set a per-asset-manager trade guardrail (throttle interval + stablecoin size cap).
+     */
+    function setTradeLimit(address assetManager, uint256 interval, uint256 maxStableCoinSize)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _assetManager.setTradeLimit(assetManager, interval, maxStableCoinSize);
+        emit TradeLimitSet(assetManager, interval, maxStableCoinSize);
+    }
+
+    function addLendingProtocols(address[] memory lendingProtocolAddresses)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _assetManager.addLendingProtocols(lendingProtocolAddresses);
+        emit LendingProtocolsAdded(lendingProtocolAddresses);
+    }
+
+    function removeLendingProtocols(address[] memory lendingProtocolAddresses)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _assetManager.removeLendingProtocols(lendingProtocolAddresses);
+        emit LendingProtocolsRemoved(lendingProtocolAddresses);
+    }
+
+    function addStakingProtocols(address[] memory stakingProtocolAddresses)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _assetManager.addStakingProtocols(stakingProtocolAddresses);
+        emit StakingProtocolsAdded(stakingProtocolAddresses);
+    }
+
+    function removeStakingProtocols(address[] memory stakingProtocolAddresses)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _assetManager.removeStakingProtocols(stakingProtocolAddresses);
+        emit StakingProtocolsRemoved(stakingProtocolAddresses);
+    }
+
+    function addAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetManager.addAMMProtocols(ammProtocolAddresses);
+        emit AMMProtocolsAdded(ammProtocolAddresses);
+    }
+
+    function removeAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetManager.removeAMMProtocols(ammProtocolAddresses);
+        emit AMMProtocolsRemoved(ammProtocolAddresses);
+    }
+
+    function addIntentProtocols(address[] memory intentProtocolAddresses)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _assetManager.addIntentProtocols(intentProtocolAddresses);
+        emit IntentProtocolsAdded(intentProtocolAddresses);
+    }
+
+    function removeIntentProtocols(address[] memory intentProtocolAddresses)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _assetManager.removeIntentProtocols(intentProtocolAddresses);
+        emit IntentProtocolsRemoved(intentProtocolAddresses);
     }
 
     // ============ Views ============
 
-    function name() external view override returns (string memory) {
+    function name() external view returns (string memory) {
         return vaultName;
     }
 
@@ -323,11 +379,11 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Vault {
         return _weth;
     }
 
-    function getAssets() external view override returns (address[] memory) {
+    function getAssets() external view returns (address[] memory) {
         return _vault.getAssets();
     }
 
-    function getStableCoins() external view override returns (address[] memory) {
+    function getStableCoins() external view returns (address[] memory) {
         return _vault.getStableCoins();
     }
 }

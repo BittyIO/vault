@@ -17,127 +17,31 @@ error DisableRebalanceUntilTimestampTooEarly();
 error DisableRebalanceUntilTimestampTooLong();
 error RebalanceDisabled();
 
+/**
+ * @title IBittyV1AssetManager
+ * @notice Only the asset-manager (ASSET_MANAGER_ROLE) trading/yield functions and their events.
+ *         Implemented by {BittyV1VaultDeFiFacet}. Owner-only asset-manager config (setMinimalBalance,
+ *         setTradeLimit, protocol add/remove) lives in {IBittyV1Owner}; the asset-manager read
+ *         functions (getSuppliedBalance, getLiquidity, protocol getters, …) live in {IBittyV1Vault}.
+ */
 interface IBittyV1AssetManager {
-    event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
-    event TradeLimitSet(address indexed assetManager, uint256 interval, uint256 maxStableCoinSize);
     event RebalanceDisabledUntil(uint256 timestamp);
-    event LendingProtocolsAdded(address[] protocols);
-    event LendingProtocolsRemoved(address[] protocols);
-    event StakingProtocolsAdded(address[] protocols);
-    event StakingProtocolsRemoved(address[] protocols);
-    event AMMProtocolsAdded(address[] protocols);
-    event AMMProtocolsRemoved(address[] protocols);
-    event IntentProtocolsAdded(address[] protocols);
-    event IntentProtocolsRemoved(address[] protocols);
 
-    /**
-     * @notice Get the yield providers.
-     * @dev Get the yield providers.
-     * @return lendingProtocolAddresses The addresses of the yield providers.
-     */
-    function getLendingProtocols() external view returns (address[] memory);
+    // ============ Lending ============
 
-    /**
-     * @notice Get the staking providers.
-     * @dev Get the staking providers.
-     * @return stakingProtocolAddresses The addresses of the staking providers.
-     */
-    function getStakingProtocols() external view returns (address[] memory);
-
-    /**
-     * @notice Get the swap providers.
-     * @dev Get the swap providers.
-     * @return ammProtocolAddresses The addresses of the swap providers.
-     */
-    function getAMMProtocols() external view returns (address[] memory);
-
-    /**
-     * @notice Set the minimum balance that must remain in the vault after any sell of `assetAddress`.
-     *         Use token decimals (e.g. 1e8 = 1 WBTC, 10 ether = 10 WETH). Zero disables the check.
-     */
-    function setMinimalBalance(address assetAddress, uint256 minimalBalance) external;
-
-    /**
-     * @notice Set per-asset-manager trade guardrails. Owner-only.
-     * @dev `interval` is the minimum seconds between that manager's trades (marketSell/Buy, limit,
-     * TWAP); 0 disables the throttle. `maxStableCoinSize` caps the stablecoin leg of each trade in
-     * whole tokens (no decimals, e.g. 10000 = 10,000 USDC); 0 disables the cap. When a cap is set,
-     * every trade must have a stablecoin as either the sell or buy token (so the size is measurable in
-     * dollars), else it reverts.
-     * @param assetManager The asset-manager address the limits apply to.
-     * @param interval Minimum seconds between trades.
-     * @param maxStableCoinSize Max stablecoin per trade in whole tokens (no decimals).
-     */
-    function setTradeLimit(address assetManager, uint256 interval, uint256 maxStableCoinSize) external;
-
-    /**
-     * @notice Supply the asset to the lending provider.
-     * @dev Supply the asset to the lending provider.
-     * @param lendingProtocol The address of the lending provider.
-     * @param assetAddress The address of the asset.
-     * @param amount The amount of the asset.
-     */
     function supply(address lendingProtocol, address assetAddress, uint256 amount) external;
 
-    /**
-     * @notice Withdraw the asset from the lending provider.
-     * @dev Withdraw the asset from the lending provider.
-     * @param lendingProtocol The address of the lending provider.
-     * @param assetAddress The address of the asset.
-     * @param amount The amount of the asset.
-     */
     function withdraw(address lendingProtocol, address assetAddress, uint256 amount) external;
 
-    /**
-     *
-     * @param lendingProtocol The address of the lending provider.
-     * @param assetAddress The address of the asset.
-     * @return The balance of the asset.
-     */
-    function getSuppliedBalance(address lendingProtocol, address assetAddress) external view returns (uint256);
+    // ============ Staking ============
 
-    /**
-     * @notice Stake the asset to the staking provider.
-     * @dev Stake the asset to the staking provider, this only works for ETH mainnet.
-     * @param stakingProtocol The address of the staking provider.
-     * @param asset The address of the asset.
-     * @param amount The amount of the weth.
-     */
     function stake(address stakingProtocol, address asset, uint256 amount) external;
 
-    /**
-     * @notice Get the staking balance.
-     * @dev Get the staking balance.
-     * @param stakingProtocol The address of the staking provider.
-     * @param asset The address of the asset.
-     * @return The staking balance.
-     */
-    function getStakedBalance(address stakingProtocol, address asset) external view returns (uint256);
-
-    /**
-     * @notice Unstake the asset from the staking provider.
-     * @dev Unstake the asset from the staking provider, this only works for ETH mainnet.
-     * @param stakingProtocol The address of the staking provider.
-     * @param asset The address of the asset.
-     * @param amount The amount of the asset.
-     */
     function unstake(address stakingProtocol, address asset, uint256 amount) external;
 
-    /**
-     * @notice Get the unstake request ids.
-     * @dev Get the unstake request ids.
-     * @param stakingProtocol The address of the staking provider.
-     * @return unstakeRequestIds The unstake request ids.
-     */
-    function getUnstakeRequestIds(address stakingProtocol) external view returns (uint256[] memory);
-
-    /**
-     * @notice Claim withdrawn assets from the staking provider.
-     * @dev Claim withdrawn assets from the staking provider after unstake requests are finalized.
-     * @param stakingProtocol The address of the staking provider.
-     * @param requestIds The request ids to claim.
-     */
     function claimUnstaked(address stakingProtocol, uint256[] memory requestIds) external;
+
+    // ============ AMM ============
 
     /**
      * @notice Exact-input market swap: sell exactly `sellAmount` of `from`, receive ≥ `buyAmountMin` of `to`.
@@ -155,7 +59,6 @@ interface IBittyV1AssetManager {
     /**
      * @notice Exact-output market swap: receive exactly `buyAmount` of `to`, spend ≤ `sellAmountMax` of `from`.
      * @dev data = abi.encode(from, sellAmountMax, to, buyAmount, reversedPath)
-     *      reversedPath must be encoded in reverse order (to → ... → from) per Uniswap V3 exactOutput.
      */
     function marketBuy(
         address ammProtocol,
@@ -166,13 +69,6 @@ interface IBittyV1AssetManager {
         bytes memory data
     ) external;
 
-    /**
-     * @notice Add liquidity to the AMM provider.
-     * @dev Add liquidity to the AMM provider.
-     * @param ammProtocol The address of the AMM provider.
-     * @param data The data for the add liquidity.
-     * @dev Only the asset manager can execute it.
-     */
     function addLiquidity(
         address ammProtocol,
         address token0,
@@ -182,100 +78,20 @@ interface IBittyV1AssetManager {
         bytes memory data
     ) external;
 
-    /**
-     * @notice Remove liquidity from the AMM provider.
-     * @dev Remove liquidity from the AMM provider.
-     * @param ammProtocol The address of the AMM provider.
-     * @param data The data for the remove liquidity.
-     * @dev Only the asset manager can execute it.
-     */
     function removeLiquidity(address ammProtocol, bytes memory data) external;
 
-    /**
-     * @notice Decrease liquidity from the AMM provider without fully closing the position.
-     * @dev Works on both registered and deprecated AMM protocols.
-     * @param ammProtocol The address of the AMM provider.
-     * @param data The data for the decrease liquidity.
-     */
     function decreaseLiquidity(address ammProtocol, bytes memory data) external;
 
-    /**
-     * @notice Claim fees from the AMM provider.
-     * @dev Claim fees from the AMM provider.
-     * @param ammProtocol The address of the AMM provider.
-     * @param data The data for the claim fees.
-     * @dev Only the asset manager can execute it.
-     */
     function claimAMMFees(address ammProtocol, bytes memory data) external;
 
-    /**
-     * @notice Get the liquidity of the AMM provider.
-     * @dev Get the liquidity of the AMM provider.
-     * @param ammProtocol The address of the AMM provider.
-     * @param data The data for the get liquidity.
-     * @dev Only the asset manager can execute it.
-     */
-    function getLiquidity(address ammProtocol, bytes memory data) external view returns (uint256);
+    // ============ Rebalance ============
 
     /**
-     * @notice Disable the rebalance until the timestamp.
-     * @dev Disable the rebalance until the timestamp.
-     * @param timestamp The timestamp to disable the rebalance until.
+     * @notice Disable rebalancing (asset-manager trades) until `timestamp`.
      */
     function disableRebalanceUntilTimestamp(uint256 timestamp) external;
 
-    /**
-     * @notice Add the lending providers.
-     * @param lendingProtocolAddresses The addresses of the lending providers.
-     * @dev Add the lending providers.
-     */
-    function addLendingProtocols(address[] memory lendingProtocolAddresses) external;
-
-    /**
-     * @notice Remove the lending providers.
-     * @dev Remove the lending providers.
-     * @param lendingProtocolAddresses The addresses of the lending providers.
-     * @dev Remove the lending providers.
-     */
-    function removeLendingProtocols(address[] memory lendingProtocolAddresses) external;
-
-    /**
-     * @notice Add the staking providers.
-     * @dev Add the staking providers.
-     * @param stakingProtocolAddresses The addresses of the staking providers.
-     * @dev Add the staking providers.
-     */
-    function addStakingProtocols(address[] memory stakingProtocolAddresses) external;
-
-    /**
-     * @notice Remove the staking providers.
-     * @dev Remove the staking providers.
-     * @param stakingProtocolAddresses The addresses of the staking providers.
-     * @dev Remove the staking providers.
-     */
-    function removeStakingProtocols(address[] memory stakingProtocolAddresses) external;
-
-    /**
-     * @notice Add the swap providers.
-     * @dev Add the swap providers.
-     * @param ammProtocolAddresses The addresses of the swap providers.
-     * @dev Add the swap providers.
-     */
-    function addAMMProtocols(address[] memory ammProtocolAddresses) external;
-
-    /**
-     * @notice Remove the swap providers.
-     * @dev Remove the swap providers.
-     * @param ammProtocolAddresses The addresses of the swap providers.
-     * @dev Remove the swap providers.
-     */
-    function removeAMMProtocols(address[] memory ammProtocolAddresses) external;
-
-    function getIntentProtocols() external view returns (address[] memory);
-
-    function addIntentProtocols(address[] memory intentProtocolAddresses) external;
-
-    function removeIntentProtocols(address[] memory intentProtocolAddresses) external;
+    // ============ Intent (limit / TWAP) ============
 
     /**
      * @notice Place a sell limit order: sell exactly `sellAmount` of `from`, receive ≥ `buyAmountMin` of `to`.
@@ -305,12 +121,8 @@ interface IBittyV1AssetManager {
 
     function cancelLimitOrder(address intentProtocol, bytes memory data) external;
 
-    function cleanExpiredLimitOrders(address intentProtocol, bytes32[] calldata orderDigests) external;
-
     /**
      * @notice Create a TWAP sell order: split totalSellAmount into n equal parts executed every partDuration seconds.
-     *         The intent protocol derives a per-TWAP appData salt on-chain, so multiple TWAPs can share a sell token
-     *         without colliding at the CoW settlement layer while keeping the partner fee contract-enforced.
      * @return twapId use to cancel via cancelTwapOrder
      */
     function twapSell(
@@ -332,8 +144,6 @@ interface IBittyV1AssetManager {
     /**
      * @notice Create a TWAP buy order: spend sellAmountPerPart of `from` every partDuration seconds across n parts,
      *         receiving at least totalBuyAmount/n of `to` per part.
-     * @param totalBuyAmount minimum total `to` tokens across all n parts (minPartLimit = totalBuyAmount/n)
-     * @param sellAmountPerPart sell tokens per part (totalSellAmount = sellAmountPerPart * n)
      * @return twapId use to cancel via cancelTwapOrder
      */
     function twapBuy(

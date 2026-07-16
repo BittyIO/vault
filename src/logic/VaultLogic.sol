@@ -9,11 +9,11 @@ import {
     NotInitialized,
     InsufficientBalance
 } from "../interfaces/IBittyV1Vault.sol";
+import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {VaultStorage, MicroPaymentLimit} from "./Storages.sol";
+import {VaultStorage} from "./Storages.sol";
 import {
     IBittyV1Vault,
     ScheduledPaymentNotFound,
@@ -32,14 +32,10 @@ import {
     AddressProtectionNotEnded,
     PayMoreThanScheduledPaymentAmount,
     PayScheduledPaymentAmountTriggerEmpty,
-    MicroPaymentAssetNotStableCoin,
-    MicroPaymentExceedsMax,
-    MicroPaymentInInterval,
-    MicroPaymentPayerNotConfigured,
-    MicroPaymentLimitOutOfRange,
     WhitelistedRecipientNotFound,
     WhitelistedRecipientNameAlreadyExists,
-    WhitelistedRecipientAssetNotAllowed
+    WhitelistedRecipientAssetNotAllowed,
+    SendingDisabled
 } from "../interfaces/IBittyV1Vault.sol";
 
 library VaultLogic {
@@ -64,15 +60,6 @@ library VaultLogic {
      * never be re-established through {setNewAddressProtection}.
      */
     uint256 constant NEW_ADDRESS_PROTECTION_MIN = 1 days;
-
-    /**
-     * Hard bounds on every per-payer micro-payment limit. These are absolute: even the owner cannot
-     * configure a payer above the cap or below the interval floor, so a compromised owner key can at
-     * worst move {MICRO_PAYMENT_MAX_WHOLE_TOKENS} whole tokens per {MICRO_PAYMENT_MIN_INTERVAL} per
-     * payer. The owner sets each payer's own (lower/looser) limit within these bounds.
-     */
-    uint64 constant MICRO_PAYMENT_MAX_WHOLE_TOKENS = 1000;
-    uint64 constant MICRO_PAYMENT_MIN_INTERVAL = 1 days;
 
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
@@ -107,6 +94,27 @@ library VaultLogic {
         vaultStorage.isInitialized = true;
     }
 
+    function send(VaultStorage storage vaultStorage, address recipient, address asset, uint256 amount)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        if (vaultStorage.sendingDisabled) {
+            revert SendingDisabled();
+        }
+        if (asset == address(0)) {
+            // send ETH to the recipient
+        }
+        IERC20(asset).safeTransfer(recipient, amount);
+    }
+
+    function disableSending(VaultStorage storage vaultStorage) external onlyInitialized(vaultStorage) {
+        vaultStorage.sendingDisabled = true;
+    }
+
+    function isSendingDisabled(VaultStorage storage vaultStorage) external view returns (bool) {
+        return vaultStorage.sendingDisabled;
+    }
+
     function addScheduledPayment(
         VaultStorage storage vaultStorage,
         string memory name,
@@ -121,33 +129,7 @@ library VaultLogic {
         _checkScheduledPayment(scheduledPayment);
         vaultStorage.scheduledPayments[name] = scheduledPayment;
         _armAddressProtection(vaultStorage, scheduledPayment.scheduledPaymentAddress);
-        emit IBittyV1Vault.ScheduledPaymentAdded(name, scheduledPayment);
-    }
-
-    function getScheduledPaymentAddress(VaultStorage storage vaultStorage, string memory name)
-        external
-        view
-        returns (address)
-    {
-        return vaultStorage.scheduledPayments[name].scheduledPaymentAddress;
-    }
-
-    function changeScheduledPaymentAddress(
-        VaultStorage storage vaultStorage,
-        string memory name,
-        address newScheduledPaymentAddress
-    ) external onlyInitialized(vaultStorage) {
-        IBittyV1Vault.ScheduledPayment storage scheduledPayment = vaultStorage.scheduledPayments[name];
-        if (scheduledPayment.isImmutable) {
-            revert ScheduledPaymentImmutable();
-        }
-        if (newScheduledPaymentAddress == address(0)) {
-            revert AddressZero();
-        }
-        address oldScheduledPaymentAddress = scheduledPayment.scheduledPaymentAddress;
-        scheduledPayment.scheduledPaymentAddress = newScheduledPaymentAddress;
-        _armAddressProtection(vaultStorage, newScheduledPaymentAddress);
-        emit IBittyV1Vault.ScheduledPaymentAddressChanged(name, oldScheduledPaymentAddress, newScheduledPaymentAddress);
+        emit IBittyV1Owner.ScheduledPaymentAdded(name, scheduledPayment);
     }
 
     function updateScheduledPayment(
@@ -165,7 +147,7 @@ library VaultLogic {
         _checkScheduledPayment(scheduledPayment);
         vaultStorage.scheduledPayments[name] = scheduledPayment;
         _armAddressProtection(vaultStorage, scheduledPayment.scheduledPaymentAddress);
-        emit IBittyV1Vault.ScheduledPaymentUpdated(name, scheduledPayment);
+        emit IBittyV1Owner.ScheduledPaymentUpdated(name, scheduledPayment);
     }
 
     function _checkScheduledPayment(IBittyV1Vault.ScheduledPayment memory scheduledPayment) internal view {
@@ -191,11 +173,14 @@ library VaultLogic {
         external
         onlyInitialized(vaultStorage)
     {
-        address scheduledPaymentAddress = vaultStorage.scheduledPayments[name].scheduledPaymentAddress;
         delete vaultStorage.scheduledPayments[name];
-        delete vaultStorage.newAddressProtectionTimestamps[scheduledPaymentAddress];
         delete vaultStorage.lastReceiveTimestamps[name];
-        emit IBittyV1Vault.ScheduledPaymentRemoved(name);
+        // Intentionally do NOT clear newAddressProtectionTimestamps[scheduledPaymentAddress]: it is
+        // shared by payee address across scheduled payments and whitelisted recipients. Clearing it on
+        // removal would let a compromised owner drop a still-protected address's time-lock by adding it
+        // under two names/features and removing one. The lock self-clears on the first post-window pay
+        // and re-adding an address only ever extends it (max), so leaving it here is always safe.
+        emit IBittyV1Owner.ScheduledPaymentRemoved(name);
     }
 
     function setNewAddressProtection(VaultStorage storage vaultStorage, uint256 newAddressProtection)
@@ -212,7 +197,7 @@ library VaultLogic {
             revert NewAddressProtectionCannotDecrease();
         }
         vaultStorage.newAddressProtection = newAddressProtection;
-        emit IBittyV1Vault.NewAddressProtectionSet(newAddressProtection);
+        emit IBittyV1Owner.NewAddressProtectionSet(newAddressProtection);
     }
 
     /**
@@ -249,92 +234,6 @@ library VaultLogic {
     }
 
     /**
-     * @notice Set the per-payment cap (in whole tokens) and minimum interval for a single micro-payer.
-     * @dev Effective immediately and scoped to `payer`. Access control (owner-only) is enforced by the
-     * facade. Setting `maxWholeTokens` to 0 disables `payer`. When enabling a payer the values are
-     * clamped to the hard bounds ({MICRO_PAYMENT_MAX_WHOLE_TOKENS}, {MICRO_PAYMENT_MIN_INTERVAL}): a
-     * cap above the ceiling or an interval below the floor reverts, so even a compromised owner cannot
-     * widen a payer past the absolute per-payer budget. Only the payer's cap and interval are touched;
-     * the payer's last-payment clock is preserved.
-     */
-    function setMicroPaymentLimit(
-        VaultStorage storage vaultStorage,
-        address payer,
-        uint256 maxWholeTokens,
-        uint256 interval
-    ) external onlyInitialized(vaultStorage) {
-        if (payer == address(0)) {
-            revert AddressZero();
-        }
-        if (maxWholeTokens > MICRO_PAYMENT_MAX_WHOLE_TOKENS) {
-            revert MicroPaymentLimitOutOfRange();
-        }
-        // A non-zero (enabled) payer must also respect the interval floor; a 0 cap (disable) may pass
-        // interval 0.
-        if (maxWholeTokens > 0 && interval < MICRO_PAYMENT_MIN_INTERVAL) {
-            revert MicroPaymentLimitOutOfRange();
-        }
-        MicroPaymentLimit storage limit = vaultStorage.microPaymentLimits[payer];
-        limit.maxWholeTokens = uint64(maxWholeTokens);
-        limit.interval = uint64(interval);
-        emit IBittyV1Vault.MicroPaymentLimitSet(payer, maxWholeTokens, interval);
-    }
-
-    /**
-     * @notice Send stablecoin from the vault's balance straight to `to`, without needing a
-     * registered scheduledPayment.
-     * @dev Rate-limited discretionary payment, scoped to the caller. Role gating (a dedicated
-     * micro-payment role, separate from the owner) is enforced by the facade; here the caller
-     * (`msg.sender`) must additionally have a cap the owner configured for its address, so only a
-     * specifically configured payer can spend. The asset must be a stablecoin registered on this
-     * vault; `amount` may not exceed the caller's own cap scaled by the token's decimals; and at most
-     * one micro-payment is allowed per the caller's own interval on the caller's own clock, bounding
-     * each payer's outflow independently. Paid from the vault's idle balance.
-     */
-    function payMicro(VaultStorage storage vaultStorage, address stableCoin, address to, uint256 amount)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        if (to == address(0)) {
-            revert AddressZero();
-        }
-        if (amount == 0) {
-            revert AmountIsZero();
-        }
-        if (!vaultStorage.stableCoins.contains(stableCoin)) {
-            revert MicroPaymentAssetNotStableCoin();
-        }
-
-        MicroPaymentLimit storage limit = vaultStorage.microPaymentLimits[msg.sender];
-        if (limit.maxWholeTokens == 0) {
-            revert MicroPaymentPayerNotConfigured();
-        }
-
-        uint256 maxUnits = uint256(limit.maxWholeTokens) * (10 ** IERC20Metadata(stableCoin).decimals());
-        if (amount > maxUnits) {
-            revert MicroPaymentExceedsMax();
-        }
-
-        uint256 last = limit.lastTimestamp;
-        if (last != 0 && block.timestamp - last < limit.interval) {
-            revert MicroPaymentInInterval();
-        }
-
-        limit.lastTimestamp = uint128(block.timestamp);
-        IERC20(stableCoin).safeTransfer(to, amount);
-        emit IBittyV1Vault.MicroPaid(stableCoin, to, amount);
-    }
-
-    function getMicroPaymentLimit(VaultStorage storage vaultStorage, address payer)
-        external
-        view
-        returns (uint256 maxWholeTokens, uint256 interval, uint256 lastTimestamp)
-    {
-        MicroPaymentLimit storage limit = vaultStorage.microPaymentLimits[payer];
-        return (limit.maxWholeTokens, limit.interval, limit.lastTimestamp);
-    }
-
-    /**
      * @notice Add a whitelisted recipient. Reverts if `name` already exists.
      * @dev Access control (owner-only) is enforced by the facade.
      */
@@ -353,7 +252,7 @@ library VaultLogic {
         vaultStorage.whitelistedRecipients[name] =
             IBittyV1Vault.WhitelistedRecipient({recipient: recipient, allowedAsset: allowedAsset});
         _armAddressProtection(vaultStorage, recipient);
-        emit IBittyV1Vault.WhitelistedRecipientSet(name, recipient, allowedAsset);
+        emit IBittyV1Owner.WhitelistedRecipientSet(name, recipient, allowedAsset);
     }
 
     /**
@@ -375,7 +274,7 @@ library VaultLogic {
         vaultStorage.whitelistedRecipients[name] =
             IBittyV1Vault.WhitelistedRecipient({recipient: recipient, allowedAsset: allowedAsset});
         _armAddressProtection(vaultStorage, recipient);
-        emit IBittyV1Vault.WhitelistedRecipientSet(name, recipient, allowedAsset);
+        emit IBittyV1Owner.WhitelistedRecipientSet(name, recipient, allowedAsset);
     }
 
     /**
@@ -391,8 +290,9 @@ library VaultLogic {
             revert WhitelistedRecipientNotFound();
         }
         delete vaultStorage.whitelistedRecipients[name];
-        delete vaultStorage.newAddressProtectionTimestamps[recipient];
-        emit IBittyV1Vault.WhitelistedRecipientRemoved(name);
+        // See removeScheduledPayment: the address-keyed protection deadline is shared, so clearing it
+        // on removal is exploitable. Leave it — it self-clears on the first post-window pay.
+        emit IBittyV1Owner.WhitelistedRecipientRemoved(name);
     }
 
     /**
@@ -420,7 +320,7 @@ library VaultLogic {
         }
         _clearAddressProtection(vaultStorage, entry.recipient);
         IERC20(asset).safeTransfer(entry.recipient, amount);
-        emit IBittyV1Vault.WhitelistedRecipientPaid(name, entry.recipient, asset, amount);
+        emit IBittyV1Owner.WhitelistedRecipientPaid(name, entry.recipient, asset, amount);
     }
 
     function getWhitelistedRecipient(VaultStorage storage vaultStorage, string memory name)
@@ -466,7 +366,7 @@ library VaultLogic {
         string memory name,
         uint256 payAmount
     ) internal {
-        _accrueScheduledPaymentPayment(vaultStorage, scheduledPayment, name);
+        _accrueScheduledPayment(vaultStorage, scheduledPayment, name);
         uint256 paidAmount = _transferMoney(
             scheduledPayment.assetAddress,
             payAmount,
@@ -489,7 +389,7 @@ library VaultLogic {
      * pay-from-vault-balance path and the on-behalf pay-from-yield path so both honour
      * identical rules and checks-effects-interactions ordering.
      */
-    function _accrueScheduledPaymentPayment(
+    function _accrueScheduledPayment(
         VaultStorage storage vaultStorage,
         IBittyV1Vault.ScheduledPayment storage scheduledPayment,
         string memory name
@@ -541,7 +441,7 @@ library VaultLogic {
             revert ScheduledPaymentTriggerError();
         }
         payAmount = scheduledPayment.amount;
-        _accrueScheduledPaymentPayment(vaultStorage, scheduledPayment, name);
+        _accrueScheduledPayment(vaultStorage, scheduledPayment, name);
         scheduledPaymentAddress = scheduledPayment.scheduledPaymentAddress;
         assetAddress = scheduledPayment.assetAddress;
         emit IBittyV1Vault.ScheduledPaymentPaid(
