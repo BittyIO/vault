@@ -5,9 +5,11 @@ import {IBittyV1Vault} from "./IBittyV1Vault.sol";
 
 /**
  * @title IBittyV1Owner
- * @notice Every owner-only (DEFAULT_ADMIN_ROLE) vault function and the events they emit. Implemented
- *         by the core {BittyV1Vault}. Read/permissionless functions live in {IBittyV1Vault}; the
- *         asset-manager (ASSET_MANAGER_ROLE) functions live in {IBittyV1AssetManager}.
+ * @notice The owner-only (DEFAULT_ADMIN_ROLE) vault surface: config, asset-manager guardrails,
+ *         approval of payment-manager proposals, and the whitelisted-recipient payout. Implemented by
+ *         the core {BittyV1Vault}. Payment CREATION (callable by owner or payment manager) lives in
+ *         {IBittyV1PaymentManager}; reads/permissionless in {IBittyV1Vault}; the asset-manager
+ *         (ASSET_MANAGER_ROLE) functions in {IBittyV1AssetManager}.
  */
 interface IBittyV1Owner {
     // ============ Events ============
@@ -26,13 +28,12 @@ interface IBittyV1Owner {
     event IntentProtocolsRemoved(address[] protocols);
     event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
     event TradeLimitSet(address indexed assetManager, uint256 interval, uint256 maxStableCoinSize);
-    event ScheduledPaymentAdded(string indexed name, IBittyV1Vault.ScheduledPayment scheduledPayment);
-    event ScheduledPaymentUpdated(string indexed name, IBittyV1Vault.ScheduledPayment scheduledPayment);
-    event ScheduledPaymentRemoved(string indexed name);
     event NewAddressProtectionSet(uint256 protectionDuration);
-    event WhitelistedRecipientSet(string indexed name, address recipient, address allowedAsset);
-    event WhitelistedRecipientRemoved(string indexed name);
     event WhitelistedRecipientPaid(string indexed name, address indexed recipient, address asset, uint256 amount);
+    // Owner approval of payment-manager proposals (creation events live on {IBittyV1PaymentManager}).
+    event ScheduledPaymentApproved(string indexed name);
+    event WhitelistedRecipientApproved(string indexed name);
+    event SendApproved(uint256 indexed id, address recipient, address asset, uint256 amount);
 
     // ============ Vault config ============
 
@@ -89,21 +90,26 @@ interface IBittyV1Owner {
     // ============ Sending ============
 
     /**
-     * @notice Send an asset from the vault to any recipient (can be disabled via {disableSending}).
-     */
-    function send(address recipient, address asset, uint256 amount) external;
-
-    /**
-     * @notice Irreversibly-until-reenabled disable {send}.
+     * @notice Irreversibly-until-reenabled disable {IBittyV1PaymentManager.send}.
      */
     function disableSending() external;
 
-    // ============ Scheduled payments ============
+    /**
+     * @notice Owner: execute a payment-manager-proposed one-off send (id from the SendProposed event).
+     */
+    function approveSend(uint256 id) external;
 
-    function addScheduledPayment(string memory name, IBittyV1Vault.ScheduledPayment calldata scheduledPayment) external;
-    function updateScheduledPayment(string memory name, IBittyV1Vault.ScheduledPayment calldata scheduledPayment)
-        external;
-    function removeScheduledPayment(string memory name) external;
+    // ============ Payment-manager approvals ============
+
+    /**
+     * @notice Owner: approve a payment-manager-proposed scheduled payment so it becomes payable.
+     */
+    function approveScheduledPayment(string memory name) external;
+
+    /**
+     * @notice Owner: approve a payment-manager-proposed whitelisted recipient so it becomes payable.
+     */
+    function approveWhitelistedRecipient(string memory name) external;
 
     /**
      * @notice Set the time-lock window applied to every newly added scheduled payment / whitelisted
@@ -111,11 +117,7 @@ interface IBittyV1Owner {
      */
     function setNewAddressProtection(uint256 newAddressProtection) external;
 
-    // ============ Whitelisted recipients ============
-
-    function addWhitelistedRecipient(string memory name, address recipient, address allowedAsset) external;
-    function updateWhitelistedRecipient(string memory name, address recipient, address allowedAsset) external;
-    function removeWhitelistedRecipient(string memory name) external;
+    // ============ Whitelisted recipient payout (owner-only) ============
 
     /**
      * @notice Pay a whitelisted recipient a discretionary amount from the vault's balance.

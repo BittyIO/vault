@@ -38,6 +38,12 @@ error WhitelistedRecipientNotFound();
 error WhitelistedRecipientNameAlreadyExists();
 error WhitelistedRecipientAssetNotAllowed();
 
+// payment-manager approval errors
+error PaymentNotApproved(); // pay attempted before the owner approved a payment-manager proposal
+error NotPendingApproval(); // approve called on an entry that is not pending
+error NotProposalOwner(); // a payment manager tried to edit/cancel an entry it did not propose
+error PendingSendNotFound();
+
 /**
  * @title IBittyV1Vault
  * @notice The vault's shared types, errors, and the no-role (permissionless) + read functions.

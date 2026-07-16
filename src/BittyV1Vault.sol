@@ -2,8 +2,10 @@
 pragma solidity ^0.8.34;
 
 import {WETH} from "solmate/tokens/WETH.sol";
+import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
 import {IBittyV1Owner} from "./interfaces/IBittyV1Owner.sol";
+import {IBittyV1PaymentManager} from "./interfaces/IBittyV1PaymentManager.sol";
 import {IBittyV1Vault, AddressZero} from "./interfaces/IBittyV1Vault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
@@ -20,7 +22,7 @@ import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
  *   Managed via {AccessControlDefaultAdminRulesUpgradeable} (2-step transfer + delay).
  * - ASSET_MANAGER_ROLE: hot wallet / AI agent. Executes yield and trading operations only.
  */
-contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner {
+contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager {
     using AssetManagerLogic for AssetManagerStorage;
 
     using VaultLogic for VaultStorage;
@@ -28,6 +30,20 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner {
     string public vaultName;
 
     address internal _weth;
+
+    // Payment creation (scheduled payments, whitelisted recipients, one-off sends) is callable by the
+    // owner or a payment manager. Owner actions take effect immediately; payment-manager actions are
+    // stored pending until the owner approves them.
+    modifier onlyOwnerOrPaymentManager() {
+        if (!hasRole(DEFAULT_ADMIN_ROLE, _msgSender()) && !hasRole(PAYMENT_MANAGER_ROLE, _msgSender())) {
+            revert IAccessControl.AccessControlUnauthorizedAccount(_msgSender(), PAYMENT_MANAGER_ROLE);
+        }
+        _;
+    }
+
+    function _byOwner() private view returns (bool) {
+        return hasRole(DEFAULT_ADMIN_ROLE, _msgSender());
+    }
 
     /**
      * @notice Auto-wraps any incoming ETH into WETH so the vault only ever holds ERC-20 balances
@@ -145,8 +161,12 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner {
 
     // ============ Sending ============
 
-    function send(address recipient, address asset, uint256 amount) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.send(recipient, asset, amount);
+    function send(address recipient, address asset, uint256 amount) external override onlyOwnerOrPaymentManager {
+        if (_byOwner()) {
+            _vault.send(recipient, asset, amount);
+        } else {
+            _vault.proposeSend(recipient, asset, amount);
+        }
     }
 
     function disableSending() external override onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -157,24 +177,40 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner {
         return _vault.sendingDisabled;
     }
 
+    function approveSend(uint256 id) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.approveSend(id);
+    }
+
+    function cancelSend(uint256 id) external override onlyOwnerOrPaymentManager {
+        _vault.cancelSend(id, _byOwner());
+    }
+
     // ============ ScheduledPayments ============
 
     function addScheduledPayment(
         string memory scheduledPaymentName,
         IBittyV1Vault.ScheduledPayment calldata scheduledPayment_
-    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.addScheduledPayment(scheduledPaymentName, scheduledPayment_);
+    ) external override onlyOwnerOrPaymentManager {
+        _vault.addScheduledPayment(scheduledPaymentName, scheduledPayment_, _byOwner());
     }
 
     function updateScheduledPayment(
         string memory scheduledPaymentName,
         IBittyV1Vault.ScheduledPayment calldata scheduledPayment_
-    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.updateScheduledPayment(scheduledPaymentName, scheduledPayment_);
+    ) external override onlyOwnerOrPaymentManager {
+        _vault.updateScheduledPayment(scheduledPaymentName, scheduledPayment_, _byOwner());
     }
 
-    function removeScheduledPayment(string memory scheduledPaymentName) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.removeScheduledPayment(scheduledPaymentName);
+    function removeScheduledPayment(string memory scheduledPaymentName) external override onlyOwnerOrPaymentManager {
+        _vault.removeScheduledPayment(scheduledPaymentName, _byOwner());
+    }
+
+    function approveScheduledPayment(string memory scheduledPaymentName)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _vault.approveScheduledPayment(scheduledPaymentName);
     }
 
     // DEFAULT_ADMIN_ROLE — controls the time-lock window for new scheduled payments and whitelisted recipients
@@ -246,21 +282,25 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner {
     function addWhitelistedRecipient(string memory recipientName, address recipient, address allowedAsset)
         external
         override
-        onlyRole(DEFAULT_ADMIN_ROLE)
+        onlyOwnerOrPaymentManager
     {
-        _vault.addWhitelistedRecipient(recipientName, recipient, allowedAsset);
+        _vault.addWhitelistedRecipient(recipientName, recipient, allowedAsset, _byOwner());
     }
 
     function updateWhitelistedRecipient(string memory recipientName, address recipient, address allowedAsset)
         external
         override
-        onlyRole(DEFAULT_ADMIN_ROLE)
+        onlyOwnerOrPaymentManager
     {
-        _vault.updateWhitelistedRecipient(recipientName, recipient, allowedAsset);
+        _vault.updateWhitelistedRecipient(recipientName, recipient, allowedAsset, _byOwner());
     }
 
-    function removeWhitelistedRecipient(string memory recipientName) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.removeWhitelistedRecipient(recipientName);
+    function removeWhitelistedRecipient(string memory recipientName) external override onlyOwnerOrPaymentManager {
+        _vault.removeWhitelistedRecipient(recipientName, _byOwner());
+    }
+
+    function approveWhitelistedRecipient(string memory recipientName) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.approveWhitelistedRecipient(recipientName);
     }
 
     function sendToWhitelistedRecipient(string memory recipientName, address asset, uint256 amount)

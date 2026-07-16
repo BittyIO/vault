@@ -10,10 +10,11 @@ import {
     InsufficientBalance
 } from "../interfaces/IBittyV1Vault.sol";
 import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
+import {IBittyV1PaymentManager} from "../interfaces/IBittyV1PaymentManager.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {VaultStorage} from "./Storages.sol";
+import {VaultStorage, PendingSend} from "./Storages.sol";
 import {
     IBittyV1Vault,
     ScheduledPaymentNotFound,
@@ -35,6 +36,10 @@ import {
     WhitelistedRecipientNotFound,
     WhitelistedRecipientNameAlreadyExists,
     WhitelistedRecipientAssetNotAllowed,
+    PaymentNotApproved,
+    NotPendingApproval,
+    NotProposalOwner,
+    PendingSendNotFound,
     SendingDisabled
 } from "../interfaces/IBittyV1Vault.sol";
 
@@ -115,10 +120,65 @@ library VaultLogic {
         return vaultStorage.sendingDisabled;
     }
 
+    /**
+     * @notice Queue a payment-manager-proposed one-off send for owner approval. Access control
+     * (payment-manager) is enforced by the facade.
+     */
+    function proposeSend(VaultStorage storage vaultStorage, address recipient, address asset, uint256 amount)
+        external
+        onlyInitialized(vaultStorage)
+        returns (uint256 id)
+    {
+        if (vaultStorage.sendingDisabled) {
+            revert SendingDisabled();
+        }
+        id = vaultStorage.nextPendingSendId++;
+        vaultStorage.pendingSends[id] =
+            PendingSend({proposer: msg.sender, recipient: recipient, asset: asset, amount: amount});
+        emit IBittyV1PaymentManager.SendProposed(id, msg.sender, recipient, asset, amount);
+    }
+
+    /**
+     * @notice Owner: execute a queued one-off send. Access control (owner-only) is enforced by the
+     * facade. Re-checks {sendingDisabled} in case it was disabled after the proposal.
+     */
+    function approveSend(VaultStorage storage vaultStorage, uint256 id) external onlyInitialized(vaultStorage) {
+        PendingSend memory ps = vaultStorage.pendingSends[id];
+        if (ps.proposer == address(0)) {
+            revert PendingSendNotFound();
+        }
+        if (vaultStorage.sendingDisabled) {
+            revert SendingDisabled();
+        }
+        delete vaultStorage.pendingSends[id];
+        IERC20(ps.asset).safeTransfer(ps.recipient, ps.amount);
+        emit IBittyV1Owner.SendApproved(id, ps.recipient, ps.asset, ps.amount);
+    }
+
+    /**
+     * @notice Cancel a queued one-off send. The owner may cancel any; a payment manager may cancel
+     * only its own. Access control (owner-or-proposer) is enforced by the facade + the check below.
+     */
+    function cancelSend(VaultStorage storage vaultStorage, uint256 id, bool byOwner)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        PendingSend memory ps = vaultStorage.pendingSends[id];
+        if (ps.proposer == address(0)) {
+            revert PendingSendNotFound();
+        }
+        if (!byOwner && ps.proposer != msg.sender) {
+            revert NotProposalOwner();
+        }
+        delete vaultStorage.pendingSends[id];
+        emit IBittyV1PaymentManager.SendCancelled(id);
+    }
+
     function addScheduledPayment(
         VaultStorage storage vaultStorage,
         string memory name,
-        IBittyV1Vault.ScheduledPayment memory scheduledPayment
+        IBittyV1Vault.ScheduledPayment memory scheduledPayment,
+        bool byOwner
     ) external onlyInitialized(vaultStorage) {
         if (vaultStorage.scheduledPayments[name].amount != 0) {
             revert ScheduledPaymentNameAlreadyExists();
@@ -128,14 +188,20 @@ library VaultLogic {
         }
         _checkScheduledPayment(scheduledPayment);
         vaultStorage.scheduledPayments[name] = scheduledPayment;
+        // Created by a payment manager: mark pending (msg.sender is preserved through delegatecall).
+        // Owner creations stay approved (proposer left at address(0)).
+        if (!byOwner) {
+            vaultStorage.scheduledPaymentPendingProposer[name] = msg.sender;
+        }
         _armAddressProtection(vaultStorage, scheduledPayment.scheduledPaymentAddress);
-        emit IBittyV1Owner.ScheduledPaymentAdded(name, scheduledPayment);
+        emit IBittyV1PaymentManager.ScheduledPaymentAdded(name, scheduledPayment);
     }
 
     function updateScheduledPayment(
         VaultStorage storage vaultStorage,
         string memory name,
-        IBittyV1Vault.ScheduledPayment memory scheduledPayment
+        IBittyV1Vault.ScheduledPayment memory scheduledPayment,
+        bool byOwner
     ) external onlyInitialized(vaultStorage) {
         IBittyV1Vault.ScheduledPayment memory existing = vaultStorage.scheduledPayments[name];
         if (existing.scheduledPaymentAddress == address(0)) {
@@ -144,10 +210,35 @@ library VaultLogic {
         if (existing.isImmutable) {
             revert ScheduledPaymentImmutable();
         }
+        if (byOwner) {
+            // An owner edit vets the entry, so it approves any pending proposal.
+            delete vaultStorage.scheduledPaymentPendingProposer[name];
+        } else if (vaultStorage.scheduledPaymentPendingProposer[name] != msg.sender) {
+            // A payment manager may only edit its own still-pending proposal, never an approved entry.
+            revert NotProposalOwner();
+        }
         _checkScheduledPayment(scheduledPayment);
         vaultStorage.scheduledPayments[name] = scheduledPayment;
         _armAddressProtection(vaultStorage, scheduledPayment.scheduledPaymentAddress);
-        emit IBittyV1Owner.ScheduledPaymentUpdated(name, scheduledPayment);
+        emit IBittyV1PaymentManager.ScheduledPaymentUpdated(name, scheduledPayment);
+    }
+
+    /**
+     * @notice Owner approval of a payment-manager-proposed scheduled payment. Access control
+     * (owner-only) is enforced by the facade.
+     */
+    function approveScheduledPayment(VaultStorage storage vaultStorage, string memory name)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        if (vaultStorage.scheduledPayments[name].amount == 0) {
+            revert ScheduledPaymentNotFound();
+        }
+        if (vaultStorage.scheduledPaymentPendingProposer[name] == address(0)) {
+            revert NotPendingApproval();
+        }
+        delete vaultStorage.scheduledPaymentPendingProposer[name];
+        emit IBittyV1Owner.ScheduledPaymentApproved(name);
     }
 
     function _checkScheduledPayment(IBittyV1Vault.ScheduledPayment memory scheduledPayment) internal view {
@@ -169,18 +260,23 @@ library VaultLogic {
         }
     }
 
-    function removeScheduledPayment(VaultStorage storage vaultStorage, string memory name)
+    function removeScheduledPayment(VaultStorage storage vaultStorage, string memory name, bool byOwner)
         external
         onlyInitialized(vaultStorage)
     {
+        // A payment manager may only cancel its own still-pending proposal; the owner can remove any.
+        if (!byOwner && vaultStorage.scheduledPaymentPendingProposer[name] != msg.sender) {
+            revert NotProposalOwner();
+        }
         delete vaultStorage.scheduledPayments[name];
+        delete vaultStorage.scheduledPaymentPendingProposer[name];
         delete vaultStorage.lastReceiveTimestamps[name];
         // Intentionally do NOT clear newAddressProtectionTimestamps[scheduledPaymentAddress]: it is
         // shared by payee address across scheduled payments and whitelisted recipients. Clearing it on
         // removal would let a compromised owner drop a still-protected address's time-lock by adding it
         // under two names/features and removing one. The lock self-clears on the first post-window pay
         // and re-adding an address only ever extends it (max), so leaving it here is always safe.
-        emit IBittyV1Owner.ScheduledPaymentRemoved(name);
+        emit IBittyV1PaymentManager.ScheduledPaymentRemoved(name);
     }
 
     function setNewAddressProtection(VaultStorage storage vaultStorage, uint256 newAddressProtection)
@@ -241,7 +337,8 @@ library VaultLogic {
         VaultStorage storage vaultStorage,
         string memory name,
         address recipient,
-        address allowedAsset
+        address allowedAsset,
+        bool byOwner
     ) external onlyInitialized(vaultStorage) {
         if (recipient == address(0)) {
             revert AddressZero();
@@ -251,19 +348,23 @@ library VaultLogic {
         }
         vaultStorage.whitelistedRecipients[name] =
             IBittyV1Vault.WhitelistedRecipient({recipient: recipient, allowedAsset: allowedAsset});
+        if (!byOwner) {
+            vaultStorage.whitelistedRecipientPendingProposer[name] = msg.sender;
+        }
         _armAddressProtection(vaultStorage, recipient);
-        emit IBittyV1Owner.WhitelistedRecipientSet(name, recipient, allowedAsset);
+        emit IBittyV1PaymentManager.WhitelistedRecipientSet(name, recipient, allowedAsset);
     }
 
     /**
      * @notice Update an existing whitelisted recipient. Reverts if `name` does not exist.
-     * @dev Access control (owner-only) is enforced by the facade.
+     * @dev Access control (owner-or-payment-manager) is enforced by the facade.
      */
     function updateWhitelistedRecipient(
         VaultStorage storage vaultStorage,
         string memory name,
         address recipient,
-        address allowedAsset
+        address allowedAsset,
+        bool byOwner
     ) external onlyInitialized(vaultStorage) {
         if (recipient == address(0)) {
             revert AddressZero();
@@ -271,17 +372,40 @@ library VaultLogic {
         if (vaultStorage.whitelistedRecipients[name].recipient == address(0)) {
             revert WhitelistedRecipientNotFound();
         }
+        if (byOwner) {
+            delete vaultStorage.whitelistedRecipientPendingProposer[name];
+        } else if (vaultStorage.whitelistedRecipientPendingProposer[name] != msg.sender) {
+            revert NotProposalOwner();
+        }
         vaultStorage.whitelistedRecipients[name] =
             IBittyV1Vault.WhitelistedRecipient({recipient: recipient, allowedAsset: allowedAsset});
         _armAddressProtection(vaultStorage, recipient);
-        emit IBittyV1Owner.WhitelistedRecipientSet(name, recipient, allowedAsset);
+        emit IBittyV1PaymentManager.WhitelistedRecipientSet(name, recipient, allowedAsset);
+    }
+
+    /**
+     * @notice Owner approval of a payment-manager-proposed whitelisted recipient. Access control
+     * (owner-only) is enforced by the facade.
+     */
+    function approveWhitelistedRecipient(VaultStorage storage vaultStorage, string memory name)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        if (vaultStorage.whitelistedRecipients[name].recipient == address(0)) {
+            revert WhitelistedRecipientNotFound();
+        }
+        if (vaultStorage.whitelistedRecipientPendingProposer[name] == address(0)) {
+            revert NotPendingApproval();
+        }
+        delete vaultStorage.whitelistedRecipientPendingProposer[name];
+        emit IBittyV1Owner.WhitelistedRecipientApproved(name);
     }
 
     /**
      * @notice Remove a whitelisted recipient. Reverts if `name` does not exist.
-     * @dev Access control (owner-only) is enforced by the facade.
+     * @dev Access control (owner-or-pending-proposer) is enforced by the facade + the check below.
      */
-    function removeWhitelistedRecipient(VaultStorage storage vaultStorage, string memory name)
+    function removeWhitelistedRecipient(VaultStorage storage vaultStorage, string memory name, bool byOwner)
         external
         onlyInitialized(vaultStorage)
     {
@@ -289,10 +413,14 @@ library VaultLogic {
         if (recipient == address(0)) {
             revert WhitelistedRecipientNotFound();
         }
+        if (!byOwner && vaultStorage.whitelistedRecipientPendingProposer[name] != msg.sender) {
+            revert NotProposalOwner();
+        }
         delete vaultStorage.whitelistedRecipients[name];
+        delete vaultStorage.whitelistedRecipientPendingProposer[name];
         // See removeScheduledPayment: the address-keyed protection deadline is shared, so clearing it
         // on removal is exploitable. Leave it — it self-clears on the first post-window pay.
-        emit IBittyV1Owner.WhitelistedRecipientRemoved(name);
+        emit IBittyV1PaymentManager.WhitelistedRecipientRemoved(name);
     }
 
     /**
@@ -314,6 +442,9 @@ library VaultLogic {
         IBittyV1Vault.WhitelistedRecipient memory entry = vaultStorage.whitelistedRecipients[name];
         if (entry.recipient == address(0)) {
             revert WhitelistedRecipientNotFound();
+        }
+        if (vaultStorage.whitelistedRecipientPendingProposer[name] != address(0)) {
+            revert PaymentNotApproved();
         }
         if (entry.allowedAsset != address(0) && asset != entry.allowedAsset) {
             revert WhitelistedRecipientAssetNotAllowed();
@@ -396,6 +527,9 @@ library VaultLogic {
     ) internal {
         if (scheduledPayment.amount == 0) {
             revert ScheduledPaymentNotFound();
+        }
+        if (vaultStorage.scheduledPaymentPendingProposer[name] != address(0)) {
+            revert PaymentNotApproved();
         }
         if (scheduledPayment.paymentCount == 0) {
             revert ScheduledPaymentPaymentCountZero();

@@ -7,6 +7,7 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {IVaultFull} from "../helpers/IVaultFull.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
+import {IBittyV1PaymentManager} from "../../src/interfaces/IBittyV1PaymentManager.sol";
 import {VaultLogic} from "../../src/logic/VaultLogic.sol";
 import {
     IBittyV1Vault,
@@ -31,7 +32,12 @@ import {
     NotInitialized,
     WhitelistedRecipientNotFound,
     WhitelistedRecipientNameAlreadyExists,
-    WhitelistedRecipientAssetNotAllowed
+    WhitelistedRecipientAssetNotAllowed,
+    PaymentNotApproved,
+    NotPendingApproval,
+    NotProposalOwner,
+    PendingSendNotFound,
+    SendingDisabled
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -377,7 +383,7 @@ contract BittyV1VaultTest is Test {
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
-        bytes32 _scheduledPaymentRole = vault.DEFAULT_ADMIN_ROLE();
+        bytes32 _scheduledPaymentRole = vault.PAYMENT_MANAGER_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _scheduledPaymentRole));
@@ -688,7 +694,7 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vault.addScheduledPayment("alice", r);
         r.amount = 2 ether;
-        bytes32 _scheduledPaymentRole = vault.DEFAULT_ADMIN_ROLE();
+        bytes32 _scheduledPaymentRole = vault.PAYMENT_MANAGER_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _scheduledPaymentRole));
@@ -739,7 +745,7 @@ contract BittyV1VaultTest is Test {
         );
         vm.prank(ownerAddress);
         vault.addScheduledPayment("alice", r);
-        bytes32 _scheduledPaymentRole = vault.DEFAULT_ADMIN_ROLE();
+        bytes32 _scheduledPaymentRole = vault.PAYMENT_MANAGER_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _scheduledPaymentRole));
@@ -1302,7 +1308,7 @@ contract BittyV1VaultTest is Test {
         );
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit IBittyV1Owner.ScheduledPaymentAdded("alice", r);
+        emit IBittyV1PaymentManager.ScheduledPaymentAdded("alice", r);
 
         vm.prank(ownerAddress);
         vault.addScheduledPayment("alice", r);
@@ -1329,7 +1335,7 @@ contract BittyV1VaultTest is Test {
         );
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit IBittyV1Owner.ScheduledPaymentUpdated("alice", updated);
+        emit IBittyV1PaymentManager.ScheduledPaymentUpdated("alice", updated);
 
         vm.prank(ownerAddress);
         vault.updateScheduledPayment("alice", updated);
@@ -1340,7 +1346,7 @@ contract BittyV1VaultTest is Test {
         _addScheduledPayment("alice", makeAddr("scheduledPayment"), 1 ether, 1, 0);
 
         vm.expectEmit(true, false, false, false, address(vault));
-        emit IBittyV1Owner.ScheduledPaymentRemoved("alice");
+        emit IBittyV1PaymentManager.ScheduledPaymentRemoved("alice");
 
         vm.prank(ownerAddress);
         vault.removeScheduledPayment("alice");
@@ -2317,18 +2323,21 @@ contract BittyV1VaultTest is Test {
         vault.removeWhitelistedRecipient("ghost");
     }
 
-    function test_WhitelistedRecipient_onlyOwner() public {
+    function test_WhitelistedRecipient_onlyOwnerOrPaymentManager() public {
         _initializeVault();
         address stranger = makeAddr("stranger");
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        bytes32 pmRole = vault.PAYMENT_MANAGER_ROLE();
 
         vm.startPrank(stranger);
-        vm.expectRevert(_roleError(stranger, adminRole));
+        // create/edit/remove are owner-or-payment-manager (a stranger is neither)
+        vm.expectRevert(_roleError(stranger, pmRole));
         vault.addWhitelistedRecipient("bob", makeAddr("to"), address(0));
-        vm.expectRevert(_roleError(stranger, adminRole));
+        vm.expectRevert(_roleError(stranger, pmRole));
         vault.updateWhitelistedRecipient("bob", makeAddr("to"), address(0));
-        vm.expectRevert(_roleError(stranger, adminRole));
+        vm.expectRevert(_roleError(stranger, pmRole));
         vault.removeWhitelistedRecipient("bob");
+        // paying out stays strictly owner-only
         vm.expectRevert(_roleError(stranger, adminRole));
         vault.sendToWhitelistedRecipient("bob", address(weth), 1);
         vm.stopPrank();
@@ -2509,5 +2518,321 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
         assertEq(weth.balanceOf(shared), 1 ether);
+    }
+
+    // ─── Payment manager: propose → owner approve ───────────────────────────────
+
+    function _grantPaymentManager(address pm) internal {
+        bytes32 role = vault.PAYMENT_MANAGER_ROLE();
+        vm.prank(ownerAddress);
+        vault.grantRole(role, pm);
+    }
+
+    function _spTo(address to) internal view returns (IBittyV1Vault.ScheduledPayment memory) {
+        return _makeScheduledPayment(to, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+    }
+
+    function test_PaymentManager_scheduledPendingUntilApproved() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        address to = makeAddr("payee");
+        deal(address(weth), address(vault), 10 ether);
+
+        vm.prank(pm);
+        vault.addScheduledPayment("p", _spTo(to));
+
+        vm.expectRevert(PaymentNotApproved.selector);
+        vault.payScheduled("p");
+
+        vm.prank(ownerAddress);
+        vault.approveScheduledPayment("p");
+        vault.payScheduled("p");
+        assertEq(weth.balanceOf(to), 1 ether);
+    }
+
+    function test_PaymentManager_ownerCreatedIsAutoApproved() public {
+        _initializeVault();
+        address to = makeAddr("payee");
+        deal(address(weth), address(vault), 10 ether);
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("p", _spTo(to));
+        vault.payScheduled("p");
+        assertEq(weth.balanceOf(to), 1 ether);
+    }
+
+    function test_PaymentManager_whitelistedPendingUntilApproved() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        address to = makeAddr("payee");
+        deal(address(weth), address(vault), 10 ether);
+
+        vm.prank(pm);
+        vault.addWhitelistedRecipient("w", to, address(0));
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(PaymentNotApproved.selector);
+        vault.sendToWhitelistedRecipient("w", address(weth), 1 ether);
+
+        vm.prank(ownerAddress);
+        vault.approveWhitelistedRecipient("w");
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient("w", address(weth), 1 ether);
+        assertEq(weth.balanceOf(to), 1 ether);
+    }
+
+    function test_PaymentManager_sendProposalThenApprove() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        address to = makeAddr("payee");
+        deal(address(weth), address(vault), 10 ether);
+
+        vm.prank(pm);
+        vault.send(to, address(weth), 1 ether); // proposal id 0, no transfer
+        assertEq(weth.balanceOf(to), 0);
+
+        vm.prank(ownerAddress);
+        vault.approveSend(0);
+        assertEq(weth.balanceOf(to), 1 ether);
+    }
+
+    function test_PaymentManager_ownerSendIsImmediate() public {
+        _initializeVault();
+        address to = makeAddr("payee");
+        deal(address(weth), address(vault), 10 ether);
+        vm.prank(ownerAddress);
+        vault.send(to, address(weth), 1 ether);
+        assertEq(weth.balanceOf(to), 1 ether);
+    }
+
+    function test_PaymentManager_cancelOwnSendNotOthers() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        address pm2 = makeAddr("pm2");
+        _grantPaymentManager(pm);
+        _grantPaymentManager(pm2);
+        deal(address(weth), address(vault), 10 ether);
+
+        vm.prank(pm);
+        vault.send(makeAddr("payee"), address(weth), 1 ether); // id 0
+
+        vm.prank(pm2);
+        vm.expectRevert(NotProposalOwner.selector);
+        vault.cancelSend(0);
+
+        vm.prank(pm);
+        vault.cancelSend(0);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(PendingSendNotFound.selector);
+        vault.approveSend(0);
+    }
+
+    function test_PaymentManager_cannotEditOrRemoveApprovedEntry() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        IBittyV1Vault.ScheduledPayment memory r = _spTo(makeAddr("payee"));
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("p", r); // owner-created = approved
+
+        r.amount = 2 ether;
+        vm.prank(pm);
+        vm.expectRevert(NotProposalOwner.selector);
+        vault.updateScheduledPayment("p", r);
+
+        vm.prank(pm);
+        vm.expectRevert(NotProposalOwner.selector);
+        vault.removeScheduledPayment("p");
+    }
+
+    function test_PaymentManager_cancelOwnPendingScheduled() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        vm.prank(pm);
+        vault.addScheduledPayment("p", _spTo(makeAddr("payee")));
+        vm.prank(pm);
+        vault.removeScheduledPayment("p");
+
+        vm.expectRevert(ScheduledPaymentNotFound.selector);
+        vault.payScheduled("p");
+    }
+
+    function test_PaymentManager_onlyOwnerApproves() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        vm.prank(pm);
+        vault.addScheduledPayment("p", _spTo(makeAddr("payee")));
+
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        vm.prank(pm);
+        vm.expectRevert(_roleError(pm, adminRole));
+        vault.approveScheduledPayment("p");
+    }
+
+    function test_PaymentManager_approveNonPendingReverts() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vault.addScheduledPayment("p", _spTo(makeAddr("payee"))); // auto-approved
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotPendingApproval.selector);
+        vault.approveScheduledPayment("p");
+    }
+
+    function test_PaymentManager_proposeSendRevertsWhenSendingDisabled() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        vm.prank(ownerAddress);
+        vault.disableSending();
+        vm.prank(pm);
+        vm.expectRevert(SendingDisabled.selector);
+        vault.send(makeAddr("payee"), address(weth), 1 ether);
+    }
+
+    function test_PaymentManager_approveSendRevertsIfSendingDisabledAfterPropose() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        deal(address(weth), address(vault), 10 ether);
+        vm.prank(pm);
+        vault.send(makeAddr("payee"), address(weth), 1 ether); // id 0
+        vm.prank(ownerAddress);
+        vault.disableSending();
+        vm.prank(ownerAddress);
+        vm.expectRevert(SendingDisabled.selector);
+        vault.approveSend(0);
+    }
+
+    function test_PaymentManager_ownerCancelsPendingSend() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        deal(address(weth), address(vault), 10 ether);
+        vm.prank(pm);
+        vault.send(makeAddr("payee"), address(weth), 1 ether); // id 0
+        vm.prank(ownerAddress);
+        vault.cancelSend(0); // owner cancels a manager's proposal
+        vm.prank(ownerAddress);
+        vm.expectRevert(PendingSendNotFound.selector);
+        vault.approveSend(0);
+    }
+
+    function test_PaymentManager_managerEditsOwnPendingScheduled() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        address to = makeAddr("payee");
+        deal(address(weth), address(vault), 10 ether);
+        vm.prank(pm);
+        vault.addScheduledPayment("p", _spTo(to));
+
+        IBittyV1Vault.ScheduledPayment memory r2 = _spTo(to);
+        r2.amount = 2 ether;
+        vm.prank(pm);
+        vault.updateScheduledPayment("p", r2); // manager edits its own still-pending proposal
+
+        vm.expectRevert(PaymentNotApproved.selector);
+        vault.payScheduled("p");
+
+        vm.prank(ownerAddress);
+        vault.approveScheduledPayment("p");
+        vault.payScheduled("p");
+        assertEq(weth.balanceOf(to), 2 ether);
+    }
+
+    function test_PaymentManager_managerEditsOwnPendingWhitelisted() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        address to2 = makeAddr("payee2");
+        deal(address(weth), address(vault), 10 ether);
+        vm.prank(pm);
+        vault.addWhitelistedRecipient("w", makeAddr("payee"), address(0));
+        vm.prank(pm);
+        vault.updateWhitelistedRecipient("w", to2, address(weth)); // edit own pending
+
+        vm.prank(ownerAddress);
+        vault.approveWhitelistedRecipient("w");
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient("w", address(weth), 1 ether);
+        assertEq(weth.balanceOf(to2), 1 ether);
+    }
+
+    function test_PaymentManager_managerCannotTouchApprovedWhitelisted() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        address to = makeAddr("payee");
+        vm.prank(ownerAddress);
+        vault.addWhitelistedRecipient("w", to, address(0)); // approved
+
+        vm.prank(pm);
+        vm.expectRevert(NotProposalOwner.selector);
+        vault.updateWhitelistedRecipient("w", to, address(weth));
+        vm.prank(pm);
+        vm.expectRevert(NotProposalOwner.selector);
+        vault.removeWhitelistedRecipient("w");
+    }
+
+    function test_PaymentManager_managerCancelsOwnPendingWhitelisted() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        vm.prank(pm);
+        vault.addWhitelistedRecipient("w", makeAddr("payee"), address(0));
+        vm.prank(pm);
+        vault.removeWhitelistedRecipient("w"); // cancel own pending
+        (address r,) = vault.getWhitelistedRecipient("w");
+        assertEq(r, address(0));
+    }
+
+    function test_PaymentManager_approveScheduledNotFound() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(ScheduledPaymentNotFound.selector);
+        vault.approveScheduledPayment("ghost");
+    }
+
+    function test_PaymentManager_approveWhitelistedNotFoundAndNotPending() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(WhitelistedRecipientNotFound.selector);
+        vault.approveWhitelistedRecipient("ghost");
+
+        vm.prank(ownerAddress);
+        vault.addWhitelistedRecipient("w", makeAddr("to"), address(0)); // owner-created = approved
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotPendingApproval.selector);
+        vault.approveWhitelistedRecipient("w");
+    }
+
+    function test_PaymentManager_cancelSendNotFound() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(PendingSendNotFound.selector);
+        vault.cancelSend(42);
+    }
+
+    function test_Send_ownerRevertsWhenSendingDisabled() public {
+        _initializeVault();
+        deal(address(weth), address(vault), 10 ether);
+        vm.prank(ownerAddress);
+        vault.disableSending();
+        vm.prank(ownerAddress);
+        vm.expectRevert(SendingDisabled.selector);
+        vault.send(makeAddr("payee"), address(weth), 1 ether);
+    }
+
+    function test_WhitelistedRecipient_updateZeroRecipientReverts() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddressZero.selector);
+        vault.updateWhitelistedRecipient("w", address(0), address(0));
     }
 }
