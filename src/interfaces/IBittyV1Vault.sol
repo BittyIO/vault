@@ -28,7 +28,8 @@ error PayScheduledPaymentAmountTriggerEmpty();
 
 error AddingAssetsDisabled();
 error AddingProtocolsDisabled();
-error OwnerAndAssetManagerMustDiffer();
+// The owner (DEFAULT_ADMIN_ROLE) must never also hold ASSET_MANAGER_ROLE or PAYMENT_MANAGER_ROLE.
+error OwnerAndManagerMustDiffer();
 
 // sending errors
 error SendingDisabled();

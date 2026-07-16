@@ -37,7 +37,8 @@ import {
     NotPendingApproval,
     NotProposalOwner,
     PendingSendNotFound,
-    SendingDisabled
+    SendingDisabled,
+    OwnerAndManagerMustDiffer
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -151,9 +152,9 @@ contract BittyV1VaultTest is Test {
         assertEq(weth.balanceOf(address(vault)), amount);
     }
 
-    function test_InitAllowsOwnerAsAssetManager() public {
-        // The owner may also be an asset manager so a single wallet can operate
-        // the vault.
+    function test_InitRevertsWhenOwnerIsAssetManager() public {
+        // The owner must never also be an asset manager.
+        vm.expectRevert(OwnerAndManagerMustDiffer.selector);
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -167,8 +168,6 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
-        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), ownerAddress));
-        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
     }
 
     function test_InitSucceedsWithDifferentAssetManager() public {
@@ -213,12 +212,13 @@ contract BittyV1VaultTest is Test {
         assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), manager2));
     }
 
-    function test_InitAllowsOwnerAmongAssetManagers() public {
+    function test_InitRevertsWhenOwnerAmongAssetManagers() public {
         address manager1 = makeAddr("manager1");
         address[] memory assetManagers = new address[](2);
         assetManagers[0] = manager1;
         assetManagers[1] = ownerAddress;
 
+        vm.expectRevert(OwnerAndManagerMustDiffer.selector);
         vault.initialize(
             ownerAddress,
             "test vault",
@@ -232,17 +232,36 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
-
-        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), manager1));
-        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), ownerAddress));
     }
 
-    function test_GrantRoleAllowsOwnerAsAssetManager() public {
+    function test_GrantRoleRevertsWhenOwnerAsAssetManager() public {
         _initializeVault();
         bytes32 assetManagerRole = vault.ASSET_MANAGER_ROLE();
         vm.prank(ownerAddress);
+        vm.expectRevert(OwnerAndManagerMustDiffer.selector);
         vault.grantRole(assetManagerRole, ownerAddress);
-        assertTrue(vault.hasRole(assetManagerRole, ownerAddress));
+    }
+
+    function test_GrantRoleRevertsWhenOwnerAsPaymentManager() public {
+        _initializeVault();
+        bytes32 paymentManagerRole = vault.PAYMENT_MANAGER_ROLE();
+        vm.prank(ownerAddress);
+        vm.expectRevert(OwnerAndManagerMustDiffer.selector);
+        vault.grantRole(paymentManagerRole, ownerAddress);
+    }
+
+    // The invariant only excludes the owner — one non-owner account may hold both manager roles.
+    function test_ManagerMayHoldBothAssetAndPaymentRoles() public {
+        _initializeVault();
+        address mgr = makeAddr("mgr");
+        bytes32 amRole = vault.ASSET_MANAGER_ROLE();
+        bytes32 pmRole = vault.PAYMENT_MANAGER_ROLE();
+        vm.startPrank(ownerAddress);
+        vault.grantRole(amRole, mgr);
+        vault.grantRole(pmRole, mgr);
+        vm.stopPrank();
+        assertTrue(vault.hasRole(amRole, mgr));
+        assertTrue(vault.hasRole(pmRole, mgr));
     }
 
     function test_GrantRoleRevertsIfAssetManagerGrantedAdminRole() public {
@@ -1677,26 +1696,24 @@ contract BittyV1VaultTest is Test {
         assertEq(pending, assetManagerAddress);
     }
 
-    function test_GrantRole_CanGiveAssetManagerToPendingDefaultAdmin() public {
+    function test_AdminTransferRevertsWhenNewAdminIsAssetManager() public {
         _initializeVault();
         bytes32 assetManagerRole = vault.ASSET_MANAGER_ROLE();
         address newAdmin = makeAddr("newAdmin");
 
         vm.prank(ownerAddress);
         vault.beginDefaultAdminTransfer(newAdmin);
-        (address pending,) = vault.pendingDefaultAdmin();
-        assertEq(pending, newAdmin);
 
+        // Granting the (not-yet-admin) pending admin an asset-manager role is allowed here...
         vm.prank(ownerAddress);
         vault.grantRole(assetManagerRole, newAdmin);
         assertTrue(vault.hasRole(assetManagerRole, newAdmin));
 
+        // ...but the transfer can no longer be accepted: they would be both owner and manager.
         vm.warp(block.timestamp + 1 days + 1);
         vm.prank(newAdmin);
+        vm.expectRevert(OwnerAndManagerMustDiffer.selector);
         vault.acceptDefaultAdminTransfer();
-
-        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), newAdmin));
-        assertTrue(vault.hasRole(assetManagerRole, newAdmin));
     }
 
     function test_renounceDefaultAdmin_requiresTransferToZeroAndDelay() public {

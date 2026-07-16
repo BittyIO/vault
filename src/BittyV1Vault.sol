@@ -6,7 +6,7 @@ import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessCon
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
 import {IBittyV1Owner} from "./interfaces/IBittyV1Owner.sol";
 import {IBittyV1PaymentManager} from "./interfaces/IBittyV1PaymentManager.sol";
-import {IBittyV1Vault, AddressZero} from "./interfaces/IBittyV1Vault.sol";
+import {IBittyV1Vault, AddressZero, OwnerAndManagerMustDiffer} from "./interfaces/IBittyV1Vault.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
@@ -43,6 +43,25 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
 
     function _byOwner() private view returns (bool) {
         return hasRole(DEFAULT_ADMIN_ROLE, _msgSender());
+    }
+
+    /**
+     * @notice Enforces that the owner (DEFAULT_ADMIN_ROLE) is never also an asset manager or payment
+     *         manager, and vice-versa. Every role grant — initialize, grantRole, and the 2-step admin
+     *         transfer (acceptDefaultAdminTransfer) — routes through here. (An account may hold both
+     *         ASSET_MANAGER_ROLE and PAYMENT_MANAGER_ROLE; only the owner must be distinct.)
+     */
+    function _grantRole(bytes32 role, address account) internal virtual override returns (bool) {
+        if (role == DEFAULT_ADMIN_ROLE) {
+            if (hasRole(ASSET_MANAGER_ROLE, account) || hasRole(PAYMENT_MANAGER_ROLE, account)) {
+                revert OwnerAndManagerMustDiffer();
+            }
+        } else if (role == ASSET_MANAGER_ROLE || role == PAYMENT_MANAGER_ROLE) {
+            if (hasRole(DEFAULT_ADMIN_ROLE, account)) {
+                revert OwnerAndManagerMustDiffer();
+            }
+        }
+        return super._grantRole(role, account);
     }
 
     /**
