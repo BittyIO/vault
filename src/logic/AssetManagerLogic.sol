@@ -410,9 +410,13 @@ library AssetManagerLogic {
         _checkRebalanceDisabledUntilTimestamp(logicStorage);
 
         uint256 minBal = logicStorage.minimalBalances[from];
-        if (minBal > 0) {
+        // Tokens already promised to open limit/TWAP orders are still on-chain but not free to sell, so
+        // measure against balance minus that reservation, not the raw balance.
+        uint256 committed = logicStorage.committedIntentSell[from];
+        if (minBal > 0 || committed > 0) {
             uint256 bal = _totalBalance(logicStorage, from);
-            if (bal < sellAmount || bal - sellAmount < minBal) revert MinimalBalanceNotMet();
+            uint256 available = bal > committed ? bal - committed : 0;
+            if (available < sellAmount || available - sellAmount < minBal) revert MinimalBalanceNotMet();
         }
 
         TradeLimit storage limit = logicStorage.tradeLimits[msg.sender];
@@ -766,6 +770,11 @@ library AssetManagerLogic {
         if (instr.cancelTarget != address(0)) {
             instr.cancelTarget.functionCall(instr.cancelCalldata);
         }
+        IntentOrderRecord memory record = logicStorage.intentOrderRecords[orderId];
+        if (record.reservedSell > 0) {
+            uint256 c = logicStorage.committedIntentSell[record.sellToken];
+            logicStorage.committedIntentSell[record.sellToken] = c > record.reservedSell ? c - record.reservedSell : 0;
+        }
         delete logicStorage.intentOrderRecords[orderId];
     }
 
@@ -831,7 +840,8 @@ library AssetManagerLogic {
         }
 
         logicStorage.intentOrderRecords[orderId] =
-            IntentOrderRecord({sellToken: instr.sellToken, expiresAt: uint96(validTo)});
+            IntentOrderRecord({sellToken: instr.sellToken, expiresAt: uint96(validTo), reservedSell: sellAmount});
+        logicStorage.committedIntentSell[instr.sellToken] += sellAmount;
 
         emit IBittyV1IntentProtocol.OrderCreated(orderId, address(this));
     }
@@ -852,6 +862,10 @@ library AssetManagerLogic {
     /**
      * @notice Permissionless cleanup of expired limit orders (does not affect TWAP orders).
      *         Reverts if any order is still live.
+     * @dev Also releases each order's committedIntentSell reservation. A filled-but-not-yet-expired
+     *      order still holds its reservation (settlement gives no on-chain callback), so until this runs
+     *      the vault under-reports sellable balance for that token and may block otherwise-valid new
+     *      orders. Keepers should call this promptly once orders expire to free the reservation.
      */
     function cleanExpiredLimitOrders(
         AssetManagerStorage storage logicStorage,
@@ -928,8 +942,10 @@ library AssetManagerLogic {
             IERC20(instr.sellToken).forceApprove(instr.approveTarget, type(uint256).max);
         }
 
-        logicStorage.intentOrderRecords[twapId] =
-            IntentOrderRecord({sellToken: instr.sellToken, expiresAt: uint96(expiresAt_)});
+        logicStorage.intentOrderRecords[twapId] = IntentOrderRecord({
+            sellToken: instr.sellToken, expiresAt: uint96(expiresAt_), reservedSell: totalSellAmount
+        });
+        logicStorage.committedIntentSell[instr.sellToken] += totalSellAmount;
 
         emit IBittyV1IntentProtocol.TwapCreated(twapId, address(this));
     }
@@ -971,8 +987,10 @@ library AssetManagerLogic {
             IERC20(instr.sellToken).forceApprove(instr.approveTarget, type(uint256).max);
         }
 
-        logicStorage.intentOrderRecords[twapId] =
-            IntentOrderRecord({sellToken: instr.sellToken, expiresAt: uint96(expiresAt_)});
+        logicStorage.intentOrderRecords[twapId] = IntentOrderRecord({
+            sellToken: instr.sellToken, expiresAt: uint96(expiresAt_), reservedSell: totalSellAmount
+        });
+        logicStorage.committedIntentSell[instr.sellToken] += totalSellAmount;
 
         emit IBittyV1IntentProtocol.TwapCreated(twapId, address(this));
     }

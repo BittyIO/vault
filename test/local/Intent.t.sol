@@ -4,7 +4,11 @@ pragma solidity ^0.8.34;
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {AmountIsZero} from "../../src/interfaces/IBittyV1Vault.sol";
-import {InvalidIntentProtocol, InvalidValidTo} from "../../src/interfaces/IBittyV1AssetManager.sol";
+import {
+    InvalidIntentProtocol,
+    InvalidValidTo,
+    MinimalBalanceNotMet
+} from "../../src/interfaces/IBittyV1AssetManager.sol";
 import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {OrderNotExpired} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
@@ -212,6 +216,72 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
         ids[0] = bytes32(uint256(0xABCDEF)); // never recorded -> expiresAt == 0
         vm.expectRevert(OrderNotExpired.selector);
         this.cleanExpiredLimitOrders(address(mock), ids);
+    }
+
+    // ---------- committed-balance reservation across open orders ----------
+
+    function _setWethFloor(uint256 amount) private {
+        vm.prank(tx.origin);
+        this.setMinimalBalance(WETH, amount);
+    }
+
+    // Bug #1: two open limit orders each clear the floor in isolation but together drop below it.
+    function testLimitSell_openOrdersCannotJointlyBreachFloor() public {
+        _setWethFloor(40 ether);
+        // 100 - 50 = 50 >= 40: first order fine, reserves 50.
+        this.limitSell(address(mock), WETH, USDC, 50 ether, 1000e6, validTo);
+        // Second sees only 100 - 50 = 50 uncommitted; 50 - 50 = 0 < 40.
+        vm.expectRevert(MinimalBalanceNotMet.selector);
+        this.limitSell(address(mock), WETH, USDC, 50 ether, 1000e6, validTo);
+    }
+
+    // Bug #2: even with no floor, total committed sells cannot exceed the balance backing settlement.
+    function testLimitSell_committedCannotOversellBalance() public {
+        // no minimal balance set (floor == 0); reservation alone must still bind.
+        this.limitSell(address(mock), WETH, USDC, 60 ether, 1000e6, validTo);
+        // only 100 - 60 = 40 WETH left uncommitted; a second 60-WETH order would fail at settlement.
+        vm.expectRevert(MinimalBalanceNotMet.selector);
+        this.limitSell(address(mock), WETH, USDC, 60 ether, 1000e6, validTo);
+    }
+
+    // The reservation is per token: committing WETH does not block a WBTC order.
+    function testCommitment_isPerToken() public {
+        this.limitSell(address(mock), WETH, USDC, 100 ether, 1000e6, validTo);
+        this.limitSell(address(mock), WBTC, USDC, 10e8, 1000e6, validTo);
+    }
+
+    // A limit order and a TWAP draw from the same committed pool for the shared sell token.
+    function testCommitment_sharedBetweenLimitAndTwap() public {
+        _setWethFloor(40 ether);
+        this.twapSell(address(mock), WETH, USDC, 50 ether, 1000e6, 4, 300, 0);
+        // 100 - 50 committed = 50 free; 50 - 20 = 30 < 40.
+        vm.expectRevert(MinimalBalanceNotMet.selector);
+        this.limitSell(address(mock), WETH, USDC, 20 ether, 500e6, validTo);
+    }
+
+    // Cancelling an order releases its reservation so the freed balance is sellable again.
+    function testCommitment_releasedOnCancel() public {
+        _setWethFloor(40 ether);
+        bytes32 id = this.limitSell(address(mock), WETH, USDC, 60 ether, 1000e6, validTo);
+        vm.expectRevert(MinimalBalanceNotMet.selector);
+        this.limitSell(address(mock), WETH, USDC, 60 ether, 1000e6, validTo);
+
+        this.cancelLimitOrder(address(mock), abi.encode(id));
+        // reservation freed: a fresh 60-WETH order fits again.
+        this.limitSell(address(mock), WETH, USDC, 60 ether, 1000e6, validTo);
+    }
+
+    // Expiry cleanup releases the reservation the same way an explicit cancel does.
+    function testCommitment_releasedOnExpiredCleanup() public {
+        _setWethFloor(40 ether);
+        bytes32 id = this.limitSell(address(mock), WETH, USDC, 60 ether, 1000e6, validTo);
+
+        vm.warp(uint256(validTo) + 1);
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = id;
+        this.cleanExpiredLimitOrders(address(mock), ids);
+
+        this.limitSell(address(mock), WETH, USDC, 60 ether, 1000e6, uint32(block.timestamp + 1 days));
     }
 
     // ---------- TWAP ----------
