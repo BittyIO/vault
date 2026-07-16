@@ -3,6 +3,9 @@ pragma solidity ^0.8.34;
 
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
+import {
+    AccessControlDefaultAdminRulesUpgradeable
+} from "openzeppelin-contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 
 /**
  * @dev Test-only monolith exposing both the core vault and DeFi-facet surfaces as directly-typed
@@ -14,4 +17,15 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 // production contracts are deployed separately and it is only ever inherited by test contracts.
 // Being abstract also keeps it out of the `forge build --sizes` deploy-size gate, which it would
 // otherwise trip by design (it combines the full surface of both production contracts).
-abstract contract BittyV1VaultHarness is BittyV1Vault, BittyV1VaultDeFiFacet {}
+abstract contract BittyV1VaultHarness is BittyV1Vault, BittyV1VaultDeFiFacet {
+    // Disambiguate the _grantRole overridden by BittyV1Vault (owner/manager exclusion) and inherited
+    // via the facet from AccessControlDefaultAdminRulesUpgradeable. super routes to BittyV1Vault's,
+    // preserving the invariant.
+    function _grantRole(bytes32 role, address account)
+        internal
+        override(BittyV1Vault, AccessControlDefaultAdminRulesUpgradeable)
+        returns (bool)
+    {
+        return super._grantRole(role, account);
+    }
+}
