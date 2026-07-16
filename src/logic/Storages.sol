@@ -43,6 +43,14 @@ struct AssetManagerStorage {
     mapping(bytes32 => IntentOrderRecord) intentOrderRecords;
 }
 
+// A one-off send proposed by a payment manager, awaiting owner approval before it executes.
+struct PendingSend {
+    address proposer; // the payment manager who proposed it; address(0) = slot empty
+    address recipient;
+    address asset;
+    uint256 amount;
+}
+
 struct VaultStorage {
     bool isInitialized;
     mapping(string => IBittyV1Vault.ScheduledPayment) scheduledPayments;
@@ -64,4 +72,14 @@ struct VaultStorage {
 
     // Owner-curated payees the owner can pay any amount on demand, keyed by name.
     mapping(string => IBittyV1Vault.WhitelistedRecipient) whitelistedRecipients;
+
+    // Payment-manager approval workflow: a PAYMENT_MANAGER_ROLE holder can create entries, but the
+    // owner must approve them before they are payable. address(0) = approved/active (or absent); a
+    // non-zero value is the payment manager who proposed it and the entry cannot be paid yet.
+    mapping(string => address) scheduledPaymentPendingProposer;
+    mapping(string => address) whitelistedRecipientPendingProposer;
+
+    // Payment-manager-proposed one-off sends awaiting owner approval, keyed by an incrementing id.
+    mapping(uint256 => PendingSend) pendingSends;
+    uint256 nextPendingSendId;
 }
