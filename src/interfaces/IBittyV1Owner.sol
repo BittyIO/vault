@@ -18,6 +18,7 @@ interface IBittyV1Owner {
     event AssetsRemoved(address[] assets);
     event AssetsLocked();
     event ProtocolsLocked();
+    event OwnerAssetManagerDisabled();
     event LendingProtocolsAdded(address[] protocols);
     event LendingProtocolsRemoved(address[] protocols);
     event StakingProtocolsAdded(address[] protocols);
@@ -86,6 +87,13 @@ interface IBittyV1Owner {
      *         stablecoin size cap (whole tokens). See implementation for the stablecoin-leg rule.
      */
     function setTradeLimit(address assetManager, uint256 interval, uint256 maxStableCoinSize) external;
+
+    /**
+     * @notice Drop the owner's implicit asset-manager capability (one-way). By default the owner may
+     *         trade without holding ASSET_MANAGER_ROLE, so a single-wallet user needs no second key;
+     *         calling this restricts trading to explicit ASSET_MANAGER_ROLE holders only.
+     */
+    function disableOwnerAssetManager() external;
 
     // ============ Sending ============
 
