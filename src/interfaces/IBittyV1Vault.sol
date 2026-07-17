@@ -104,6 +104,7 @@ interface IBittyV1Vault {
     function isAddingAssetsDisabled() external view returns (bool);
     function isAddingProtocolsDisabled() external view returns (bool);
     function isSendingDisabled() external view returns (bool);
+    function isOwnerAssetManagerDisabled() external view returns (bool);
 
     function getLendingProtocols() external view returns (address[] memory);
     function getStakingProtocols() external view returns (address[] memory);

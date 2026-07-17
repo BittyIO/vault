@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
 import {IBittyV1AssetManager} from "./interfaces/IBittyV1AssetManager.sol";
+import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
@@ -20,6 +21,22 @@ import {AssetManagerStorage} from "./logic/Storages.sol";
 contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
     using AssetManagerLogic for AssetManagerStorage;
 
+    /**
+     * @dev Passes for an explicit ASSET_MANAGER_ROLE holder, or for the owner while owner-as-asset-
+     *      manager is still enabled. Lets a single-wallet user trade without funding a second key,
+     *      until they call {disableOwnerAssetManager}.
+     */
+    modifier onlyAssetManager() {
+        _checkAssetManager();
+        _;
+    }
+
+    function _checkAssetManager() internal view {
+        if (hasRole(ASSET_MANAGER_ROLE, _msgSender())) return;
+        if (!_assetManager.ownerAssetManagerDisabled && hasRole(DEFAULT_ADMIN_ROLE, _msgSender())) return;
+        revert IAccessControl.AccessControlUnauthorizedAccount(_msgSender(), ASSET_MANAGER_ROLE);
+    }
+
     // ============ AMM ============
 
     function marketSell(
@@ -29,7 +46,7 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         uint256 sellAmount,
         uint256 buyAmountMin,
         bytes memory data
-    ) external override onlyRole(ASSET_MANAGER_ROLE) {
+    ) external override onlyAssetManager {
         _assetManager.marketSell(_vault, ammProtocol, from, to, sellAmount, buyAmountMin, data);
     }
 
@@ -40,7 +57,7 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         uint256 buyAmount,
         uint256 sellAmountMax,
         bytes memory data
-    ) external override onlyRole(ASSET_MANAGER_ROLE) {
+    ) external override onlyAssetManager {
         _assetManager.marketBuy(_vault, ammProtocol, from, to, buyAmount, sellAmountMax, data);
     }
 
@@ -51,19 +68,19 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         address token1,
         uint256 amount1,
         bytes memory data
-    ) external override onlyRole(ASSET_MANAGER_ROLE) {
+    ) external override onlyAssetManager {
         _assetManager.addLiquidity(ammProtocol, token0, amount0, token1, amount1, data);
     }
 
-    function removeLiquidity(address ammProtocol, bytes memory data) external override onlyRole(ASSET_MANAGER_ROLE) {
+    function removeLiquidity(address ammProtocol, bytes memory data) external override onlyAssetManager {
         _assetManager.removeLiquidity(ammProtocol, data);
     }
 
-    function decreaseLiquidity(address ammProtocol, bytes memory data) external override onlyRole(ASSET_MANAGER_ROLE) {
+    function decreaseLiquidity(address ammProtocol, bytes memory data) external override onlyAssetManager {
         _assetManager.decreaseLiquidity(ammProtocol, data);
     }
 
-    function claimAMMFees(address ammProtocol, bytes memory data) external override onlyRole(ASSET_MANAGER_ROLE) {
+    function claimAMMFees(address ammProtocol, bytes memory data) external override onlyAssetManager {
         _assetManager.claimAMMFees(ammProtocol, data);
     }
 
@@ -80,7 +97,7 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         uint256 sellAmount,
         uint256 buyAmountMin,
         uint32 validTo
-    ) external override onlyRole(ASSET_MANAGER_ROLE) returns (bytes32 orderId) {
+    ) external override onlyAssetManager returns (bytes32 orderId) {
         return _assetManager.limitSell(_vault, intentProtocol, from, to, sellAmount, buyAmountMin, validTo);
     }
 
@@ -91,15 +108,11 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         uint256 buyAmount,
         uint256 sellAmountMax,
         uint32 validTo
-    ) external override onlyRole(ASSET_MANAGER_ROLE) returns (bytes32 orderId) {
+    ) external override onlyAssetManager returns (bytes32 orderId) {
         return _assetManager.limitBuy(_vault, intentProtocol, from, to, buyAmount, sellAmountMax, validTo);
     }
 
-    function cancelLimitOrder(address intentProtocol, bytes memory data)
-        external
-        override
-        onlyRole(ASSET_MANAGER_ROLE)
-    {
+    function cancelLimitOrder(address intentProtocol, bytes memory data) external override onlyAssetManager {
         _assetManager.cancelLimitOrder(intentProtocol, data);
     }
 
@@ -116,13 +129,13 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         uint256 n,
         uint256 partDuration,
         uint256 span
-    ) external override onlyRole(ASSET_MANAGER_ROLE) returns (bytes32 twapId) {
+    ) external override onlyAssetManager returns (bytes32 twapId) {
         return _assetManager.twapSell(
             _vault, intentProtocol, from, to, totalSellAmount, minPartLimit, n, partDuration, span
         );
     }
 
-    function cancelTwapOrder(address intentProtocol, bytes32 twapId) external override onlyRole(ASSET_MANAGER_ROLE) {
+    function cancelTwapOrder(address intentProtocol, bytes32 twapId) external override onlyAssetManager {
         _assetManager.cancelTwapOrder(intentProtocol, twapId);
     }
 
@@ -135,7 +148,7 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         uint256 n,
         uint256 partDuration,
         uint256 span
-    ) external override onlyRole(ASSET_MANAGER_ROLE) returns (bytes32 twapId) {
+    ) external override onlyAssetManager returns (bytes32 twapId) {
         return _assetManager.twapBuy(
             _vault, intentProtocol, from, to, totalBuyAmount, sellAmountPerPart, n, partDuration, span
         );
@@ -151,18 +164,14 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
 
     // ============ Lending ============
 
-    function supply(address lendingProtocol, address assetAddress, uint256 amount)
-        external
-        override
-        onlyRole(ASSET_MANAGER_ROLE)
-    {
+    function supply(address lendingProtocol, address assetAddress, uint256 amount) external override onlyAssetManager {
         _assetManager.supply(lendingProtocol, assetAddress, amount);
     }
 
     function withdraw(address lendingProtocol, address assetAddress, uint256 amount)
         external
         override
-        onlyRole(ASSET_MANAGER_ROLE)
+        onlyAssetManager
     {
         _assetManager.withdraw(lendingProtocol, assetAddress, amount, address(this));
     }
@@ -173,19 +182,11 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
 
     // ============ Staking ============
 
-    function stake(address stakingProtocol, address asset, uint256 amount)
-        external
-        override
-        onlyRole(ASSET_MANAGER_ROLE)
-    {
+    function stake(address stakingProtocol, address asset, uint256 amount) external override onlyAssetManager {
         _assetManager.stake(stakingProtocol, asset, amount);
     }
 
-    function unstake(address stakingProtocol, address asset, uint256 amount)
-        external
-        override
-        onlyRole(ASSET_MANAGER_ROLE)
-    {
+    function unstake(address stakingProtocol, address asset, uint256 amount) external override onlyAssetManager {
         _assetManager.unstake(stakingProtocol, asset, amount, address(this));
     }
 
@@ -197,17 +198,13 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         return _assetManager.getUnstakeRequestIds(stakingProtocol);
     }
 
-    function claimUnstaked(address stakingProtocol, uint256[] memory requestIds)
-        external
-        override
-        onlyRole(ASSET_MANAGER_ROLE)
-    {
+    function claimUnstaked(address stakingProtocol, uint256[] memory requestIds) external override onlyAssetManager {
         _assetManager.claimUnstaked(stakingProtocol, requestIds);
     }
 
     // ============ Rebalance ============
 
-    function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyRole(ASSET_MANAGER_ROLE) {
+    function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyAssetManager {
         _assetManager.disableRebalanceUntilTimestamp(timestamp);
         emit RebalanceDisabledUntil(timestamp);
     }

@@ -36,11 +36,15 @@ struct AssetManagerStorage {
     EnumerableSet.AddressSet ammProtocols;
     EnumerableSet.AddressSet intentProtocols;
 
-    // guard + the bool + the timestamp pack into one slot (160 + 8 + 64 bits); the timestamp is read
-    // on every rebalance and now shares guard's already-warm slot.
+    // guard + two bools + the timestamp pack into one slot (160 + 8 + 64 + 8 bits); the timestamp is
+    // read on every rebalance and now shares guard's already-warm slot.
     IBittyV1Guard guard;
     bool addingProtocolsDisabled;
     uint64 rebalanceDisabledUntilTimestamp;
+    // default false: the owner may act as asset manager without holding ASSET_MANAGER_ROLE, so a
+    // single-wallet user can trade without funding a second key. Owner can flip it true (one-way) to
+    // drop that convenience once a dedicated asset manager is in place.
+    bool ownerAssetManagerDisabled;
 
     mapping(bytes32 => IntentOrderRecord) intentOrderRecords;
 

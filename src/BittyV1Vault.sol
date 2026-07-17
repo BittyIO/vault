@@ -176,6 +176,16 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
         return _assetManager.addingProtocolsDisabled;
     }
 
+    // irreversible — once dropped, only explicit ASSET_MANAGER_ROLE holders can trade
+    function disableOwnerAssetManager() external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetManager.ownerAssetManagerDisabled = true;
+        emit OwnerAssetManagerDisabled();
+    }
+
+    function isOwnerAssetManagerDisabled() external view returns (bool) {
+        return _assetManager.ownerAssetManagerDisabled;
+    }
+
     // ============ Sending ============
 
     function send(address recipient, address asset, uint256 amount) external override onlyOwnerOrPaymentManager {
