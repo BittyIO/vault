@@ -99,9 +99,10 @@ contract BittyV1VaultTest is Test {
         assetManagerAddress = makeAddr("assetManager");
     }
 
-    function _assetManagers(address manager) internal pure returns (address[] memory managers) {
-        managers = new address[](1);
-        managers[0] = manager;
+    function _grantAssetManager(address manager) internal {
+        bytes32 role = vault.ASSET_MANAGER_ROLE();
+        vm.prank(ownerAddress);
+        vault.grantRole(role, manager);
     }
 
     function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
@@ -156,8 +157,6 @@ contract BittyV1VaultTest is Test {
     function test_Receive_acceptsEthAfterInitialize() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -167,6 +166,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
 
         address depositor = makeAddr("ethDepositor");
         uint256 amount = 0.05 ether;
@@ -181,29 +181,9 @@ contract BittyV1VaultTest is Test {
         assertEq(weth.balanceOf(address(vault)), amount);
     }
 
-    function test_InitRevertsWhenOwnerIsAssetManager() public {
-        // The owner must never also be an asset manager.
-        vm.expectRevert(OwnerAndManagerMustDiffer.selector);
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            _assetManagers(ownerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            defiFacet
-        );
-    }
-
     function test_InitSucceedsWithDifferentAssetManager() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -213,54 +193,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), assetManagerAddress));
-    }
-
-    function test_InitGrantsMultipleAssetManagers() public {
-        address manager1 = makeAddr("manager1");
-        address manager2 = makeAddr("manager2");
-        address[] memory assetManagers = new address[](2);
-        assetManagers[0] = manager1;
-        assetManagers[1] = manager2;
-
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            assetManagers,
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            defiFacet
-        );
-
-        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), manager1));
-        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), manager2));
-    }
-
-    function test_InitRevertsWhenOwnerAmongAssetManagers() public {
-        address manager1 = makeAddr("manager1");
-        address[] memory assetManagers = new address[](2);
-        assetManagers[0] = manager1;
-        assetManagers[1] = ownerAddress;
-
-        vm.expectRevert(OwnerAndManagerMustDiffer.selector);
-        vault.initialize(
-            ownerAddress,
-            "test vault",
-            assetManagers,
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            defiFacet
-        );
     }
 
     function test_GrantRoleRevertsWhenOwnerAsAssetManager() public {
@@ -297,8 +231,6 @@ contract BittyV1VaultTest is Test {
         address assetMgr = makeAddr("assetMgr");
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetMgr),
             guardAddress,
             address(weth),
             new address[](0),
@@ -308,6 +240,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetMgr);
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
         vm.prank(ownerAddress);
         vm.expectRevert(IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminRules.selector);
@@ -317,8 +250,6 @@ contract BittyV1VaultTest is Test {
     function test_InitErrorWithAlreadyInitialized() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -328,11 +259,10 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -347,8 +277,6 @@ contract BittyV1VaultTest is Test {
     function test_AddScheduledPaymentSuccess() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -358,6 +286,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
@@ -369,8 +298,6 @@ contract BittyV1VaultTest is Test {
     function test_AddScheduledPaymentRevertDuplicateName() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -380,6 +307,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
@@ -393,8 +321,6 @@ contract BittyV1VaultTest is Test {
     function test_AddScheduledPaymentSuccessSameNameAfterRemoveScheduledPayment() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -404,6 +330,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
@@ -417,8 +344,6 @@ contract BittyV1VaultTest is Test {
     function test_AddScheduledPaymentRevertUnauthorized() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -428,6 +353,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
@@ -441,8 +367,6 @@ contract BittyV1VaultTest is Test {
     function test_AddScheduledPaymentRevertAssetAddressNotContract() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -452,6 +376,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), makeAddr("eoaAsset"), 1 ether, 1, block.timestamp, 0, false
         );
@@ -463,8 +388,6 @@ contract BittyV1VaultTest is Test {
     function test_AddScheduledPaymentRevertAmountZero() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -474,6 +397,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 0, 1, block.timestamp, 0, false
         );
@@ -485,8 +409,6 @@ contract BittyV1VaultTest is Test {
     function test_AddScheduledPaymentRevertPaymentCountZero() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -496,6 +418,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 0, block.timestamp, 0, false
         );
@@ -507,8 +430,6 @@ contract BittyV1VaultTest is Test {
     function test_AddScheduledPaymentRevertIntervalTooShortWhenPaymentCountGreaterThanOne() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -518,6 +439,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"),
             address(0),
@@ -559,8 +481,6 @@ contract BittyV1VaultTest is Test {
     function test_AddScheduledPaymentSuccessWithShortIntervalWhenPaymentCountIsOne() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -570,6 +490,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
         );
@@ -580,8 +501,6 @@ contract BittyV1VaultTest is Test {
     function test_UpdateScheduledPaymentRevertIntervalTooShortWhenPaymentCountGreaterThanOne() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -591,6 +510,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"),
             address(0),
@@ -613,8 +533,6 @@ contract BittyV1VaultTest is Test {
     function test_UpdateScheduledPaymentSuccessWithShortIntervalWhenPaymentCountIsOne() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -624,6 +542,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"),
             address(0),
@@ -646,8 +565,6 @@ contract BittyV1VaultTest is Test {
     function test_UpdateScheduledPaymentSuccess() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -657,6 +574,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             scheduledPaymentAddr,
@@ -678,8 +596,6 @@ contract BittyV1VaultTest is Test {
     function test_UpdateScheduledPaymentRevertNotFound() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -689,6 +605,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
@@ -700,8 +617,6 @@ contract BittyV1VaultTest is Test {
     function test_UpdateScheduledPaymentRevertImmutable() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -711,6 +626,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true
         );
@@ -725,8 +641,6 @@ contract BittyV1VaultTest is Test {
     function test_UpdateScheduledPaymentRevertOnlyOwner() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -736,6 +650,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
@@ -752,8 +667,6 @@ contract BittyV1VaultTest is Test {
     function test_RemoveScheduledPaymentSuccess() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -763,6 +676,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
@@ -777,8 +691,6 @@ contract BittyV1VaultTest is Test {
     function test_RemoveScheduledPaymentRevertOnlyOwner() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -788,6 +700,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
@@ -803,8 +716,6 @@ contract BittyV1VaultTest is Test {
     function test_PayScheduledPayment_revertScheduledPaymentNotStartYet() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -814,6 +725,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         uint256 futureStartTimestamp = block.timestamp + 100;
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, futureStartTimestamp, 1 days, false
@@ -828,8 +740,6 @@ contract BittyV1VaultTest is Test {
     function test_PayScheduledPayment_singlePaymentWithZeroInterval() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -839,6 +749,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
@@ -858,8 +769,6 @@ contract BittyV1VaultTest is Test {
     function test_PayScheduledPayment_scheduledPaymentStorageUpdatedSoPaymentCountEnforced() public {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -869,6 +778,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         vm.warp(1000);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -1653,8 +1563,6 @@ contract BittyV1VaultTest is Test {
     function _initializeVault() internal {
         vault.initialize(
             ownerAddress,
-            "test vault",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             address(weth),
             new address[](0),
@@ -1664,6 +1572,7 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             defiFacet
         );
+        _grantAssetManager(assetManagerAddress);
     }
 
     function test_defaultAdminDelay_isOneDayConstant() public {
@@ -1677,9 +1586,11 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
 
+        address newManager = makeAddr("instantManager");
+        bytes32 role = vault.ASSET_MANAGER_ROLE();
         vm.prank(ownerAddress);
-        vault.setName("immediate admin");
-        assertEq(vault.vaultName(), "immediate admin");
+        vault.grantRole(role, newManager);
+        assertTrue(vault.hasRole(role, newManager));
     }
 
     function test_acceptDefaultAdminTransfer_revertsBeforeOneDay() public {
@@ -1764,78 +1675,6 @@ contract BittyV1VaultTest is Test {
 
         assertEq(vault.defaultAdmin(), address(0));
         assertFalse(vault.hasRole(adminRole, ownerAddress));
-    }
-
-    function test_initialize_storesVaultName() public {
-        _initializeVault();
-        assertEq(vault.vaultName(), "test vault");
-    }
-
-    function test_initialize_emptyNameIsValid() public {
-        vault.initialize(
-            ownerAddress,
-            "",
-            _assetManagers(assetManagerAddress),
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            defiFacet
-        );
-        assertEq(vault.vaultName(), "");
-    }
-
-    function test_setName_ownerCanUpdate() public {
-        _initializeVault();
-        vm.prank(ownerAddress);
-        vault.setName("renamed vault");
-        assertEq(vault.vaultName(), "renamed vault");
-    }
-
-    function test_setName_canSetToEmpty() public {
-        _initializeVault();
-        vm.prank(ownerAddress);
-        vault.setName("");
-        assertEq(vault.vaultName(), "");
-    }
-
-    function test_setName_canUpdateMultipleTimes() public {
-        _initializeVault();
-        vm.startPrank(ownerAddress);
-        vault.setName("first");
-        assertEq(vault.vaultName(), "first");
-        vault.setName("second");
-        assertEq(vault.vaultName(), "second");
-        vm.stopPrank();
-    }
-
-    function test_setName_revertUnauthorized() public {
-        _initializeVault();
-        bytes32 _adminRole = vault.DEFAULT_ADMIN_ROLE();
-        address stranger = makeAddr("stranger");
-        vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, _adminRole));
-        vault.setName("hacked");
-    }
-
-    function test_setName_strangerCannotSetName() public {
-        _initializeVault();
-        bytes32 _adminRole = vault.DEFAULT_ADMIN_ROLE();
-        address stranger = makeAddr("stranger");
-        vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, _adminRole));
-        vault.setName("attempt");
-    }
-
-    function test_setName_doesNotAffectVaultAddress() public {
-        _initializeVault();
-        address vaultAddr = address(vault);
-        vm.prank(ownerAddress);
-        vault.setName("new name");
-        assertEq(address(vault), vaultAddr, "vault address unchanged after rename");
     }
 
     // ─── Unified addAssets / removeAssets ─────────────────────────────────────

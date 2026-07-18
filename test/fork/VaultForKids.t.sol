@@ -21,7 +21,6 @@ contract VaultForKidsForkTest is Test {
     uint256 internal constant PAY_AMOUNT_WETH = 0.1 ether;
     uint256 internal constant PAY_INTERVAL = 30 days;
     uint8 internal constant PAY_COUNT = 120;
-    string internal constant VAULT_NAME = "Treasury for Alice";
     string internal constant SCHEDULED_PAYMENT_NAME_WBTC = "WBTC for Alice";
     string internal constant SCHEDULED_PAYMENT_NAME_WETH = "WETH for Alice";
 
@@ -61,16 +60,9 @@ contract VaultForKidsForkTest is Test {
     }
 
     function _deployKidsVaultViaFactory() internal {
-        address expected = factory.computeVaultAddress(parentOwner, VAULT_NAME);
-        address vaultAddr = factory.deployVaultWithSelected(
-            VAULT_NAME,
-            new address[](0),
-            assetAddresses,
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0)
-        );
+        address expected = factory.vaultAddress(parentOwner);
+        factory.activateVault(assetAddresses, new address[](0), new address[](0), new address[](0), new address[](0));
+        address vaultAddr = factory.vaultAddress(parentOwner);
 
         assertEq(vaultAddr, expected);
         vault = BittyV1Vault(payable(vaultAddr));
@@ -103,7 +95,6 @@ contract VaultForKidsForkTest is Test {
     function test_vaultForKids_fullLifecycle() public {
         // Step 1: factory deploys a vault with only WBTC and WETH
         _deployKidsVaultViaFactory();
-        assertEq(vault.vaultName(), VAULT_NAME);
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner));
 
         // Step 2: scheduled gifts at 18th birthday

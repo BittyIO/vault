@@ -27,8 +27,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
 
     using VaultLogic for VaultStorage;
 
-    string public vaultName;
-
     // Payment creation (scheduled payments, whitelisted recipients, one-off sends) is callable by the
     // owner or a payment manager. Owner actions take effect immediately; payment-manager actions are
     // stored pending until the owner approves them.
@@ -94,8 +92,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
 
     function initialize(
         address owner,
-        string memory initialName,
-        address[] memory assetManagers,
         address guardAddress,
         address weth,
         address[] memory assetAddresses,
@@ -105,18 +101,10 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
         address[] memory intentProtocols,
         address defiFacet
     ) public initializer {
-        if (owner == address(0)) revert AddressZero();
         _defiFacet = defiFacet;
         _vault.weth = weth;
-        vaultName = initialName;
         __AccessControl_init();
         __AccessControlDefaultAdminRules_init(OWNER_TRANSFER_DELAY, owner);
-
-        for (uint256 i = 0; i < assetManagers.length; i++) {
-            if (assetManagers[i] != address(0)) {
-                _grantRole(ASSET_MANAGER_ROLE, assetManagers[i]);
-            }
-        }
 
         _vault.initialize(guardAddress);
         if (assetAddresses.length > 0) {
@@ -136,11 +124,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
         if (intentProtocols.length > 0) {
             _assetManager.addIntentProtocols(intentProtocols);
         }
-    }
-
-    function setName(string memory newName) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        vaultName = newName;
-        emit NameSet(newName);
     }
 
     // ============ Asset config ============
@@ -176,7 +159,10 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
         return _assetManager.addingProtocolsDisabled;
     }
 
-    // irreversible — once dropped, only explicit ASSET_MANAGER_ROLE holders can trade
+    /**
+     * @notice Disable the owner from managing assets.
+     * @dev Irreversible — once dropped, only explicit ASSET_MANAGER_ROLE holders can manage assets.
+     */
     function disableOwnerAssetManager() external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _assetManager.ownerAssetManagerDisabled = true;
         emit OwnerAssetManagerDisabled();
@@ -449,10 +435,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
     }
 
     // ============ Views ============
-
-    function name() external view returns (string memory) {
-        return vaultName;
-    }
 
     function wethAddress() external view returns (address) {
         return _vault.weth;

@@ -13,7 +13,6 @@ import {IBittyV1Vault} from "./IBittyV1Vault.sol";
  */
 interface IBittyV1Owner {
     // ============ Events ============
-    event NameSet(string newName);
     event AssetsAdded(address[] assets);
     event AssetsRemoved(address[] assets);
     event AssetsLocked();
@@ -37,11 +36,6 @@ interface IBittyV1Owner {
     event SendApproved(uint256 indexed id, address recipient, address asset, uint256 amount);
 
     // ============ Vault config ============
-
-    /**
-     * @notice Set the human-readable vault name.
-     */
-    function setName(string memory name) external;
 
     /**
      * @notice Add guard-registered assets/stablecoins to the vault allowlist.

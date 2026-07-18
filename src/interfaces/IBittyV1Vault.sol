@@ -29,7 +29,6 @@ error PayScheduledPaymentAmountTriggerEmpty();
 
 error AddingAssetsDisabled();
 error AddingProtocolsDisabled();
-// The owner (DEFAULT_ADMIN_ROLE) must never also hold ASSET_MANAGER_ROLE or PAYMENT_MANAGER_ROLE.
 error OwnerAndManagerMustDiffer();
 
 // sending errors
@@ -41,9 +40,9 @@ error WhitelistedRecipientNameAlreadyExists();
 error WhitelistedRecipientAssetNotAllowed();
 
 // payment-manager approval errors
-error PaymentNotApproved(); // pay attempted before the owner approved a payment-manager proposal
-error NotPendingApproval(); // approve called on an entry that is not pending
-error NotProposalOwner(); // a payment manager tried to edit/cancel an entry it did not propose
+error PaymentNotApproved();
+error NotPendingApproval();
+error NotProposalOwner();
 error PendingSendNotFound();
 
 /**
@@ -59,7 +58,6 @@ error PendingSendNotFound();
  * 3. Let the owner only ever lower the vault's risk.
  */
 interface IBittyV1Vault {
-    // Emitted when a scheduled payment is paid (payScheduled is permissionless / trigger-gated).
     event ScheduledPaymentPaid(
         string indexed name,
         address indexed scheduledPaymentAddress,
@@ -93,11 +91,6 @@ interface IBittyV1Vault {
     }
 
     // ============ Reads ============
-
-    /**
-     * @notice Human-readable vault name set onchain.
-     */
-    function name() external view returns (string memory);
 
     function getAssets() external view returns (address[] memory);
     function getStableCoins() external view returns (address[] memory);
