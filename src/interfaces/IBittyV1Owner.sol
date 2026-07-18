@@ -35,10 +35,10 @@ interface IBittyV1Owner {
         uint256 expiredAt
     );
     event NewAddressProtectionSet(uint256 protectionDuration);
-    event WhitelistedRecipientPaid(string indexed name, address indexed recipient, address asset, uint256 amount);
+    event WhitelistedRecipientPaid(uint256 indexed id, address indexed recipient, address asset, uint256 amount);
     // Owner approval of payment-manager proposals (creation events live on {IBittyV1PaymentManager}).
-    event ScheduledPaymentApproved(string indexed name);
-    event WhitelistedRecipientApproved(string indexed name);
+    event ScheduledPaymentApproved(uint256 indexed id);
+    event WhitelistedRecipientApproved(uint256 indexed id);
     event SendApproved(uint256 indexed id, address recipient, address asset, uint256 amount);
 
     // ============ Vault config ============
@@ -122,12 +122,12 @@ interface IBittyV1Owner {
     /**
      * @notice Owner: approve a payment-manager-proposed scheduled payment so it becomes payable.
      */
-    function approveScheduledPayment(string memory name) external;
+    function approveScheduledPayment(uint256 id) external;
 
     /**
      * @notice Owner: approve a payment-manager-proposed whitelisted recipient so it becomes payable.
      */
-    function approveWhitelistedRecipient(string memory name) external;
+    function approveWhitelistedRecipient(uint256 id) external;
 
     /**
      * @notice Set the time-lock window applied to every newly added scheduled payment / whitelisted
@@ -140,5 +140,5 @@ interface IBittyV1Owner {
     /**
      * @notice Pay a whitelisted recipient a discretionary amount from the vault's balance.
      */
-    function sendToWhitelistedRecipient(string memory name, address asset, uint256 amount) external;
+    function sendToWhitelistedRecipient(uint256 id, address asset, uint256 amount) external;
 }
