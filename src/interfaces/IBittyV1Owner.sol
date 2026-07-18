@@ -27,7 +27,13 @@ interface IBittyV1Owner {
     event IntentProtocolsAdded(address[] protocols);
     event IntentProtocolsRemoved(address[] protocols);
     event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
-    event TradeLimitSet(address indexed assetManager, uint256 interval, uint256 maxStableCoinSize);
+    event TradeLimitSet(
+        address indexed assetManager,
+        uint256 interval,
+        uint256 maxStableCoinPerTrade,
+        uint256 maxStableCoinInvestedTotal,
+        uint256 expiredAt
+    );
     event NewAddressProtectionSet(uint256 protectionDuration);
     event WhitelistedRecipientPaid(string indexed name, address indexed recipient, address asset, uint256 amount);
     // Owner approval of payment-manager proposals (creation events live on {IBittyV1PaymentManager}).
@@ -77,10 +83,20 @@ interface IBittyV1Owner {
     function setMinimalBalance(address assetAddress, uint256 minimalBalance) external;
 
     /**
-     * @notice Set a per-asset-manager trade guardrail: min seconds between trades and a per-trade
-     *         stablecoin size cap (whole tokens). See implementation for the stablecoin-leg rule.
+     * @notice Set a per-asset-manager trade guardrail.
+     * @param interval Min seconds between trades (0 = no throttle).
+     * @param maxStableCoinPerTrade Max stablecoin per trade in whole tokens (0 = no cap).
+     * @param maxStableCoinInvestedTotal Remaining stablecoin budget in whole tokens for buying
+     *        assets with stablecoins; selling assets back to stablecoins adds back (0 = no cap).
+     * @param expiredAt Unix timestamp after which this asset manager may not trade (0 = never).
      */
-    function setTradeLimit(address assetManager, uint256 interval, uint256 maxStableCoinSize) external;
+    function setTradeLimit(
+        address assetManager,
+        uint256 interval,
+        uint256 maxStableCoinPerTrade,
+        uint256 maxStableCoinInvestedTotal,
+        uint256 expiredAt
+    ) external;
 
     /**
      * @notice Drop the owner's implicit asset-manager capability (one-way). By default the owner may
