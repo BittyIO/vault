@@ -12,12 +12,12 @@ struct IntentOrderRecord {
     uint256 reservedSell;
 }
 
-// Per-asset-manager trade guardrail (owner-set). Packed into a single 256-bit slot so the whole
-// config is one SLOAD and the per-trade lastTradeTimestamp write is a warm SSTORE to that slot.
 struct TradeLimit {
-    uint64 interval; // min seconds between trades (0 = no throttle)
-    uint64 maxStableCoinSize; // max stablecoin per trade in whole tokens, no decimals (0 = no cap)
-    uint128 lastTradeTimestamp; // written every trade
+    uint64 interval; // 0 = no limit
+    uint64 maxStableCoinPerTrade; // 0 = no cap
+    uint64 maxStableCoinInvestedTotal; // remaining whole-token budget: reduced on stable→asset, increased on asset→stable (0 = no cap)
+    uint96 expiredAt; // 0 = not expired
+    uint128 lastTradeTimestamp;
 }
 
 struct AssetManagerStorage {

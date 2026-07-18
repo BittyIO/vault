@@ -13,6 +13,8 @@ import {
     TradeSizeExceeded,
     TradeInInterval,
     TradeMustTouchStableCoin,
+    TradeLimitExpired,
+    TradeInvestedTotalExceeded,
     InvalidLendingProtocol,
     InvalidStakingProtocol,
     InvalidAMMProtocol,
@@ -112,12 +114,16 @@ library AssetManagerLogic {
         AssetManagerStorage storage logicStorage,
         address assetManager,
         uint256 interval,
-        uint256 maxStableCoinSize
+        uint256 maxStableCoinPerTrade,
+        uint256 maxStableCoinInvestedTotal,
+        uint256 expiredAt
     ) external onlyInitialized(logicStorage) {
         if (assetManager == address(0)) revert AddressZero();
         TradeLimit storage limit = logicStorage.tradeLimits[assetManager];
         limit.interval = uint64(interval);
-        limit.maxStableCoinSize = uint64(maxStableCoinSize);
+        limit.maxStableCoinPerTrade = uint64(maxStableCoinPerTrade);
+        limit.maxStableCoinInvestedTotal = uint64(maxStableCoinInvestedTotal);
+        limit.expiredAt = uint96(expiredAt);
     }
 
     function supply(
@@ -396,6 +402,10 @@ library AssetManagerLogic {
      * (keyed by msg.sender, preserved through delegatecall): a stablecoin size cap and a frequency
      * throttle. The size cap is denominated in stablecoin whole tokens, so when it is set the trade
      * must have a stablecoin as either leg; the stablecoin leg's amount is measured against the cap.
+     * `maxStableCoinInvestedTotal` tracks remaining whole-token budget for stable→asset trades and
+     * is restored on asset→stable trades. `expiredAt` blocks all trades once reached (0 = no expiry).
+     * When every limit field is zero the whole block is skipped; when only `interval` is zero the
+     * throttle check and `lastTradeTimestamp` write are skipped to avoid an unnecessary SSTORE.
      */
     function _validateRebalance(
         AssetManagerStorage storage logicStorage,
@@ -407,6 +417,9 @@ library AssetManagerLogic {
     ) private {
         VaultLogic.checkAsset(vaultStorage, from);
         VaultLogic.checkAsset(vaultStorage, to);
+        if (!vaultStorage.stableCoins.contains(from) && !vaultStorage.stableCoins.contains(to)) {
+            revert TradeMustTouchStableCoin();
+        }
         _checkRebalanceDisabledUntilTimestamp(logicStorage);
 
         uint256 minBal = logicStorage.minimalBalances[from];
@@ -420,8 +433,18 @@ library AssetManagerLogic {
         }
 
         TradeLimit storage limit = logicStorage.tradeLimits[msg.sender];
+        if (
+            limit.interval == 0 && limit.maxStableCoinPerTrade == 0 && limit.maxStableCoinInvestedTotal == 0
+                && limit.expiredAt == 0
+        ) {
+            return;
+        }
 
-        uint256 maxWholeTokens = limit.maxStableCoinSize;
+        if (limit.expiredAt != 0 && block.timestamp >= limit.expiredAt) {
+            revert TradeLimitExpired();
+        }
+
+        uint256 maxWholeTokens = limit.maxStableCoinPerTrade;
         if (maxWholeTokens != 0) {
             address stableCoin;
             uint256 stableAmount;
@@ -431,17 +454,28 @@ library AssetManagerLogic {
             } else if (vaultStorage.stableCoins.contains(to)) {
                 stableCoin = to;
                 stableAmount = toAmount;
-            } else {
-                revert TradeMustTouchStableCoin();
             }
             uint256 maxUnits = maxWholeTokens * (10 ** IERC20Metadata(stableCoin).decimals());
             if (stableAmount > maxUnits) revert TradeSizeExceeded();
         }
 
-        uint256 interval = limit.interval;
-        if (interval != 0) {
+        uint256 investedBudget = limit.maxStableCoinInvestedTotal;
+        if (investedBudget != 0) {
+            if (vaultStorage.stableCoins.contains(from)) {
+                uint256 unit = 10 ** IERC20Metadata(from).decimals();
+                uint256 wholeSpent = sellAmount / unit;
+                if (wholeSpent > investedBudget) revert TradeInvestedTotalExceeded();
+                limit.maxStableCoinInvestedTotal = uint64(investedBudget - wholeSpent);
+            } else if (vaultStorage.stableCoins.contains(to)) {
+                uint256 unit = 10 ** IERC20Metadata(to).decimals();
+                uint256 wholeReceived = toAmount / unit;
+                limit.maxStableCoinInvestedTotal = uint64(investedBudget + wholeReceived);
+            }
+        }
+
+        if (limit.interval != 0) {
             uint256 last = limit.lastTradeTimestamp;
-            if (last != 0 && block.timestamp - last < interval) revert TradeInInterval();
+            if (last != 0 && block.timestamp - last < limit.interval) revert TradeInInterval();
             limit.lastTradeTimestamp = uint128(block.timestamp);
         }
     }

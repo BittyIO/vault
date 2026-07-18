@@ -50,6 +50,16 @@ abstract contract ProtocolTestSetup is Test {
         return abi.encode(mainnet.WETH, sellAmount, mainnet.USDT, buyAmountMin, encodedPath);
     }
 
+    function encodeUsdtToWethSwap(uint256 sellAmount, uint256 buyAmountMin) internal pure returns (bytes memory) {
+        address[] memory path = new address[](2);
+        path[0] = mainnet.USDT;
+        path[1] = mainnet.WETH;
+        uint24[] memory fees = new uint24[](1);
+        fees[0] = 3000;
+        bytes memory encodedPath = Path.encodePath(path, fees);
+        return abi.encode(mainnet.USDT, sellAmount, mainnet.WETH, buyAmountMin, encodedPath);
+    }
+
     function _single(address a) internal pure returns (address[] memory arr) {
         arr = new address[](1);
         arr[0] = a;

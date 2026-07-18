@@ -359,15 +359,19 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
     }
 
     /**
-     * @notice Set a per-asset-manager trade guardrail (throttle interval + stablecoin size cap).
+     * @notice Set a per-asset-manager trade guardrail (throttle, per-trade cap, invested budget, expiry).
      */
-    function setTradeLimit(address assetManager, uint256 interval, uint256 maxStableCoinSize)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.setTradeLimit(assetManager, interval, maxStableCoinSize);
-        emit TradeLimitSet(assetManager, interval, maxStableCoinSize);
+    function setTradeLimit(
+        address assetManager,
+        uint256 interval,
+        uint256 maxStableCoinPerTrade,
+        uint256 maxStableCoinInvestedTotal,
+        uint256 expiredAt
+    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetManager.setTradeLimit(
+            assetManager, interval, maxStableCoinPerTrade, maxStableCoinInvestedTotal, expiredAt
+        );
+        emit TradeLimitSet(assetManager, interval, maxStableCoinPerTrade, maxStableCoinInvestedTotal, expiredAt);
     }
 
     function addLendingProtocols(address[] memory lendingProtocolAddresses)

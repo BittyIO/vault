@@ -7,6 +7,8 @@ error MinimalBalanceNotMet();
 error TradeSizeExceeded();
 error TradeInInterval();
 error TradeMustTouchStableCoin();
+error TradeLimitExpired();
+error TradeInvestedTotalExceeded();
 error InvalidLendingProtocol();
 error InvalidStakingProtocol();
 error InvalidAMMProtocol();
