@@ -12,7 +12,6 @@ error ReentrantCall();
 
 // scheduledPayment errors
 error ScheduledPaymentNotFound();
-error ScheduledPaymentNameAlreadyExists();
 error ScheduledPaymentImmutable();
 error ScheduledPaymentPaymentCountZero();
 error ScheduledPaymentTriggerError();
@@ -36,7 +35,6 @@ error SendingDisabled();
 
 // whitelisted recipient errors
 error WhitelistedRecipientNotFound();
-error WhitelistedRecipientNameAlreadyExists();
 error WhitelistedRecipientAssetNotAllowed();
 
 // payment-manager approval errors
@@ -59,7 +57,7 @@ error PendingSendNotFound();
  */
 interface IBittyV1Vault {
     event ScheduledPaymentPaid(
-        string indexed name,
+        uint256 indexed id,
         address indexed scheduledPaymentAddress,
         address indexed assetAddress,
         uint256 amount,
@@ -112,29 +110,29 @@ interface IBittyV1Vault {
     /**
      * @notice Get a whitelisted recipient entry (recipient == address(0) if not set).
      */
-    function getWhitelistedRecipient(string memory name) external view returns (address recipient, address allowedAsset);
+    function getWhitelistedRecipient(uint256 id) external view returns (address recipient, address allowedAsset);
 
     // ============ Permissionless (trigger-gated / keeper) ============
 
     /**
      * @notice Pay a scheduled payment its full scheduled amount. Trigger-gated if a trigger is set.
      */
-    function payScheduled(string memory name) external;
+    function payScheduled(uint256 id) external;
 
     /**
      * @notice Pay a partial amount of a scheduled payment (requires a trigger to be set).
      */
-    function payScheduledAmount(string memory name, uint256 amount) external;
+    function payScheduledAmount(uint256 id, uint256 amount) external;
 
     /**
      * @notice Pay a scheduled payment directly out of a staked position (delivered on-behalf).
      */
-    function payScheduledFromStaking(string memory name, address stakingProtocol) external;
+    function payScheduledFromStaking(uint256 id, address stakingProtocol) external;
 
     /**
      * @notice Pay a scheduled payment directly out of a supplied (lending) position (on-behalf).
      */
-    function payScheduledFromLending(string memory name, address lendingProtocol) external;
+    function payScheduledFromLending(uint256 id, address lendingProtocol) external;
 
     /**
      * @notice Pay a scheduled payment by swapping a vault asset into the payment's asset and
@@ -142,7 +140,7 @@ interface IBittyV1Vault {
      * @dev data = abi.encode(fromAsset, sellAmountMax, scheduledPaymentAsset, payAmount, reversedPath).
      */
     function payScheduledFromSwap(
-        string memory name,
+        uint256 id,
         address ammProtocol,
         address fromAsset,
         uint256 sellAmountMax,

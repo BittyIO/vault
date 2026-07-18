@@ -14,7 +14,6 @@ import {
     AddressZero,
     AmountIsZero,
     ScheduledPaymentNotFound,
-    ScheduledPaymentNameAlreadyExists,
     ScheduledPaymentImmutable,
     ScheduledPaymentPaymentCountZero,
     ScheduledPaymentIntervalTooShort,
@@ -31,7 +30,6 @@ import {
     InsufficientBalance,
     NotInitialized,
     WhitelistedRecipientNotFound,
-    WhitelistedRecipientNameAlreadyExists,
     WhitelistedRecipientAssetNotAllowed,
     PaymentNotApproved,
     NotPendingApproval,
@@ -58,19 +56,19 @@ import {Initializable} from "openzeppelin-contracts-upgradeable/proxy/utils/Init
 /// a reentering recipient cannot double-pay.
 contract ReentrantEthReceiver {
     BittyV1Vault public vault;
-    string public name;
+    uint256 public scheduledPaymentId;
     bool private armed;
 
-    function arm(BittyV1Vault v, string calldata n) external {
+    function arm(BittyV1Vault v, uint256 id) external {
         vault = v;
-        name = n;
+        scheduledPaymentId = id;
         armed = true;
     }
 
     receive() external payable {
         if (armed) {
             armed = false;
-            try vault.payScheduled(name) {} catch {}
+            try vault.payScheduled(scheduledPaymentId) {} catch {}
         }
     }
 }
@@ -292,30 +290,7 @@ contract BittyV1VaultTest is Test {
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
-    }
-
-    function test_AddScheduledPaymentRevertDuplicateName() public {
-        vault.initialize(
-            ownerAddress,
-            guardAddress,
-            address(weth),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            defiFacet
-        );
-        _grantAssetManager(assetManagerAddress);
-        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
-            makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
-        );
-        vm.startPrank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
-        vm.expectRevert(ScheduledPaymentNameAlreadyExists.selector);
-        vault.addScheduledPayment("alice", r);
-        vm.stopPrank();
+        uint256 aliceId = vault.addScheduledPayment(r);
     }
 
     function test_AddScheduledPaymentSuccessSameNameAfterRemoveScheduledPayment() public {
@@ -335,9 +310,9 @@ contract BittyV1VaultTest is Test {
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
         vm.startPrank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
-        vault.removeScheduledPayment("alice");
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
+        vault.removeScheduledPayment(aliceId);
+        aliceId = vault.addScheduledPayment(r);
         vm.stopPrank();
     }
 
@@ -361,7 +336,7 @@ contract BittyV1VaultTest is Test {
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _scheduledPaymentRole));
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
     }
 
     function test_AddScheduledPaymentRevertAssetAddressNotContract() public {
@@ -382,7 +357,7 @@ contract BittyV1VaultTest is Test {
         );
         vm.prank(ownerAddress);
         vm.expectRevert(AssetAddressNotContract.selector);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
     }
 
     function test_AddScheduledPaymentRevertAmountZero() public {
@@ -403,7 +378,7 @@ contract BittyV1VaultTest is Test {
         );
         vm.prank(ownerAddress);
         vm.expectRevert(AmountIsZero.selector);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
     }
 
     function test_AddScheduledPaymentRevertPaymentCountZero() public {
@@ -424,7 +399,7 @@ contract BittyV1VaultTest is Test {
         );
         vm.prank(ownerAddress);
         vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
     }
 
     function test_AddScheduledPaymentRevertIntervalTooShortWhenPaymentCountGreaterThanOne() public {
@@ -452,7 +427,7 @@ contract BittyV1VaultTest is Test {
         );
         vm.prank(ownerAddress);
         vm.expectRevert(ScheduledPaymentIntervalTooShort.selector);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
     }
 
     function test_AddScheduledPaymentRevertStartTimestampInPast() public {
@@ -462,7 +437,7 @@ contract BittyV1VaultTest is Test {
         );
         vm.prank(ownerAddress);
         vm.expectRevert(ScheduledPaymentStartTimestampInPast.selector);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
     }
 
     function test_UpdateScheduledPaymentAllowsPastStartTimestamp() public {
@@ -471,11 +446,11 @@ contract BittyV1VaultTest is Test {
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         r.startTimestamp = block.timestamp - 1;
         vm.prank(ownerAddress);
-        vault.updateScheduledPayment("alice", r);
+        vault.updateScheduledPayment(aliceId, r);
     }
 
     function test_AddScheduledPaymentSuccessWithShortIntervalWhenPaymentCountIsOne() public {
@@ -495,7 +470,7 @@ contract BittyV1VaultTest is Test {
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
     }
 
     function test_UpdateScheduledPaymentRevertIntervalTooShortWhenPaymentCountGreaterThanOne() public {
@@ -522,12 +497,12 @@ contract BittyV1VaultTest is Test {
             false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         r.paymentInterval = VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL - 1;
         vm.prank(ownerAddress);
         vm.expectRevert(ScheduledPaymentIntervalTooShort.selector);
-        vault.updateScheduledPayment("alice", r);
+        vault.updateScheduledPayment(aliceId, r);
     }
 
     function test_UpdateScheduledPaymentSuccessWithShortIntervalWhenPaymentCountIsOne() public {
@@ -554,12 +529,12 @@ contract BittyV1VaultTest is Test {
             false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         r.paymentCount = 1;
         r.paymentInterval = 0;
         vm.prank(ownerAddress);
-        vault.updateScheduledPayment("alice", r);
+        vault.updateScheduledPayment(aliceId, r);
     }
 
     function test_UpdateScheduledPaymentSuccess() public {
@@ -587,9 +562,9 @@ contract BittyV1VaultTest is Test {
             false
         );
         vm.startPrank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
         r.amount = 2 ether;
-        vault.updateScheduledPayment("alice", r);
+        vault.updateScheduledPayment(aliceId, r);
         vm.stopPrank();
     }
 
@@ -611,7 +586,7 @@ contract BittyV1VaultTest is Test {
         );
         vm.prank(ownerAddress);
         vm.expectRevert(ScheduledPaymentNotFound.selector);
-        vault.updateScheduledPayment("nonexistent", r);
+        vault.updateScheduledPayment(99999, r);
     }
 
     function test_UpdateScheduledPaymentRevertImmutable() public {
@@ -631,10 +606,10 @@ contract BittyV1VaultTest is Test {
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, true
         );
         vm.startPrank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
         r.amount = 2 ether;
         vm.expectRevert(ScheduledPaymentImmutable.selector);
-        vault.updateScheduledPayment("alice", r);
+        vault.updateScheduledPayment(aliceId, r);
         vm.stopPrank();
     }
 
@@ -655,13 +630,13 @@ contract BittyV1VaultTest is Test {
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
         r.amount = 2 ether;
         bytes32 _scheduledPaymentRole = vault.PAYMENT_MANAGER_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _scheduledPaymentRole));
-        vault.updateScheduledPayment("alice", r);
+        vault.updateScheduledPayment(aliceId, r);
     }
 
     function test_RemoveScheduledPaymentSuccess() public {
@@ -681,11 +656,11 @@ contract BittyV1VaultTest is Test {
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
         vm.startPrank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
-        vault.removeScheduledPayment("alice");
+        uint256 aliceId = vault.addScheduledPayment(r);
+        vault.removeScheduledPayment(aliceId);
         vm.stopPrank();
         vm.expectRevert(ScheduledPaymentNotFound.selector);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
     }
 
     function test_RemoveScheduledPaymentRevertOnlyOwner() public {
@@ -705,12 +680,12 @@ contract BittyV1VaultTest is Test {
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
         bytes32 _scheduledPaymentRole = vault.PAYMENT_MANAGER_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _scheduledPaymentRole));
-        vault.removeScheduledPayment("alice");
+        vault.removeScheduledPayment(aliceId);
     }
 
     function test_PayScheduledPayment_revertScheduledPaymentNotStartYet() public {
@@ -731,10 +706,10 @@ contract BittyV1VaultTest is Test {
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, futureStartTimestamp, 1 days, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         vm.expectRevert(ScheduledPaymentNotStartYet.selector);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
     }
 
     function test_PayScheduledPayment_singlePaymentWithZeroInterval() public {
@@ -755,15 +730,15 @@ contract BittyV1VaultTest is Test {
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         deal(address(weth), address(vault), 1 ether);
 
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
 
         vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
     }
 
     function test_PayScheduledPayment_scheduledPaymentStorageUpdatedSoPaymentCountEnforced() public {
@@ -792,18 +767,18 @@ contract BittyV1VaultTest is Test {
             false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         deal(address(weth), address(vault), 2 ether);
 
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
         vm.warp(block.timestamp + VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
 
         assertEq(weth.balanceOf(scheduledPaymentAddr), 2 ether, "scheduledPayment should have received 2 payments");
 
         vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
     }
 
     function test_SetNewAddressProtectionRevertUnauthorizedWhenNotInitialized() public {
@@ -884,12 +859,12 @@ contract BittyV1VaultTest is Test {
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
     }
 
     function test_PayScheduledPayment_successAfterScheduledPaymentProtectionEnds() public {
@@ -904,12 +879,12 @@ contract BittyV1VaultTest is Test {
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.warp(addedAt + protection);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
     }
 
@@ -920,11 +895,11 @@ contract BittyV1VaultTest is Test {
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         deal(address(weth), address(vault), 1 ether);
 
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
     }
 
@@ -938,7 +913,7 @@ contract BittyV1VaultTest is Test {
             bobScheduledPayment, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("bob", bob);
+        uint256 bobId = vault.addScheduledPayment(bob);
 
         // Enabling protection only time-locks addresses introduced from now on.
         vm.prank(ownerAddress);
@@ -948,14 +923,14 @@ contract BittyV1VaultTest is Test {
             aliceScheduledPayment, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", alice);
+        uint256 aliceId = vault.addScheduledPayment(alice);
 
         deal(address(weth), address(vault), 2 ether);
 
         vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
 
-        vault.payScheduled("bob");
+        vault.payScheduled(bobId);
         assertEq(weth.balanceOf(bobScheduledPayment), 1 ether);
     }
 
@@ -971,18 +946,18 @@ contract BittyV1VaultTest is Test {
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
         );
         vm.startPrank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
-        vault.removeScheduledPayment("alice");
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
+        vault.removeScheduledPayment(aliceId);
+        aliceId = vault.addScheduledPayment(r);
         vm.stopPrank();
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
 
         vm.warp(block.timestamp + protection);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
     }
 
@@ -991,38 +966,39 @@ contract BittyV1VaultTest is Test {
         vm.warp(1_000_000);
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
 
-        _addScheduledPayment("alice", scheduledPaymentAddr, 1 ether, 2, VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+        uint256 aliceId =
+            _addScheduledPayment(scheduledPaymentAddr, 1 ether, 2, VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
         deal(address(weth), address(vault), 3 ether);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
 
         vm.prank(ownerAddress);
-        vault.removeScheduledPayment("alice");
-        _addScheduledPayment("alice", scheduledPaymentAddr, 1 ether, 1, VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+        vault.removeScheduledPayment(aliceId);
+        aliceId = _addScheduledPayment(scheduledPaymentAddr, 1 ether, 1, VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
 
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 2 ether, "re-added scheduledPayment must be payable immediately");
     }
 
     function test_PayScheduledPayment_revertNotInitialized() public {
         vm.expectRevert(NotInitialized.selector);
-        vault.payScheduled("alice");
+        vault.payScheduled(1);
     }
 
     function test_PayScheduledPaymentAmount_revertNotInitialized() public {
         vm.expectRevert(NotInitialized.selector);
-        vault.payScheduledAmount("alice", 1);
+        vault.payScheduledAmount(1, 1);
     }
 
     function test_PayScheduledPaymentAmount_revertTriggerEmpty() public {
         _initializeVault();
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
-        _addScheduledPayment("alice", scheduledPaymentAddr, 1 ether, 1, 0);
+        uint256 aliceId = _addScheduledPayment(scheduledPaymentAddr, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.expectRevert(PayScheduledPaymentAmountTriggerEmpty.selector);
-        vault.payScheduledAmount("alice", 1 ether);
+        vault.payScheduledAmount(aliceId, 1 ether);
     }
 
     function test_PayScheduledPaymentAmount_revertWhenCallerIsNotTrigger() public {
@@ -1030,18 +1006,18 @@ contract BittyV1VaultTest is Test {
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
         address attacker = makeAddr("attacker");
-        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
+        uint256 aliceId = _addScheduledPaymentWithTrigger(scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(attacker);
         vm.expectRevert(ScheduledPaymentTriggerError.selector);
-        vault.payScheduledAmount("alice", 1 ether);
+        vault.payScheduledAmount(aliceId, 1 ether);
 
         assertEq(weth.balanceOf(scheduledPaymentAddr), 0);
 
         vm.prank(trigger);
-        vault.payScheduledAmount("alice", 1 ether);
+        vault.payScheduledAmount(aliceId, 1 ether);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
     }
 
@@ -1049,29 +1025,29 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
+        uint256 aliceId = _addScheduledPaymentWithTrigger(scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
-        vault.payScheduledAmount("alice", 1 ether);
+        vault.payScheduledAmount(aliceId, 1 ether);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
 
         vm.prank(trigger);
         vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
-        vault.payScheduledAmount("alice", 1 ether);
+        vault.payScheduledAmount(aliceId, 1 ether);
     }
 
     function test_PayScheduledPaymentAmount_successWhenAmountLessThanScheduledPaymentAmount() public {
         _initializeVault();
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
+        uint256 aliceId = _addScheduledPaymentWithTrigger(scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
-        vault.payScheduledAmount("alice", 0.5 ether);
+        vault.payScheduledAmount(aliceId, 0.5 ether);
 
         assertEq(weth.balanceOf(scheduledPaymentAddr), 0.5 ether, "transfers requested partial amount");
         assertEq(weth.balanceOf(address(vault)), 0.5 ether, "vault retains the remainder");
@@ -1081,14 +1057,14 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
+        uint256 aliceId = _addScheduledPaymentWithTrigger(scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
         vm.expectEmit(true, true, true, true, address(vault));
-        emit IBittyV1Vault.ScheduledPaymentPaid("alice", scheduledPaymentAddr, address(weth), 0.25 ether, 0);
-        vault.payScheduledAmount("alice", 0.25 ether);
+        emit IBittyV1Vault.ScheduledPaymentPaid(aliceId, scheduledPaymentAddr, address(weth), 0.25 ether, 0);
+        vault.payScheduledAmount(aliceId, 0.25 ether);
 
         assertEq(weth.balanceOf(scheduledPaymentAddr), 0.25 ether);
     }
@@ -1097,13 +1073,13 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
+        uint256 aliceId = _addScheduledPaymentWithTrigger(scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
         vm.expectRevert(PayMoreThanScheduledPaymentAmount.selector);
-        vault.payScheduledAmount("alice", 1 ether + 1);
+        vault.payScheduledAmount(aliceId, 1 ether + 1);
     }
 
     function test_PayScheduledPaymentAmount_revertScheduledPaymentNotStartYet() public {
@@ -1114,13 +1090,13 @@ contract BittyV1VaultTest is Test {
         IBittyV1Vault.ScheduledPayment memory r =
             _makeScheduledPayment(scheduledPaymentAddr, trigger, address(weth), 1 ether, 1, futureStart, 0, false);
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
         vm.expectRevert(ScheduledPaymentNotStartYet.selector);
-        vault.payScheduledAmount("alice", 1 ether);
+        vault.payScheduledAmount(aliceId, 1 ether);
     }
 
     function test_PayScheduledPaymentAmount_revertAddressProtectionNotEnded() public {
@@ -1130,26 +1106,26 @@ contract BittyV1VaultTest is Test {
 
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
+        uint256 aliceId = _addScheduledPaymentWithTrigger(scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
         vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.payScheduledAmount("alice", 1 ether);
+        vault.payScheduledAmount(aliceId, 1 ether);
     }
 
     function test_PayScheduledPaymentAmount_revertInsufficientBalance() public {
         _initializeVault();
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
+        uint256 aliceId = _addScheduledPaymentWithTrigger(scheduledPaymentAddr, trigger, 1 ether, 1, 0);
 
         deal(address(weth), address(vault), 0.5 ether);
 
         vm.prank(trigger);
         vm.expectRevert(InsufficientBalance.selector);
-        vault.payScheduledAmount("alice", 1 ether);
+        vault.payScheduledAmount(aliceId, 1 ether);
     }
 
     function test_PayScheduledPayment_revertInsufficientBalance_whenPayWithInsufficientBalanceFalse() public {
@@ -1159,12 +1135,12 @@ contract BittyV1VaultTest is Test {
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         deal(address(weth), address(vault), 0.5 ether);
 
         vm.expectRevert(InsufficientBalance.selector);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 0, "no partial transfer on revert");
     }
 
@@ -1184,16 +1160,16 @@ contract BittyV1VaultTest is Test {
             payWithInsufficientBalance: true
         });
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         deal(address(weth), address(vault), vaultBalance);
 
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
 
         assertEq(weth.balanceOf(scheduledPaymentAddr), vaultBalance, "transfers entire vault balance");
         assertEq(weth.balanceOf(address(vault)), 0);
         vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
     }
 
     function test_PayScheduledPayment_paysFullAmount_whenPayWithInsufficientBalanceTrueAndBalanceSufficient() public {
@@ -1211,11 +1187,11 @@ contract BittyV1VaultTest is Test {
             payWithInsufficientBalance: true
         });
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         deal(address(weth), address(vault), 1 ether);
 
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
 
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
         assertEq(weth.balanceOf(address(vault)), 0);
@@ -1237,23 +1213,23 @@ contract BittyV1VaultTest is Test {
             payWithInsufficientBalance: true
         });
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         deal(address(weth), address(vault), 1.5 ether);
 
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
 
         vm.warp(start + VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL + 1);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1.5 ether, "second payout sends remaining 0.5 ether");
 
         vm.warp(start + 2 * (VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL + 1));
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1.5 ether, "third payout with zero balance sends nothing");
 
         vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
     }
 
     // ─── ScheduledPayment Events ──────────────────────────────────────────────────────
@@ -1266,10 +1242,10 @@ contract BittyV1VaultTest is Test {
         );
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit IBittyV1PaymentManager.ScheduledPaymentAdded("alice", r);
+        emit IBittyV1PaymentManager.ScheduledPaymentAdded(1, r);
 
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
     }
 
     function test_UpdateScheduledPayment_emitsScheduledPaymentUpdatedEvent() public {
@@ -1279,7 +1255,7 @@ contract BittyV1VaultTest is Test {
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         IBittyV1Vault.ScheduledPayment memory updated = _makeScheduledPayment(
             scheduledPaymentAddr,
@@ -1293,21 +1269,21 @@ contract BittyV1VaultTest is Test {
         );
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit IBittyV1PaymentManager.ScheduledPaymentUpdated("alice", updated);
+        emit IBittyV1PaymentManager.ScheduledPaymentUpdated(aliceId, updated);
 
         vm.prank(ownerAddress);
-        vault.updateScheduledPayment("alice", updated);
+        vault.updateScheduledPayment(aliceId, updated);
     }
 
     function test_RemoveScheduledPayment_emitsScheduledPaymentRemovedEvent() public {
         _initializeVault();
-        _addScheduledPayment("alice", makeAddr("scheduledPayment"), 1 ether, 1, 0);
+        uint256 aliceId = _addScheduledPayment(makeAddr("scheduledPayment"), 1 ether, 1, 0);
 
         vm.expectEmit(true, false, false, false, address(vault));
-        emit IBittyV1PaymentManager.ScheduledPaymentRemoved("alice");
+        emit IBittyV1PaymentManager.ScheduledPaymentRemoved(aliceId);
 
         vm.prank(ownerAddress);
-        vault.removeScheduledPayment("alice");
+        vault.removeScheduledPayment(aliceId);
     }
 
     function test_SetNewAddressProtection_emitsNewAddressProtectionSetEvent() public {
@@ -1324,26 +1300,27 @@ contract BittyV1VaultTest is Test {
     function test_PayScheduledPayment_emitsScheduledPaymentPaidEvent() public {
         _initializeVault();
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
-        _addScheduledPayment("alice", scheduledPaymentAddr, 1 ether, 2, VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+        uint256 aliceId =
+            _addScheduledPayment(scheduledPaymentAddr, 1 ether, 2, VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
         deal(address(weth), address(vault), 1 ether);
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit IBittyV1Vault.ScheduledPaymentPaid("alice", scheduledPaymentAddr, address(weth), 1 ether, 1);
+        emit IBittyV1Vault.ScheduledPaymentPaid(aliceId, scheduledPaymentAddr, address(weth), 1 ether, 1);
 
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
     }
 
     function test_PayScheduledPaymentAmount_emitsScheduledPaymentPaidEvent() public {
         _initializeVault();
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
-        _addScheduledPaymentWithTrigger("alice", scheduledPaymentAddr, trigger, 1 ether, 1, 0);
+        uint256 aliceId = _addScheduledPaymentWithTrigger(scheduledPaymentAddr, trigger, 1 ether, 1, 0);
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
         vm.expectEmit(true, true, true, true, address(vault));
-        emit IBittyV1Vault.ScheduledPaymentPaid("alice", scheduledPaymentAddr, address(weth), 1 ether, 0);
-        vault.payScheduledAmount("alice", 1 ether);
+        emit IBittyV1Vault.ScheduledPaymentPaid(aliceId, scheduledPaymentAddr, address(weth), 1 ether, 0);
+        vault.payScheduledAmount(aliceId, 1 ether);
     }
 
     function test_PayScheduledPayment_emitsScheduledPaymentPaidEvent_withPartialBalance() public {
@@ -1362,13 +1339,13 @@ contract BittyV1VaultTest is Test {
             payWithInsufficientBalance: true
         });
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
         deal(address(weth), address(vault), vaultBalance);
 
         vm.expectEmit(true, true, true, true, address(vault));
-        emit IBittyV1Vault.ScheduledPaymentPaid("alice", scheduledPaymentAddr, address(weth), vaultBalance, 0);
+        emit IBittyV1Vault.ScheduledPaymentPaid(aliceId, scheduledPaymentAddr, address(weth), vaultBalance, 0);
 
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
     }
 
     // ─── Fuzz Tests ───────────────────────────────────────────────────────────
@@ -1381,7 +1358,7 @@ contract BittyV1VaultTest is Test {
             makeAddr("r"), address(0), address(weth), amount, paymentCount, block.timestamp, interval, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("r", r);
+        uint256 rId = vault.addScheduledPayment(r);
     }
 
     function testFuzz_SetNewAddressProtection_withinBounds(uint256 protection) public {
@@ -1418,11 +1395,11 @@ contract BittyV1VaultTest is Test {
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("r", r);
+        uint256 rId = vault.addScheduledPayment(r);
         deal(address(weth), address(vault), 1 ether);
         vm.warp(block.timestamp + elapsed);
         vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.payScheduled("r");
+        vault.payScheduled(rId);
     }
 
     function testFuzz_ScheduledPaymentProtection_allowsAfterWindow(uint256 protection, uint256 extra) public {
@@ -1437,10 +1414,10 @@ contract BittyV1VaultTest is Test {
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("r", r);
+        uint256 rId = vault.addScheduledPayment(r);
         deal(address(weth), address(vault), 1 ether);
         vm.warp(addedAt + protection + extra);
-        vault.payScheduled("r");
+        vault.payScheduled(rId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
     }
 
@@ -1461,16 +1438,16 @@ contract BittyV1VaultTest is Test {
             false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("r", r);
+        uint256 rId = vault.addScheduledPayment(r);
         deal(address(weth), address(vault), uint256(paymentCount) * amount);
-        vault.payScheduled("r");
+        vault.payScheduled(rId);
         for (uint8 i = 1; i < paymentCount; i++) {
             vm.warp(start + uint256(i) * VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
-            vault.payScheduled("r");
+            vault.payScheduled(rId);
         }
         assertEq(weth.balanceOf(scheduledPaymentAddr), uint256(paymentCount) * amount);
         vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
-        vault.payScheduled("r");
+        vault.payScheduled(rId);
     }
 
     // ─── Stress Tests ─────────────────────────────────────────────────────────
@@ -1481,16 +1458,17 @@ contract BittyV1VaultTest is Test {
         uint256 amount = 0.01 ether;
         deal(address(weth), address(vault), n * amount);
         address[] memory scheduledPayments = new address[](n);
+        uint256[] memory spIds = new uint256[](n);
         for (uint256 i = 0; i < n; i++) {
             scheduledPayments[i] = makeAddr(string.concat("r", Strings.toString(i)));
             IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
                 scheduledPayments[i], address(0), address(weth), amount, 1, block.timestamp, 0, false
             );
             vm.prank(ownerAddress);
-            vault.addScheduledPayment(string.concat("r", Strings.toString(i)), r);
+            spIds[i] = vault.addScheduledPayment(r);
         }
         for (uint256 i = 0; i < n; i++) {
-            vault.payScheduled(string.concat("r", Strings.toString(i)));
+            vault.payScheduled(spIds[i]);
             assertEq(weth.balanceOf(scheduledPayments[i]), amount);
         }
     }
@@ -1512,25 +1490,24 @@ contract BittyV1VaultTest is Test {
             false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("r", r);
+        uint256 rId = vault.addScheduledPayment(r);
         deal(address(weth), address(vault), uint256(paymentCount) * amount);
-        vault.payScheduled("r");
+        vault.payScheduled(rId);
         for (uint8 i = 1; i < paymentCount; i++) {
             vm.warp(start + uint256(i) * VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
-            vault.payScheduled("r");
+            vault.payScheduled(rId);
         }
         assertEq(weth.balanceOf(scheduledPaymentAddr), uint256(paymentCount) * amount);
         vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
-        vault.payScheduled("r");
+        vault.payScheduled(rId);
     }
 
     function _addScheduledPayment(
-        string memory name,
         address scheduledPaymentAddr,
         uint256 amount,
         uint8 paymentCount,
         uint256 paymentInterval
-    ) internal {
+    ) internal returns (uint256 id) {
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             scheduledPaymentAddr,
             address(0),
@@ -1542,22 +1519,26 @@ contract BittyV1VaultTest is Test {
             false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment(name, r);
+        id = vault.addScheduledPayment(r);
     }
 
     function _addScheduledPaymentWithTrigger(
-        string memory name,
         address scheduledPaymentAddr,
         address trigger,
         uint256 amount,
         uint8 paymentCount,
         uint256 paymentInterval
-    ) internal {
+    ) internal returns (uint256 id) {
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             scheduledPaymentAddr, trigger, address(weth), amount, paymentCount, block.timestamp, paymentInterval, false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment(name, r);
+        id = vault.addScheduledPayment(r);
+    }
+
+    function _addWhitelistedRecipient(address recipient, address allowedAsset) internal returns (uint256 id) {
+        vm.prank(ownerAddress);
+        id = vault.addWhitelistedRecipient(recipient, allowedAsset);
     }
 
     function _initializeVault() internal {
@@ -1813,8 +1794,7 @@ contract BittyV1VaultTest is Test {
         _setupStakedReserve(usdc, impl, stakeAmount);
 
         vm.prank(ownerAddress);
-        vault.addScheduledPayment(
-            "rent",
+        uint256 rentId = vault.addScheduledPayment(
             _makeScheduledPayment(
                 scheduledPaymentAddr,
                 address(0),
@@ -1829,7 +1809,7 @@ contract BittyV1VaultTest is Test {
 
         // Triggerless scheduledPayment → callable by anyone.
         vm.prank(makeAddr("caller"));
-        vault.payScheduledFromStaking("rent", address(impl));
+        vault.payScheduledFromStaking(rentId, address(impl));
 
         assertEq(usdc.balanceOf(scheduledPaymentAddr), payAmount);
         assertEq(usdc.balanceOf(address(vault)), 0);
@@ -1853,8 +1833,7 @@ contract BittyV1VaultTest is Test {
         _setupSuppliedReserve(usdc, impl, supplyAmount);
 
         vm.prank(ownerAddress);
-        vault.addScheduledPayment(
-            "payroll",
+        uint256 payrollId = vault.addScheduledPayment(
             _makeScheduledPayment(
                 scheduledPaymentAddr,
                 address(0),
@@ -1868,7 +1847,7 @@ contract BittyV1VaultTest is Test {
         );
 
         vm.prank(makeAddr("caller"));
-        vault.payScheduledFromLending("payroll", address(impl));
+        vault.payScheduledFromLending(payrollId, address(impl));
 
         assertEq(usdc.balanceOf(scheduledPaymentAddr), payAmount);
         assertEq(usdc.balanceOf(address(vault)), 0);
@@ -1903,8 +1882,7 @@ contract BittyV1VaultTest is Test {
         fromAsset.mint(address(vault), sellAmountMax);
 
         vm.prank(ownerAddress);
-        vault.addScheduledPayment(
-            "payroll",
+        uint256 payrollId = vault.addScheduledPayment(
             _makeScheduledPayment(
                 scheduledPaymentAddr,
                 address(0),
@@ -1921,7 +1899,7 @@ contract BittyV1VaultTest is Test {
 
         // Triggerless scheduledPayment → callable by anyone.
         vm.prank(makeAddr("caller"));
-        vault.payScheduledFromSwap("payroll", address(amm), address(fromAsset), sellAmountMax, data);
+        vault.payScheduledFromSwap(payrollId, address(amm), address(fromAsset), sellAmountMax, data);
 
         assertEq(
             payAsset.balanceOf(scheduledPaymentAddr), payAmount, "scheduledPayment paid exactly the scheduled amount"
@@ -1962,8 +1940,7 @@ contract BittyV1VaultTest is Test {
         IVaultFull(payable(address(vault))).setMinimalBalance(address(fromAsset), 1.5 ether);
 
         vm.prank(ownerAddress);
-        vault.addScheduledPayment(
-            "payroll",
+        uint256 payrollId = vault.addScheduledPayment(
             _makeScheduledPayment(
                 scheduledPaymentAddr,
                 address(0),
@@ -1979,7 +1956,7 @@ contract BittyV1VaultTest is Test {
         bytes memory data = abi.encode(address(fromAsset), sellAmountMax, address(payAsset), payAmount, bytes(""));
 
         vm.prank(makeAddr("caller"));
-        vault.payScheduledFromSwap("payroll", address(amm), address(fromAsset), sellAmountMax, data);
+        vault.payScheduledFromSwap(payrollId, address(amm), address(fromAsset), sellAmountMax, data);
 
         assertEq(
             payAsset.balanceOf(scheduledPaymentAddr), payAmount, "scheduledPayment paid despite minimal-balance guard"
@@ -1997,8 +1974,7 @@ contract BittyV1VaultTest is Test {
         _setupStakedReserve(usdc, impl, 1_000e6);
 
         vm.prank(ownerAddress);
-        vault.addScheduledPayment(
-            "rent",
+        uint256 rentId = vault.addScheduledPayment(
             _makeScheduledPayment(
                 scheduledPaymentAddr,
                 trigger,
@@ -2013,13 +1989,13 @@ contract BittyV1VaultTest is Test {
 
         vm.prank(makeAddr("stranger"));
         vm.expectRevert(ScheduledPaymentTriggerError.selector);
-        vault.payScheduledFromStaking("rent", address(impl));
+        vault.payScheduledFromStaking(rentId, address(impl));
 
         assertEq(usdc.balanceOf(scheduledPaymentAddr), 0);
         assertEq(IVaultFull(payable(address(vault))).getStakedBalance(address(impl), address(usdc)), 1_000e6);
 
         vm.prank(trigger);
-        vault.payScheduledFromStaking("rent", address(impl));
+        vault.payScheduledFromStaking(rentId, address(impl));
         assertEq(usdc.balanceOf(scheduledPaymentAddr), 250e6);
         assertEq(usdc.balanceOf(trigger), 0);
     }
@@ -2033,8 +2009,7 @@ contract BittyV1VaultTest is Test {
         _setupStakedReserve(usdc, impl, 1_000e6);
 
         vm.prank(ownerAddress);
-        vault.addScheduledPayment(
-            "rent",
+        uint256 rentId = vault.addScheduledPayment(
             _makeScheduledPayment(
                 scheduledPaymentAddr,
                 address(0),
@@ -2047,13 +2022,13 @@ contract BittyV1VaultTest is Test {
             )
         );
 
-        vault.payScheduledFromStaking("rent", address(impl));
+        vault.payScheduledFromStaking(rentId, address(impl));
 
         vm.expectRevert(ScheduledPaymentInInterval.selector);
-        vault.payScheduledFromStaking("rent", address(impl));
+        vault.payScheduledFromStaking(rentId, address(impl));
 
         vm.warp(block.timestamp + VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL + 1);
-        vault.payScheduledFromStaking("rent", address(impl));
+        vault.payScheduledFromStaking(rentId, address(impl));
         assertEq(usdc.balanceOf(scheduledPaymentAddr), 500e6);
     }
 
@@ -2075,15 +2050,15 @@ contract BittyV1VaultTest is Test {
             false
         );
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("u", r);
+        uint256 uId = vault.addScheduledPayment(r);
 
         // Pay 260 times — well past the 255 uint8 ceiling. A decrementing count would revert at 256.
         uint256 payments = 260;
         deal(address(weth), address(vault), payments * amount);
-        vault.payScheduled("u");
+        vault.payScheduled(uId);
         for (uint256 i = 1; i < payments; i++) {
             vm.warp(start + i * VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
-            vault.payScheduled("u");
+            vault.payScheduled(uId);
         }
         assertEq(weth.balanceOf(to), payments * amount);
     }
@@ -2094,27 +2069,18 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         address to = makeAddr("wlr");
         vm.prank(ownerAddress);
-        vault.addWhitelistedRecipient("bob", to, address(weth));
+        uint256 bobIdWr = vault.addWhitelistedRecipient(to, address(weth));
 
-        (address recipient, address allowedAsset) = vault.getWhitelistedRecipient("bob");
+        (address recipient, address allowedAsset) = vault.getWhitelistedRecipient(bobIdWr);
         assertEq(recipient, to);
         assertEq(allowedAsset, address(weth));
-    }
-
-    function test_WhitelistedRecipient_addRevertsOnDuplicate() public {
-        _initializeVault();
-        vm.startPrank(ownerAddress);
-        vault.addWhitelistedRecipient("bob", makeAddr("a"), address(0));
-        vm.expectRevert(WhitelistedRecipientNameAlreadyExists.selector);
-        vault.addWhitelistedRecipient("bob", makeAddr("b"), address(0));
-        vm.stopPrank();
     }
 
     function test_WhitelistedRecipient_addRevertsOnZeroRecipient() public {
         _initializeVault();
         vm.prank(ownerAddress);
         vm.expectRevert(AddressZero.selector);
-        vault.addWhitelistedRecipient("bob", address(0), address(0));
+        uint256 bobIdWr = vault.addWhitelistedRecipient(address(0), address(0));
     }
 
     function test_WhitelistedRecipient_updateChangesEntry() public {
@@ -2122,11 +2088,11 @@ contract BittyV1VaultTest is Test {
         address to1 = makeAddr("to1");
         address to2 = makeAddr("to2");
         vm.startPrank(ownerAddress);
-        vault.addWhitelistedRecipient("bob", to1, address(weth));
-        vault.updateWhitelistedRecipient("bob", to2, address(0));
+        uint256 bobIdWr = vault.addWhitelistedRecipient(to1, address(weth));
+        vault.updateWhitelistedRecipient(bobIdWr, to2, address(0));
         vm.stopPrank();
 
-        (address recipient, address allowedAsset) = vault.getWhitelistedRecipient("bob");
+        (address recipient, address allowedAsset) = vault.getWhitelistedRecipient(bobIdWr);
         assertEq(recipient, to2);
         assertEq(allowedAsset, address(0));
     }
@@ -2135,7 +2101,7 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         vm.prank(ownerAddress);
         vm.expectRevert(WhitelistedRecipientNotFound.selector);
-        vault.updateWhitelistedRecipient("ghost", makeAddr("to"), address(0));
+        vault.updateWhitelistedRecipient(99999, makeAddr("to"), address(0));
     }
 
     function test_WhitelistedRecipient_anyAssetWhenAllowedAssetZero() public {
@@ -2143,14 +2109,14 @@ contract BittyV1VaultTest is Test {
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         address to = makeAddr("wlr");
         vm.prank(ownerAddress);
-        vault.addWhitelistedRecipient("bob", to, address(0));
+        uint256 bobIdWr = vault.addWhitelistedRecipient(to, address(0));
 
         deal(address(weth), address(vault), 1 ether);
         usdc.mint(address(vault), 5_000e6);
 
         vm.startPrank(ownerAddress);
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
-        vault.sendToWhitelistedRecipient("bob", address(usdc), 5_000e6);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(usdc), 5_000e6);
         vm.stopPrank();
 
         assertEq(weth.balanceOf(to), 1 ether);
@@ -2162,17 +2128,17 @@ contract BittyV1VaultTest is Test {
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         address to = makeAddr("wlr");
         vm.prank(ownerAddress);
-        vault.addWhitelistedRecipient("bob", to, address(weth));
+        uint256 bobIdWr = vault.addWhitelistedRecipient(to, address(weth));
 
         deal(address(weth), address(vault), 1 ether);
         usdc.mint(address(vault), 5_000e6);
 
         vm.prank(ownerAddress);
         vm.expectRevert(WhitelistedRecipientAssetNotAllowed.selector);
-        vault.sendToWhitelistedRecipient("bob", address(usdc), 5_000e6);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(usdc), 5_000e6);
 
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
@@ -2181,31 +2147,31 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), 1 ether);
         vm.prank(ownerAddress);
         vm.expectRevert(WhitelistedRecipientNotFound.selector);
-        vault.sendToWhitelistedRecipient("ghost", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(99999, address(weth), 1 ether);
     }
 
     function test_WhitelistedRecipient_remove() public {
         _initializeVault();
         address to = makeAddr("wlr");
         vm.startPrank(ownerAddress);
-        vault.addWhitelistedRecipient("bob", to, address(0));
-        vault.removeWhitelistedRecipient("bob");
+        uint256 bobIdWr = vault.addWhitelistedRecipient(to, address(0));
+        vault.removeWhitelistedRecipient(bobIdWr);
         vm.stopPrank();
 
-        (address recipient,) = vault.getWhitelistedRecipient("bob");
+        (address recipient,) = vault.getWhitelistedRecipient(bobIdWr);
         assertEq(recipient, address(0));
 
         deal(address(weth), address(vault), 1 ether);
         vm.prank(ownerAddress);
         vm.expectRevert(WhitelistedRecipientNotFound.selector);
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
     }
 
     function test_WhitelistedRecipient_removeRevertsWhenNotFound() public {
         _initializeVault();
         vm.prank(ownerAddress);
         vm.expectRevert(WhitelistedRecipientNotFound.selector);
-        vault.removeWhitelistedRecipient("ghost");
+        vault.removeWhitelistedRecipient(99999);
     }
 
     function test_WhitelistedRecipient_onlyOwnerOrPaymentManager() public {
@@ -2217,14 +2183,14 @@ contract BittyV1VaultTest is Test {
         vm.startPrank(stranger);
         // create/edit/remove are owner-or-payment-manager (a stranger is neither)
         vm.expectRevert(_roleError(stranger, pmRole));
-        vault.addWhitelistedRecipient("bob", makeAddr("to"), address(0));
+        uint256 bobIdWr = vault.addWhitelistedRecipient(makeAddr("to"), address(0));
         vm.expectRevert(_roleError(stranger, pmRole));
-        vault.updateWhitelistedRecipient("bob", makeAddr("to"), address(0));
+        vault.updateWhitelistedRecipient(bobIdWr, makeAddr("to"), address(0));
         vm.expectRevert(_roleError(stranger, pmRole));
-        vault.removeWhitelistedRecipient("bob");
+        vault.removeWhitelistedRecipient(bobIdWr);
         // paying out stays strictly owner-only
         vm.expectRevert(_roleError(stranger, adminRole));
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1);
         vm.stopPrank();
     }
 
@@ -2237,18 +2203,18 @@ contract BittyV1VaultTest is Test {
 
         vm.startPrank(ownerAddress);
         vault.setNewAddressProtection(protection);
-        vault.addWhitelistedRecipient("bob", to, address(weth));
+        uint256 bobIdWr = vault.addWhitelistedRecipient(to, address(weth));
         vm.stopPrank();
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(ownerAddress);
         vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
 
         vm.warp(block.timestamp + protection);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
@@ -2262,16 +2228,16 @@ contract BittyV1VaultTest is Test {
 
         vm.startPrank(ownerAddress);
         vault.setNewAddressProtection(protection);
-        vault.addWhitelistedRecipient("a", payee, address(0));
-        vault.addWhitelistedRecipient("b", payee, address(0)); // same payee under a 2nd name
-        vault.removeWhitelistedRecipient("b"); // must not clear the shared lock for "a"
+        uint256 aIdWr = vault.addWhitelistedRecipient(payee, address(0));
+        uint256 bIdWr = vault.addWhitelistedRecipient(payee, address(0)); // same payee, second entry
+        vault.removeWhitelistedRecipient(bIdWr); // must not clear the shared lock for aIdWr
         vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.sendToWhitelistedRecipient("a", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(aIdWr, address(weth), 1 ether);
         vm.stopPrank();
 
         vm.warp(block.timestamp + protection);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient("a", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(aIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(payee), 1 ether);
     }
 
@@ -2284,13 +2250,13 @@ contract BittyV1VaultTest is Test {
 
         vm.startPrank(ownerAddress);
         vault.setNewAddressProtection(protection);
-        vault.addWhitelistedRecipient("wl", payee, address(0));
+        uint256 wlIdWr = vault.addWhitelistedRecipient(payee, address(0));
         IBittyV1Vault.ScheduledPayment memory sp =
             _makeScheduledPayment(payee, address(0), address(weth), 0.1 ether, 1, block.timestamp, 0, false);
-        vault.addScheduledPayment("sp", sp);
-        vault.removeScheduledPayment("sp"); // must not clear protection[payee]
+        uint256 spId = vault.addScheduledPayment(sp);
+        vault.removeScheduledPayment(spId); // must not clear protection[payee]
         vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.sendToWhitelistedRecipient("wl", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(wlIdWr, address(weth), 1 ether);
         vm.stopPrank();
     }
 
@@ -2298,11 +2264,11 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         address to = makeAddr("wlr");
         vm.prank(ownerAddress);
-        vault.addWhitelistedRecipient("bob", to, address(weth));
+        uint256 bobIdWr = vault.addWhitelistedRecipient(to, address(weth));
 
         deal(address(weth), address(vault), 1 ether);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
@@ -2313,21 +2279,21 @@ contract BittyV1VaultTest is Test {
 
         vm.startPrank(ownerAddress);
         vault.setNewAddressProtection(protection);
-        vault.addWhitelistedRecipient("bob", to, address(weth));
-        vault.removeWhitelistedRecipient("bob");
+        uint256 bobIdWr = vault.addWhitelistedRecipient(to, address(weth));
+        vault.removeWhitelistedRecipient(bobIdWr);
         // Re-adding arms a fresh window from now.
-        vault.addWhitelistedRecipient("bob", to, address(weth));
+        bobIdWr = vault.addWhitelistedRecipient(to, address(weth));
         vm.stopPrank();
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(ownerAddress);
         vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
 
         vm.warp(block.timestamp + protection);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
@@ -2343,27 +2309,27 @@ contract BittyV1VaultTest is Test {
         IBittyV1Vault.ScheduledPayment memory r =
             _makeScheduledPayment(shared, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
 
         // Whitelisting the SAME address under a new name does not escape the shared lock.
         vm.prank(ownerAddress);
-        vault.addWhitelistedRecipient("bob", shared, address(weth));
+        uint256 bobIdWr = vault.addWhitelistedRecipient(shared, address(weth));
 
         deal(address(weth), address(vault), 2 ether);
 
         vm.prank(ownerAddress);
         vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
 
         // The scheduled path is blocked too.
         vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.payScheduled("alice");
+        vault.payScheduled(aliceId);
 
         // After the window both paths are payable.
         vm.warp(block.timestamp + protection);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
-        vault.payScheduled("alice");
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
+        vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(shared), 2 ether);
     }
 
@@ -2380,7 +2346,7 @@ contract BittyV1VaultTest is Test {
         vault.setNewAddressProtection(protection);
         IBittyV1Vault.ScheduledPayment memory r =
             _makeScheduledPayment(shared, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vault.addScheduledPayment("alice", r);
+        uint256 aliceId = vault.addScheduledPayment(r);
         vm.stopPrank();
         // Scheduled add arms the shared lock: unlocks at base + 10d.
 
@@ -2388,7 +2354,7 @@ contract BittyV1VaultTest is Test {
         // (max), never pulled in, so it now unlocks at the later deadline (base + 3d + 10d = base + 13d).
         vm.warp(base + 3 days);
         vm.prank(ownerAddress);
-        vault.addWhitelistedRecipient("bob", shared, address(weth));
+        uint256 bobIdWr = vault.addWhitelistedRecipient(shared, address(weth));
 
         deal(address(weth), address(vault), 1 ether);
 
@@ -2396,12 +2362,12 @@ contract BittyV1VaultTest is Test {
         vm.warp(base + 10 days + 1);
         vm.prank(ownerAddress);
         vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
 
         // After the extended deadline — payable.
         vm.warp(base + 13 days);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient("bob", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(shared), 1 ether);
     }
 
@@ -2425,14 +2391,14 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), 10 ether);
 
         vm.prank(pm);
-        vault.addScheduledPayment("p", _spTo(to));
+        uint256 pId = vault.addScheduledPayment(_spTo(to));
 
         vm.expectRevert(PaymentNotApproved.selector);
-        vault.payScheduled("p");
+        vault.payScheduled(pId);
 
         vm.prank(ownerAddress);
-        vault.approveScheduledPayment("p");
-        vault.payScheduled("p");
+        vault.approveScheduledPayment(pId);
+        vault.payScheduled(pId);
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
@@ -2441,8 +2407,8 @@ contract BittyV1VaultTest is Test {
         address to = makeAddr("payee");
         deal(address(weth), address(vault), 10 ether);
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("p", _spTo(to));
-        vault.payScheduled("p");
+        uint256 pId = vault.addScheduledPayment(_spTo(to));
+        vault.payScheduled(pId);
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
@@ -2454,16 +2420,16 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), 10 ether);
 
         vm.prank(pm);
-        vault.addWhitelistedRecipient("w", to, address(0));
+        uint256 wIdWr = vault.addWhitelistedRecipient(to, address(0));
 
         vm.prank(ownerAddress);
         vm.expectRevert(PaymentNotApproved.selector);
-        vault.sendToWhitelistedRecipient("w", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(wIdWr, address(weth), 1 ether);
 
         vm.prank(ownerAddress);
-        vault.approveWhitelistedRecipient("w");
+        vault.approveWhitelistedRecipient(wIdWr);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient("w", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(wIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
@@ -2521,16 +2487,16 @@ contract BittyV1VaultTest is Test {
         _grantPaymentManager(pm);
         IBittyV1Vault.ScheduledPayment memory r = _spTo(makeAddr("payee"));
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("p", r); // owner-created = approved
+        uint256 pId = vault.addScheduledPayment(r); // owner-created = approved
 
         r.amount = 2 ether;
         vm.prank(pm);
         vm.expectRevert(NotProposalOwner.selector);
-        vault.updateScheduledPayment("p", r);
+        vault.updateScheduledPayment(pId, r);
 
         vm.prank(pm);
         vm.expectRevert(NotProposalOwner.selector);
-        vault.removeScheduledPayment("p");
+        vault.removeScheduledPayment(pId);
     }
 
     function test_PaymentManager_cancelOwnPendingScheduled() public {
@@ -2538,12 +2504,12 @@ contract BittyV1VaultTest is Test {
         address pm = makeAddr("pm");
         _grantPaymentManager(pm);
         vm.prank(pm);
-        vault.addScheduledPayment("p", _spTo(makeAddr("payee")));
+        uint256 pId = vault.addScheduledPayment(_spTo(makeAddr("payee")));
         vm.prank(pm);
-        vault.removeScheduledPayment("p");
+        vault.removeScheduledPayment(pId);
 
         vm.expectRevert(ScheduledPaymentNotFound.selector);
-        vault.payScheduled("p");
+        vault.payScheduled(pId);
     }
 
     function test_PaymentManager_onlyOwnerApproves() public {
@@ -2551,22 +2517,22 @@ contract BittyV1VaultTest is Test {
         address pm = makeAddr("pm");
         _grantPaymentManager(pm);
         vm.prank(pm);
-        vault.addScheduledPayment("p", _spTo(makeAddr("payee")));
+        uint256 pId = vault.addScheduledPayment(_spTo(makeAddr("payee")));
 
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
         vm.prank(pm);
         vm.expectRevert(_roleError(pm, adminRole));
-        vault.approveScheduledPayment("p");
+        vault.approveScheduledPayment(pId);
     }
 
     function test_PaymentManager_approveNonPendingReverts() public {
         _initializeVault();
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("p", _spTo(makeAddr("payee"))); // auto-approved
+        uint256 pId = vault.addScheduledPayment(_spTo(makeAddr("payee"))); // auto-approved
 
         vm.prank(ownerAddress);
         vm.expectRevert(NotPendingApproval.selector);
-        vault.approveScheduledPayment("p");
+        vault.approveScheduledPayment(pId);
     }
 
     function test_PaymentManager_proposeSendRevertsWhenSendingDisabled() public {
@@ -2615,19 +2581,19 @@ contract BittyV1VaultTest is Test {
         address to = makeAddr("payee");
         deal(address(weth), address(vault), 10 ether);
         vm.prank(pm);
-        vault.addScheduledPayment("p", _spTo(to));
+        uint256 pId = vault.addScheduledPayment(_spTo(to));
 
         IBittyV1Vault.ScheduledPayment memory r2 = _spTo(to);
         r2.amount = 2 ether;
         vm.prank(pm);
-        vault.updateScheduledPayment("p", r2); // manager edits its own still-pending proposal
+        vault.updateScheduledPayment(pId, r2); // manager edits its own still-pending proposal
 
         vm.expectRevert(PaymentNotApproved.selector);
-        vault.payScheduled("p");
+        vault.payScheduled(pId);
 
         vm.prank(ownerAddress);
-        vault.approveScheduledPayment("p");
-        vault.payScheduled("p");
+        vault.approveScheduledPayment(pId);
+        vault.payScheduled(pId);
         assertEq(weth.balanceOf(to), 2 ether);
     }
 
@@ -2638,14 +2604,14 @@ contract BittyV1VaultTest is Test {
         address to2 = makeAddr("payee2");
         deal(address(weth), address(vault), 10 ether);
         vm.prank(pm);
-        vault.addWhitelistedRecipient("w", makeAddr("payee"), address(0));
+        uint256 wIdWr = vault.addWhitelistedRecipient(makeAddr("payee"), address(0));
         vm.prank(pm);
-        vault.updateWhitelistedRecipient("w", to2, address(weth)); // edit own pending
+        vault.updateWhitelistedRecipient(wIdWr, to2, address(weth)); // edit own pending
 
         vm.prank(ownerAddress);
-        vault.approveWhitelistedRecipient("w");
+        vault.approveWhitelistedRecipient(wIdWr);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient("w", address(weth), 1 ether);
+        vault.sendToWhitelistedRecipient(wIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to2), 1 ether);
     }
 
@@ -2655,14 +2621,14 @@ contract BittyV1VaultTest is Test {
         _grantPaymentManager(pm);
         address to = makeAddr("payee");
         vm.prank(ownerAddress);
-        vault.addWhitelistedRecipient("w", to, address(0)); // approved
+        uint256 wIdWr = vault.addWhitelistedRecipient(to, address(0)); // approved
 
         vm.prank(pm);
         vm.expectRevert(NotProposalOwner.selector);
-        vault.updateWhitelistedRecipient("w", to, address(weth));
+        vault.updateWhitelistedRecipient(wIdWr, to, address(weth));
         vm.prank(pm);
         vm.expectRevert(NotProposalOwner.selector);
-        vault.removeWhitelistedRecipient("w");
+        vault.removeWhitelistedRecipient(wIdWr);
     }
 
     function test_PaymentManager_managerCancelsOwnPendingWhitelisted() public {
@@ -2670,10 +2636,10 @@ contract BittyV1VaultTest is Test {
         address pm = makeAddr("pm");
         _grantPaymentManager(pm);
         vm.prank(pm);
-        vault.addWhitelistedRecipient("w", makeAddr("payee"), address(0));
+        uint256 wIdWr = vault.addWhitelistedRecipient(makeAddr("payee"), address(0));
         vm.prank(pm);
-        vault.removeWhitelistedRecipient("w"); // cancel own pending
-        (address r,) = vault.getWhitelistedRecipient("w");
+        vault.removeWhitelistedRecipient(wIdWr); // cancel own pending
+        (address r,) = vault.getWhitelistedRecipient(wIdWr);
         assertEq(r, address(0));
     }
 
@@ -2681,20 +2647,20 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         vm.prank(ownerAddress);
         vm.expectRevert(ScheduledPaymentNotFound.selector);
-        vault.approveScheduledPayment("ghost");
+        vault.approveScheduledPayment(99999);
     }
 
     function test_PaymentManager_approveWhitelistedNotFoundAndNotPending() public {
         _initializeVault();
         vm.prank(ownerAddress);
         vm.expectRevert(WhitelistedRecipientNotFound.selector);
-        vault.approveWhitelistedRecipient("ghost");
+        vault.approveWhitelistedRecipient(99999);
 
         vm.prank(ownerAddress);
-        vault.addWhitelistedRecipient("w", makeAddr("to"), address(0)); // owner-created = approved
+        uint256 wIdWr = vault.addWhitelistedRecipient(makeAddr("to"), address(0)); // owner-created = approved
         vm.prank(ownerAddress);
         vm.expectRevert(NotPendingApproval.selector);
-        vault.approveWhitelistedRecipient("w");
+        vault.approveWhitelistedRecipient(wIdWr);
     }
 
     function test_PaymentManager_cancelSendNotFound() public {
@@ -2718,7 +2684,7 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         vm.prank(ownerAddress);
         vm.expectRevert(AddressZero.selector);
-        vault.updateWhitelistedRecipient("w", address(0), address(0));
+        vault.updateWhitelistedRecipient(99999, address(0), address(0));
     }
 
     // Fund the vault with real (ETH-backed) WETH so unwrap-to-ETH works, unlike a bare `deal`.
@@ -2748,11 +2714,11 @@ contract BittyV1VaultTest is Test {
         _fundVaultWeth(5 ether);
         address to = makeAddr("payee");
         vm.prank(ownerAddress);
-        vault.addScheduledPayment(
-            "p", _makeScheduledPayment(to, address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
+        uint256 pId = vault.addScheduledPayment(
+            _makeScheduledPayment(to, address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
         );
 
-        vault.payScheduled("p");
+        vault.payScheduled(pId);
         assertEq(to.balance, 1 ether);
         assertEq(weth.balanceOf(address(vault)), 4 ether);
     }
@@ -2765,9 +2731,9 @@ contract BittyV1VaultTest is Test {
             _makeScheduledPayment(to, address(0), address(0), 1 ether, 1, block.timestamp, 0, false);
         r.payWithInsufficientBalance = true;
         vm.prank(ownerAddress);
-        vault.addScheduledPayment("p", r);
+        uint256 pId = vault.addScheduledPayment(r);
 
-        vault.payScheduled("p");
+        vault.payScheduled(pId);
         assertEq(to.balance, 0.4 ether); // paid what the vault had
         assertEq(weth.balanceOf(address(vault)), 0);
     }
@@ -2777,10 +2743,10 @@ contract BittyV1VaultTest is Test {
         _fundVaultWeth(5 ether);
         address to = makeAddr("payee");
         vm.prank(ownerAddress);
-        vault.addWhitelistedRecipient("w", to, address(0)); // allowedAsset = any
+        uint256 wIdWr = vault.addWhitelistedRecipient(to, address(0)); // allowedAsset = any
 
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient("w", address(0), 2 ether);
+        vault.sendToWhitelistedRecipient(wIdWr, address(0), 2 ether);
         assertEq(to.balance, 2 ether);
     }
 
@@ -2815,11 +2781,11 @@ contract BittyV1VaultTest is Test {
 
         // ETH scheduled payment (asset address(0))
         vm.prank(ownerAddress);
-        vault.addScheduledPayment(
-            "p", _makeScheduledPayment(to, address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
+        uint256 pId = vault.addScheduledPayment(
+            _makeScheduledPayment(to, address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
         );
 
-        vault.payScheduledFromStaking("p", address(impl));
+        vault.payScheduledFromStaking(pId, address(impl));
         // Yield-delivery paths deliver WETH, not native ETH.
         assertEq(weth.balanceOf(to), 1 ether);
         assertEq(to.balance, 0);
@@ -2831,18 +2797,18 @@ contract BittyV1VaultTest is Test {
         ReentrantEthReceiver attacker = new ReentrantEthReceiver();
 
         vm.startPrank(ownerAddress);
-        vault.addScheduledPayment(
-            "p", _makeScheduledPayment(address(attacker), address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
+        uint256 pId = vault.addScheduledPayment(
+            _makeScheduledPayment(address(attacker), address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
         );
-        vault.addScheduledPayment(
-            "q", _makeScheduledPayment(address(attacker), address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
+        uint256 qId = vault.addScheduledPayment(
+            _makeScheduledPayment(address(attacker), address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
         );
         vm.stopPrank();
         // Reentering a *different*, independently-due ETH payment reaches _payOut while payingEth is
         // still set, so the reentry hits the ReentrantCall guard instead of double-paying.
-        attacker.arm(vault, "q");
+        attacker.arm(vault, qId);
 
-        vault.payScheduled("p");
+        vault.payScheduled(pId);
         // "p" paid once; the reentrant "q" payout reverted and was swallowed, so it never sent.
         assertEq(address(attacker).balance, 1 ether);
         assertEq(weth.balanceOf(address(vault)), 4 ether);
@@ -2854,11 +2820,11 @@ contract BittyV1VaultTest is Test {
         RejectEthReceiver rejecter = new RejectEthReceiver();
 
         vm.prank(ownerAddress);
-        vault.addScheduledPayment(
-            "p", _makeScheduledPayment(address(rejecter), address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
+        uint256 pId = vault.addScheduledPayment(
+            _makeScheduledPayment(address(rejecter), address(0), address(0), 1 ether, 1, block.timestamp, 0, false)
         );
 
         vm.expectRevert(TransferFailed.selector);
-        vault.payScheduled("p");
+        vault.payScheduled(pId);
     }
 }

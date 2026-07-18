@@ -21,8 +21,6 @@ contract VaultForKidsForkTest is Test {
     uint256 internal constant PAY_AMOUNT_WETH = 0.1 ether;
     uint256 internal constant PAY_INTERVAL = 30 days;
     uint8 internal constant PAY_COUNT = 120;
-    string internal constant SCHEDULED_PAYMENT_NAME_WBTC = "WBTC for Alice";
-    string internal constant SCHEDULED_PAYMENT_NAME_WETH = "WETH for Alice";
 
     BittyV1VaultFactory public factory;
     BittyV1Vault public vaultImpl;
@@ -103,8 +101,8 @@ contract VaultForKidsForkTest is Test {
         IBittyV1Vault.ScheduledPayment memory wethScheduledPayment =
             _makeScheduledPayment(ALICE_ADDRESS, mainnet.WETH, PAY_AMOUNT_WETH, EIGHTEEN_TIMESTAMP);
 
-        vault.addScheduledPayment(SCHEDULED_PAYMENT_NAME_WBTC, wbtcScheduledPayment);
-        vault.addScheduledPayment(SCHEDULED_PAYMENT_NAME_WETH, wethScheduledPayment);
+        uint256 wbtcId = vault.addScheduledPayment(wbtcScheduledPayment);
+        uint256 wethId = vault.addScheduledPayment(wethScheduledPayment);
 
         uint256 totalWBTCBalance = PAY_COUNT * PAY_AMOUNT_WBTC + 1e5;
         uint256 totalWETHBalance = PAY_COUNT * PAY_AMOUNT_WETH + 0.01 ether;
@@ -112,7 +110,7 @@ contract VaultForKidsForkTest is Test {
         deal(mainnet.WETH, address(vault), totalWETHBalance);
 
         vm.expectRevert(ScheduledPaymentNotStartYet.selector);
-        vault.payScheduled(SCHEDULED_PAYMENT_NAME_WBTC);
+        vault.payScheduled(wbtcId);
 
         // Step 3: parent gives up vault admin — no account holds DEFAULT_ADMIN_ROLE afterward
         vm.startPrank(parentOwner);
@@ -124,18 +122,18 @@ contract VaultForKidsForkTest is Test {
         assertFalse(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner));
 
         vm.expectRevert();
-        vault.addScheduledPayment(SCHEDULED_PAYMENT_NAME_WBTC, wbtcScheduledPayment);
+        vault.addScheduledPayment(wbtcScheduledPayment);
 
         // Step 4: after age 18, the scheduled gifts pay out to the kids' configured addresses.
         vm.warp(EIGHTEEN_TIMESTAMP);
 
-        vault.payScheduled(SCHEDULED_PAYMENT_NAME_WBTC);
-        vault.payScheduled(SCHEDULED_PAYMENT_NAME_WETH);
+        vault.payScheduled(wbtcId);
+        vault.payScheduled(wethId);
 
         for (uint256 i = 1; i <= PAY_COUNT; i++) {
             vm.warp(EIGHTEEN_TIMESTAMP + i * PAY_INTERVAL);
-            vault.payScheduled(SCHEDULED_PAYMENT_NAME_WBTC);
-            vault.payScheduled(SCHEDULED_PAYMENT_NAME_WETH);
+            vault.payScheduled(wbtcId);
+            vault.payScheduled(wethId);
         }
         assertEq(IERC20(WBTC).balanceOf(ALICE_ADDRESS), totalWBTCBalance);
         assertEq(IERC20(mainnet.WETH).balanceOf(ALICE_ADDRESS), totalWETHBalance);

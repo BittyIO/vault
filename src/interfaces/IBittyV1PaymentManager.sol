@@ -11,26 +11,25 @@ import {IBittyV1Vault} from "./IBittyV1Vault.sol";
  *         functions on {IBittyV1Owner}). Implemented by the core {BittyV1Vault}.
  */
 interface IBittyV1PaymentManager {
-    event ScheduledPaymentAdded(string indexed name, IBittyV1Vault.ScheduledPayment scheduledPayment);
-    event ScheduledPaymentUpdated(string indexed name, IBittyV1Vault.ScheduledPayment scheduledPayment);
-    event ScheduledPaymentRemoved(string indexed name);
-    event WhitelistedRecipientSet(string indexed name, address recipient, address allowedAsset);
-    event WhitelistedRecipientRemoved(string indexed name);
+    event ScheduledPaymentAdded(uint256 indexed id, IBittyV1Vault.ScheduledPayment scheduledPayment);
+    event ScheduledPaymentUpdated(uint256 indexed id, IBittyV1Vault.ScheduledPayment scheduledPayment);
+    event ScheduledPaymentRemoved(uint256 indexed id);
+    event WhitelistedRecipientSet(uint256 indexed id, address recipient, address allowedAsset);
+    event WhitelistedRecipientRemoved(uint256 indexed id);
     event SendProposed(uint256 indexed id, address indexed proposer, address recipient, address asset, uint256 amount);
     event SendCancelled(uint256 indexed id);
 
     // ============ Scheduled payments ============
 
-    function addScheduledPayment(string memory name, IBittyV1Vault.ScheduledPayment calldata scheduledPayment) external;
-    function updateScheduledPayment(string memory name, IBittyV1Vault.ScheduledPayment calldata scheduledPayment)
-        external;
-    function removeScheduledPayment(string memory name) external;
+    function addScheduledPayment(IBittyV1Vault.ScheduledPayment calldata scheduledPayment) external returns (uint256 id);
+    function updateScheduledPayment(uint256 id, IBittyV1Vault.ScheduledPayment calldata scheduledPayment) external;
+    function removeScheduledPayment(uint256 id) external;
 
     // ============ Whitelisted recipients ============
 
-    function addWhitelistedRecipient(string memory name, address recipient, address allowedAsset) external;
-    function updateWhitelistedRecipient(string memory name, address recipient, address allowedAsset) external;
-    function removeWhitelistedRecipient(string memory name) external;
+    function addWhitelistedRecipient(address recipient, address allowedAsset) external returns (uint256 id);
+    function updateWhitelistedRecipient(uint256 id, address recipient, address allowedAsset) external;
+    function removeWhitelistedRecipient(uint256 id) external;
 
     // ============ One-off sends ============
 

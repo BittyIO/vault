@@ -284,12 +284,12 @@ contract TestVaultFork is Test {
         });
 
         vm.prank(tx.origin);
-        vault.addScheduledPayment("test", scheduledPayment);
+        uint256 testId = vault.addScheduledPayment(scheduledPayment);
 
         vm.warp(block.timestamp + 8 days);
 
         uint256 balanceBefore = IERC20(mainnet.USDC).balanceOf(address(this));
-        vault.payScheduled("test");
+        vault.payScheduled(testId);
         uint256 balanceAfter = IERC20(mainnet.USDC).balanceOf(address(this));
         assertEq(balanceAfter - balanceBefore, 100e6);
     }
@@ -315,13 +315,13 @@ contract TestVaultFork is Test {
             payWithInsufficientBalance: false
         });
         vm.prank(tx.origin);
-        vault.addScheduledPayment("salary", scheduledPayment);
+        uint256 salaryId = vault.addScheduledPayment(scheduledPayment);
         vm.warp(block.timestamp + 1 days);
 
         uint256 scheduledPaymentBefore = IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr);
 
         IVaultFull(payable(address(vault))).withdraw(address(aaveProtocol), mainnet.WETH, payAmount);
-        vault.payScheduled("salary");
+        vault.payScheduled(salaryId);
 
         uint256 scheduledPaymentAfter = IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr);
         assertEq(scheduledPaymentAfter - scheduledPaymentBefore, payAmount);
@@ -368,8 +368,8 @@ contract TestVaultFork is Test {
             payWithInsufficientBalance: false
         });
         vm.prank(tx.origin);
-        vault.addScheduledPayment("recipient", scheduledPayment);
-        vault.payScheduled("recipient");
+        uint256 recipientId = vault.addScheduledPayment(scheduledPayment);
+        vault.payScheduled(recipientId);
         assertEq(IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr), 0.5 ether);
 
         // Step 3: rebalance remaining WETH → USDT

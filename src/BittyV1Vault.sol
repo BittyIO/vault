@@ -200,30 +200,29 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
 
     // ============ ScheduledPayments ============
 
-    function addScheduledPayment(
-        string memory scheduledPaymentName,
-        IBittyV1Vault.ScheduledPayment calldata scheduledPayment_
-    ) external override onlyOwnerOrPaymentManager {
-        _vault.addScheduledPayment(scheduledPaymentName, scheduledPayment_, _byOwner());
-    }
-
-    function updateScheduledPayment(
-        string memory scheduledPaymentName,
-        IBittyV1Vault.ScheduledPayment calldata scheduledPayment_
-    ) external override onlyOwnerOrPaymentManager {
-        _vault.updateScheduledPayment(scheduledPaymentName, scheduledPayment_, _byOwner());
-    }
-
-    function removeScheduledPayment(string memory scheduledPaymentName) external override onlyOwnerOrPaymentManager {
-        _vault.removeScheduledPayment(scheduledPaymentName, _byOwner());
-    }
-
-    function approveScheduledPayment(string memory scheduledPaymentName)
+    function addScheduledPayment(IBittyV1Vault.ScheduledPayment calldata scheduledPayment_)
         external
         override
-        onlyRole(DEFAULT_ADMIN_ROLE)
+        onlyOwnerOrPaymentManager
+        returns (uint256 id)
     {
-        _vault.approveScheduledPayment(scheduledPaymentName);
+        return _vault.addScheduledPayment(scheduledPayment_, _byOwner());
+    }
+
+    function updateScheduledPayment(uint256 id, IBittyV1Vault.ScheduledPayment calldata scheduledPayment_)
+        external
+        override
+        onlyOwnerOrPaymentManager
+    {
+        _vault.updateScheduledPayment(id, scheduledPayment_, _byOwner());
+    }
+
+    function removeScheduledPayment(uint256 id) external override onlyOwnerOrPaymentManager {
+        _vault.removeScheduledPayment(id, _byOwner());
+    }
+
+    function approveScheduledPayment(uint256 id) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.approveScheduledPayment(id);
     }
 
     // DEFAULT_ADMIN_ROLE — controls the time-lock window for new scheduled payments and whitelisted recipients
@@ -231,12 +230,12 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
         _vault.setNewAddressProtection(newAddressProtection);
     }
 
-    function payScheduled(string memory scheduledPaymentName) external {
-        _vault.payScheduled(scheduledPaymentName);
+    function payScheduled(uint256 id) external {
+        _vault.payScheduled(id);
     }
 
-    function payScheduledAmount(string memory scheduledPaymentName, uint256 amount) external {
-        _vault.payScheduledAmount(scheduledPaymentName, amount);
+    function payScheduledAmount(uint256 id, uint256 amount) external {
+        _vault.payScheduledAmount(id, amount);
     }
 
     /**
@@ -247,9 +246,9 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
      * a configured scheduledPayment, never an arbitrary address. Authorization mirrors
      * {payScheduled} (the scheduledPayment's trigger, or anyone if unset).
      */
-    function payScheduledFromStaking(string memory scheduledPaymentName, address stakingProtocol) external {
+    function payScheduledFromStaking(uint256 id, address stakingProtocol) external {
         (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
-            _vault.accrueScheduledPaymentOnBehalf(scheduledPaymentName);
+            _vault.accrueScheduledPaymentOnBehalf(id);
         _assetManager.unstake(stakingProtocol, _payoutAsset(assetAddress), payAmount, scheduledPaymentAddress);
     }
 
@@ -258,9 +257,9 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
      * position. See {payScheduledFromStaking} for the recipient-safety guarantees — they
      * apply identically here.
      */
-    function payScheduledFromLending(string memory scheduledPaymentName, address lendingProtocol) external {
+    function payScheduledFromLending(uint256 id, address lendingProtocol) external {
         (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
-            _vault.accrueScheduledPaymentOnBehalf(scheduledPaymentName);
+            _vault.accrueScheduledPaymentOnBehalf(id);
         _assetManager.withdraw(lendingProtocol, _payoutAsset(assetAddress), payAmount, scheduledPaymentAddress);
     }
 
@@ -275,21 +274,21 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
      * spending ≤ `sellAmountMax` of `fromAsset`) and settles it straight to the configured scheduledPayment in
      * a single step. As with {payScheduledFromLending}/{payScheduledFromStaking}, the recipient is
      * hard-sourced from the scheduledPayment config, so funds can only ever reach a configured scheduledPayment.
-     * @param scheduledPaymentName  The configured scheduledPayment to pay.
+     * @param id            The configured scheduledPayment to pay.
      * @param ammProtocol   The AMM protocol to route the swap through.
      * @param fromAsset     The vault asset spent to buy the scheduledPayment's asset.
      * @param sellAmountMax The maximum amount of `fromAsset` to spend (slippage bound).
      * @param data          abi.encode(fromAsset, sellAmountMax, scheduledPaymentAsset, payAmount, reversedPath).
      */
     function payScheduledFromSwap(
-        string memory scheduledPaymentName,
+        uint256 id,
         address ammProtocol,
         address fromAsset,
         uint256 sellAmountMax,
         bytes memory data
     ) external {
         (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
-            _vault.accrueScheduledPaymentOnBehalf(scheduledPaymentName);
+            _vault.accrueScheduledPaymentOnBehalf(id);
         _assetManager.buyForScheduledPayment(
             _vault,
             ammProtocol,
@@ -304,44 +303,41 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
 
     // ============ Whitelisted recipients (DEFAULT_ADMIN_ROLE) ============
 
-    function addWhitelistedRecipient(string memory recipientName, address recipient, address allowedAsset)
+    function addWhitelistedRecipient(address recipient, address allowedAsset)
+        external
+        override
+        onlyOwnerOrPaymentManager
+        returns (uint256 id)
+    {
+        return _vault.addWhitelistedRecipient(recipient, allowedAsset, _byOwner());
+    }
+
+    function updateWhitelistedRecipient(uint256 id, address recipient, address allowedAsset)
         external
         override
         onlyOwnerOrPaymentManager
     {
-        _vault.addWhitelistedRecipient(recipientName, recipient, allowedAsset, _byOwner());
+        _vault.updateWhitelistedRecipient(id, recipient, allowedAsset, _byOwner());
     }
 
-    function updateWhitelistedRecipient(string memory recipientName, address recipient, address allowedAsset)
-        external
-        override
-        onlyOwnerOrPaymentManager
-    {
-        _vault.updateWhitelistedRecipient(recipientName, recipient, allowedAsset, _byOwner());
+    function removeWhitelistedRecipient(uint256 id) external override onlyOwnerOrPaymentManager {
+        _vault.removeWhitelistedRecipient(id, _byOwner());
     }
 
-    function removeWhitelistedRecipient(string memory recipientName) external override onlyOwnerOrPaymentManager {
-        _vault.removeWhitelistedRecipient(recipientName, _byOwner());
+    function approveWhitelistedRecipient(uint256 id) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.approveWhitelistedRecipient(id);
     }
 
-    function approveWhitelistedRecipient(string memory recipientName) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.approveWhitelistedRecipient(recipientName);
-    }
-
-    function sendToWhitelistedRecipient(string memory recipientName, address asset, uint256 amount)
+    function sendToWhitelistedRecipient(uint256 id, address asset, uint256 amount)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _vault.sendToWhitelistedRecipient(recipientName, asset, amount);
+        _vault.sendToWhitelistedRecipient(id, asset, amount);
     }
 
-    function getWhitelistedRecipient(string memory recipientName)
-        external
-        view
-        returns (address recipient, address allowedAsset)
-    {
-        return _vault.getWhitelistedRecipient(recipientName);
+    function getWhitelistedRecipient(uint256 id) external view returns (address recipient, address allowedAsset) {
+        return _vault.getWhitelistedRecipient(id);
     }
 
     // ============ Protocol management & asset-manager guardrails (DEFAULT_ADMIN_ROLE) ============
