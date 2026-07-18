@@ -20,7 +20,7 @@ import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
  *      makes hasRole/onlyRole behave identically across the split.
  *
  *      The facet MUST NOT declare any sequential storage of its own. {BittyV1Vault} may append
- *      core-only storage after this base (e.g. vaultName, _weth): those trailing slots are safe
+ *      core-only storage after this base: those trailing slots are safe
  *      because the facet never accesses them, but the facet adding its own would collide with them.
  */
 abstract contract BittyV1VaultBase is AccessControlDefaultAdminRulesUpgradeable {
@@ -28,9 +28,7 @@ abstract contract BittyV1VaultBase is AccessControlDefaultAdminRulesUpgradeable 
     using VaultLogic for VaultStorage;
 
     bytes32 public constant ASSET_MANAGER_ROLE = keccak256("ASSET_MANAGER_ROLE");
-    // Can create scheduled payments, whitelisted recipients and one-off sends, but each stays pending
-    // until the owner (DEFAULT_ADMIN_ROLE) approves it. Lets a company delegate payment setup while
-    // the owner keeps final sign-off.
+
     bytes32 public constant PAYMENT_MANAGER_ROLE = keccak256("PAYMENT_MANAGER_ROLE");
 
     uint48 public constant OWNER_TRANSFER_DELAY = 1 days;

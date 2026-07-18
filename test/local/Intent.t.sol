@@ -62,8 +62,6 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
 
         this.initialize(
             tx.origin, // owner
-            "intent-test",
-            _single(address(this)), // asset manager = this
             address(guardContract),
             WETH,
             vaultAssets,
@@ -73,6 +71,9 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
             intents,
             address(0)
         );
+        bytes32 amRole = this.ASSET_MANAGER_ROLE();
+        vm.prank(tx.origin);
+        this.grantRole(amRole, address(this));
 
         // add the second (skip) protocol to the vault set (owner-only)
         vm.prank(tx.origin);

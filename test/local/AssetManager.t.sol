@@ -80,9 +80,10 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         arr[1] = b;
     }
 
-    function _assetManagers(address manager) internal pure returns (address[] memory managers) {
-        managers = new address[](1);
-        managers[0] = manager;
+    function _grantAssetManagerRole(address manager) internal {
+        bytes32 role = this.ASSET_MANAGER_ROLE();
+        vm.prank(ownerAddress);
+        this.grantRole(role, manager);
     }
 
     function getClonedProvider(address protocol) external view returns (address) {
@@ -106,8 +107,6 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         this.initialize(
             ownerAddress,
-            "test",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             mainnet.WETH,
             vaultAssets,
@@ -117,6 +116,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             intentProtocols,
             address(0)
         );
+        _grantAssetManagerRole(assetManagerAddress);
         _cloneProtocolForTest(address(mockAmm));
     }
 
@@ -132,8 +132,6 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function doInitialize() public {
         this.initialize(
             ownerAddress,
-            "test",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             mainnet.WETH,
             vaultAssets,
@@ -143,6 +141,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             intentProtocols,
             address(0)
         );
+        _grantAssetManagerRole(assetManagerAddress);
     }
 
     function test_DisableAddingProtocols_BlocksAllProtocolTypesIncludingIntent() public {
@@ -678,8 +677,6 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AddAssets_afterInit_addsStableCoinViaUnifiedPath() public {
         this.initialize(
             ownerAddress,
-            "test",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             mainnet.WETH,
             assets,
@@ -689,6 +686,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             intentProtocols,
             address(0)
         );
+        _grantAssetManagerRole(assetManagerAddress);
 
         MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
         address[] memory toAdd = new address[](1);
@@ -1016,8 +1014,6 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         this.initialize(
             ownerAddress,
-            "test",
-            _assetManagers(assetManagerAddress),
             guardAddress,
             mainnet.WETH,
             vaultAssets,
@@ -1027,6 +1023,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             intentProtocols,
             address(0)
         );
+        _grantAssetManagerRole(assetManagerAddress);
     }
 
     function test_AddLiquidity_ClonesOnFirstUse() public {

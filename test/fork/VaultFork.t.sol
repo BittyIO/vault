@@ -6,7 +6,7 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {IVaultFull} from "../helpers/IVaultFull.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
-import {VaultAlreadyDeployed} from "../../src/interfaces/IBittyV1VaultFactory.sol";
+import {VaultAlreadyActivated} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.sol";
@@ -86,22 +86,12 @@ contract TestVaultFork is Test {
         factory.initialize(address(vaultImpl), address(defiFacet), address(guard), mainnet.WETH);
 
         assetManager = address(this);
-        vm.prank(tx.origin);
-        address vaultAddr = factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManager),
-            vaultAssets,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
-        );
+        vm.startPrank(tx.origin);
+        factory.activateVault(vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        address vaultAddr = factory.vaultAddress(tx.origin);
+        BittyV1Vault(payable(vaultAddr)).grantRole(BittyV1Vault(payable(vaultAddr)).ASSET_MANAGER_ROLE(), assetManager);
+        vm.stopPrank();
         vault = BittyV1Vault(payable(vaultAddr));
-    }
-
-    function _assetManagers(address manager) internal pure returns (address[] memory managers) {
-        managers = new address[](1);
-        managers[0] = manager;
     }
 
     function _arr(address a, address b) internal pure returns (address[] memory) {
@@ -245,23 +235,15 @@ contract TestVaultFork is Test {
         IVaultFull(payable(address(vault))).supply(address(aaveProtocol), mainnet.WETH, 1 ether);
     }
 
-    function test_FactoryComputeVaultAddress() public view {
-        address computed = factory.computeVaultAddress(tx.origin, "main");
+    function test_FactoryVaultAddress() public view {
+        address computed = factory.vaultAddress(tx.origin);
         assertEq(computed, address(vault));
     }
 
-    function test_FactoryRevertWhenVaultAlreadyDeployed() public {
-        vm.expectRevert(VaultAlreadyDeployed.selector);
+    function test_FactoryRevertWhenVaultAlreadyActivated() public {
+        vm.expectRevert(VaultAlreadyActivated.selector);
         vm.prank(tx.origin);
-        factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManager),
-            vaultAssets,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
-        );
+        factory.activateVault(vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
     }
 
     function test_RebalanceWETHToUSDT() public {
@@ -407,23 +389,19 @@ contract TestVaultFork is Test {
         assertGt(IERC20(mainnet.USDT).balanceOf(address(vault)), usdtBefore);
     }
 
-    function test_DeployVault_customOwner() public {
+    function test_ActivateVault_customOwner() public {
         address customOwner = makeAddr("customVaultOwner");
         address customAssetManager = makeAddr("customAssetManager");
-        vm.prank(customOwner);
-        address vaultAddr = factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(customAssetManager),
-            vaultAssets,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
-        );
+        vm.startPrank(customOwner);
+        factory.activateVault(vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        address vaultAddr = factory.vaultAddress(customOwner);
+        BittyV1Vault(payable(vaultAddr))
+            .grantRole(BittyV1Vault(payable(vaultAddr)).ASSET_MANAGER_ROLE(), customAssetManager);
+        vm.stopPrank();
 
         BittyV1Vault customVault = BittyV1Vault(payable(vaultAddr));
         assertTrue(customVault.hasRole(customVault.DEFAULT_ADMIN_ROLE(), customOwner));
         assertTrue(customVault.hasRole(customVault.ASSET_MANAGER_ROLE(), customAssetManager));
-        assertEq(factory.computeVaultAddress(customOwner, "main"), vaultAddr);
+        assertEq(factory.vaultAddress(customOwner), vaultAddr);
     }
 }

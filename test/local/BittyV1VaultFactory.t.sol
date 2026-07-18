@@ -9,12 +9,19 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {IVaultFull} from "../helpers/IVaultFull.sol";
 import {AddressZero} from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
-import {VaultAlreadyDeployed, NotDeployer} from "../../src/interfaces/IBittyV1VaultFactory.sol";
+import {
+    IBittyV1VaultFactory,
+    VaultAlreadyActivated,
+    NotDeployer,
+    EthTransferFailed
+} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {
     IAccessControlDefaultAdminRules
 } from "openzeppelin-contracts/contracts/access/extensions/IAccessControlDefaultAdminRules.sol";
+import {WETH} from "solmate/tokens/WETH.sol";
+import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
 contract BittyV1VaultFactoryTest is Test {
     BittyV1VaultFactory public factory;
@@ -84,31 +91,24 @@ contract BittyV1VaultFactoryTest is Test {
         vm.stopPrank();
     }
 
-    function _assetManagers(address manager) internal pure returns (address[] memory managers) {
-        managers = new address[](1);
-        managers[0] = manager;
-    }
-
-    function _deployVault(address owner, string memory name, address assetManager) internal returns (address) {
-        // A vault is always owned by its deployer, so send the tx as `owner`.
-        vm.prank(owner);
-        return factory.deployVaultWithSelected(
-            name,
-            _assetManagers(assetManager),
-            vaultAssetAddresses,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
-        );
+    // Activate `owner`'s single vault and, if given, grant a separate asset manager
+    // (asset managers are no longer passed at activation — the owner grants them afterwards).
+    function _activateVault(address owner, address assetManager) internal returns (address vault) {
+        vm.startPrank(owner);
+        factory.activateVault(vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        vault = factory.vaultAddress(owner);
+        if (assetManager != address(0)) {
+            BittyV1Vault(payable(vault)).grantRole(BittyV1Vault(payable(vault)).ASSET_MANAGER_ROLE(), assetManager);
+        }
+        vm.stopPrank();
     }
 
     function _newVault() internal returns (address) {
-        return _deployVault(tx.origin, "main", assetManagerAddress);
+        return _activateVault(tx.origin, assetManagerAddress);
     }
 
     function _newVaultFor(address owner) internal returns (address) {
-        return _deployVault(owner, "main", assetManagerAddress);
+        return _activateVault(owner, assetManagerAddress);
     }
 
     function _initFactory() internal {
@@ -116,28 +116,24 @@ contract BittyV1VaultFactoryTest is Test {
         factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
     }
 
-    function test_deployedVault_hasOneDayDefaultAdminDelay() public {
+    function test_activatedVault_hasOneDayDefaultAdminDelay() public {
         _initFactory();
-        BittyV1Vault vaultInstance = BittyV1Vault(payable(_deployVault(owner1, "main", assetManagerAddress)));
+        BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
         assertEq(vaultInstance.OWNER_TRANSFER_DELAY(), 1 days);
         assertEq(vaultInstance.defaultAdminDelay(), 1 days);
     }
 
-    function test_deployedVault_ownerIsAdminInstantly() public {
+    function test_activatedVault_ownerIsAdminInstantly() public {
         _initFactory();
-        BittyV1Vault vaultInstance = BittyV1Vault(payable(_deployVault(owner1, "main", assetManagerAddress)));
+        BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
 
         assertEq(vaultInstance.defaultAdmin(), owner1);
         assertTrue(vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), owner1));
-
-        vm.prank(owner1);
-        vaultInstance.setName("renamed");
-        assertEq(vaultInstance.vaultName(), "renamed");
     }
 
-    function test_deployedVault_adminTransferRequiresOneDayDelay() public {
+    function test_activatedVault_adminTransferRequiresOneDayDelay() public {
         _initFactory();
-        BittyV1Vault vaultInstance = BittyV1Vault(payable(_deployVault(owner1, "main", assetManagerAddress)));
+        BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
 
         vm.prank(owner1);
         vaultInstance.beginDefaultAdminTransfer(owner2);
@@ -162,9 +158,9 @@ contract BittyV1VaultFactoryTest is Test {
         vaultInstance.acceptDefaultAdminTransfer();
     }
 
-    function test_deployedVault_adminTransferSucceedsAfterOneDay() public {
+    function test_activatedVault_adminTransferSucceedsAfterOneDay() public {
         _initFactory();
-        BittyV1Vault vaultInstance = BittyV1Vault(payable(_deployVault(owner1, "main", assetManagerAddress)));
+        BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
 
         vm.prank(owner1);
         vaultInstance.beginDefaultAdminTransfer(owner2);
@@ -178,9 +174,9 @@ contract BittyV1VaultFactoryTest is Test {
         assertFalse(vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), owner1));
     }
 
-    function test_deployedVault_cancelDefaultAdminTransfer() public {
+    function test_activatedVault_cancelDefaultAdminTransfer() public {
         _initFactory();
-        BittyV1Vault vaultInstance = BittyV1Vault(payable(_deployVault(owner1, "main", assetManagerAddress)));
+        BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
 
         vm.startPrank(owner1);
         vaultInstance.beginDefaultAdminTransfer(owner2);
@@ -224,24 +220,15 @@ contract BittyV1VaultFactoryTest is Test {
         assertEq(factory.guardAddress(), guardAddress);
     }
 
-    function test_DeployVaultRevertsIfAddressNotRegistered() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultRevertsIfAddressNotRegistered() public {
+        _initFactory();
         address[] memory invalidAddressArray = new address[](1);
         invalidAddressArray[0] = makeAddr("invalidAddress");
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            invalidAddressArray,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
-        );
+        factory.activateVault(invalidAddressArray, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
     }
 
-    function test_DeployVaultForDifferentowners() public {
+    function test_ActivateVaultForDifferentOwners() public {
         _initFactory();
         address vault1 = _newVaultFor(owner1);
         address vault2 = _newVaultFor(owner2);
@@ -250,45 +237,31 @@ contract BittyV1VaultFactoryTest is Test {
         assertTrue(vault2 != address(0), "Vault2 should not be zero address");
     }
 
-    function test_ComputeVaultAddress() public {
+    function test_VaultAddress() public {
         _initFactory();
-        address computedAddress = factory.computeVaultAddress(owner1, "main");
+        address computedAddress = factory.vaultAddress(owner1);
         assertTrue(computedAddress != address(0), "Computed address should not be zero");
 
-        address deployedAddress = _newVaultFor(owner1);
-        assertTrue(deployedAddress != address(0), "Deployed address should not be zero");
-        assertEq(computedAddress, deployedAddress, "Computed address should match deployment");
+        address activatedAddress = _newVaultFor(owner1);
+        assertTrue(activatedAddress != address(0), "Activated address should not be zero");
+        assertEq(computedAddress, activatedAddress, "Computed address should match activation");
     }
 
-    function test_SameOwnerAlreadDeployed() public {
+    function test_SameOwnerAlreadyActivated() public {
         _initFactory();
         _newVaultFor(owner1);
 
-        vm.expectRevert(VaultAlreadyDeployed.selector);
-        _newVaultFor(owner1);
+        vm.prank(owner1);
+        vm.expectRevert(VaultAlreadyActivated.selector);
+        factory.activateVault(vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
     }
 
-    function test_SameownerSameSaltRevertsIfVaultExists() public {
+    function test_ActivatedVaultCanBeInitialized() public {
         _initFactory();
-        address vault1 = _newVaultFor(owner1);
+        address vaultAddr = _newVault();
+        BittyV1Vault vault = BittyV1Vault(payable(vaultAddr));
 
-        assertTrue(vault1 != address(0), "First vault should be deployed");
-
-        vm.expectRevert(VaultAlreadyDeployed.selector);
-        _newVaultFor(owner1);
-    }
-
-    function test_DeployedVaultCanBeInitialized() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
-        address vaultAddress = _newVault();
-        BittyV1Vault vault = BittyV1Vault(payable(vaultAddress));
-
-        assertTrue(
-            BittyV1Vault(payable(vaultAddress))
-                .hasRole(BittyV1Vault(payable(vaultAddress)).DEFAULT_ADMIN_ROLE(), tx.origin),
-            "Owner should hold DEFAULT_ADMIN_ROLE"
-        );
+        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), tx.origin), "Owner should hold DEFAULT_ADMIN_ROLE");
 
         address[] memory assets = vault.getAssets();
         assertEq(assets[0], wbtcAddress, "WBTC address should be set");
@@ -298,11 +271,10 @@ contract BittyV1VaultFactoryTest is Test {
         assertEq(stableCoins[1], usdcAddress, "USDC address should be set");
     }
 
-    function test_DeployVaultRevertsIfVaultAlreadyExistsAtComputedAddress() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultRevertsIfVaultAlreadyExistsAtComputedAddress() public {
+        _initFactory();
 
-        bytes32 salt = keccak256(abi.encodePacked(owner1, "main"));
+        bytes32 salt = keccak256(abi.encodePacked(owner1));
         address computedAddr = Clones.predictDeterministicAddress(vaultImplementation, salt, address(factory));
 
         bytes memory minimalBytecode =
@@ -313,88 +285,59 @@ contract BittyV1VaultFactoryTest is Test {
         }
 
         if (deployedAddr == computedAddr && deployedAddr.code.length > 0) {
-            vm.expectRevert(VaultAlreadyDeployed.selector);
-            _newVaultFor(owner1);
+            vm.prank(owner1);
+            vm.expectRevert(VaultAlreadyActivated.selector);
+            factory.activateVault(
+                vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+            );
         }
     }
 
     function test_InitializeSuccess() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+        _initFactory();
         assertEq(factory.guardAddress(), guardAddress, "BittyV1Guard address should be set");
     }
 
-    function test_DeployVaultRevertsIfStableCoinNotRegistered() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultRevertsIfStableCoinNotRegistered() public {
+        _initFactory();
         address[] memory invalidStableCoinArray = new address[](1);
         invalidStableCoinArray[0] = makeAddr("invalidStableCoin");
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            invalidStableCoinArray,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
-        );
+        factory.activateVault(invalidStableCoinArray, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
     }
 
-    function test_DeployVaultRevertsIfLendingProtocolNotRegistered() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultRevertsIfLendingProtocolNotRegistered() public {
+        _initFactory();
         address[] memory invalidLendingProviderArray = new address[](1);
         invalidLendingProviderArray[0] = makeAddr("invalidLendingProtocol");
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            vaultAssetAddresses,
-            invalidLendingProviderArray,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
+        factory.activateVault(
+            vaultAssetAddresses, invalidLendingProviderArray, stakingProtocols, ammProtocols, intentProtocols
         );
     }
 
-    function test_DeployVaultRevertsIfAMMProtocolNotRegistered() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultRevertsIfAMMProtocolNotRegistered() public {
+        _initFactory();
         address[] memory invalidAMMProviderArray = new address[](1);
         invalidAMMProviderArray[0] = makeAddr("invalidAMMProtocol");
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            vaultAssetAddresses,
-            lendingProtocols,
-            stakingProtocols,
-            invalidAMMProviderArray,
-            intentProtocols
+        factory.activateVault(
+            vaultAssetAddresses, lendingProtocols, stakingProtocols, invalidAMMProviderArray, intentProtocols
         );
     }
 
-    function test_DeployVaultRevertsIfIntentProtocolNotRegistered() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultRevertsIfIntentProtocolNotRegistered() public {
+        _initFactory();
         address[] memory invalidIntentProviderArray = new address[](1);
         invalidIntentProviderArray[0] = makeAddr("invalidIntentProtocol");
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            vaultAssetAddresses,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            invalidIntentProviderArray
+        factory.activateVault(
+            vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, invalidIntentProviderArray
         );
     }
 
-    function test_DeployVaultWithIntentProtocols() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultWithIntentProtocols() public {
+        _initFactory();
         address intentProtocol = makeAddr("intentProtocol");
         address[] memory selectedIntentProtocols = new address[](1);
         selectedIntentProtocols[0] = intentProtocol;
@@ -403,39 +346,35 @@ contract BittyV1VaultFactoryTest is Test {
         IBittyV1Guard(guardAddress).addIntentProtocols(selectedIntentProtocols);
 
         vm.prank(owner1);
-        address vault = factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            vaultAssetAddresses,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            selectedIntentProtocols
+        factory.activateVault(
+            vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, selectedIntentProtocols
         );
+        address vault = factory.vaultAddress(owner1);
 
-        assertTrue(vault != address(0), "Vault should be deployed");
-        address[] memory deployedIntentProtocols = IVaultFull(payable(vault)).getIntentProtocols();
-        assertEq(deployedIntentProtocols.length, 1);
-        assertEq(deployedIntentProtocols[0], intentProtocol);
+        assertTrue(vault.code.length > 0, "Vault should be activated");
+        address[] memory activatedIntentProtocols = IVaultFull(payable(vault)).getIntentProtocols();
+        assertEq(activatedIntentProtocols.length, 1);
+        assertEq(activatedIntentProtocols[0], intentProtocol);
     }
 
-    function test_DeployVaultWithEmptyArrays() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultWithEmptyArrays() public {
+        _initFactory();
 
         vm.prank(owner1);
-        address vault = factory.deployVault("main");
+        factory.activateVault(new address[](0), new address[](0), new address[](0), new address[](0), new address[](0));
+        address vault = factory.vaultAddress(owner1);
 
-        assertTrue(vault != address(0), "Vault should be deployed");
+        assertTrue(vault.code.length > 0, "Vault should be activated");
     }
 
-    function test_DeployVaultEmitsEvent() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultEmitsEvent() public {
+        _initFactory();
 
+        vm.expectEmit(true, false, false, true);
+        emit BittyV1VaultFactory.VaultActivated(tx.origin);
         address vault = _newVault();
 
-        assertTrue(vault != address(0), "Vault should be deployed");
+        assertTrue(vault.code.length > 0, "Vault should be activated");
 
         BittyV1Vault vaultInstance = BittyV1Vault(payable(vault));
         assertTrue(
@@ -443,20 +382,18 @@ contract BittyV1VaultFactoryTest is Test {
         );
     }
 
-    function test_ComputeVaultAddressForDifferentowners() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
-        address computed1 = factory.computeVaultAddress(owner1, "main");
-        address computed2 = factory.computeVaultAddress(owner2, "main");
+    function test_VaultAddressForDifferentOwners() public {
+        _initFactory();
+        address computed1 = factory.vaultAddress(owner1);
+        address computed2 = factory.vaultAddress(owner2);
 
         assertTrue(computed1 != computed2, "Different owners should compute to different addresses");
         assertTrue(computed1 != address(0), "Computed address should not be zero");
         assertTrue(computed2 != address(0), "Computed address should not be zero");
     }
 
-    function test_DeployVaultWithMultipleAssets() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultWithMultipleAssets() public {
+        _initFactory();
         address[] memory multipleAssets = new address[](3);
         multipleAssets[0] = wbtcAddress;
         multipleAssets[1] = wethAddress;
@@ -468,22 +405,13 @@ contract BittyV1VaultFactoryTest is Test {
         IBittyV1Guard(guardAddress).addAssets(newAsset);
 
         vm.prank(owner1);
-        address vault = factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            multipleAssets,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
-        );
+        factory.activateVault(multipleAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
 
-        assertTrue(vault != address(0), "Vault should be deployed");
+        assertTrue(factory.vaultAddress(owner1).code.length > 0, "Vault should be activated");
     }
 
-    function test_DeployVaultWithMultipleStableCoins() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultWithMultipleStableCoins() public {
+        _initFactory();
         address[] memory multipleStableCoins = new address[](3);
         multipleStableCoins[0] = usdtAddress;
         multipleStableCoins[1] = usdcAddress;
@@ -494,31 +422,22 @@ contract BittyV1VaultFactoryTest is Test {
         vm.prank(tx.origin);
         IBittyV1Guard(guardAddress).addStableCoins(newStableCoin);
 
-        address[] memory deployAssets = new address[](assetAddresses.length + multipleStableCoins.length);
+        address[] memory activationAssets = new address[](assetAddresses.length + multipleStableCoins.length);
         for (uint256 i = 0; i < assetAddresses.length; i++) {
-            deployAssets[i] = assetAddresses[i];
+            activationAssets[i] = assetAddresses[i];
         }
         for (uint256 i = 0; i < multipleStableCoins.length; i++) {
-            deployAssets[assetAddresses.length + i] = multipleStableCoins[i];
+            activationAssets[assetAddresses.length + i] = multipleStableCoins[i];
         }
 
         vm.prank(owner1);
-        address vault = factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            deployAssets,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
-        );
+        factory.activateVault(activationAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
 
-        assertTrue(vault != address(0), "Vault should be deployed");
+        assertTrue(factory.vaultAddress(owner1).code.length > 0, "Vault should be activated");
     }
 
-    function test_DeployVaultWithMultipleLendingProtocols() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultWithMultipleLendingProtocols() public {
+        _initFactory();
         address LendingProtocol1 = makeAddr("LendingProtocol1");
         address LendingProtocol2 = makeAddr("LendingProtocol2");
         address[] memory multipleLendingProtocols = new address[](2);
@@ -530,12 +449,11 @@ contract BittyV1VaultFactoryTest is Test {
 
         address vault = _newVaultFor(owner1);
 
-        assertTrue(vault != address(0), "Vault should be deployed");
+        assertTrue(vault.code.length > 0, "Vault should be activated");
     }
 
-    function test_DeployVaultWithMultipleAMMProtocols() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultWithMultipleAMMProtocols() public {
+        _initFactory();
         address swapProtocol1 = makeAddr("swapProtocol1");
         address swapProtocol2 = makeAddr("swapProtocol2");
         address[] memory multipleAMMProtocols = new address[](2);
@@ -546,62 +464,37 @@ contract BittyV1VaultFactoryTest is Test {
         IBittyV1Guard(guardAddress).addAMMProtocols(multipleAMMProtocols);
 
         vm.prank(owner1);
-        address vault = factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            vaultAssetAddresses,
-            lendingProtocols,
-            stakingProtocols,
-            multipleAMMProtocols,
-            intentProtocols
+        factory.activateVault(
+            vaultAssetAddresses, lendingProtocols, stakingProtocols, multipleAMMProtocols, intentProtocols
         );
 
-        assertTrue(vault != address(0), "Vault should be deployed");
+        assertTrue(factory.vaultAddress(owner1).code.length > 0, "Vault should be activated");
     }
 
-    function test_DeployVaultRevertsIfMultipleAssetsOneNotRegistered() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultRevertsIfMultipleAssetsOneNotRegistered() public {
+        _initFactory();
         address[] memory mixedAssets = new address[](3);
         mixedAssets[0] = wbtcAddress;
         mixedAssets[1] = wethAddress;
         mixedAssets[2] = makeAddr("invalidAsset");
 
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            mixedAssets,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
-        );
+        factory.activateVault(mixedAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
     }
 
-    function test_DeployVaultRevertsIfMultipleStableCoinsOneNotRegistered() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultRevertsIfMultipleStableCoinsOneNotRegistered() public {
+        _initFactory();
         address[] memory mixedStableCoins = new address[](3);
         mixedStableCoins[0] = usdtAddress;
         mixedStableCoins[1] = usdcAddress;
         mixedStableCoins[2] = makeAddr("invalidStableCoin");
 
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            mixedStableCoins,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
-        );
+        factory.activateVault(mixedStableCoins, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
     }
 
-    function test_DeployVaultRevertsIfMultipleLendingProtocolsOneNotRegistered() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultRevertsIfMultipleLendingProtocolsOneNotRegistered() public {
+        _initFactory();
         address LendingProtocol1 = makeAddr("LendingProtocol1");
         address[] memory mixedLendingProtocols = new address[](2);
         mixedLendingProtocols[0] = LendingProtocol1;
@@ -613,20 +506,13 @@ contract BittyV1VaultFactoryTest is Test {
         IBittyV1Guard(guardAddress).addLendingProtocols(validProtocol);
 
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            vaultAssetAddresses,
-            mixedLendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
+        factory.activateVault(
+            vaultAssetAddresses, mixedLendingProtocols, stakingProtocols, ammProtocols, intentProtocols
         );
     }
 
-    function test_DeployVaultRevertsIfMultipleAMMProtocolsOneNotRegistered() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultRevertsIfMultipleAMMProtocolsOneNotRegistered() public {
+        _initFactory();
         address swapProtocol1 = makeAddr("swapProtocol1");
         address[] memory mixedAMMProtocols = new address[](2);
         mixedAMMProtocols[0] = swapProtocol1;
@@ -638,22 +524,15 @@ contract BittyV1VaultFactoryTest is Test {
         IBittyV1Guard(guardAddress).addAMMProtocols(validProtocol);
 
         vm.expectRevert(NotRegistered.selector);
-        factory.deployVaultWithSelected(
-            "main",
-            _assetManagers(assetManagerAddress),
-            vaultAssetAddresses,
-            lendingProtocols,
-            stakingProtocols,
-            mixedAMMProtocols,
-            intentProtocols
+        factory.activateVault(
+            vaultAssetAddresses, lendingProtocols, stakingProtocols, mixedAMMProtocols, intentProtocols
         );
     }
 
-    function test_DeployVaultRevertsIfVaultAlreadyExistsAtComputedAddressForced() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultRevertsIfVaultAlreadyExistsAtComputedAddressForced() public {
+        _initFactory();
 
-        bytes32 salt = keccak256(abi.encodePacked(owner1, "main"));
+        bytes32 salt = keccak256(abi.encodePacked(owner1));
         address computedAddr = Clones.predictDeterministicAddress(vaultImplementation, salt, address(factory));
 
         bytes memory minimalBytecode =
@@ -665,39 +544,43 @@ contract BittyV1VaultFactoryTest is Test {
         }
 
         if (deployedAddr == computedAddr && deployedAddr.code.length > 0) {
-            vm.expectRevert(VaultAlreadyDeployed.selector);
-            _newVaultFor(owner1);
+            vm.prank(owner1);
+            vm.expectRevert(VaultAlreadyActivated.selector);
+            factory.activateVault(
+                vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+            );
         } else {
             vm.etch(computedAddr, minimalBytecode);
             if (computedAddr.code.length > 0) {
-                vm.expectRevert(VaultAlreadyDeployed.selector);
-                _newVaultFor(owner1);
+                vm.prank(owner1);
+                vm.expectRevert(VaultAlreadyActivated.selector);
+                factory.activateVault(
+                    vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+                );
             }
         }
     }
 
-    function test_ComputeAddressInternalFunction() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_VaultAddressIsDeterministic() public {
+        _initFactory();
 
-        address addr1 = factory.computeVaultAddress(owner1, "main");
-        address addr2 = factory.computeVaultAddress(owner2, "main");
+        address addr1 = factory.vaultAddress(owner1);
+        address addr2 = factory.vaultAddress(owner2);
 
         assertTrue(addr1 != address(0), "Computed address should not be zero");
         assertTrue(addr2 != address(0), "Computed address should not be zero");
         assertTrue(addr1 != addr2, "Different owners should produce different addresses");
 
-        address addr1Again = factory.computeVaultAddress(owner1, "main");
+        address addr1Again = factory.vaultAddress(owner1);
         assertEq(addr1, addr1Again, "Same owner should produce same computed address");
     }
 
-    function test_DeployVaultSuccessWithAllValidParameters() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+    function test_ActivateVaultSuccessWithAllValidParameters() public {
+        _initFactory();
 
         address vault = _newVault();
 
-        assertTrue(vault != address(0), "Vault should be deployed");
+        assertTrue(vault.code.length > 0, "Vault should be activated");
         BittyV1Vault vaultInstance = BittyV1Vault(payable(vault));
         assertTrue(
             vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), tx.origin), "Owner should hold DEFAULT_ADMIN_ROLE"
@@ -705,23 +588,8 @@ contract BittyV1VaultFactoryTest is Test {
     }
 
     function test_InitializeSetsStateVariables() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
+        _initFactory();
         assertEq(factory.guardAddress(), guardAddress, "BittyV1Guard address should be set");
-    }
-
-    function test_DeployVaultEmitsVaultDeployedEvent() public {
-        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(vaultImplementation, defiFacet, guardAddress, wethAddress);
-
-        address vault = _newVault();
-
-        assertTrue(vault != address(0), "Vault should be deployed");
-
-        BittyV1Vault vaultInstance = BittyV1Vault(payable(vault));
-        assertTrue(
-            vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), tx.origin), "Owner should hold DEFAULT_ADMIN_ROLE"
-        );
     }
 
     function test_Factory_initCode() public {
@@ -729,50 +597,52 @@ contract BittyV1VaultFactoryTest is Test {
         console.logBytes32(keccak256(bytecode));
     }
 
-    function test_DeployVaultFor_setsOwner() public {
+    function test_ActivateVaultFor_setsOwner() public {
         _initFactory();
         address vault = _newVaultFor(owner1);
         assertTrue(BittyV1Vault(payable(vault)).hasRole(BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE(), owner1));
     }
 
-    function test_DeployVault_ownerIsAlwaysCaller() public {
+    function test_ActivateVault_ownerIsAlwaysCaller() public {
         _initFactory();
-        // The owner is the deployer and cannot be specified: an attacker deploying
-        // "main" gets their own vault, which cannot occupy the victim's deterministic
-        // address, so the pre-deploy asset-manager-injection vector is structurally
+        // The owner is the caller and cannot be specified: an attacker activating their
+        // vault gets their own address, which cannot occupy the victim's deterministic
+        // address, so the pre-activation asset-manager-injection vector is structurally
         // impossible.
         address attacker = makeAddr("attacker");
         vm.prank(attacker);
-        address attackerVault = factory.deployVault("main");
-        assertEq(attackerVault, factory.computeVaultAddress(attacker, "main"));
+        factory.activateVault(new address[](0), new address[](0), new address[](0), new address[](0), new address[](0));
+        address attackerVault = factory.vaultAddress(attacker);
 
-        address victimVault = _deployVault(owner1, "main", assetManagerAddress);
+        address victimVault = _activateVault(owner1, assetManagerAddress);
         assertTrue(attackerVault != victimVault, "attacker cannot occupy victim's vault address");
 
         BittyV1Vault av = BittyV1Vault(payable(attackerVault));
-        assertTrue(av.hasRole(av.DEFAULT_ADMIN_ROLE(), attacker), "deployer is owner");
+        assertTrue(av.hasRole(av.DEFAULT_ADMIN_ROLE(), attacker), "caller is owner");
         assertFalse(av.hasRole(av.DEFAULT_ADMIN_ROLE(), owner1), "victim is not owner");
     }
 
-    function test_DeployVaultFor_revertVaultAlreadyDeployed() public {
+    function test_ActivateVaultFor_revertVaultAlreadyActivated() public {
         _initFactory();
         _newVaultFor(owner1);
-        vm.expectRevert(VaultAlreadyDeployed.selector);
-        _newVaultFor(owner1);
+        vm.prank(owner1);
+        vm.expectRevert(VaultAlreadyActivated.selector);
+        factory.activateVault(vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
     }
 
-    function test_DeployVaultFor_emitsVaultDeployedEvent() public {
+    function test_ActivateVaultFor_emitsVaultActivatedEvent() public {
         _initFactory();
-        address expectedVault = factory.computeVaultAddress(owner1, "main");
+        address expectedVault = factory.vaultAddress(owner1);
 
-        vm.expectEmit(true, true, false, true);
-        emit BittyV1VaultFactory.VaultDeployed(expectedVault, owner1, "main");
+        vm.expectEmit(true, false, false, true);
+        emit BittyV1VaultFactory.VaultActivated(owner1);
 
-        address vault = _newVaultFor(owner1);
-        assertEq(vault, expectedVault);
+        vm.prank(owner1);
+        factory.activateVault(vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        assertTrue(expectedVault.code.length > 0);
     }
 
-    function test_DeployVaultFor_initializesVaultConfig() public {
+    function test_ActivateVaultFor_initializesVaultConfig() public {
         _initFactory();
         BittyV1Vault vault = BittyV1Vault(payable(_newVaultFor(owner1)));
 
@@ -783,57 +653,30 @@ contract BittyV1VaultFactoryTest is Test {
         assertEq(vault.getStableCoins()[1], usdcAddress);
     }
 
-    function test_DeployVault_setsRolesAtInit() public {
+    function test_ActivatedVault_ownerGrantsAssetManager() public {
         _initFactory();
         BittyV1Vault vault = BittyV1Vault(payable(_newVaultFor(owner1)));
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), owner1));
         assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), assetManagerAddress));
     }
 
-    function test_DeployVaultFor_grantsMultipleAssetManagers() public {
+    function test_ActivatedVault_ownerGrantsMultipleAssetManagers() public {
         _initFactory();
         address manager1 = makeAddr("manager1");
         address manager2 = makeAddr("manager2");
-        address[] memory assetManagers = new address[](2);
-        assetManagers[0] = manager1;
-        assetManagers[1] = manager2;
 
-        vm.prank(owner1);
-        address vault = factory.deployVaultWithSelected(
-            "main",
-            assetManagers,
-            vaultAssetAddresses,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols
-        );
+        vm.startPrank(owner1);
+        factory.activateVault(vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        BittyV1Vault vaultInstance = BittyV1Vault(payable(factory.vaultAddress(owner1)));
+        vaultInstance.grantRole(vaultInstance.ASSET_MANAGER_ROLE(), manager1);
+        vaultInstance.grantRole(vaultInstance.ASSET_MANAGER_ROLE(), manager2);
+        vm.stopPrank();
 
-        BittyV1Vault vaultInstance = BittyV1Vault(payable(vault));
         assertTrue(vaultInstance.hasRole(vaultInstance.ASSET_MANAGER_ROLE(), manager1));
         assertTrue(vaultInstance.hasRole(vaultInstance.ASSET_MANAGER_ROLE(), manager2));
     }
 
-    function test_DeployVaultAllSelected_usesAllGuardAssetsAndProtocols() public {
-        _initFactory();
-        vm.prank(owner1);
-        address vault = factory.deployVaultAllSelected("main", _assetManagers(assetManagerAddress));
-
-        BittyV1Vault vaultInstance = BittyV1Vault(payable(vault));
-        assertTrue(vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), owner1));
-        assertTrue(vaultInstance.hasRole(vaultInstance.ASSET_MANAGER_ROLE(), assetManagerAddress));
-        assertEq(vaultInstance.getAssets().length, assetAddresses.length);
-        assertEq(vaultInstance.getAssets()[0], wbtcAddress);
-        assertEq(vaultInstance.getAssets()[1], wethAddress);
-        assertEq(vaultInstance.getStableCoins().length, stableCoinAddresses.length);
-        assertEq(vaultInstance.getStableCoins()[0], usdtAddress);
-        assertEq(vaultInstance.getStableCoins()[1], usdcAddress);
-        assertEq(IVaultFull(payable(address(vaultInstance))).getAMMProtocols().length, ammProtocols.length);
-        assertEq(IVaultFull(payable(address(vaultInstance))).getAMMProtocols()[0], ammProtocols[0]);
-        assertEq(IVaultFull(payable(address(vaultInstance))).getIntentProtocols().length, intentProtocols.length);
-    }
-
-    function test_DeployVaultFor_nonOwnerCannotGrantRoles() public {
+    function test_ActivateVaultFor_nonOwnerCannotGrantRoles() public {
         _initFactory();
         BittyV1Vault vault = BittyV1Vault(payable(_newVaultFor(owner1)));
 
@@ -843,9 +686,9 @@ contract BittyV1VaultFactoryTest is Test {
         vault.grantRole(adminRole, owner2);
     }
 
-    function test_DeployVault_withTxOriginOwner() public {
+    function test_ActivateVault_withTxOriginOwner() public {
         _initFactory();
-        address expected = factory.computeVaultAddress(tx.origin, "main");
+        address expected = factory.vaultAddress(tx.origin);
         address vault = _newVault();
         assertEq(vault, expected);
         assertTrue(BittyV1Vault(payable(vault)).hasRole(BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE(), tx.origin));
@@ -854,12 +697,12 @@ contract BittyV1VaultFactoryTest is Test {
         );
     }
 
-    function test_DeployVault_multisigOwnerAddress() public {
+    function test_ActivateVault_multisigOwnerAddress() public {
         _initFactory();
         address multisigOwner = makeAddr("gnosisSafe");
-        address vault = _deployVault(multisigOwner, "main", assetManagerAddress);
+        address vault = _activateVault(multisigOwner, assetManagerAddress);
 
-        assertEq(factory.computeVaultAddress(multisigOwner, "main"), vault);
+        assertEq(factory.vaultAddress(multisigOwner), vault);
         assertTrue(
             BittyV1Vault(payable(vault)).hasRole(BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE(), multisigOwner)
         );
@@ -870,54 +713,319 @@ contract BittyV1VaultFactoryTest is Test {
         BittyV1Vault(payable(vault)).grantRole(adminRole, makeAddr("other"));
     }
 
-    // ============ Multi-vault per owner ============
+    // ============ One vault per owner ============
 
-    function test_sameOwnerCanDeployMultipleVaultsWithDifferentNames() public {
+    function test_differentOwnersProduceDifferentVaults() public {
         _initFactory();
-        address vault1 = _deployVault(owner1, "savings", assetManagerAddress);
-        address vault2 = _deployVault(owner1, "trading", assetManagerAddress);
-
-        assertTrue(vault1 != vault2, "Different names produce different vault addresses");
-        assertEq(BittyV1Vault(payable(vault1)).vaultName(), "savings");
-        assertEq(BittyV1Vault(payable(vault2)).vaultName(), "trading");
-        assertTrue(BittyV1Vault(payable(vault1)).hasRole(BittyV1Vault(payable(vault1)).DEFAULT_ADMIN_ROLE(), owner1));
-        assertTrue(BittyV1Vault(payable(vault2)).hasRole(BittyV1Vault(payable(vault2)).DEFAULT_ADMIN_ROLE(), owner1));
-    }
-
-    function test_sameNameDifferentOwnerProducesDifferentVault() public {
-        _initFactory();
-        address vault1 = _deployVault(owner1, "main", assetManagerAddress);
-        address vault2 = _deployVault(owner2, "main", assetManagerAddress);
+        address vault1 = _activateVault(owner1, assetManagerAddress);
+        address vault2 = _activateVault(owner2, assetManagerAddress);
 
         assertTrue(vault1 != vault2);
-        assertEq(BittyV1Vault(payable(vault1)).vaultName(), "main");
-        assertEq(BittyV1Vault(payable(vault2)).vaultName(), "main");
+        assertTrue(BittyV1Vault(payable(vault1)).hasRole(BittyV1Vault(payable(vault1)).DEFAULT_ADMIN_ROLE(), owner1));
+        assertTrue(BittyV1Vault(payable(vault2)).hasRole(BittyV1Vault(payable(vault2)).DEFAULT_ADMIN_ROLE(), owner2));
     }
 
-    function test_deployVault_sameOwnerSameNameReverts() public {
+    function test_secondActivationSameOwnerReverts() public {
         _initFactory();
-        _deployVault(owner1, "savings", assetManagerAddress);
+        _activateVault(owner1, assetManagerAddress);
 
-        vm.expectRevert(VaultAlreadyDeployed.selector);
-        _deployVault(owner1, "savings", assetManagerAddress);
+        vm.prank(owner1);
+        vm.expectRevert(VaultAlreadyActivated.selector);
+        factory.activateVault(new address[](0), new address[](0), new address[](0), new address[](0), new address[](0));
     }
 
-    function test_computeVaultAddress_matchesDeployForMultipleNames() public {
+    function test_vaultAddressMatchesActivation() public {
         _initFactory();
-        address predicted1 = factory.computeVaultAddress(owner1, "savings");
-        address predicted2 = factory.computeVaultAddress(owner1, "trading");
+        address predicted = factory.vaultAddress(owner1);
+        address actual = _activateVault(owner1, assetManagerAddress);
+        assertEq(predicted, actual);
+    }
+}
 
-        address actual1 = _deployVault(owner1, "savings", assetManagerAddress);
-        address actual2 = _deployVault(owner1, "trading", assetManagerAddress);
+contract ActivateVaultWithAssetsTest is Test {
+    bytes32 internal constant PERMIT_TYPEHASH =
+        keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
 
-        assertEq(predicted1, actual1);
-        assertEq(predicted2, actual2);
-        assertTrue(predicted1 != predicted2);
+    BittyV1VaultFactory internal factory;
+    BittyV1Guard internal guard;
+    WETH internal weth;
+    MockERC20 internal wbtc;
+    MockERC20 internal usdc;
+
+    address internal user;
+    uint256 internal userPk;
+    uint256 internal deadline;
+
+    address[] internal noProtocols;
+
+    function setUp() public {
+        weth = new WETH();
+        wbtc = new MockERC20("Wrapped BTC", "WBTC", 8);
+        usdc = new MockERC20("USD Coin", "USDC", 6);
+
+        guard = new BittyV1Guard();
+        vm.startPrank(tx.origin);
+        guard.grantRole(guard.ASSET_MANAGER_ROLE(), tx.origin);
+        guard.grantRole(guard.STABLE_COIN_MANAGER_ROLE(), tx.origin);
+        guard.addAssets(_assets(address(weth), address(wbtc)));
+        guard.addStableCoins(_single(address(usdc)));
+        vm.stopPrank();
+
+        address vaultImpl = address(new BittyV1Vault());
+        address defiFacet = address(new BittyV1VaultDeFiFacet());
+        factory = new BittyV1VaultFactory();
+        vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
+        factory.initialize(vaultImpl, defiFacet, address(guard), address(weth));
+
+        (user, userPk) = makeAddrAndKey("user");
+        deadline = block.timestamp + 1 hours;
     }
 
-    function test_deployedVault_storesVaultName() public {
-        _initFactory();
-        address vault = _deployVault(owner1, "my savings", assetManagerAddress);
-        assertEq(BittyV1Vault(payable(vault)).vaultName(), "my savings");
+    function _single(address a) internal pure returns (address[] memory arr) {
+        arr = new address[](1);
+        arr[0] = a;
+    }
+
+    function _assets(address a, address b) internal pure returns (address[] memory arr) {
+        arr = new address[](2);
+        arr[0] = a;
+        arr[1] = b;
+    }
+
+    function _signPermit(MockERC20 token, address owner, uint256 ownerPk, address spender, uint256 value)
+        internal
+        view
+        returns (uint8 v, bytes32 r, bytes32 s)
+    {
+        bytes32 structHash =
+            keccak256(abi.encode(PERMIT_TYPEHASH, owner, spender, value, token.nonces(owner), deadline));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", token.DOMAIN_SEPARATOR(), structHash));
+        (v, r, s) = vm.sign(ownerPk, digest);
+    }
+
+    // A deposit funded via a signed EIP-2612 permit (no prior approval needed).
+    function _permit(MockERC20 token, uint256 amount) internal view returns (IBittyV1VaultFactory.AssetInput memory) {
+        (uint8 v, bytes32 r, bytes32 s) = _signPermit(token, user, userPk, address(factory), amount);
+        return IBittyV1VaultFactory.AssetInput({
+            asset: address(token), amount: amount, usePermit: true, deadline: deadline, v: v, r: r, s: s
+        });
+    }
+
+    // A deposit funded via a prior approval (for tokens that don't support permit).
+    function _approved(MockERC20 token, uint256 amount) internal pure returns (IBittyV1VaultFactory.AssetInput memory) {
+        return IBittyV1VaultFactory.AssetInput({
+            asset: address(token), amount: amount, usePermit: false, deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)
+        });
+    }
+
+    function _deposits(IBittyV1VaultFactory.AssetInput memory a)
+        internal
+        pure
+        returns (IBittyV1VaultFactory.AssetInput[] memory arr)
+    {
+        arr = new IBittyV1VaultFactory.AssetInput[](1);
+        arr[0] = a;
+    }
+
+    function _noDeposits() internal pure returns (IBittyV1VaultFactory.AssetInput[] memory arr) {
+        arr = new IBittyV1VaultFactory.AssetInput[](0);
+    }
+
+    function test_permitPathPullsErc20() public {
+        uint256 amount = 3e8;
+        wbtc.mint(user, amount);
+        address vault = factory.vaultAddress(user);
+        IBittyV1VaultFactory.AssetInput[] memory deposits = _deposits(_permit(wbtc, amount));
+
+        vm.prank(user);
+        factory.activateVaultWithAssets(
+            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+        );
+
+        assertEq(wbtc.balanceOf(vault), amount, "vault received WBTC via permit");
+        assertEq(wbtc.balanceOf(user), 0, "user WBTC drained");
+        assertTrue(
+            BittyV1Vault(payable(vault)).hasRole(BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE(), user),
+            "user owns vault"
+        );
+        assertEq(BittyV1Vault(payable(vault)).getAssets()[0], address(wbtc), "WBTC configured");
+    }
+
+    function test_approvedPathPullsErc20() public {
+        uint256 amount = 2e8;
+        wbtc.mint(user, amount);
+        address vault = factory.vaultAddress(user);
+        IBittyV1VaultFactory.AssetInput[] memory deposits = _deposits(_approved(wbtc, amount));
+
+        vm.startPrank(user);
+        wbtc.approve(address(factory), amount);
+        factory.activateVaultWithAssets(
+            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+        );
+        vm.stopPrank();
+
+        assertEq(wbtc.balanceOf(vault), amount, "vault received WBTC via approval");
+    }
+
+    function test_mixedPermitAndApproved() public {
+        uint256 wbtcAmount = 2e8;
+        uint256 usdcAmount = 1_000e6;
+        wbtc.mint(user, wbtcAmount);
+        usdc.mint(user, usdcAmount);
+        address vault = factory.vaultAddress(user);
+
+        IBittyV1VaultFactory.AssetInput[] memory deposits = new IBittyV1VaultFactory.AssetInput[](2);
+        deposits[0] = _approved(wbtc, wbtcAmount); // pre-approved transfer
+        deposits[1] = _permit(usdc, usdcAmount); // signed permit
+
+        vm.startPrank(user);
+        wbtc.approve(address(factory), wbtcAmount);
+        factory.activateVaultWithAssets(
+            _assets(address(wbtc), address(usdc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+        );
+        vm.stopPrank();
+
+        assertEq(wbtc.balanceOf(vault), wbtcAmount, "vault received WBTC");
+        assertEq(usdc.balanceOf(vault), usdcAmount, "vault received USDC");
+    }
+
+    function test_assetsPlusEth() public {
+        uint256 wbtcAmount = 1e8;
+        uint256 ethAmount = 0.5 ether;
+        wbtc.mint(user, wbtcAmount);
+        vm.deal(user, ethAmount);
+        address vault = factory.vaultAddress(user);
+        IBittyV1VaultFactory.AssetInput[] memory deposits = _deposits(_permit(wbtc, wbtcAmount));
+
+        vm.prank(user);
+        factory.activateVaultWithAssets{value: ethAmount}(
+            _assets(address(wbtc), address(weth)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+        );
+
+        assertEq(wbtc.balanceOf(vault), wbtcAmount, "vault received WBTC");
+        assertEq(weth.balanceOf(vault), ethAmount, "vault received wrapped ETH");
+        assertEq(vault.balance, 0, "no raw ETH left in vault");
+    }
+
+    function test_ethOnlyNoDeposits() public {
+        uint256 ethAmount = 1 ether;
+        vm.deal(user, ethAmount);
+        address vault = factory.vaultAddress(user);
+
+        vm.prank(user);
+        factory.activateVaultWithAssets{value: ethAmount}(
+            _single(address(weth)), _noDeposits(), noProtocols, noProtocols, noProtocols, noProtocols
+        );
+
+        assertEq(weth.balanceOf(vault), ethAmount, "vault holds wrapped WETH");
+    }
+
+    function test_toleratesFrontRunConsumedPermit() public {
+        uint256 amount = 1e8;
+        wbtc.mint(user, amount);
+        address vault = factory.vaultAddress(user);
+        IBittyV1VaultFactory.AssetInput memory d = _permit(wbtc, amount);
+        IBittyV1VaultFactory.AssetInput[] memory deposits = _deposits(d);
+
+        // Attacker front-runs by submitting the signed permit directly, consuming the nonce and
+        // setting the allowance. The factory's own permit call then reverts but is tolerated.
+        wbtc.permit(user, address(factory), amount, deadline, d.v, d.r, d.s);
+
+        vm.prank(user);
+        factory.activateVaultWithAssets(
+            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+        );
+
+        assertEq(wbtc.balanceOf(vault), amount, "transfer still succeeds via pre-set allowance");
+    }
+
+    function test_revertsWhenAssetNotRegistered() public {
+        MockERC20 stray = new MockERC20("Stray", "STRAY", 18);
+        stray.mint(user, 1e18);
+        IBittyV1VaultFactory.AssetInput[] memory deposits = _deposits(_permit(stray, 1e18));
+
+        vm.prank(user);
+        vm.expectRevert(NotRegistered.selector);
+        factory.activateVaultWithAssets(
+            _single(address(stray)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+        );
+    }
+
+    function test_revertsWhenPermitInvalidAndNoAllowance() public {
+        uint256 amount = 1e8;
+        wbtc.mint(user, amount);
+        IBittyV1VaultFactory.AssetInput memory d = _permit(wbtc, amount);
+        d.s = bytes32(uint256(d.s) ^ 1); // corrupt the signature
+        IBittyV1VaultFactory.AssetInput[] memory deposits = _deposits(d);
+
+        vm.prank(user);
+        vm.expectRevert();
+        factory.activateVaultWithAssets(
+            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+        );
+    }
+
+    function test_revertsWhenApprovedPathNotApproved() public {
+        uint256 amount = 1e8;
+        wbtc.mint(user, amount);
+        IBittyV1VaultFactory.AssetInput[] memory deposits = _deposits(_approved(wbtc, amount));
+
+        vm.prank(user);
+        vm.expectRevert();
+        factory.activateVaultWithAssets(
+            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+        );
+    }
+
+    function test_revertsWhenAlreadyActivated() public {
+        uint256 amount = 1e8;
+        wbtc.mint(user, amount);
+        IBittyV1VaultFactory.AssetInput[] memory deposits = _deposits(_permit(wbtc, amount));
+
+        vm.startPrank(user);
+        factory.activateVault(_single(address(wbtc)), noProtocols, noProtocols, noProtocols, noProtocols);
+
+        vm.expectRevert(VaultAlreadyActivated.selector);
+        factory.activateVaultWithAssets(
+            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+        );
+        vm.stopPrank();
+    }
+
+    function test_emitsVaultActivated() public {
+        uint256 amount = 1e8;
+        wbtc.mint(user, amount);
+        IBittyV1VaultFactory.AssetInput[] memory deposits = _deposits(_permit(wbtc, amount));
+
+        vm.prank(user);
+        vm.expectEmit(true, false, false, true);
+        emit BittyV1VaultFactory.VaultActivated(user);
+        factory.activateVaultWithAssets(
+            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+        );
+    }
+
+    function test_revertsWhenEthForwardFails() public {
+        // A factory whose configured WETH reverts on deposit makes the vault's receive() revert while
+        // wrapping the forwarded ETH, which the factory surfaces as EthTransferFailed.
+        RevertingWeth badWeth = new RevertingWeth();
+        BittyV1VaultFactory badFactory = new BittyV1VaultFactory();
+        address vaultImpl = address(new BittyV1Vault());
+        address defiFacet = address(new BittyV1VaultDeFiFacet());
+        vm.prank(badFactory.DEPLOYER(), badFactory.DEPLOYER());
+        badFactory.initialize(vaultImpl, defiFacet, address(guard), address(badWeth));
+
+        vm.deal(user, 1 ether);
+        vm.prank(user);
+        vm.expectRevert(EthTransferFailed.selector);
+        badFactory.activateVaultWithAssets{value: 1 ether}(
+            new address[](0), _noDeposits(), noProtocols, noProtocols, noProtocols, noProtocols
+        );
+    }
+}
+
+contract RevertingWeth {
+    function deposit() external payable {
+        revert("no deposit");
     }
 }
