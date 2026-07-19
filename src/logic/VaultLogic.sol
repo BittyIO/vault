@@ -246,11 +246,13 @@ library VaultLogic {
         if (scheduledPayment.amount == 0) {
             revert AmountIsZero();
         }
-        if (scheduledPayment.paymentCount == 0) {
+        if (scheduledPayment.remainingPaymentCount == 0) {
             revert ScheduledPaymentPaymentCountZero();
         }
-        if (scheduledPayment.paymentCount > 1 && scheduledPayment.paymentInterval < SCHEDULED_PAYMENT_MINIMAL_INTERVAL)
-        {
+        if (
+            scheduledPayment.remainingPaymentCount > 1
+                && scheduledPayment.paymentInterval < SCHEDULED_PAYMENT_MINIMAL_INTERVAL
+        ) {
             revert ScheduledPaymentIntervalTooShort();
         }
     }
@@ -497,7 +499,7 @@ library VaultLogic {
             scheduledPayment.scheduledPaymentAddress,
             scheduledPayment.assetAddress,
             paidAmount,
-            scheduledPayment.paymentCount
+            scheduledPayment.remainingPaymentCount
         );
     }
 
@@ -519,7 +521,7 @@ library VaultLogic {
         if (vaultStorage.scheduledPaymentPendingProposer[id] != address(0)) {
             revert PaymentNotApproved();
         }
-        if (scheduledPayment.paymentCount == 0) {
+        if (scheduledPayment.remainingPaymentCount == 0) {
             revert ScheduledPaymentPaymentCountZero();
         }
         if (scheduledPayment.startTimestamp > block.timestamp) {
@@ -535,8 +537,8 @@ library VaultLogic {
         vaultStorage.lastReceiveTimestamps[id] = block.timestamp;
         // type(uint8).max is the "unlimited" sentinel: an uncapped recurring scheduled payment that never
         // decrements and so never runs out.
-        if (scheduledPayment.paymentCount != type(uint8).max) {
-            scheduledPayment.paymentCount = scheduledPayment.paymentCount - 1;
+        if (scheduledPayment.remainingPaymentCount != type(uint8).max) {
+            scheduledPayment.remainingPaymentCount = scheduledPayment.remainingPaymentCount - 1;
         }
     }
 
@@ -567,7 +569,7 @@ library VaultLogic {
         scheduledPaymentAddress = scheduledPayment.scheduledPaymentAddress;
         assetAddress = scheduledPayment.assetAddress;
         emit IBittyV1Vault.ScheduledPaymentPaid(
-            id, scheduledPaymentAddress, assetAddress, payAmount, scheduledPayment.paymentCount
+            id, scheduledPaymentAddress, assetAddress, payAmount, scheduledPayment.remainingPaymentCount
         );
     }
 

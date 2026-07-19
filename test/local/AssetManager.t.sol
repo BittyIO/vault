@@ -408,17 +408,90 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(balance, 0);
     }
 
-    function test_RebalanceFromCheck_RevertsWhenFromNotVaultAsset() public {
-        this.doInitialize();
+    function test_RebalanceFromCheck_AllowsNonVaultAssetWhenVaultHoldsBalance() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        MockERC20 stray = new MockERC20("Stray", "STR", 18);
+        MockERC20 stable = new MockERC20("Stable", "STB", 6);
 
-        address invalidFrom = makeAddr("invalidFromAsset");
+        vm.startPrank(tx.origin);
+        BittyV1Guard(guardAddress).addStableCoins(_single(address(stable)));
+        BittyV1Guard(guardAddress).addAMMProtocols(_single(address(mockAmm)));
+        vm.stopPrank();
+
+        address[] memory initAssets = new address[](5);
+        initAssets[0] = mainnet.WETH;
+        initAssets[1] = WBTC;
+        initAssets[2] = mainnet.USDT;
+        initAssets[3] = mainnet.USDC;
+        initAssets[4] = address(stable);
+
+        this.initialize(
+            ownerAddress,
+            guardAddress,
+            mainnet.WETH,
+            initAssets,
+            lendingProtocols,
+            stakingProtocols,
+            _single(address(mockAmm)),
+            intentProtocols,
+            address(0)
+        );
+        _grantAssetManagerRole(assetManagerAddress);
+        _cloneProtocolForTest(address(mockAmm));
+
+        stray.mint(address(this), 10 ether);
+
         uint256 sellAmount = 1 ether;
-        uint256 buyAmount = 10 * 1e6;
-        bytes memory swapData = abi.encode(invalidFrom, sellAmount, address(mainnet.USDT), buyAmount);
+        uint256 buyAmountMin = 100e6;
+        bytes memory swapData = abi.encode(address(stray), sellAmount, address(stable), buyAmountMin);
 
-        vm.expectRevert(NotRegistered.selector);
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), invalidFrom, address(mainnet.USDT), sellAmount, buyAmount, swapData);
+        this.marketSell(address(mockAmm), address(stray), address(stable), sellAmount, buyAmountMin, swapData);
+
+        assertEq(stray.balanceOf(address(this)), 9 ether);
+        assertEq(stable.balanceOf(address(this)), buyAmountMin);
+    }
+
+    function test_MarketBuy_successWithMockAMM() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        MockERC20 stable = new MockERC20("Stable", "STB", 6);
+
+        vm.startPrank(tx.origin);
+        BittyV1Guard(guardAddress).addStableCoins(_single(address(stable)));
+        BittyV1Guard(guardAddress).addAMMProtocols(_single(address(mockAmm)));
+        vm.stopPrank();
+
+        address[] memory initAssets = new address[](5);
+        initAssets[0] = mainnet.WETH;
+        initAssets[1] = WBTC;
+        initAssets[2] = mainnet.USDT;
+        initAssets[3] = mainnet.USDC;
+        initAssets[4] = address(stable);
+
+        this.initialize(
+            ownerAddress,
+            guardAddress,
+            mainnet.WETH,
+            initAssets,
+            lendingProtocols,
+            stakingProtocols,
+            _single(address(mockAmm)),
+            intentProtocols,
+            address(0)
+        );
+        _grantAssetManagerRole(assetManagerAddress);
+        _cloneProtocolForTest(address(mockAmm));
+
+        deal(mainnet.WETH, address(this), 10 ether);
+
+        uint256 buyAmount = 100e6;
+        uint256 sellAmountMax = 1 ether;
+        bytes memory data = abi.encode(mainnet.WETH, sellAmountMax, address(stable), buyAmount);
+
+        vm.prank(assetManagerAddress);
+        this.marketBuy(address(mockAmm), mainnet.WETH, address(stable), buyAmount, sellAmountMax, data);
+
+        assertEq(stable.balanceOf(address(this)), buyAmount);
     }
 
     function test_RebalanceFromCheck_MinimalBalanceNotMet_WhenRemainingBelowMinimal() public {

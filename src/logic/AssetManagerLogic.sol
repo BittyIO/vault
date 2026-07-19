@@ -407,17 +407,20 @@ library AssetManagerLogic {
     /**
      * @notice Shared gate for every asset-manager trade (market/limit/TWAP).
      * @dev `sellAmount` is the amount of `from` leaving the vault and `toAmount` the amount of `to`
-     * coming back (a floor for exact-in trades, exact for exact-out). Enforces, per asset manager
-     * (keyed by msg.sender, preserved through delegatecall): a stablecoin size cap and a frequency
-     * throttle. The size cap is denominated in stablecoin whole tokens, so when it is set the trade
-     * must have a stablecoin as either leg; the stablecoin leg's amount is measured against the cap.
+     * coming back (a floor for exact-in trades, exact for exact-out). The sell leg (`from`) may be
+     * any token the vault holds — it need not be on the vault asset allowlist (e.g. airdrops or
+     * mistaken transfers can still be sold out). The buy leg (`to`) must remain an allowlisted asset
+     * or stablecoin. Enforces, per asset manager (keyed by msg.sender, preserved through
+     * delegatecall): a stablecoin size cap and a frequency throttle. The size cap is denominated in
+     * stablecoin whole tokens, so when it is set the trade must have a stablecoin as either leg; the
+     * stablecoin leg's amount is measured against the cap.
      * `stableCoinInvested` (the manager's deployed portfolio) rises by the stablecoin spent on
      * stable→asset trades and falls when assets are sold back, and may never exceed `stableCoinInvestCap`.
      * `expiredAt` blocks all trades once reached (0 = no expiry). Every caller here holds
      * ASSET_MANAGER_ROLE and is always enforced, so an unconfigured cap of 0 blocks stable→asset
      * investing rather than allowing it.
      */
-    function _validateRebalance(
+    function _validateTrade(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address from,
@@ -425,7 +428,6 @@ library AssetManagerLogic {
         uint256 sellAmount,
         uint256 toAmount
     ) private {
-        VaultLogic.checkAsset(vaultStorage, from);
         VaultLogic.checkAsset(vaultStorage, to);
         if (!vaultStorage.stableCoins.contains(from) && !vaultStorage.stableCoins.contains(to)) {
             revert TradeMustTouchStableCoin();
@@ -551,7 +553,7 @@ library AssetManagerLogic {
     ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
         if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
-        _validateRebalance(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin);
+        _validateTrade(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin);
         _swapExactIn(logicStorage, ammProtocol, from, sellAmount, to, buyAmountMin, address(this), data);
     }
 
@@ -571,7 +573,7 @@ library AssetManagerLogic {
     ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
         if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
-        _validateRebalance(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount);
+        _validateTrade(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount);
         _swapExactOut(logicStorage, ammProtocol, from, sellAmountMax, to, buyAmount, address(this), data);
     }
 
@@ -606,7 +608,6 @@ library AssetManagerLogic {
     ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
         if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
-        VaultLogic.checkAsset(vaultStorage, from);
         VaultLogic.checkAsset(vaultStorage, to);
         _swapExactOut(logicStorage, ammProtocol, from, sellAmountMax, to, buyAmount, recipient, data);
     }
@@ -826,7 +827,7 @@ library AssetManagerLogic {
         uint32 validTo
     ) external onlyInitialized(logicStorage) returns (bytes32 orderId) {
         _checkIntentProtocol(logicStorage, intentProtocol);
-        _validateRebalance(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin);
+        _validateTrade(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin);
         orderId = _intentTrade(logicStorage, intentProtocol, from, sellAmount, to, buyAmountMin, validTo, true);
     }
 
@@ -841,7 +842,7 @@ library AssetManagerLogic {
         uint32 validTo
     ) external onlyInitialized(logicStorage) returns (bytes32 orderId) {
         _checkIntentProtocol(logicStorage, intentProtocol);
-        _validateRebalance(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount);
+        _validateTrade(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount);
         orderId = _intentTrade(logicStorage, intentProtocol, from, sellAmountMax, to, buyAmount, validTo, false);
     }
 
@@ -959,7 +960,7 @@ library AssetManagerLogic {
     ) external onlyInitialized(logicStorage) returns (bytes32 twapId) {
         _checkIntentProtocol(logicStorage, intentProtocol);
         if (totalSellAmount == 0 || minPartLimit == 0 || n == 0 || partDuration == 0) revert AmountIsZero();
-        _validateRebalance(logicStorage, vaultStorage, from, to, totalSellAmount, minPartLimit * n);
+        _validateTrade(logicStorage, vaultStorage, from, to, totalSellAmount, minPartLimit * n);
 
         address clone = _cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
@@ -1004,7 +1005,7 @@ library AssetManagerLogic {
         uint256 minPartLimit = totalBuyAmount / n;
         if (minPartLimit == 0) revert AmountIsZero();
         uint256 totalSellAmount = sellAmountPerPart * n;
-        _validateRebalance(logicStorage, vaultStorage, from, to, totalSellAmount, totalBuyAmount);
+        _validateTrade(logicStorage, vaultStorage, from, to, totalSellAmount, totalBuyAmount);
 
         address clone = _cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);

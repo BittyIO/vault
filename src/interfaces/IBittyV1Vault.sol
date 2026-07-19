@@ -69,7 +69,7 @@ interface IBittyV1Vault {
         address scheduledPaymentAddress;
         // remaining number of payments; set to type(uint8).max (255) for an unlimited scheduled payment that
         // never decrements and so never runs out
-        uint8 paymentCount;
+        uint8 remainingPaymentCount;
         bool isImmutable;
         // if this is true, then the payment will not revert if the balance is insufficient
         bool payWithInsufficientBalance;
