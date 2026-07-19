@@ -33,7 +33,6 @@ import {
     NotPendingApproval,
     NotProposalOwner,
     PendingSendNotFound,
-    SendingDisabled,
     OwnerAndManagerMustDiffer,
     TransferFailed,
     PaymentExceedsRiskCap,
@@ -1737,6 +1736,30 @@ contract BittyV1VaultTest is Test {
         assertEq(usdc.balanceOf(payee), 1_000 * 1e6);
     }
 
+    function test_Risk_ApproveSend_RechecksCapAfterTightening() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        usdc.mint(address(vault), 5_000 * 1e6);
+        bytes32 pmRole = vault.PAYMENT_MANAGER_ROLE();
+        address pm = makeAddr("pmSend");
+        vm.prank(ownerAddress);
+        vault.grantRole(pmRole, pm);
+
+        // Payment manager proposes a 5,000 USDC send while there is no cap (pending id 0).
+        address payee = makeAddr("sendPayee");
+        vm.prank(pm);
+        vault.send(payee, address(usdc), 5_000 * 1e6);
+
+        // Owner tightens the send cap to 1,000 (immediate at Zero level).
+        vm.prank(ownerAddress);
+        vault.setMaxSendValue(1_000);
+
+        // Approving the already-queued over-cap send now re-checks and reverts.
+        vm.prank(ownerAddress);
+        vm.expectRevert(PaymentExceedsRiskCap.selector);
+        vault.approveSend(0);
+    }
+
     function test_Risk_Whitelisted_RevertsOverCapAtPayout() public {
         _initializeVault();
         MockERC20 usdc = _addStableCoin(6);
@@ -2567,31 +2590,6 @@ contract BittyV1VaultTest is Test {
         vault.approveScheduledPayment(pId);
     }
 
-    function test_PaymentManager_proposeSendRevertsWhenSendingDisabled() public {
-        _initializeVault();
-        address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
-        vm.prank(ownerAddress);
-        vault.disableSending();
-        vm.prank(pm);
-        vm.expectRevert(SendingDisabled.selector);
-        vault.send(makeAddr("payee"), address(weth), 1 ether);
-    }
-
-    function test_PaymentManager_approveSendRevertsIfSendingDisabledAfterPropose() public {
-        _initializeVault();
-        address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
-        deal(address(weth), address(vault), 10 ether);
-        vm.prank(pm);
-        vault.send(makeAddr("payee"), address(weth), 1 ether); // id 0
-        vm.prank(ownerAddress);
-        vault.disableSending();
-        vm.prank(ownerAddress);
-        vm.expectRevert(SendingDisabled.selector);
-        vault.approveSend(0);
-    }
-
     function test_PaymentManager_ownerCancelsPendingSend() public {
         _initializeVault();
         address pm = makeAddr("pm");
@@ -2700,24 +2698,6 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vm.expectRevert(PendingSendNotFound.selector);
         vault.cancelSend(42);
-    }
-
-    function test_Send_ownerRevertsWhenSendingDisabled() public {
-        _initializeVault();
-        deal(address(weth), address(vault), 10 ether);
-        vm.prank(ownerAddress);
-        vault.disableSending();
-        vm.prank(ownerAddress);
-        vm.expectRevert(SendingDisabled.selector);
-        vault.send(makeAddr("payee"), address(weth), 1 ether);
-    }
-
-    function test_IsSendingDisabled_returnsTrueAfterDisable() public {
-        _initializeVault();
-        assertFalse(vault.isSendingDisabled());
-        vm.prank(ownerAddress);
-        vault.disableSending();
-        assertTrue(vault.isSendingDisabled());
     }
 
     function test_WhitelistedRecipient_updateZeroRecipientReverts() public {

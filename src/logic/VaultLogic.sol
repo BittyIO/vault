@@ -40,7 +40,6 @@ import {
     NotPendingApproval,
     NotProposalOwner,
     PendingSendNotFound,
-    SendingDisabled,
     PaymentExceedsRiskCap,
     PaymentNotStableCoin,
     RiskControlLevel
@@ -184,19 +183,8 @@ library VaultLogic {
         external
         onlyInitialized(vaultStorage)
     {
-        if (vaultStorage.sendingDisabled) {
-            revert SendingDisabled();
-        }
         _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxSendValue), asset, amount);
         _payOut(vaultStorage, asset, amount, recipient);
-    }
-
-    function disableSending(VaultStorage storage vaultStorage) external onlyInitialized(vaultStorage) {
-        vaultStorage.sendingDisabled = true;
-    }
-
-    function isSendingDisabled(VaultStorage storage vaultStorage) external view returns (bool) {
-        return vaultStorage.sendingDisabled;
     }
 
     /**
@@ -208,9 +196,6 @@ library VaultLogic {
         onlyInitialized(vaultStorage)
         returns (uint256 id)
     {
-        if (vaultStorage.sendingDisabled) {
-            revert SendingDisabled();
-        }
         _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxSendValue), asset, amount);
         id = vaultStorage.nextPendingSendId++;
         vaultStorage.pendingSends[id] =
@@ -220,16 +205,16 @@ library VaultLogic {
 
     /**
      * @notice Owner: execute a queued one-off send. Access control (owner-only) is enforced by the
-     * facade. Re-checks {sendingDisabled} in case it was disabled after the proposal.
+     * facade.
      */
     function approveSend(VaultStorage storage vaultStorage, uint256 id) external onlyInitialized(vaultStorage) {
         PendingSend memory ps = vaultStorage.pendingSends[id];
         if (ps.proposer == address(0)) {
             revert PendingSendNotFound();
         }
-        if (vaultStorage.sendingDisabled) {
-            revert SendingDisabled();
-        }
+        // Re-check the send cap against the value in force at approval time, so tightening the cap after
+        // a proposal (which is immediate everywhere else) also binds an already-queued send.
+        _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxSendValue), ps.asset, ps.amount);
         delete vaultStorage.pendingSends[id];
         _payOut(vaultStorage, ps.asset, ps.amount, ps.recipient);
         emit IBittyV1Owner.SendApproved(id, ps.recipient, ps.asset, ps.amount);

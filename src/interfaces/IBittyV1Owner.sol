@@ -117,11 +117,6 @@ interface IBittyV1Owner {
     // ============ Sending ============
 
     /**
-     * @notice Irreversibly-until-reenabled disable {IBittyV1PaymentManager.send}.
-     */
-    function disableSending() external;
-
-    /**
      * @notice Owner: execute a payment-manager-proposed one-off send (id from the SendProposed event).
      */
     function approveSend(uint256 id) external;

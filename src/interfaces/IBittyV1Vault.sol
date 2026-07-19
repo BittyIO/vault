@@ -28,9 +28,6 @@ error AddingAssetsDisabled();
 error AddingProtocolsDisabled();
 error OwnerAndManagerMustDiffer();
 
-// sending errors
-error SendingDisabled();
-
 // payment risk-control errors
 error PaymentExceedsRiskCap();
 error PaymentNotStableCoin();
@@ -102,7 +99,6 @@ interface IBittyV1Vault {
     function getStableCoins() external view returns (address[] memory);
     function isAddingAssetsDisabled() external view returns (bool);
     function isAddingProtocolsDisabled() external view returns (bool);
-    function isSendingDisabled() external view returns (bool);
 
     /**
      * @notice The vault's currently in-force payment risk controls (all zero = no controls). Caps are in

@@ -207,14 +207,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
         }
     }
 
-    function disableSending() external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.disableSending();
-    }
-
-    function isSendingDisabled() external view returns (bool) {
-        return _vault.sendingDisabled;
-    }
-
     function approveSend(uint256 id) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.approveSend(id);
     }

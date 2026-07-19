@@ -83,7 +83,7 @@ struct VaultStorage {
     EnumerableSet.AddressSet assets;
     EnumerableSet.AddressSet stableCoins;
     bool addingAssetsDisabled;
-    bool sendingDisabled;
+
     // Reentrancy lock for native-ETH payouts (the only path that .call's an arbitrary recipient).
     bool payingEth;
     RiskConfig riskConfig;
