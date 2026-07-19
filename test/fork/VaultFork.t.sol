@@ -89,7 +89,7 @@ contract TestVaultFork is Test {
         vm.startPrank(tx.origin);
         factory.activateVault(vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
         address vaultAddr = factory.vaultAddress(tx.origin);
-        BittyV1Vault(payable(vaultAddr)).grantRole(BittyV1Vault(payable(vaultAddr)).ASSET_MANAGER_ROLE(), assetManager);
+        BittyV1Vault(payable(vaultAddr)).addAssetManager(assetManager, 0, 0, type(uint64).max, 0);
         vm.stopPrank();
         vault = BittyV1Vault(payable(vaultAddr));
     }
@@ -395,8 +395,7 @@ contract TestVaultFork is Test {
         vm.startPrank(customOwner);
         factory.activateVault(vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
         address vaultAddr = factory.vaultAddress(customOwner);
-        BittyV1Vault(payable(vaultAddr))
-            .grantRole(BittyV1Vault(payable(vaultAddr)).ASSET_MANAGER_ROLE(), customAssetManager);
+        BittyV1Vault(payable(vaultAddr)).addAssetManager(customAssetManager, 0, 0, type(uint64).max, 0);
         vm.stopPrank();
 
         BittyV1Vault customVault = BittyV1Vault(payable(vaultAddr));

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
+import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {IBittyV1Guard, NotRegistered, Deprecated} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {
     DisableRebalanceUntilTimestampTooEarly,
@@ -15,6 +16,7 @@ import {
     TradeMustTouchStableCoin,
     TradeLimitExpired,
     TradeInvestedTotalExceeded,
+    StableCoinInvestCapZero,
     InvalidLendingProtocol,
     InvalidStakingProtocol,
     InvalidAMMProtocol,
@@ -115,15 +117,23 @@ library AssetManagerLogic {
         address assetManager,
         uint256 interval,
         uint256 maxStableCoinPerTrade,
-        uint256 maxStableCoinInvestedTotal,
+        uint256 stableCoinInvestCap,
         uint256 expiredAt
     ) external onlyInitialized(logicStorage) {
         if (assetManager == address(0)) revert AddressZero();
+        if (stableCoinInvestCap == 0) revert StableCoinInvestCapZero();
         TradeLimit storage limit = logicStorage.tradeLimits[assetManager];
         limit.interval = uint64(interval);
         limit.maxStableCoinPerTrade = uint64(maxStableCoinPerTrade);
-        limit.maxStableCoinInvestedTotal = uint64(maxStableCoinInvestedTotal);
+        limit.stableCoinInvestCap = uint64(stableCoinInvestCap);
         limit.expiredAt = uint96(expiredAt);
+    }
+
+    function removeTradeLimit(AssetManagerStorage storage logicStorage, address assetManager)
+        external
+        onlyInitialized(logicStorage)
+    {
+        delete logicStorage.tradeLimits[assetManager];
     }
 
     function supply(
@@ -402,10 +412,11 @@ library AssetManagerLogic {
      * (keyed by msg.sender, preserved through delegatecall): a stablecoin size cap and a frequency
      * throttle. The size cap is denominated in stablecoin whole tokens, so when it is set the trade
      * must have a stablecoin as either leg; the stablecoin leg's amount is measured against the cap.
-     * `maxStableCoinInvestedTotal` tracks remaining whole-token budget for stable→asset trades and
-     * is restored on asset→stable trades. `expiredAt` blocks all trades once reached (0 = no expiry).
-     * When every limit field is zero the whole block is skipped; when only `interval` is zero the
-     * throttle check and `lastTradeTimestamp` write are skipped to avoid an unnecessary SSTORE.
+     * `stableCoinInvested` (the manager's deployed portfolio) rises by the stablecoin spent on
+     * stable→asset trades and falls when assets are sold back, and may never exceed `stableCoinInvestCap`.
+     * `expiredAt` blocks all trades once reached (0 = no expiry). The owner acting as asset manager
+     * (DEFAULT_ADMIN_ROLE) is exempt; every other caller is an explicit asset manager and is always
+     * enforced, so an unconfigured cap of 0 blocks stable→asset investing rather than allowing it.
      */
     function _validateRebalance(
         AssetManagerStorage storage logicStorage,
@@ -432,13 +443,10 @@ library AssetManagerLogic {
             if (available < sellAmount || available - sellAmount < minBal) revert MinimalBalanceNotMet();
         }
 
-        TradeLimit storage limit = logicStorage.tradeLimits[msg.sender];
-        if (
-            limit.interval == 0 && limit.maxStableCoinPerTrade == 0 && limit.maxStableCoinInvestedTotal == 0
-                && limit.expiredAt == 0
-        ) {
+        if (IAccessControl(address(this)).hasRole(bytes32(0), msg.sender)) {
             return;
         }
+        TradeLimit storage limit = logicStorage.tradeLimits[msg.sender];
 
         if (limit.expiredAt != 0 && block.timestamp >= limit.expiredAt) {
             revert TradeLimitExpired();
@@ -459,18 +467,17 @@ library AssetManagerLogic {
             if (stableAmount > maxUnits) revert TradeSizeExceeded();
         }
 
-        uint256 investedBudget = limit.maxStableCoinInvestedTotal;
-        if (investedBudget != 0) {
-            if (vaultStorage.stableCoins.contains(from)) {
-                uint256 unit = 10 ** IERC20Metadata(from).decimals();
-                uint256 wholeSpent = sellAmount / unit;
-                if (wholeSpent > investedBudget) revert TradeInvestedTotalExceeded();
-                limit.maxStableCoinInvestedTotal = uint64(investedBudget - wholeSpent);
-            } else if (vaultStorage.stableCoins.contains(to)) {
-                uint256 unit = 10 ** IERC20Metadata(to).decimals();
-                uint256 wholeReceived = toAmount / unit;
-                limit.maxStableCoinInvestedTotal = uint64(investedBudget + wholeReceived);
-            }
+        uint256 cap = limit.stableCoinInvestCap;
+        if (vaultStorage.stableCoins.contains(from)) {
+            uint256 unit = 10 ** IERC20Metadata(from).decimals();
+            uint256 invested = uint256(limit.stableCoinInvested) + sellAmount / unit;
+            if (invested > cap) revert TradeInvestedTotalExceeded();
+            limit.stableCoinInvested = uint64(invested);
+        } else if (vaultStorage.stableCoins.contains(to)) {
+            uint256 unit = 10 ** IERC20Metadata(to).decimals();
+            uint256 wholeReceived = toAmount / unit;
+            uint256 invested = limit.stableCoinInvested;
+            limit.stableCoinInvested = uint64(invested > wholeReceived ? invested - wholeReceived : 0);
         }
 
         if (limit.interval != 0) {

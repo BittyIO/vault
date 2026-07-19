@@ -9,6 +9,8 @@ error TradeInInterval();
 error TradeMustTouchStableCoin();
 error TradeLimitExpired();
 error TradeInvestedTotalExceeded();
+error StableCoinInvestCapZero();
+error CannotGrantAssetManagerRole();
 error InvalidLendingProtocol();
 error InvalidStakingProtocol();
 error InvalidAMMProtocol();

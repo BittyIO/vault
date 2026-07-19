@@ -31,7 +31,7 @@ interface IBittyV1Owner {
         address indexed assetManager,
         uint256 interval,
         uint256 maxStableCoinPerTrade,
-        uint256 maxStableCoinInvestedTotal,
+        uint256 stableCoinInvestCap,
         uint256 expiredAt
     );
     event NewAddressProtectionSet(uint256 protectionDuration);
@@ -83,18 +83,31 @@ interface IBittyV1Owner {
     function setMinimalBalance(address assetAddress, uint256 minimalBalance) external;
 
     /**
-     * @notice Set a per-asset-manager trade guardrail.
+     * @notice Add an asset manager together with its trade guardrail. Asset managers can only be
+     *         granted this way — `grantRole(ASSET_MANAGER_ROLE, …)` reverts — so no asset manager can
+     *         exist without an invest cap. Reverts if `stableCoinInvestCap == 0`.
+     */
+    function addAssetManager(
+        address assetManager,
+        uint256 interval,
+        uint256 maxStableCoinPerTrade,
+        uint256 stableCoinInvestCap,
+        uint256 expiredAt
+    ) external;
+
+    /**
+     * @notice Update an existing asset manager's trade guardrail.
      * @param interval Min seconds between trades (0 = no throttle).
      * @param maxStableCoinPerTrade Max stablecoin per trade in whole tokens (0 = no cap).
-     * @param maxStableCoinInvestedTotal Remaining stablecoin budget in whole tokens for buying
-     *        assets with stablecoins; selling assets back to stablecoins adds back (0 = no cap).
+     * @param stableCoinInvestCap Max whole-token stablecoin the manager may have invested into assets
+     *        at once; reverts if 0, so a manager can never be left uncapped.
      * @param expiredAt Unix timestamp after which this asset manager may not trade (0 = never).
      */
     function setTradeLimit(
         address assetManager,
         uint256 interval,
         uint256 maxStableCoinPerTrade,
-        uint256 maxStableCoinInvestedTotal,
+        uint256 stableCoinInvestCap,
         uint256 expiredAt
     ) external;
 

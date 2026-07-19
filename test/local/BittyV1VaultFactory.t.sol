@@ -98,7 +98,7 @@ contract BittyV1VaultFactoryTest is Test {
         factory.activateVault(vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
         vault = factory.vaultAddress(owner);
         if (assetManager != address(0)) {
-            BittyV1Vault(payable(vault)).grantRole(BittyV1Vault(payable(vault)).ASSET_MANAGER_ROLE(), assetManager);
+            BittyV1Vault(payable(vault)).addAssetManager(assetManager, 0, 0, type(uint64).max, 0);
         }
         vm.stopPrank();
     }
@@ -668,8 +668,8 @@ contract BittyV1VaultFactoryTest is Test {
         vm.startPrank(owner1);
         factory.activateVault(vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
         BittyV1Vault vaultInstance = BittyV1Vault(payable(factory.vaultAddress(owner1)));
-        vaultInstance.grantRole(vaultInstance.ASSET_MANAGER_ROLE(), manager1);
-        vaultInstance.grantRole(vaultInstance.ASSET_MANAGER_ROLE(), manager2);
+        vaultInstance.addAssetManager(manager1, 0, 0, type(uint64).max, 0);
+        vaultInstance.addAssetManager(manager2, 0, 0, type(uint64).max, 0);
         vm.stopPrank();
 
         assertTrue(vaultInstance.hasRole(vaultInstance.ASSET_MANAGER_ROLE(), manager1));

@@ -15,7 +15,8 @@ struct IntentOrderRecord {
 struct TradeLimit {
     uint64 interval; // 0 = no limit
     uint64 maxStableCoinPerTrade; // 0 = no cap
-    uint64 maxStableCoinInvestedTotal; // remaining whole-token budget: reduced on stable→asset, increased on asset→stable (0 = no cap)
+    uint64 stableCoinInvestCap; // guardrail: max whole-token stablecoin the manager may have invested at once; owner-set, 0 = no trade limit configured
+    uint64 stableCoinInvested; // portfolio: whole-token stablecoin currently deployed into assets; +on stable→asset, -on asset→stable
     uint96 expiredAt; // 0 = not expired
     uint128 lastTradeTimestamp;
 }

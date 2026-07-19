@@ -39,6 +39,7 @@ import {
     OwnerAndManagerMustDiffer,
     TransferFailed
 } from "../../src/interfaces/IBittyV1Vault.sol";
+import {CannotGrantAssetManagerRole} from "../../src/interfaces/IBittyV1AssetManager.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockStakingProtocol} from "../helpers/MockStakingProtocol.sol";
@@ -98,9 +99,8 @@ contract BittyV1VaultTest is Test {
     }
 
     function _grantAssetManager(address manager) internal {
-        bytes32 role = vault.ASSET_MANAGER_ROLE();
         vm.prank(ownerAddress);
-        vault.grantRole(role, manager);
+        vault.addAssetManager(manager, 0, 0, type(uint64).max, 0);
     }
 
     function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
@@ -197,10 +197,18 @@ contract BittyV1VaultTest is Test {
 
     function test_GrantRoleRevertsWhenOwnerAsAssetManager() public {
         _initializeVault();
-        bytes32 assetManagerRole = vault.ASSET_MANAGER_ROLE();
         vm.prank(ownerAddress);
         vm.expectRevert(OwnerAndManagerMustDiffer.selector);
-        vault.grantRole(assetManagerRole, ownerAddress);
+        vault.addAssetManager(ownerAddress, 0, 0, type(uint64).max, 0);
+    }
+
+    function test_GrantRoleRevertsForAssetManagerRole() public {
+        _initializeVault();
+        bytes32 assetManagerRole = vault.ASSET_MANAGER_ROLE();
+        address mgr = makeAddr("directGrantMgr");
+        vm.prank(ownerAddress);
+        vm.expectRevert(CannotGrantAssetManagerRole.selector);
+        vault.grantRole(assetManagerRole, mgr);
     }
 
     function test_GrantRoleRevertsWhenOwnerAsPaymentManager() public {
@@ -218,7 +226,7 @@ contract BittyV1VaultTest is Test {
         bytes32 amRole = vault.ASSET_MANAGER_ROLE();
         bytes32 pmRole = vault.PAYMENT_MANAGER_ROLE();
         vm.startPrank(ownerAddress);
-        vault.grantRole(amRole, mgr);
+        vault.addAssetManager(mgr, 0, 0, type(uint64).max, 0);
         vault.grantRole(pmRole, mgr);
         vm.stopPrank();
         assertTrue(vault.hasRole(amRole, mgr));
@@ -1570,7 +1578,7 @@ contract BittyV1VaultTest is Test {
         address newManager = makeAddr("instantManager");
         bytes32 role = vault.ASSET_MANAGER_ROLE();
         vm.prank(ownerAddress);
-        vault.grantRole(role, newManager);
+        vault.addAssetManager(newManager, 0, 0, type(uint64).max, 0);
         assertTrue(vault.hasRole(role, newManager));
     }
 
@@ -1627,7 +1635,7 @@ contract BittyV1VaultTest is Test {
 
         // Granting the (not-yet-admin) pending admin an asset-manager role is allowed here...
         vm.prank(ownerAddress);
-        vault.grantRole(assetManagerRole, newAdmin);
+        vault.addAssetManager(newAdmin, 0, 0, type(uint64).max, 0);
         assertTrue(vault.hasRole(assetManagerRole, newAdmin));
 
         // ...but the transfer can no longer be accepted: they would be both owner and manager.
