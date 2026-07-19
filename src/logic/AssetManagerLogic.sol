@@ -577,41 +577,6 @@ library AssetManagerLogic {
         _swapExactOut(logicStorage, ammProtocol, from, sellAmountMax, to, buyAmount, address(this), data);
     }
 
-    /**
-     * @notice Owner-scheduled on-behalf payment: buy exactly `buyAmount` of `to` for ≤ `sellAmountMax`
-     * of `from` and deliver it straight to `recipient` (a configured scheduledPayment).
-     * @dev Unlike {marketBuy} this bypasses the asset-manager rebalance guards (rebalance-disabled +
-     * minimal balance) — the scheduledPayment schedule is set by the owner, which outranks those asset-manager
-     * restrictions, so a payment goes through even if it would drop `from` below its minimal balance.
-     * The assets and AMM protocol are still validated, and delivery is verified on `recipient`. The
-     * caller (the vault facade) restricts `recipient` to a configured scheduledPayment.
-     */
-    /**
-     * @notice Owner-scheduled on-behalf payment: buy exactly `buyAmount` of `to` for ≤ `sellAmountMax`
-     * of `from` and deliver it straight to `recipient` (a configured scheduledPayment).
-     * @dev Unlike {marketBuy} this bypasses the asset-manager rebalance guards (rebalance-disabled +
-     * minimal balance) — the scheduledPayment schedule is set by the owner, which outranks those asset-manager
-     * restrictions, so a payment goes through even if it would drop `from` below its minimal balance.
-     * The assets and AMM protocol are still validated, and delivery is verified on `recipient`. The
-     * caller (the vault facade) restricts `recipient` to a configured scheduledPayment.
-     */
-    function buyForScheduledPayment(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address ammProtocol,
-        address from,
-        address to,
-        uint256 buyAmount,
-        uint256 sellAmountMax,
-        address recipient,
-        bytes memory data
-    ) external onlyInitialized(logicStorage) {
-        _checkAMMProtocol(logicStorage, ammProtocol);
-        if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
-        VaultLogic.checkAsset(vaultStorage, to);
-        _swapExactOut(logicStorage, ammProtocol, from, sellAmountMax, to, buyAmount, recipient, data);
-    }
-
     function _swapExactIn(
         AssetManagerStorage storage logicStorage,
         address ammProtocol,
