@@ -19,7 +19,14 @@ contract MockAMMProtocol is IBittyV1AMMProtocol {
 
     function initialize(address) external override {}
 
-    function swap(bytes memory, address) external payable override {}
+    function swap(bytes memory data, address recipient) external payable override {
+        (address sellToken, uint256 sellAmount, address buyToken, uint256 buyAmountMin) =
+            abi.decode(data, (address, uint256, address, uint256));
+        IERC20(sellToken).safeTransferFrom(msg.sender, address(this), sellAmount);
+        lastSwapRecipient = recipient;
+        lastSwapBuyAmount = buyAmountMin;
+        MockERC20(buyToken).mint(recipient, buyAmountMin);
+    }
 
     /**
      * @dev Simulated exact-output swap: pulls the sell token from the caller (the vault) and mints the

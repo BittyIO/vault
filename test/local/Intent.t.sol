@@ -16,6 +16,7 @@ import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {BittyV1VaultHarness} from "../helpers/BittyV1VaultHarness.sol";
 import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
 import {MockIntentProtocol, MockIntentRegistry} from "../helpers/MockIntentProtocol.sol";
+import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
 /// @dev Exercises the vault intent subsystem (limit orders, TWAP, cancellation, EIP-1271)
 ///      using MockIntentProtocol as the instruction builder so no real CoW/UniswapX is needed.
@@ -148,9 +149,17 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
         this.limitSell(address(mock), WETH, USDC, 1 ether, 1000e6, validTo);
     }
 
-    function testLimitSellChecksAsset() public {
+    function testLimitSellChecksBuyAsset() public {
         vm.expectRevert(NotRegistered.selector);
-        this.limitSell(address(mock), NOT_AN_ASSET, USDC, 1 ether, 1000e6, validTo);
+        this.limitSell(address(mock), WETH, NOT_AN_ASSET, 1 ether, 1000e6, validTo);
+    }
+
+    function testLimitSell_allowsNonVaultSellAsset() public {
+        MockERC20 stray = new MockERC20("Stray", "STR", 18);
+        stray.mint(address(this), 10 ether);
+
+        bytes32 id = this.limitSell(address(mock), address(stray), USDC, 1 ether, 1000e6, validTo);
+        assertTrue(id != bytes32(0));
     }
 
     function testLimitOrderOnlyAssetManager() public {

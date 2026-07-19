@@ -77,7 +77,7 @@ contract VaultForKidsForkTest is Test {
             trigger: address(0),
             assetAddress: assetAddress_,
             amount: amount_,
-            paymentCount: type(uint8).max,
+            remainingPaymentCount: type(uint8).max,
             startTimestamp: startTimestamp_,
             paymentInterval: PAY_INTERVAL,
             isImmutable: false,
