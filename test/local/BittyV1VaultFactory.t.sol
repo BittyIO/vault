@@ -7,7 +7,7 @@ import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {IVaultFull} from "../helpers/IVaultFull.sol";
-import {AddressZero} from "../../src/interfaces/IBittyV1Vault.sol";
+import {AddressZero, RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {
     IBittyV1VaultFactory,
@@ -95,7 +95,14 @@ contract BittyV1VaultFactoryTest is Test {
     // (asset managers are no longer passed at activation — the owner grants them afterwards).
     function _activateVault(address owner, address assetManager) internal returns (address vault) {
         vm.startPrank(owner);
-        factory.activateVault(vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero,
+            vaultAssetAddresses,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols
+        );
         vault = factory.vaultAddress(owner);
         if (assetManager != address(0)) {
             BittyV1Vault(payable(vault)).addAssetManager(assetManager, 0, 0, type(uint64).max, 0);
@@ -225,7 +232,14 @@ contract BittyV1VaultFactoryTest is Test {
         address[] memory invalidAddressArray = new address[](1);
         invalidAddressArray[0] = makeAddr("invalidAddress");
         vm.expectRevert(NotRegistered.selector);
-        factory.activateVault(invalidAddressArray, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero,
+            invalidAddressArray,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols
+        );
     }
 
     function test_ActivateVaultForDifferentOwners() public {
@@ -253,7 +267,14 @@ contract BittyV1VaultFactoryTest is Test {
 
         vm.prank(owner1);
         vm.expectRevert(VaultAlreadyActivated.selector);
-        factory.activateVault(vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero,
+            vaultAssetAddresses,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols
+        );
     }
 
     function test_ActivatedVaultCanBeInitialized() public {
@@ -288,7 +309,12 @@ contract BittyV1VaultFactoryTest is Test {
             vm.prank(owner1);
             vm.expectRevert(VaultAlreadyActivated.selector);
             factory.activateVault(
-                vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+                RiskControlLevel.Zero,
+                vaultAssetAddresses,
+                lendingProtocols,
+                stakingProtocols,
+                ammProtocols,
+                intentProtocols
             );
         }
     }
@@ -303,7 +329,14 @@ contract BittyV1VaultFactoryTest is Test {
         address[] memory invalidStableCoinArray = new address[](1);
         invalidStableCoinArray[0] = makeAddr("invalidStableCoin");
         vm.expectRevert(NotRegistered.selector);
-        factory.activateVault(invalidStableCoinArray, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero,
+            invalidStableCoinArray,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols
+        );
     }
 
     function test_ActivateVaultRevertsIfLendingProtocolNotRegistered() public {
@@ -312,7 +345,12 @@ contract BittyV1VaultFactoryTest is Test {
         invalidLendingProviderArray[0] = makeAddr("invalidLendingProtocol");
         vm.expectRevert(NotRegistered.selector);
         factory.activateVault(
-            vaultAssetAddresses, invalidLendingProviderArray, stakingProtocols, ammProtocols, intentProtocols
+            RiskControlLevel.Zero,
+            vaultAssetAddresses,
+            invalidLendingProviderArray,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols
         );
     }
 
@@ -322,7 +360,12 @@ contract BittyV1VaultFactoryTest is Test {
         invalidAMMProviderArray[0] = makeAddr("invalidAMMProtocol");
         vm.expectRevert(NotRegistered.selector);
         factory.activateVault(
-            vaultAssetAddresses, lendingProtocols, stakingProtocols, invalidAMMProviderArray, intentProtocols
+            RiskControlLevel.Zero,
+            vaultAssetAddresses,
+            lendingProtocols,
+            stakingProtocols,
+            invalidAMMProviderArray,
+            intentProtocols
         );
     }
 
@@ -332,7 +375,12 @@ contract BittyV1VaultFactoryTest is Test {
         invalidIntentProviderArray[0] = makeAddr("invalidIntentProtocol");
         vm.expectRevert(NotRegistered.selector);
         factory.activateVault(
-            vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, invalidIntentProviderArray
+            RiskControlLevel.Zero,
+            vaultAssetAddresses,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            invalidIntentProviderArray
         );
     }
 
@@ -347,7 +395,12 @@ contract BittyV1VaultFactoryTest is Test {
 
         vm.prank(owner1);
         factory.activateVault(
-            vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, selectedIntentProtocols
+            RiskControlLevel.Zero,
+            vaultAssetAddresses,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            selectedIntentProtocols
         );
         address vault = factory.vaultAddress(owner1);
 
@@ -361,7 +414,14 @@ contract BittyV1VaultFactoryTest is Test {
         _initFactory();
 
         vm.prank(owner1);
-        factory.activateVault(new address[](0), new address[](0), new address[](0), new address[](0), new address[](0));
+        factory.activateVault(
+            RiskControlLevel.Zero,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
         address vault = factory.vaultAddress(owner1);
 
         assertTrue(vault.code.length > 0, "Vault should be activated");
@@ -405,7 +465,9 @@ contract BittyV1VaultFactoryTest is Test {
         IBittyV1Guard(guardAddress).addAssets(newAsset);
 
         vm.prank(owner1);
-        factory.activateVault(multipleAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero, multipleAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+        );
 
         assertTrue(factory.vaultAddress(owner1).code.length > 0, "Vault should be activated");
     }
@@ -431,7 +493,9 @@ contract BittyV1VaultFactoryTest is Test {
         }
 
         vm.prank(owner1);
-        factory.activateVault(activationAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero, activationAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+        );
 
         assertTrue(factory.vaultAddress(owner1).code.length > 0, "Vault should be activated");
     }
@@ -465,7 +529,12 @@ contract BittyV1VaultFactoryTest is Test {
 
         vm.prank(owner1);
         factory.activateVault(
-            vaultAssetAddresses, lendingProtocols, stakingProtocols, multipleAMMProtocols, intentProtocols
+            RiskControlLevel.Zero,
+            vaultAssetAddresses,
+            lendingProtocols,
+            stakingProtocols,
+            multipleAMMProtocols,
+            intentProtocols
         );
 
         assertTrue(factory.vaultAddress(owner1).code.length > 0, "Vault should be activated");
@@ -479,7 +548,9 @@ contract BittyV1VaultFactoryTest is Test {
         mixedAssets[2] = makeAddr("invalidAsset");
 
         vm.expectRevert(NotRegistered.selector);
-        factory.activateVault(mixedAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero, mixedAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+        );
     }
 
     function test_ActivateVaultRevertsIfMultipleStableCoinsOneNotRegistered() public {
@@ -490,7 +561,9 @@ contract BittyV1VaultFactoryTest is Test {
         mixedStableCoins[2] = makeAddr("invalidStableCoin");
 
         vm.expectRevert(NotRegistered.selector);
-        factory.activateVault(mixedStableCoins, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero, mixedStableCoins, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+        );
     }
 
     function test_ActivateVaultRevertsIfMultipleLendingProtocolsOneNotRegistered() public {
@@ -507,7 +580,12 @@ contract BittyV1VaultFactoryTest is Test {
 
         vm.expectRevert(NotRegistered.selector);
         factory.activateVault(
-            vaultAssetAddresses, mixedLendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+            RiskControlLevel.Zero,
+            vaultAssetAddresses,
+            mixedLendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols
         );
     }
 
@@ -525,7 +603,12 @@ contract BittyV1VaultFactoryTest is Test {
 
         vm.expectRevert(NotRegistered.selector);
         factory.activateVault(
-            vaultAssetAddresses, lendingProtocols, stakingProtocols, mixedAMMProtocols, intentProtocols
+            RiskControlLevel.Zero,
+            vaultAssetAddresses,
+            lendingProtocols,
+            stakingProtocols,
+            mixedAMMProtocols,
+            intentProtocols
         );
     }
 
@@ -547,7 +630,12 @@ contract BittyV1VaultFactoryTest is Test {
             vm.prank(owner1);
             vm.expectRevert(VaultAlreadyActivated.selector);
             factory.activateVault(
-                vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+                RiskControlLevel.Zero,
+                vaultAssetAddresses,
+                lendingProtocols,
+                stakingProtocols,
+                ammProtocols,
+                intentProtocols
             );
         } else {
             vm.etch(computedAddr, minimalBytecode);
@@ -555,7 +643,12 @@ contract BittyV1VaultFactoryTest is Test {
                 vm.prank(owner1);
                 vm.expectRevert(VaultAlreadyActivated.selector);
                 factory.activateVault(
-                    vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+                    RiskControlLevel.Zero,
+                    vaultAssetAddresses,
+                    lendingProtocols,
+                    stakingProtocols,
+                    ammProtocols,
+                    intentProtocols
                 );
             }
         }
@@ -611,7 +704,14 @@ contract BittyV1VaultFactoryTest is Test {
         // impossible.
         address attacker = makeAddr("attacker");
         vm.prank(attacker);
-        factory.activateVault(new address[](0), new address[](0), new address[](0), new address[](0), new address[](0));
+        factory.activateVault(
+            RiskControlLevel.Zero,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
         address attackerVault = factory.vaultAddress(attacker);
 
         address victimVault = _activateVault(owner1, assetManagerAddress);
@@ -627,7 +727,14 @@ contract BittyV1VaultFactoryTest is Test {
         _newVaultFor(owner1);
         vm.prank(owner1);
         vm.expectRevert(VaultAlreadyActivated.selector);
-        factory.activateVault(vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero,
+            vaultAssetAddresses,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols
+        );
     }
 
     function test_ActivateVaultFor_emitsVaultActivatedEvent() public {
@@ -638,7 +745,14 @@ contract BittyV1VaultFactoryTest is Test {
         emit BittyV1VaultFactory.VaultActivated(owner1);
 
         vm.prank(owner1);
-        factory.activateVault(vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero,
+            vaultAssetAddresses,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols
+        );
         assertTrue(expectedVault.code.length > 0);
     }
 
@@ -666,7 +780,14 @@ contract BittyV1VaultFactoryTest is Test {
         address manager2 = makeAddr("manager2");
 
         vm.startPrank(owner1);
-        factory.activateVault(vaultAssetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero,
+            vaultAssetAddresses,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols
+        );
         BittyV1Vault vaultInstance = BittyV1Vault(payable(factory.vaultAddress(owner1)));
         vaultInstance.addAssetManager(manager1, 0, 0, type(uint64).max, 0);
         vaultInstance.addAssetManager(manager2, 0, 0, type(uint64).max, 0);
@@ -731,7 +852,14 @@ contract BittyV1VaultFactoryTest is Test {
 
         vm.prank(owner1);
         vm.expectRevert(VaultAlreadyActivated.selector);
-        factory.activateVault(new address[](0), new address[](0), new address[](0), new address[](0), new address[](0));
+        factory.activateVault(
+            RiskControlLevel.Zero,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
     }
 
     function test_vaultAddressMatchesActivation() public {
@@ -839,7 +967,7 @@ contract ActivateVaultWithAssetsTest is Test {
 
         vm.prank(user);
         factory.activateVaultWithAssets(
-            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+            RiskControlLevel.Zero, _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
         );
 
         assertEq(wbtc.balanceOf(vault), amount, "vault received WBTC via permit");
@@ -860,7 +988,7 @@ contract ActivateVaultWithAssetsTest is Test {
         vm.startPrank(user);
         wbtc.approve(address(factory), amount);
         factory.activateVaultWithAssets(
-            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+            RiskControlLevel.Zero, _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
         );
         vm.stopPrank();
 
@@ -881,7 +1009,13 @@ contract ActivateVaultWithAssetsTest is Test {
         vm.startPrank(user);
         wbtc.approve(address(factory), wbtcAmount);
         factory.activateVaultWithAssets(
-            _assets(address(wbtc), address(usdc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+            RiskControlLevel.Zero,
+            _assets(address(wbtc), address(usdc)),
+            deposits,
+            noProtocols,
+            noProtocols,
+            noProtocols,
+            noProtocols
         );
         vm.stopPrank();
 
@@ -899,7 +1033,13 @@ contract ActivateVaultWithAssetsTest is Test {
 
         vm.prank(user);
         factory.activateVaultWithAssets{value: ethAmount}(
-            _assets(address(wbtc), address(weth)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+            RiskControlLevel.Zero,
+            _assets(address(wbtc), address(weth)),
+            deposits,
+            noProtocols,
+            noProtocols,
+            noProtocols,
+            noProtocols
         );
 
         assertEq(wbtc.balanceOf(vault), wbtcAmount, "vault received WBTC");
@@ -914,7 +1054,13 @@ contract ActivateVaultWithAssetsTest is Test {
 
         vm.prank(user);
         factory.activateVaultWithAssets{value: ethAmount}(
-            _single(address(weth)), _noDeposits(), noProtocols, noProtocols, noProtocols, noProtocols
+            RiskControlLevel.Zero,
+            _single(address(weth)),
+            _noDeposits(),
+            noProtocols,
+            noProtocols,
+            noProtocols,
+            noProtocols
         );
 
         assertEq(weth.balanceOf(vault), ethAmount, "vault holds wrapped WETH");
@@ -933,7 +1079,7 @@ contract ActivateVaultWithAssetsTest is Test {
 
         vm.prank(user);
         factory.activateVaultWithAssets(
-            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+            RiskControlLevel.Zero, _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
         );
 
         assertEq(wbtc.balanceOf(vault), amount, "transfer still succeeds via pre-set allowance");
@@ -947,7 +1093,7 @@ contract ActivateVaultWithAssetsTest is Test {
         vm.prank(user);
         vm.expectRevert(NotRegistered.selector);
         factory.activateVaultWithAssets(
-            _single(address(stray)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+            RiskControlLevel.Zero, _single(address(stray)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
         );
     }
 
@@ -961,7 +1107,7 @@ contract ActivateVaultWithAssetsTest is Test {
         vm.prank(user);
         vm.expectRevert();
         factory.activateVaultWithAssets(
-            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+            RiskControlLevel.Zero, _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
         );
     }
 
@@ -973,7 +1119,7 @@ contract ActivateVaultWithAssetsTest is Test {
         vm.prank(user);
         vm.expectRevert();
         factory.activateVaultWithAssets(
-            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+            RiskControlLevel.Zero, _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
         );
     }
 
@@ -983,11 +1129,13 @@ contract ActivateVaultWithAssetsTest is Test {
         IBittyV1VaultFactory.AssetInput[] memory deposits = _deposits(_permit(wbtc, amount));
 
         vm.startPrank(user);
-        factory.activateVault(_single(address(wbtc)), noProtocols, noProtocols, noProtocols, noProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero, _single(address(wbtc)), noProtocols, noProtocols, noProtocols, noProtocols
+        );
 
         vm.expectRevert(VaultAlreadyActivated.selector);
         factory.activateVaultWithAssets(
-            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+            RiskControlLevel.Zero, _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
         );
         vm.stopPrank();
     }
@@ -1001,7 +1149,7 @@ contract ActivateVaultWithAssetsTest is Test {
         vm.expectEmit(true, false, false, true);
         emit BittyV1VaultFactory.VaultActivated(user);
         factory.activateVaultWithAssets(
-            _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
+            RiskControlLevel.Zero, _single(address(wbtc)), deposits, noProtocols, noProtocols, noProtocols, noProtocols
         );
     }
 
@@ -1019,7 +1167,7 @@ contract ActivateVaultWithAssetsTest is Test {
         vm.prank(user);
         vm.expectRevert(EthTransferFailed.selector);
         badFactory.activateVaultWithAssets{value: 1 ether}(
-            new address[](0), _noDeposits(), noProtocols, noProtocols, noProtocols, noProtocols
+            RiskControlLevel.Zero, new address[](0), _noDeposits(), noProtocols, noProtocols, noProtocols, noProtocols
         );
     }
 }

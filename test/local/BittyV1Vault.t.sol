@@ -18,8 +18,6 @@ import {
     ScheduledPaymentPaymentCountZero,
     ScheduledPaymentIntervalTooShort,
     AssetAddressNotContract,
-    NewAddressProtectionOutOfRange,
-    NewAddressProtectionCannotDecrease,
     AddressProtectionNotEnded,
     ScheduledPaymentNotStartYet,
     ScheduledPaymentStartTimestampInPast,
@@ -37,9 +35,12 @@ import {
     PendingSendNotFound,
     SendingDisabled,
     OwnerAndManagerMustDiffer,
-    TransferFailed
+    TransferFailed,
+    PaymentExceedsRiskCap,
+    PaymentNotStableCoin
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {CannotGrantAssetManagerRole} from "../../src/interfaces/IBittyV1AssetManager.sol";
+import {RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockStakingProtocol} from "../helpers/MockStakingProtocol.sol";
@@ -162,7 +163,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
 
@@ -189,7 +191,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), assetManagerAddress));
@@ -245,7 +248,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetMgr);
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
@@ -264,7 +268,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
@@ -277,7 +282,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
     }
 
@@ -291,7 +297,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
@@ -312,7 +319,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -335,7 +343,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -358,7 +367,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -379,7 +389,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -400,7 +411,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r =
@@ -420,7 +432,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -441,7 +454,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -492,7 +506,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -512,7 +527,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -544,7 +560,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -576,7 +593,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
@@ -607,7 +625,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -628,7 +647,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -652,7 +672,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -678,7 +699,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -702,7 +724,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -727,7 +750,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         uint256 futureStartTimestamp = block.timestamp + 100;
@@ -751,7 +775,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
@@ -780,7 +805,8 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
@@ -824,57 +850,73 @@ contract BittyV1VaultTest is Test {
         vault.setNewAddressProtection(1 days);
     }
 
-    function test_SetNewAddressProtectionRevertOutOfRange() public {
-        _initializeVault();
-        vm.prank(ownerAddress);
-        vm.expectRevert(NewAddressProtectionOutOfRange.selector);
-        vault.setNewAddressProtection(VaultLogic.NEW_ADDRESS_PROTECTION_MAX + 1);
-    }
-
-    function test_SetNewAddressProtectionRevertCannotDisable() public {
-        _initializeVault();
-        // A compromised owner must not be able to drop protection to 0 and drain immediately.
-        vm.prank(ownerAddress);
-        vm.expectRevert(NewAddressProtectionOutOfRange.selector);
-        vault.setNewAddressProtection(0);
-    }
-
-    function test_SetNewAddressProtectionRevertBelowMin() public {
-        _initializeVault();
-        vm.prank(ownerAddress);
-        vm.expectRevert(NewAddressProtectionOutOfRange.selector);
-        vault.setNewAddressProtection(VaultLogic.NEW_ADDRESS_PROTECTION_MIN - 1);
-    }
-
-    function test_SetNewAddressProtectionSuccessAtMin() public {
-        _initializeVault();
-        vm.prank(ownerAddress);
-        vault.setNewAddressProtection(VaultLogic.NEW_ADDRESS_PROTECTION_MIN);
-    }
-
-    function test_SetNewAddressProtectionSuccessAtMax() public {
-        _initializeVault();
-        vm.prank(ownerAddress);
-        vault.setNewAddressProtection(VaultLogic.NEW_ADDRESS_PROTECTION_MAX);
-    }
-
-    function test_SetNewAddressProtectionCanIncrease() public {
+    function test_SetNewAddressProtection_RaisingIsImmediate() public {
         _initializeVault();
         vm.startPrank(ownerAddress);
         vault.setNewAddressProtection(2 days);
-        vault.setNewAddressProtection(2 days); // equal is a no-op, allowed
-        vault.setNewAddressProtection(5 days); // raising is allowed
+        vault.setNewAddressProtection(5 days); // raising (tightening) applies immediately
         vm.stopPrank();
+        (uint64 nap,,,,) = vault.getRiskConfig();
+        assertEq(nap, 5 days);
     }
 
-    function test_SetNewAddressProtectionRevertCannotDecrease() public {
-        _initializeVault();
-        // A compromised owner key must not be able to weaken an already-configured window.
-        vm.startPrank(ownerAddress);
-        vault.setNewAddressProtection(10 days);
-        vm.expectRevert(NewAddressProtectionCannotDecrease.selector);
-        vault.setNewAddressProtection(5 days);
-        vm.stopPrank();
+    function test_Risk_LoweringNewAddressProtection_DelayedByTimelock() public {
+        BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
+        (uint64 nap0,,,, uint64 tl) = v.getRiskConfig();
+        vm.prank(ownerAddress);
+        v.setNewAddressProtection(1 hours); // loosening
+        (uint64 napNow,,,,) = v.getRiskConfig();
+        assertEq(napNow, nap0); // unchanged until the timelock elapses
+        vm.warp(block.timestamp + tl);
+        (uint64 napAfter,,,,) = v.getRiskConfig();
+        assertEq(napAfter, 1 hours);
+    }
+
+    function test_Risk_Cap_TighteningImmediate_LooseningDelayed() public {
+        BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
+        (, uint64 send0,,, uint64 tl) = v.getRiskConfig();
+        vm.prank(ownerAddress);
+        v.setMaxSendValue(send0 - 1); // tighten (lower cap) -> immediate
+        (, uint64 sendTight,,,) = v.getRiskConfig();
+        assertEq(sendTight, send0 - 1);
+
+        vm.prank(ownerAddress);
+        v.setMaxSendValue(send0 + 1_000); // loosen (raise cap) -> delayed
+        (, uint64 sendNow,,,) = v.getRiskConfig();
+        assertEq(sendNow, send0 - 1);
+        vm.warp(block.timestamp + tl);
+        (, uint64 sendAfter,,,) = v.getRiskConfig();
+        assertEq(sendAfter, send0 + 1_000);
+    }
+
+    function test_Risk_Cap_ClearingToZeroIsLooseningDelayed() public {
+        BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
+        (,,, uint64 wl0, uint64 tl) = v.getRiskConfig();
+        vm.prank(ownerAddress);
+        v.setMaxWhitelistedValue(0); // removing the restriction = loosening
+        (,,, uint64 wlNow,) = v.getRiskConfig();
+        assertEq(wlNow, wl0); // still restricted until the timelock elapses
+        vm.warp(block.timestamp + tl);
+        (,,, uint64 wlAfter,) = v.getRiskConfig();
+        assertEq(wlAfter, 0);
+    }
+
+    function test_Risk_ChangeTimelock_LoweringDelayedByItself_RaisingImmediate() public {
+        BittyV1Vault v = _initAtLevel(RiskControlLevel.High);
+        (,,,, uint64 tl0) = v.getRiskConfig();
+
+        vm.prank(ownerAddress);
+        v.setChangeTimelock(tl0 + 10 days); // raising is immediate
+        (,,,, uint64 tlRaised) = v.getRiskConfig();
+        assertEq(tlRaised, tl0 + 10 days);
+
+        vm.prank(ownerAddress);
+        v.setChangeTimelock(1 hours); // lowering waits the CURRENT (raised) timelock
+        (,,,, uint64 tlNow) = v.getRiskConfig();
+        assertEq(tlNow, tl0 + 10 days);
+        vm.warp(block.timestamp + tl0 + 10 days);
+        (,,,, uint64 tlAfter) = v.getRiskConfig();
+        assertEq(tlAfter, 1 hours);
     }
 
     function test_PayScheduledPayment_revertAddressProtectionNotEnded() public {
@@ -1408,31 +1450,17 @@ contract BittyV1VaultTest is Test {
         uint256 rId = vault.addScheduledPayment(r);
     }
 
-    function testFuzz_SetNewAddressProtection_withinBounds(uint256 protection) public {
-        protection = bound(protection, VaultLogic.NEW_ADDRESS_PROTECTION_MIN, VaultLogic.NEW_ADDRESS_PROTECTION_MAX);
-        _initializeVault();
+    function testFuzz_SetNewAddressProtection_anyValueRaisesImmediately(uint256 protection) public {
+        protection = bound(protection, 1, uint256(type(uint64).max));
+        _initializeVault(); // Zero level: raising from 0 is a tightening -> immediate
         vm.prank(ownerAddress);
         vault.setNewAddressProtection(protection);
-    }
-
-    function testFuzz_SetNewAddressProtection_rejectsAboveMax(uint256 protection) public {
-        vm.assume(protection > VaultLogic.NEW_ADDRESS_PROTECTION_MAX);
-        _initializeVault();
-        vm.prank(ownerAddress);
-        vm.expectRevert(NewAddressProtectionOutOfRange.selector);
-        vault.setNewAddressProtection(protection);
-    }
-
-    function testFuzz_SetNewAddressProtection_rejectsBelowMin(uint256 protection) public {
-        protection = bound(protection, 0, VaultLogic.NEW_ADDRESS_PROTECTION_MIN - 1);
-        _initializeVault();
-        vm.prank(ownerAddress);
-        vm.expectRevert(NewAddressProtectionOutOfRange.selector);
-        vault.setNewAddressProtection(protection);
+        (uint64 nap,,,,) = vault.getRiskConfig();
+        assertEq(nap, uint64(protection));
     }
 
     function testFuzz_ScheduledPaymentProtection_blocksDuringWindow(uint256 protection, uint256 elapsed) public {
-        protection = bound(protection, VaultLogic.NEW_ADDRESS_PROTECTION_MIN, VaultLogic.NEW_ADDRESS_PROTECTION_MAX);
+        protection = bound(protection, 1 hours, 365 days);
         elapsed = bound(elapsed, 0, protection - 1);
         _initializeVault();
         vm.prank(ownerAddress);
@@ -1450,7 +1478,7 @@ contract BittyV1VaultTest is Test {
     }
 
     function testFuzz_ScheduledPaymentProtection_allowsAfterWindow(uint256 protection, uint256 extra) public {
-        protection = bound(protection, VaultLogic.NEW_ADDRESS_PROTECTION_MIN, VaultLogic.NEW_ADDRESS_PROTECTION_MAX);
+        protection = bound(protection, 1 hours, 365 days);
         extra = bound(extra, 0, 365 days);
         _initializeVault();
         vm.prank(ownerAddress);
@@ -1605,9 +1633,175 @@ contract BittyV1VaultTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            defiFacet
+            defiFacet,
+            RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
+    }
+
+    // ============ Risk framework ============
+
+    function _addStableCoin(uint8 decimals) internal returns (MockERC20 usdc) {
+        usdc = new MockERC20("USD Coin", "USDC", decimals);
+        address[] memory toAdd = new address[](1);
+        toAdd[0] = address(usdc);
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        vm.prank(ownerAddress);
+        vault.addAssets(toAdd);
+    }
+
+    function _initAtLevel(RiskControlLevel level) internal returns (BittyV1Vault v) {
+        v = new BittyV1Vault();
+        v.initialize(
+            ownerAddress,
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet,
+            level
+        );
+    }
+
+    function test_Risk_LevelDefaults_NoneIsAllZero() public {
+        (uint64 nap, uint64 sVal, uint64 scVal, uint64 wlVal, uint64 tl) =
+            _initAtLevel(RiskControlLevel.Zero).getRiskConfig();
+        assertEq(nap, 0);
+        assertEq(sVal, 0);
+        assertEq(scVal, 0);
+        assertEq(wlVal, 0);
+        assertEq(tl, 0); // Zero level: no loosening delay, changes are instant
+    }
+
+    function test_Risk_LevelDefaults_StandardAndHighAreConfigured() public {
+        (uint64 stdNap, uint64 stdSend, uint64 stdSched, uint64 stdWl, uint64 stdTl) =
+            _initAtLevel(RiskControlLevel.Standard).getRiskConfig();
+        assertGt(stdNap, 0);
+        assertGt(stdSend, 0);
+        assertGt(stdSched, 0);
+        assertGt(stdWl, 0);
+        assertGt(stdTl, 0);
+
+        (uint64 hiNap, uint64 hiSend, uint64 hiSched, uint64 hiWl, uint64 hiTl) =
+            _initAtLevel(RiskControlLevel.High).getRiskConfig();
+        assertGt(hiNap, 0);
+        assertGt(hiSend, 0);
+        assertGt(hiSched, 0);
+        assertGt(hiWl, 0);
+        assertGt(hiTl, 0);
+        // High keeps at least as long a reaction window as Standard (new-address protection + change
+        // timelock). Per-payment caps are the owner's dollar policy, so no cross-level ordering is assumed.
+        assertGe(hiNap, stdNap);
+        assertGe(hiTl, stdTl);
+    }
+
+    function test_Risk_Send_RevertsForNonStableCoin() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vault.setMaxSendValue(1_000);
+        vm.prank(ownerAddress);
+        vm.expectRevert(PaymentNotStableCoin.selector);
+        vault.send(makeAddr("payee"), address(weth), 1);
+    }
+
+    function test_Risk_Send_RevertsOverCap() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        vm.prank(ownerAddress);
+        vault.setMaxSendValue(1_000);
+        vm.prank(ownerAddress);
+        vm.expectRevert(PaymentExceedsRiskCap.selector);
+        vault.send(makeAddr("payee"), address(usdc), 1_001 * 1e6);
+    }
+
+    function test_Risk_Send_SucceedsWithinCap() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        usdc.mint(address(vault), 1_000 * 1e6);
+        address payee = makeAddr("payee");
+        vm.prank(ownerAddress);
+        vault.setMaxSendValue(1_000);
+        vm.prank(ownerAddress);
+        vault.send(payee, address(usdc), 1_000 * 1e6);
+        assertEq(usdc.balanceOf(payee), 1_000 * 1e6);
+    }
+
+    function test_Risk_Whitelisted_RevertsOverCapAtPayout() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        usdc.mint(address(vault), 5_000 * 1e6);
+        uint256 id = _addWhitelistedRecipient(makeAddr("wl"), address(usdc));
+        vm.prank(ownerAddress);
+        vault.setMaxWhitelistedValue(1_000);
+        vm.prank(ownerAddress);
+        vm.expectRevert(PaymentExceedsRiskCap.selector);
+        vault.sendToWhitelistedRecipient(id, address(usdc), 1_001 * 1e6);
+    }
+
+    function test_Risk_Scheduled_CapAppliesToNewAdds() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        vm.prank(ownerAddress);
+        vault.setMaxScheduledValue(1_000);
+
+        IBittyV1Vault.ScheduledPayment memory nonStable =
+            _makeScheduledPayment(makeAddr("sp1"), address(0), address(weth), 1, 12, block.timestamp, 7 days, false);
+        vm.prank(ownerAddress);
+        vm.expectRevert(PaymentNotStableCoin.selector);
+        vault.addScheduledPayment(nonStable);
+
+        IBittyV1Vault.ScheduledPayment memory overCap = _makeScheduledPayment(
+            makeAddr("sp2"), address(0), address(usdc), 1_001 * 1e6, 12, block.timestamp, 7 days, false
+        );
+        vm.prank(ownerAddress);
+        vm.expectRevert(PaymentExceedsRiskCap.selector);
+        vault.addScheduledPayment(overCap);
+
+        IBittyV1Vault.ScheduledPayment memory okPayment = _makeScheduledPayment(
+            makeAddr("sp3"), address(0), address(usdc), 1_000 * 1e6, 12, block.timestamp, 7 days, false
+        );
+        vm.prank(ownerAddress);
+        assertGt(vault.addScheduledPayment(okPayment), 0);
+    }
+
+    function test_Risk_Scheduled_ExistingPaysDespiteTighterCap() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        address payee = makeAddr("gp");
+        IBittyV1Vault.ScheduledPayment memory r =
+            _makeScheduledPayment(payee, address(0), address(usdc), 5_000 * 1e6, 12, block.timestamp, 7 days, false);
+        vm.prank(ownerAddress);
+        uint256 id = vault.addScheduledPayment(r);
+
+        vm.prank(ownerAddress);
+        vault.setMaxScheduledValue(1_000);
+
+        usdc.mint(address(vault), 5_000 * 1e6);
+        vault.payScheduled(id);
+        assertEq(usdc.balanceOf(payee), 5_000 * 1e6);
+    }
+
+    function test_Risk_ZeroLevel_AllChangesInstant() public {
+        _initializeVault(); // Zero level -> changeTimelock 0, so even loosening is instant
+        vm.startPrank(ownerAddress);
+        vault.setMaxSendValue(1_000); // enable (tighten)
+        vault.setMaxSendValue(500); // lower (tighten)
+        vault.setMaxSendValue(5_000); // raise (loosen) -> instant
+        vault.setMaxSendValue(0); // clear (loosen) -> instant
+        vm.stopPrank();
+        (, uint64 sVal,,,) = vault.getRiskConfig();
+        assertEq(sVal, 0);
+    }
+
+    function test_Risk_SetMaxSendValue_OnlyOwner() public {
+        _initializeVault();
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert();
+        vault.setMaxSendValue(1_000);
     }
 
     function test_defaultAdminDelay_isOneDayConstant() public {

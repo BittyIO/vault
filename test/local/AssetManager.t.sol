@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {AmountIsZero, AddressZero, NotInitialized} from "../../src/interfaces/IBittyV1Vault.sol";
+import {RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {
     InvalidLendingProtocol,
@@ -137,7 +138,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             stakingProtocols,
             _single(address(mockAmm)),
             intentProtocols,
-            address(0)
+            address(0),
+            RiskControlLevel.Zero
         );
         _grantAssetManagerRole(assetManagerAddress);
         _cloneProtocolForTest(address(mockAmm));
@@ -162,7 +164,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            address(0)
+            address(0),
+            RiskControlLevel.Zero
         );
         _grantAssetManagerRole(assetManagerAddress);
     }
@@ -434,7 +437,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             stakingProtocols,
             _single(address(mockAmm)),
             intentProtocols,
-            address(0)
+            address(0),
+            RiskControlLevel.Zero
         );
         _grantAssetManagerRole(assetManagerAddress);
         _cloneProtocolForTest(address(mockAmm));
@@ -477,7 +481,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             stakingProtocols,
             _single(address(mockAmm)),
             intentProtocols,
-            address(0)
+            address(0),
+            RiskControlLevel.Zero
         );
         _grantAssetManagerRole(assetManagerAddress);
         _cloneProtocolForTest(address(mockAmm));
@@ -910,7 +915,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            address(0)
+            address(0),
+            RiskControlLevel.Zero
         );
         _grantAssetManagerRole(assetManagerAddress);
 
@@ -1247,7 +1253,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             stakingProtocols,
             _single(address(mockAmm)),
             intentProtocols,
-            address(0)
+            address(0),
+            RiskControlLevel.Zero
         );
         _grantAssetManagerRole(assetManagerAddress);
     }

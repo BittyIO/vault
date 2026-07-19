@@ -6,7 +6,7 @@ import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {AddressZero} from "./interfaces/IBittyV1Vault.sol";
+import {AddressZero, RiskControlLevel} from "./interfaces/IBittyV1Vault.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {BittyV1Vault} from "./BittyV1Vault.sol";
 import {
@@ -58,6 +58,7 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
      * @inheritdoc IBittyV1VaultFactory
      */
     function activateVault(
+        RiskControlLevel riskLevel,
         address[] memory assetAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
@@ -65,13 +66,14 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
         address[] memory intentProtocols
     ) external override {
         _checkGuard(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
-        _activate(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        _activate(riskLevel, assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
     }
 
     /**
      * @inheritdoc IBittyV1VaultFactory
      */
     function activateVaultWithAssets(
+        RiskControlLevel riskLevel,
         address[] memory assetAddresses,
         AssetInput[] memory deposits,
         address[] memory lendingProtocols,
@@ -81,7 +83,8 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
     ) external payable override {
         _checkGuard(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
 
-        address vault = _activate(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        address vault =
+            _activate(riskLevel, assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
 
         for (uint256 i = 0; i < deposits.length; i++) {
             AssetInput memory d = deposits[i];
@@ -99,6 +102,7 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
     }
 
     function _activate(
+        RiskControlLevel riskLevel,
         address[] memory assetAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
@@ -121,7 +125,8 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
                 stakingProtocols,
                 ammProtocols,
                 intentProtocols,
-                defiFacetAddress
+                defiFacetAddress,
+                riskLevel
             );
 
         emit VaultActivated(msg.sender);

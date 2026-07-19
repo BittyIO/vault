@@ -20,8 +20,6 @@ error ScheduledPaymentStartTimestampInPast();
 error ScheduledPaymentInInterval();
 error ScheduledPaymentIntervalTooShort();
 error AssetAddressNotContract();
-error NewAddressProtectionOutOfRange();
-error NewAddressProtectionCannotDecrease();
 error AddressProtectionNotEnded();
 error PayMoreThanScheduledPaymentAmount();
 error PayScheduledPaymentAmountTriggerEmpty();
@@ -33,6 +31,10 @@ error OwnerAndManagerMustDiffer();
 // sending errors
 error SendingDisabled();
 
+// payment risk-control errors
+error PaymentExceedsRiskCap();
+error PaymentNotStableCoin();
+
 // whitelisted recipient errors
 error WhitelistedRecipientNotFound();
 error WhitelistedRecipientAssetNotAllowed();
@@ -42,6 +44,12 @@ error PaymentNotApproved();
 error NotPendingApproval();
 error NotProposalOwner();
 error PendingSendNotFound();
+
+enum RiskControlLevel {
+    Zero,
+    Standard,
+    High
+}
 
 /**
  * @title IBittyV1Vault
@@ -95,6 +103,23 @@ interface IBittyV1Vault {
     function isAddingAssetsDisabled() external view returns (bool);
     function isAddingProtocolsDisabled() external view returns (bool);
     function isSendingDisabled() external view returns (bool);
+
+    /**
+     * @notice The vault's currently in-force payment risk controls (all zero = no controls). Caps are in
+     *         stablecoin whole tokens; a non-zero cap makes that payment path stablecoin-only.
+     *         `changeTimelock` is the delay a loosening of any control must wait. A queued loosening is
+     *         reflected here only once its delay has elapsed.
+     */
+    function getRiskConfig()
+        external
+        view
+        returns (
+            uint64 newAddressProtection,
+            uint64 maxSendValue,
+            uint64 maxScheduledValue,
+            uint64 maxWhitelistedValue,
+            uint64 changeTimelock
+        );
 
     function getLendingProtocols() external view returns (address[] memory);
     function getStakingProtocols() external view returns (address[] memory);

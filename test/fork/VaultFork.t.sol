@@ -13,7 +13,7 @@ import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.so
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
+import {IBittyV1Vault, RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
 import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Protocol.sol";
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
 
@@ -87,7 +87,9 @@ contract TestVaultFork is Test {
 
         assetManager = address(this);
         vm.startPrank(tx.origin);
-        factory.activateVault(vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero, vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+        );
         address vaultAddr = factory.vaultAddress(tx.origin);
         BittyV1Vault(payable(vaultAddr)).addAssetManager(assetManager, 0, 0, type(uint64).max, 0);
         vm.stopPrank();
@@ -243,7 +245,9 @@ contract TestVaultFork is Test {
     function test_FactoryRevertWhenVaultAlreadyActivated() public {
         vm.expectRevert(VaultAlreadyActivated.selector);
         vm.prank(tx.origin);
-        factory.activateVault(vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero, vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+        );
     }
 
     function test_RebalanceWETHToUSDT() public {
@@ -393,7 +397,9 @@ contract TestVaultFork is Test {
         address customOwner = makeAddr("customVaultOwner");
         address customAssetManager = makeAddr("customAssetManager");
         vm.startPrank(customOwner);
-        factory.activateVault(vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        factory.activateVault(
+            RiskControlLevel.Zero, vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+        );
         address vaultAddr = factory.vaultAddress(customOwner);
         BittyV1Vault(payable(vaultAddr)).addAssetManager(customAssetManager, 0, 0, type(uint64).max, 0);
         vm.stopPrank();
