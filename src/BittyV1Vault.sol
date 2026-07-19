@@ -85,6 +85,19 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
     }
 
     /**
+     * @notice Reject starting an ownership transfer to a payment manager up front. Otherwise the
+     *         transfer could be begun but never accepted — the accept's DEFAULT_ADMIN_ROLE grant would
+     *         revert {OwnerAndManagerMustDiffer} — leaving a stuck pending transfer. (The new owner may
+     *         hold ASSET_MANAGER_ROLE; only the payment-manager role is mutually exclusive with owner.)
+     */
+    function beginDefaultAdminTransfer(address newAdmin) public virtual override {
+        if (hasRole(PAYMENT_MANAGER_ROLE, newAdmin)) {
+            revert OwnerAndManagerMustDiffer();
+        }
+        super.beginDefaultAdminTransfer(newAdmin);
+    }
+
+    /**
      * @notice Auto-wraps any incoming ETH into WETH so the vault only ever holds ERC-20 balances
      *         (all payments and asset-management operate on ERC-20s). Matches a wallet "Send ETH"
      *         with empty calldata.

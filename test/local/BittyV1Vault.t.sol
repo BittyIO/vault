@@ -1893,6 +1893,19 @@ contract BittyV1VaultTest is Test {
         assertTrue(vault.hasRole(assetManagerRole, newAdmin));
     }
 
+    function test_BeginDefaultAdminTransfer_RevertsWhenNewAdminIsPaymentManager() public {
+        _initializeVault();
+        bytes32 pmRole = vault.PAYMENT_MANAGER_ROLE();
+        address pm = makeAddr("pm");
+        vm.prank(ownerAddress);
+        vault.grantRole(pmRole, pm);
+
+        // Fail fast: the owner cannot start a transfer to a payment manager (it could never be accepted).
+        vm.prank(ownerAddress);
+        vm.expectRevert(OwnerAndManagerMustDiffer.selector);
+        vault.beginDefaultAdminTransfer(pm);
+    }
+
     function test_renounceDefaultAdmin_requiresTransferToZeroAndDelay() public {
         _initializeVault();
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();

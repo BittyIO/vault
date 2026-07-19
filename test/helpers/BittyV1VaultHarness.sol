@@ -46,4 +46,13 @@ abstract contract BittyV1VaultHarness is BittyV1Vault, BittyV1VaultDeFiFacet {
     {
         super.revokeRole(role, account);
     }
+
+    // Disambiguate the beginDefaultAdminTransfer overridden by BittyV1Vault (rejects payment-manager
+    // targets) inherited via both parents. super routes to BittyV1Vault's, preserving the check.
+    function beginDefaultAdminTransfer(address newAdmin)
+        public
+        override(BittyV1Vault, AccessControlDefaultAdminRulesUpgradeable)
+    {
+        super.beginDefaultAdminTransfer(newAdmin);
+    }
 }
