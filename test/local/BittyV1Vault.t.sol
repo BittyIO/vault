@@ -1313,9 +1313,16 @@ contract BittyV1VaultTest is Test {
         vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1.5 ether, "second payout sends remaining 0.5 ether");
 
+        // Third attempt with a zero balance: rather than burn the last slot for a zero delivery, it is
+        // skipped — the count and interval clock are NOT consumed, so the payment stays due.
         vm.warp(start + 2 * (VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL + 1));
         vault.payScheduled(aliceId);
-        assertEq(weth.balanceOf(scheduledPaymentAddr), 1.5 ether, "third payout with zero balance sends nothing");
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 1.5 ether, "zero-balance payout delivers nothing");
+
+        // Once funded, the still-due third payment goes through and only then reaches zero remaining.
+        deal(address(weth), address(vault), 1 ether);
+        vault.payScheduled(aliceId);
+        assertEq(weth.balanceOf(scheduledPaymentAddr), 2.5 ether, "third payment made once the vault is funded");
 
         vm.expectRevert(ScheduledPaymentPaymentCountZero.selector);
         vault.payScheduled(aliceId);
