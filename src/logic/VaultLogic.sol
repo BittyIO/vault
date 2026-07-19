@@ -689,37 +689,6 @@ library VaultLogic {
         }
     }
 
-    /**
-     * @notice Accrue a scheduled scheduledPayment payment that will be settled by pulling the
-     * asset directly out of a yield position (paid on-behalf, so the asset is delivered
-     * to the scheduledPayment without ever touching this vault — see {payScheduledFromStaking} /
-     * {payScheduledFromLending}).
-     * @dev Enforces the same trigger authorization as {payScheduled} and runs all
-     * eligibility checks + state effects up front (checks-effects-interactions), then
-     * returns the details the facade needs to perform the on-behalf withdrawal. The
-     * yield adapter delivers exactly `payAmount`, so {ScheduledPaymentPaid} is emitted here.
-     * @return scheduledPaymentAddress The configured scheduledPayment that must receive the funds.
-     * @return assetAddress The asset the scheduledPayment is paid in.
-     * @return payAmount The full scheduled payment amount to pull from the yield position.
-     */
-    function accrueScheduledPaymentOnBehalf(VaultStorage storage vaultStorage, uint256 id)
-        external
-        onlyInitialized(vaultStorage)
-        returns (address scheduledPaymentAddress, address assetAddress, uint256 payAmount)
-    {
-        IBittyV1Vault.ScheduledPayment storage scheduledPayment = vaultStorage.scheduledPayments[id];
-        if (scheduledPayment.trigger != address(0) && msg.sender != scheduledPayment.trigger) {
-            revert ScheduledPaymentTriggerError();
-        }
-        payAmount = scheduledPayment.amount;
-        _accrueScheduledPayment(vaultStorage, scheduledPayment, id);
-        scheduledPaymentAddress = scheduledPayment.scheduledPaymentAddress;
-        assetAddress = scheduledPayment.assetAddress;
-        emit IBittyV1Vault.ScheduledPaymentPaid(
-            id, scheduledPaymentAddress, assetAddress, payAmount, scheduledPayment.remainingPaymentCount
-        );
-    }
-
     function _transferMoney(
         VaultStorage storage vaultStorage,
         address erc20Address,

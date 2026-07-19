@@ -280,67 +280,9 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
         _vault.payScheduledAmount(id, amount);
     }
 
-    /**
-     * @notice Pay a scheduledPayment its full scheduled amount straight out of a staked position.
-     * @dev The reserve keeps earning yield until payment time, and the unstaked asset is
-     * delivered directly to the configured scheduledPayment in a single step. The recipient is
-     * hard-sourced from the scheduledPayment config (not a parameter), so funds can only ever reach
-     * a configured scheduledPayment, never an arbitrary address. Authorization mirrors
-     * {payScheduled} (the scheduledPayment's trigger, or anyone if unset).
-     */
-    function payScheduledFromStaking(uint256 id, address stakingProtocol) external {
-        (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
-            _vault.accrueScheduledPaymentOnBehalf(id);
-        _assetManager.unstake(stakingProtocol, _payoutAsset(assetAddress), payAmount, scheduledPaymentAddress);
-    }
-
-    /**
-     * @notice Pay a scheduledPayment its full scheduled amount straight out of a supplied (lending)
-     * position. See {payScheduledFromStaking} for the recipient-safety guarantees — they
-     * apply identically here.
-     */
-    function payScheduledFromLending(uint256 id, address lendingProtocol) external {
-        (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
-            _vault.accrueScheduledPaymentOnBehalf(id);
-        _assetManager.withdraw(lendingProtocol, _payoutAsset(assetAddress), payAmount, scheduledPaymentAddress);
-    }
-
     // An ETH (address(0)) scheduled payment is delivered as WETH out of the yield-position paths.
     function _payoutAsset(address assetAddress) private view returns (address) {
         return assetAddress == address(0) ? _vault.weth : assetAddress;
-    }
-
-    /**
-     * @notice Pay a scheduledPayment its full scheduled amount by swapping a vault asset into the scheduledPayment's
-     * asset and delivering it directly. The swap buys exactly the scheduled amount (exact-output,
-     * spending ≤ `sellAmountMax` of `fromAsset`) and settles it straight to the configured scheduledPayment in
-     * a single step. As with {payScheduledFromLending}/{payScheduledFromStaking}, the recipient is
-     * hard-sourced from the scheduledPayment config, so funds can only ever reach a configured scheduledPayment.
-     * @param id            The configured scheduledPayment to pay.
-     * @param ammProtocol   The AMM protocol to route the swap through.
-     * @param fromAsset     The vault asset spent to buy the scheduledPayment's asset.
-     * @param sellAmountMax The maximum amount of `fromAsset` to spend (slippage bound).
-     * @param data          abi.encode(fromAsset, sellAmountMax, scheduledPaymentAsset, payAmount, reversedPath).
-     */
-    function payScheduledFromSwap(
-        uint256 id,
-        address ammProtocol,
-        address fromAsset,
-        uint256 sellAmountMax,
-        bytes memory data
-    ) external {
-        (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
-            _vault.accrueScheduledPaymentOnBehalf(id);
-        _assetManager.buyForScheduledPayment(
-            _vault,
-            ammProtocol,
-            fromAsset,
-            _payoutAsset(assetAddress),
-            payAmount,
-            sellAmountMax,
-            scheduledPaymentAddress,
-            data
-        );
     }
 
     // ============ Whitelisted recipients (DEFAULT_ADMIN_ROLE) ============
