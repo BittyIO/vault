@@ -293,43 +293,20 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
             );
     }
 
-    // By default the owner (never granted ASSET_MANAGER_ROLE) can trade, so a single-wallet user needs
-    // no second funded key.
-    function testOwnerActsAsAssetManagerByDefault() public {
-        assertFalse(this.isOwnerAssetManagerDisabled());
-        vm.prank(tx.origin);
-        bytes32 id = this.limitSell(address(mock), WETH, USDC, 1 ether, 1000e6, validTo);
-        assertTrue(id != bytes32(0));
-    }
-
-    function testDisableOwnerAssetManagerBlocksOwnerTrading() public {
-        vm.prank(tx.origin);
-        this.disableOwnerAssetManager();
-        assertTrue(this.isOwnerAssetManagerDisabled());
-
+    // The owner has no implicit trading access — it must hold ASSET_MANAGER_ROLE to trade.
+    function testOwnerCannotTradeByDefault() public {
         vm.prank(tx.origin);
         vm.expectRevert(_amRoleError(tx.origin));
         this.limitSell(address(mock), WETH, USDC, 1 ether, 1000e6, validTo);
     }
 
-    // Disabling the owner's convenience capability does not touch explicit ASSET_MANAGER_ROLE holders.
-    function testDisableOwnerAssetManagerKeepsExplicitManager() public {
+    // The owner may opt into trading by adding itself as an asset manager (with a cap).
+    function testOwnerCanTradeWhenAddedAsAssetManager() public {
         vm.prank(tx.origin);
-        this.disableOwnerAssetManager();
-
-        // address(this) holds ASSET_MANAGER_ROLE (set in setUp), so it still trades.
+        this.addAssetManager(tx.origin, 0, 0, type(uint64).max, 0);
+        vm.prank(tx.origin);
         bytes32 id = this.limitSell(address(mock), WETH, USDC, 1 ether, 1000e6, validTo);
         assertTrue(id != bytes32(0));
-    }
-
-    function testDisableOwnerAssetManagerOnlyOwner() public {
-        vm.prank(STRANGER);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, STRANGER, DEFAULT_ADMIN_ROLE
-            )
-        );
-        this.disableOwnerAssetManager();
     }
 
     // A plain stranger is neither owner nor manager and is rejected in both states.

@@ -37,7 +37,6 @@ struct AssetManagerStorage {
     IBittyV1Guard guard;
     bool addingProtocolsDisabled;
     uint64 rebalanceDisabledUntilTimestamp;
-    bool ownerAssetManagerDisabled;
 
     mapping(bytes32 => IntentOrderRecord) intentOrderRecords;
 

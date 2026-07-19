@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {IBittyV1Guard, NotRegistered, Deprecated} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {
     DisableRebalanceUntilTimestampTooEarly,
@@ -414,9 +413,9 @@ library AssetManagerLogic {
      * must have a stablecoin as either leg; the stablecoin leg's amount is measured against the cap.
      * `stableCoinInvested` (the manager's deployed portfolio) rises by the stablecoin spent on
      * stable→asset trades and falls when assets are sold back, and may never exceed `stableCoinInvestCap`.
-     * `expiredAt` blocks all trades once reached (0 = no expiry). The owner acting as asset manager
-     * (DEFAULT_ADMIN_ROLE) is exempt; every other caller is an explicit asset manager and is always
-     * enforced, so an unconfigured cap of 0 blocks stable→asset investing rather than allowing it.
+     * `expiredAt` blocks all trades once reached (0 = no expiry). Every caller here holds
+     * ASSET_MANAGER_ROLE and is always enforced, so an unconfigured cap of 0 blocks stable→asset
+     * investing rather than allowing it.
      */
     function _validateRebalance(
         AssetManagerStorage storage logicStorage,
@@ -443,9 +442,6 @@ library AssetManagerLogic {
             if (available < sellAmount || available - sellAmount < minBal) revert MinimalBalanceNotMet();
         }
 
-        if (IAccessControl(address(this)).hasRole(bytes32(0), msg.sender)) {
-            return;
-        }
         TradeLimit storage limit = logicStorage.tradeLimits[msg.sender];
 
         if (limit.expiredAt != 0 && block.timestamp >= limit.expiredAt) {

@@ -22,9 +22,9 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
     using AssetManagerLogic for AssetManagerStorage;
 
     /**
-     * @dev Passes for an explicit ASSET_MANAGER_ROLE holder, or for the owner while owner-as-asset-
-     *      manager is still enabled. Lets a single-wallet user trade without funding a second key,
-     *      until they call {disableOwnerAssetManager}.
+     * @dev Passes only for an explicit ASSET_MANAGER_ROLE holder. The owner has no implicit trading
+     *      access — to trade, the owner must add itself via {addAssetManager} (with a cap), which grants
+     *      ASSET_MANAGER_ROLE and subjects the owner to a trade limit like any other manager.
      */
     modifier onlyAssetManager() {
         _checkAssetManager();
@@ -33,7 +33,6 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
 
     function _checkAssetManager() internal view {
         if (hasRole(ASSET_MANAGER_ROLE, _msgSender())) return;
-        if (!_assetManager.ownerAssetManagerDisabled && hasRole(DEFAULT_ADMIN_ROLE, _msgSender())) return;
         revert IAccessControl.AccessControlUnauthorizedAccount(_msgSender(), ASSET_MANAGER_ROLE);
     }
 
