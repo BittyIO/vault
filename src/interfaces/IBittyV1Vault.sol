@@ -149,29 +149,6 @@ interface IBittyV1Vault {
     function payScheduledAmount(uint256 id, uint256 amount) external;
 
     /**
-     * @notice Pay a scheduled payment directly out of a staked position (delivered on-behalf).
-     */
-    function payScheduledFromStaking(uint256 id, address stakingProtocol) external;
-
-    /**
-     * @notice Pay a scheduled payment directly out of a supplied (lending) position (on-behalf).
-     */
-    function payScheduledFromLending(uint256 id, address lendingProtocol) external;
-
-    /**
-     * @notice Pay a scheduled payment by swapping a vault asset into the payment's asset and
-     *         delivering it directly (exact-output). Recipient is the configured payee, never a param.
-     * @dev data = abi.encode(fromAsset, sellAmountMax, scheduledPaymentAsset, payAmount, reversedPath).
-     */
-    function payScheduledFromSwap(
-        uint256 id,
-        address ammProtocol,
-        address fromAsset,
-        uint256 sellAmountMax,
-        bytes memory data
-    ) external;
-
-    /**
      * @notice Permissionless cleanup of expired limit orders (does not affect TWAP orders).
      */
     function cleanExpiredLimitOrders(address intentProtocol, bytes32[] calldata orderDigests) external;
