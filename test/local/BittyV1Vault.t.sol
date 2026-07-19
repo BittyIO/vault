@@ -195,11 +195,12 @@ contract BittyV1VaultTest is Test {
         assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), assetManagerAddress));
     }
 
-    function test_GrantRoleRevertsWhenOwnerAsAssetManager() public {
+    function test_OwnerMayBeAddedAsAssetManager() public {
         _initializeVault();
         vm.prank(ownerAddress);
-        vm.expectRevert(OwnerAndManagerMustDiffer.selector);
         vault.addAssetManager(ownerAddress, 0, 0, type(uint64).max, 0);
+        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), ownerAddress));
+        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
     }
 
     function test_GrantRoleRevertsForAssetManagerRole() public {
@@ -1625,7 +1626,7 @@ contract BittyV1VaultTest is Test {
         assertEq(pending, assetManagerAddress);
     }
 
-    function test_AdminTransferRevertsWhenNewAdminIsAssetManager() public {
+    function test_AdminTransferSucceedsWhenNewAdminIsAssetManager() public {
         _initializeVault();
         bytes32 assetManagerRole = vault.ASSET_MANAGER_ROLE();
         address newAdmin = makeAddr("newAdmin");
@@ -1633,16 +1634,17 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vault.beginDefaultAdminTransfer(newAdmin);
 
-        // Granting the (not-yet-admin) pending admin an asset-manager role is allowed here...
+        // The owner and an asset manager may be the same account, so the pending admin holding
+        // ASSET_MANAGER_ROLE does not block the transfer.
         vm.prank(ownerAddress);
         vault.addAssetManager(newAdmin, 0, 0, type(uint64).max, 0);
         assertTrue(vault.hasRole(assetManagerRole, newAdmin));
 
-        // ...but the transfer can no longer be accepted: they would be both owner and manager.
         vm.warp(block.timestamp + 1 days + 1);
         vm.prank(newAdmin);
-        vm.expectRevert(OwnerAndManagerMustDiffer.selector);
         vault.acceptDefaultAdminTransfer();
+        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), newAdmin));
+        assertTrue(vault.hasRole(assetManagerRole, newAdmin));
     }
 
     function test_renounceDefaultAdmin_requiresTransferToZeroAndDelay() public {

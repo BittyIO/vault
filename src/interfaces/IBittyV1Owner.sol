@@ -17,7 +17,6 @@ interface IBittyV1Owner {
     event AssetsRemoved(address[] assets);
     event AssetsLocked();
     event ProtocolsLocked();
-    event OwnerAssetManagerDisabled();
     event LendingProtocolsAdded(address[] protocols);
     event LendingProtocolsRemoved(address[] protocols);
     event StakingProtocolsAdded(address[] protocols);
@@ -110,13 +109,6 @@ interface IBittyV1Owner {
         uint256 stableCoinInvestCap,
         uint256 expiredAt
     ) external;
-
-    /**
-     * @notice Drop the owner's implicit asset-manager capability (one-way). By default the owner may
-     *         trade without holding ASSET_MANAGER_ROLE, so a single-wallet user needs no second key;
-     *         calling this restricts trading to explicit ASSET_MANAGER_ROLE holders only.
-     */
-    function disableOwnerAssetManager() external;
 
     // ============ Sending ============
 

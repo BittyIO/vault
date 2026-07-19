@@ -43,17 +43,18 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
     }
 
     /**
-     * @notice Enforces that the owner (DEFAULT_ADMIN_ROLE) is never also an asset manager or payment
-     *         manager, and vice-versa. Every role grant — initialize, grantRole, and the 2-step admin
-     *         transfer (acceptDefaultAdminTransfer) — routes through here. (An account may hold both
-     *         ASSET_MANAGER_ROLE and PAYMENT_MANAGER_ROLE; only the owner must be distinct.)
+     * @notice Enforces that the owner (DEFAULT_ADMIN_ROLE) is never also a payment manager, and
+     *         vice-versa — the owner already has full, immediate payment authority, so the role would
+     *         be redundant. The owner MAY hold ASSET_MANAGER_ROLE (added via {addAssetManager} with a
+     *         cap), which is the only way for the owner to trade. Every role grant — initialize,
+     *         grantRole, and the 2-step admin transfer — routes through here.
      */
     function _grantRole(bytes32 role, address account) internal virtual override returns (bool) {
         if (role == DEFAULT_ADMIN_ROLE) {
-            if (hasRole(ASSET_MANAGER_ROLE, account) || hasRole(PAYMENT_MANAGER_ROLE, account)) {
+            if (hasRole(PAYMENT_MANAGER_ROLE, account)) {
                 revert OwnerAndManagerMustDiffer();
             }
-        } else if (role == ASSET_MANAGER_ROLE || role == PAYMENT_MANAGER_ROLE) {
+        } else if (role == PAYMENT_MANAGER_ROLE) {
             if (hasRole(DEFAULT_ADMIN_ROLE, account)) {
                 revert OwnerAndManagerMustDiffer();
             }
@@ -180,19 +181,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
 
     function isAddingProtocolsDisabled() external view returns (bool) {
         return _assetManager.addingProtocolsDisabled;
-    }
-
-    /**
-     * @notice Disable the owner from managing assets.
-     * @dev Irreversible — once dropped, only explicit ASSET_MANAGER_ROLE holders can manage assets.
-     */
-    function disableOwnerAssetManager() external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.ownerAssetManagerDisabled = true;
-        emit OwnerAssetManagerDisabled();
-    }
-
-    function isOwnerAssetManagerDisabled() external view returns (bool) {
-        return _assetManager.ownerAssetManagerDisabled;
     }
 
     // ============ Sending ============
