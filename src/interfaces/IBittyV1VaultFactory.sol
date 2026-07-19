@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {RiskControlLevel} from "./IBittyV1Vault.sol";
+
 error VaultAlreadyActivated();
 error NotDeployer();
 error EthTransferFailed();
@@ -34,7 +36,9 @@ interface IBittyV1VaultFactory {
         external;
 
     /**
-     * @notice Activate a vault owned by the caller (msg.sender), selecting protocols and assets by configuration.
+     * @notice Activate a vault owned by the caller (msg.sender) at a chosen risk level, which seeds its
+     *         payment risk controls (new-address protection + per-path stablecoin value caps).
+     * @param riskLevel The risk posture (None/Standard/Strict) whose hardcoded defaults seed the vault.
      * @param assetAddresses The addresses of the assets.
      * @param lendingProtocols The addresses of the lending protocols.
      * @param stakingProtocols The addresses of the staking protocols.
@@ -42,6 +46,7 @@ interface IBittyV1VaultFactory {
      * @param intentProtocols The addresses of the intent protocols.
      */
     function activateVault(
+        RiskControlLevel riskLevel,
         address[] memory assetAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
@@ -58,6 +63,7 @@ interface IBittyV1VaultFactory {
      * @dev `assetAddresses` is the vault's asset configuration (guard-checked). Include WETH there
      *      when depositing ETH so the vault tracks the wrapped balance. Deposited assets need not
      *      appear in `assetAddresses`, but only configured assets are tracked/tradeable by the vault.
+     * @param riskLevel The risk posture (None/Standard/Strict) whose hardcoded defaults seed the vault.
      * @param assetAddresses The guard-registered assets/stable coins to configure on the vault.
      * @param deposits The assets to pull into the vault (via permit or prior approval).
      * @param lendingProtocols The addresses of the lending protocols.
@@ -66,6 +72,7 @@ interface IBittyV1VaultFactory {
      * @param intentProtocols The addresses of the intent protocols.
      */
     function activateVaultWithAssets(
+        RiskControlLevel riskLevel,
         address[] memory assetAddresses,
         AssetInput[] memory deposits,
         address[] memory lendingProtocols,

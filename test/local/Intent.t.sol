@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {AmountIsZero} from "../../src/interfaces/IBittyV1Vault.sol";
+import {AmountIsZero, RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     InvalidIntentProtocol,
     InvalidValidTo,
@@ -70,7 +70,8 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
             empty, // staking
             empty, // amm
             intents,
-            address(0)
+            address(0),
+            RiskControlLevel.Zero
         );
         vm.prank(tx.origin);
         this.addAssetManager(address(this), 0, 0, type(uint64).max, 0);

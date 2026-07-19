@@ -6,7 +6,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
-import {IBittyV1Vault, ScheduledPaymentNotStartYet} from "../../src/interfaces/IBittyV1Vault.sol";
+import {IBittyV1Vault, ScheduledPaymentNotStartYet, RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 
@@ -59,7 +59,14 @@ contract VaultForKidsForkTest is Test {
 
     function _deployKidsVaultViaFactory() internal {
         address expected = factory.vaultAddress(parentOwner);
-        factory.activateVault(assetAddresses, new address[](0), new address[](0), new address[](0), new address[](0));
+        factory.activateVault(
+            RiskControlLevel.Zero,
+            assetAddresses,
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0)
+        );
         address vaultAddr = factory.vaultAddress(parentOwner);
 
         assertEq(vaultAddr, expected);

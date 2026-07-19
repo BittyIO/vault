@@ -6,11 +6,11 @@ import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessCon
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
 import {IBittyV1Owner} from "./interfaces/IBittyV1Owner.sol";
 import {IBittyV1PaymentManager} from "./interfaces/IBittyV1PaymentManager.sol";
-import {IBittyV1Vault, AddressZero, OwnerAndManagerMustDiffer} from "./interfaces/IBittyV1Vault.sol";
+import {IBittyV1Vault, AddressZero, OwnerAndManagerMustDiffer, RiskControlLevel} from "./interfaces/IBittyV1Vault.sol";
 import {CannotGrantAssetManagerRole} from "./interfaces/IBittyV1AssetManager.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
-import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
+import {AssetManagerStorage, VaultStorage, RiskConfig} from "./logic/Storages.sol";
 
 /**
  * @title BittyV1Vault
@@ -123,14 +123,15 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
         address[] memory stakingProtocols,
         address[] memory ammProtocols,
         address[] memory intentProtocols,
-        address defiFacet
+        address defiFacet,
+        RiskControlLevel riskLevel
     ) public initializer {
         _defiFacet = defiFacet;
         _vault.weth = weth;
         __AccessControl_init();
         __AccessControlDefaultAdminRules_init(OWNER_TRANSFER_DELAY, owner);
 
-        _vault.initialize(guardAddress);
+        _vault.initialize(guardAddress, riskLevel);
         if (assetAddresses.length > 0) {
             _vault.addAssets(assetAddresses);
         }
@@ -239,6 +240,36 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
     // DEFAULT_ADMIN_ROLE — controls the time-lock window for new scheduled payments and whitelisted recipients
     function setNewAddressProtection(uint256 newAddressProtection) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.setNewAddressProtection(newAddressProtection);
+    }
+
+    function setMaxSendValue(uint256 value) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.setMaxSendValue(value);
+    }
+
+    function setMaxScheduledValue(uint256 value) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.setMaxScheduledValue(value);
+    }
+
+    function setMaxWhitelistedValue(uint256 value) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.setMaxWhitelistedValue(value);
+    }
+
+    function setChangeTimelock(uint256 value) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.setChangeTimelock(value);
+    }
+
+    function getRiskConfig()
+        external
+        view
+        returns (
+            uint64 newAddressProtection,
+            uint64 maxSendValue,
+            uint64 maxScheduledValue,
+            uint64 maxWhitelistedValue,
+            uint64 changeTimelock
+        )
+    {
+        return _vault.getRiskConfig();
     }
 
     function payScheduled(uint256 id) external {

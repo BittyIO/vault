@@ -15,9 +15,10 @@ import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
 import {IBittyV1PaymentManager} from "../interfaces/IBittyV1PaymentManager.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
-import {VaultStorage, PendingSend} from "./Storages.sol";
+import {VaultStorage, PendingSend, RiskConfig, TimelockedValue} from "./Storages.sol";
 import {
     IBittyV1Vault,
     ScheduledPaymentNotFound,
@@ -30,8 +31,6 @@ import {
     AddingAssetsDisabled,
     ScheduledPaymentIntervalTooShort,
     AssetAddressNotContract,
-    NewAddressProtectionOutOfRange,
-    NewAddressProtectionCannotDecrease,
     AddressProtectionNotEnded,
     PayMoreThanScheduledPaymentAmount,
     PayScheduledPaymentAmountTriggerEmpty,
@@ -41,7 +40,10 @@ import {
     NotPendingApproval,
     NotProposalOwner,
     PendingSendNotFound,
-    SendingDisabled
+    SendingDisabled,
+    PaymentExceedsRiskCap,
+    PaymentNotStableCoin,
+    RiskControlLevel
 } from "../interfaces/IBittyV1Vault.sol";
 
 library VaultLogic {
@@ -51,21 +53,21 @@ library VaultLogic {
      */
     uint256 constant SCHEDULED_PAYMENT_MINIMAL_INTERVAL = 7 days;
 
-    /**
-     * To protect the vault owner, the longer it is, the harder to attack the owner. Applies to both
-     * newly added scheduled payments and newly added whitelisted recipients.
-     * @dev this is a protection for the vault.
-     */
-    uint256 constant NEW_ADDRESS_PROTECTION_MAX = 30 days;
+    // ---- Risk-control-level default parameters (payment controls) ----
+    // TODO(risk-params): fill in the Standard/High defaults. `Zero` is all-zero (no controls).
+    // newAddressProtection is seconds; the *_MAX_*_VALUE caps are stablecoin whole tokens
+    // (0 = unrestricted / no stablecoin lock); *_CHANGE_TIMELOCK is the loosening delay in seconds.
+    uint64 constant STANDARD_NEW_ADDRESS_PROTECTION = 1 days;
+    uint64 constant STANDARD_MAX_SEND_VALUE = 100;
+    uint64 constant STANDARD_MAX_SCHEDULED_VALUE = 100;
+    uint64 constant STANDARD_MAX_WHITELISTED_VALUE = 100;
+    uint64 constant STANDARD_CHANGE_TIMELOCK = 1 days;
 
-    /**
-     * Once protection is enabled it can never be lowered below this floor: a compromised owner key
-     * cannot set it to 0 to add a payee and drain immediately. The real owner therefore always keeps
-     * at least this long to notice and react (revoke the key / remove the payee) before any newly
-     * introduced address becomes payable. 0 (fully disabled) is only the pre-opt-in default and can
-     * never be re-established through {setNewAddressProtection}.
-     */
-    uint256 constant NEW_ADDRESS_PROTECTION_MIN = 1 days;
+    uint64 constant HIGH_NEW_ADDRESS_PROTECTION = 3 days;
+    uint64 constant HIGH_MAX_SEND_VALUE = 1000;
+    uint64 constant HIGH_MAX_SCHEDULED_VALUE = 1000;
+    uint64 constant HIGH_MAX_WHITELISTED_VALUE = 1000;
+    uint64 constant HIGH_CHANGE_TIMELOCK = 3 days;
 
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
@@ -92,12 +94,90 @@ library VaultLogic {
         }
     }
 
-    function initialize(VaultStorage storage vaultStorage, address guardAddress)
+    function initialize(VaultStorage storage vaultStorage, address guardAddress, RiskControlLevel level)
         external
         onlyNotInitialized(vaultStorage)
     {
         vaultStorage.guard = IBittyV1Guard(guardAddress);
+        vaultStorage.riskConfig = _defaultRisk(level);
         vaultStorage.isInitialized = true;
+    }
+
+    /**
+     * @notice Hardcoded payment-risk defaults per level. `Zero` is all-zero (no controls, and a zero
+     * changeTimelock so any later change is instant); Standard and High seed the guardrails plus a
+     * loosening delay. Every value the owner may later change freely, but loosening waits changeTimelock.
+     */
+    function _defaultRisk(RiskControlLevel level) internal pure returns (RiskConfig memory c) {
+        if (level == RiskControlLevel.Standard) {
+            c.newAddressProtection.value = STANDARD_NEW_ADDRESS_PROTECTION;
+            c.maxSendValue.value = STANDARD_MAX_SEND_VALUE;
+            c.maxScheduledValue.value = STANDARD_MAX_SCHEDULED_VALUE;
+            c.maxWhitelistedValue.value = STANDARD_MAX_WHITELISTED_VALUE;
+            c.changeTimelock.value = STANDARD_CHANGE_TIMELOCK;
+        } else if (level == RiskControlLevel.High) {
+            c.newAddressProtection.value = HIGH_NEW_ADDRESS_PROTECTION;
+            c.maxSendValue.value = HIGH_MAX_SEND_VALUE;
+            c.maxScheduledValue.value = HIGH_MAX_SCHEDULED_VALUE;
+            c.maxWhitelistedValue.value = HIGH_MAX_WHITELISTED_VALUE;
+            c.changeTimelock.value = HIGH_CHANGE_TIMELOCK;
+        }
+    }
+
+    /**
+     * @notice Enforce a per-path payment risk cap. When `cap` is non-zero the payment must be a
+     * stablecoin whose amount is within `cap` whole tokens; `cap == 0` disables the check.
+     */
+    function _checkPaymentRiskCap(VaultStorage storage vaultStorage, uint64 cap, address asset, uint256 amount)
+        private
+        view
+    {
+        if (cap == 0) return;
+        if (!vaultStorage.stableCoins.contains(asset)) revert PaymentNotStableCoin();
+        if (amount > uint256(cap) * (10 ** IERC20Metadata(asset).decimals())) revert PaymentExceedsRiskCap();
+    }
+
+    // The currently in-force value of a timelocked control (a queued loosening applies once its delay elapses).
+    function _effective(TimelockedValue storage tv) private view returns (uint64) {
+        if (tv.pendingAt != 0 && block.timestamp >= tv.pendingAt) return tv.pending;
+        return tv.value;
+    }
+
+    // Promote an elapsed pending change into the live value so the next comparison uses the current baseline.
+    function _settle(TimelockedValue storage tv) private {
+        if (tv.pendingAt != 0 && block.timestamp >= tv.pendingAt) {
+            tv.value = tv.pending;
+            tv.pending = 0;
+            tv.pendingAt = 0;
+        }
+    }
+
+    // Store `next`: a tightening (or equal) change is immediate; a loosening one only applies after
+    // `timelock` seconds. `loosen` is decided by the caller against the settled current value.
+    function _apply(TimelockedValue storage tv, uint64 next, bool loosen, uint64 timelock) private {
+        if (!loosen || timelock == 0) {
+            tv.value = next;
+            tv.pending = 0;
+            tv.pendingAt = 0;
+        } else {
+            tv.pending = next;
+            tv.pendingAt = uint64(block.timestamp) + timelock;
+        }
+    }
+
+    // For newAddressProtection & changeTimelock: higher = safer, so lowering is a loosening.
+    function _setHigherSafer(TimelockedValue storage tv, uint256 next, uint64 timelock) private {
+        _settle(tv);
+        uint64 n = uint64(next);
+        _apply(tv, n, n < tv.value, timelock);
+    }
+
+    // For caps: 0 = unrestricted (least safe), else lower = safer. Raising, or clearing to 0, is a loosening.
+    function _setCap(TimelockedValue storage tv, uint256 next, uint64 timelock) private {
+        _settle(tv);
+        uint64 n = uint64(next);
+        bool loosen = tv.value != 0 && (n == 0 || n > tv.value);
+        _apply(tv, n, loosen, timelock);
     }
 
     function send(VaultStorage storage vaultStorage, address recipient, address asset, uint256 amount)
@@ -107,6 +187,7 @@ library VaultLogic {
         if (vaultStorage.sendingDisabled) {
             revert SendingDisabled();
         }
+        _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxSendValue), asset, amount);
         _payOut(vaultStorage, asset, amount, recipient);
     }
 
@@ -130,6 +211,7 @@ library VaultLogic {
         if (vaultStorage.sendingDisabled) {
             revert SendingDisabled();
         }
+        _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxSendValue), asset, amount);
         id = vaultStorage.nextPendingSendId++;
         vaultStorage.pendingSends[id] =
             PendingSend({proposer: msg.sender, recipient: recipient, asset: asset, amount: amount});
@@ -181,6 +263,12 @@ library VaultLogic {
             revert ScheduledPaymentStartTimestampInPast();
         }
         _checkScheduledPayment(scheduledPayment);
+        _checkPaymentRiskCap(
+            vaultStorage,
+            _effective(vaultStorage.riskConfig.maxScheduledValue),
+            scheduledPayment.assetAddress,
+            scheduledPayment.amount
+        );
         id = ++vaultStorage.nextScheduledPaymentId;
         vaultStorage.scheduledPayments[id] = scheduledPayment;
         // msg.sender (the proposing payment manager) survives the delegatecall from the facade.
@@ -212,6 +300,12 @@ library VaultLogic {
             revert NotProposalOwner();
         }
         _checkScheduledPayment(scheduledPayment);
+        _checkPaymentRiskCap(
+            vaultStorage,
+            _effective(vaultStorage.riskConfig.maxScheduledValue),
+            scheduledPayment.assetAddress,
+            scheduledPayment.amount
+        );
         vaultStorage.scheduledPayments[id] = scheduledPayment;
         _armAddressProtection(vaultStorage, scheduledPayment.scheduledPaymentAddress);
         emit IBittyV1PaymentManager.ScheduledPaymentUpdated(id, scheduledPayment);
@@ -280,17 +374,69 @@ library VaultLogic {
         external
         onlyInitialized(vaultStorage)
     {
-        if (newAddressProtection < NEW_ADDRESS_PROTECTION_MIN || newAddressProtection > NEW_ADDRESS_PROTECTION_MAX) {
-            revert NewAddressProtectionOutOfRange();
-        }
-        // Monotonic ratchet: the window can only be raised, never lowered. This makes the configured
-        // window a real guarantee — a compromised owner key cannot weaken it (e.g. drop 30 days to 1)
-        // to speed up draining. The trade-off is that reductions are impossible once set.
-        if (newAddressProtection < vaultStorage.newAddressProtection) {
-            revert NewAddressProtectionCannotDecrease();
-        }
-        vaultStorage.newAddressProtection = newAddressProtection;
+        _setHigherSafer(
+            vaultStorage.riskConfig.newAddressProtection,
+            newAddressProtection,
+            _effective(vaultStorage.riskConfig.changeTimelock)
+        );
         emit IBittyV1Owner.NewAddressProtectionSet(newAddressProtection);
+    }
+
+    function setMaxSendValue(VaultStorage storage vaultStorage, uint256 value) external onlyInitialized(vaultStorage) {
+        _setCap(vaultStorage.riskConfig.maxSendValue, value, _effective(vaultStorage.riskConfig.changeTimelock));
+        emit IBittyV1Owner.MaxSendValueSet(value);
+    }
+
+    function setMaxScheduledValue(VaultStorage storage vaultStorage, uint256 value)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        _setCap(vaultStorage.riskConfig.maxScheduledValue, value, _effective(vaultStorage.riskConfig.changeTimelock));
+        emit IBittyV1Owner.MaxScheduledValueSet(value);
+    }
+
+    function setMaxWhitelistedValue(VaultStorage storage vaultStorage, uint256 value)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        _setCap(vaultStorage.riskConfig.maxWhitelistedValue, value, _effective(vaultStorage.riskConfig.changeTimelock));
+        emit IBittyV1Owner.MaxWhitelistedValueSet(value);
+    }
+
+    /**
+     * @notice Change the loosening delay itself. Lowering it is a loosening, so it waits the CURRENT
+     * timelock; raising it takes effect immediately. Prevents a compromised key from zeroing the delay
+     * and then loosening everything instantly.
+     */
+    function setChangeTimelock(VaultStorage storage vaultStorage, uint256 value)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        _setHigherSafer(
+            vaultStorage.riskConfig.changeTimelock, value, _effective(vaultStorage.riskConfig.changeTimelock)
+        );
+        emit IBittyV1Owner.ChangeTimelockSet(value);
+    }
+
+    function getRiskConfig(VaultStorage storage vaultStorage)
+        external
+        view
+        returns (
+            uint64 newAddressProtection,
+            uint64 maxSendValue,
+            uint64 maxScheduledValue,
+            uint64 maxWhitelistedValue,
+            uint64 changeTimelock
+        )
+    {
+        RiskConfig storage r = vaultStorage.riskConfig;
+        return (
+            _effective(r.newAddressProtection),
+            _effective(r.maxSendValue),
+            _effective(r.maxScheduledValue),
+            _effective(r.maxWhitelistedValue),
+            _effective(r.changeTimelock)
+        );
     }
 
     /**
@@ -300,7 +446,7 @@ library VaultLogic {
      * remaining lock.
      */
     function _armAddressProtection(VaultStorage storage vaultStorage, address recipient) internal {
-        uint256 protection = vaultStorage.newAddressProtection;
+        uint256 protection = _effective(vaultStorage.riskConfig.newAddressProtection);
         if (protection == 0) {
             return;
         }
@@ -441,6 +587,7 @@ library VaultLogic {
         if (entry.allowedAsset != address(0) && asset != entry.allowedAsset) {
             revert WhitelistedRecipientAssetNotAllowed();
         }
+        _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxWhitelistedValue), asset, amount);
         _clearAddressProtection(vaultStorage, entry.recipient);
         _payOut(vaultStorage, asset, amount, entry.recipient);
         emit IBittyV1Owner.WhitelistedRecipientPaid(id, entry.recipient, asset, amount);

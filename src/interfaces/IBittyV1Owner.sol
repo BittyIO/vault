@@ -34,6 +34,10 @@ interface IBittyV1Owner {
         uint256 expiredAt
     );
     event NewAddressProtectionSet(uint256 protectionDuration);
+    event MaxSendValueSet(uint256 value);
+    event MaxScheduledValueSet(uint256 value);
+    event MaxWhitelistedValueSet(uint256 value);
+    event ChangeTimelockSet(uint256 value);
     event WhitelistedRecipientPaid(uint256 indexed id, address indexed recipient, address asset, uint256 amount);
     // Owner approval of payment-manager proposals (creation events live on {IBittyV1PaymentManager}).
     event ScheduledPaymentApproved(uint256 indexed id);
@@ -136,9 +140,27 @@ interface IBittyV1Owner {
 
     /**
      * @notice Set the time-lock window applied to every newly added scheduled payment / whitelisted
-     * recipient before it can be paid.
+     * recipient before it can be paid. Lowering it is a loosening (waits the change timelock); raising
+     * it is immediate.
      */
     function setNewAddressProtection(uint256 newAddressProtection) external;
+
+    /**
+     * @notice Set a per-path payment cap (stablecoin whole tokens). A non-zero cap makes that path
+     *         stablecoin-only and bounds each payment's value; 0 removes the restriction. Applies to
+     *         newly created payments; existing ones are grandfathered (except whitelisted, checked at
+     *         each payout). Any value is allowed, but a loosening (raising or clearing a cap) only takes
+     *         effect after the change timelock; tightening is immediate.
+     */
+    function setMaxSendValue(uint256 value) external;
+    function setMaxScheduledValue(uint256 value) external;
+    function setMaxWhitelistedValue(uint256 value) external;
+
+    /**
+     * @notice Set the change timelock (seconds) — the delay a loosening of any risk control must wait.
+     *         Lowering it is itself a loosening (waits the current timelock); raising it is immediate.
+     */
+    function setChangeTimelock(uint256 value) external;
 
     // ============ Whitelisted recipient payout (owner-only) ============
 
