@@ -16,7 +16,7 @@ import {
     TradeLimitExpired,
     TradeInvestedTotalExceeded,
     StableCoinInvestCapZero,
-    CannotGrantAssetManagerRole,
+    NotAssetManager,
     DisableRebalanceUntilTimestampTooEarly,
     DisableRebalanceUntilTimestampTooLong
 } from "../../src/interfaces/IBittyV1AssetManager.sol";
@@ -87,7 +87,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
     function _grantAssetManagerRole(address manager) internal {
         vm.prank(ownerAddress);
-        this.addAssetManager(manager, 0, 0, type(uint64).max, 0);
+        this.setAssetManager(manager, 0, 0, type(uint64).max, 0);
     }
 
     function getClonedProvider(address protocol) external view returns (address) {
@@ -95,12 +95,15 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     }
 
     function getTradeLimitInvestedBudget(address assetManager) external view returns (uint64) {
-        return _assetManager.tradeLimits[assetManager].stableCoinInvestCap
-            - _assetManager.tradeLimits[assetManager].stableCoinInvested;
+        return _assetManager.assetManagerLimit.stableCoinInvestCap - _assetManager.assetManagerLimit.stableCoinInvested;
     }
 
     function getTradeLimitLastTradeTimestamp(address assetManager) external view returns (uint128) {
-        return _assetManager.tradeLimits[assetManager].lastTradeTimestamp;
+        return _assetManager.assetManagerLimit.lastTradeTimestamp;
+    }
+
+    function getTradeLimitInvested(address assetManager) external view returns (uint64) {
+        return _assetManager.assetManagerLimit.stableCoinInvested;
     }
 
     function _setTradeLimit(
@@ -111,7 +114,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 expiredAt
     ) internal {
         vm.prank(ownerAddress);
-        this.setTradeLimit(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
+        this.setAssetManager(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
     }
 
     function _cloneProtocolForTest(address protocol) private returns (address clonedProtocol) {
@@ -228,16 +231,15 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_RevertOnlyAssetManager() public {
         this.doInitialize();
         address stranger = makeAddr("subscribedStranger");
-        bytes32 role = ASSET_MANAGER_ROLE;
 
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, role));
+        vm.expectRevert(NotAssetManager.selector);
         this.supply(address(aaveProtocol), address(mainnet.WETH), 1 ether);
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, role));
+        vm.expectRevert(NotAssetManager.selector);
         this.withdraw(address(aaveProtocol), address(mainnet.WETH), 1 ether);
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, role));
+        vm.expectRevert(NotAssetManager.selector);
         this.marketSell(address(uniswapV3Protocol), address(WBTC), address(mainnet.USDT), 1 ether, 1 ether, "");
     }
 
@@ -593,51 +595,41 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
-        this.setTradeLimit(assetManagerAddress, 1 hours, 1000, 0, 0);
+        this.setAssetManager(assetManagerAddress, 1 hours, 1000, 0, 0);
     }
 
     function test_SetTradeLimit_RevertsAddressZero() public {
         this.doInitialize();
         vm.prank(ownerAddress);
         vm.expectRevert(AddressZero.selector);
-        this.setTradeLimit(address(0), 1 hours, 1000, 0, 0);
+        this.setAssetManager(address(0), 1 hours, 1000, 0, 0);
     }
 
     function test_SetTradeLimit_RevertsWhenCapZero() public {
         this.doInitialize();
         vm.prank(ownerAddress);
         vm.expectRevert(StableCoinInvestCapZero.selector);
-        this.setTradeLimit(assetManagerAddress, 0, 0, 0, 0);
+        this.setAssetManager(assetManagerAddress, 0, 0, 0, 0);
     }
 
     function test_AddAssetManager_RevertsWhenCapZero() public {
         this.doInitialize();
         vm.prank(ownerAddress);
         vm.expectRevert(StableCoinInvestCapZero.selector);
-        this.addAssetManager(makeAddr("newManager"), 0, 0, 0, 0);
+        this.setAssetManager(makeAddr("newManager"), 0, 0, 0, 0);
     }
 
-    function test_GrantRole_RevertsForAssetManagerRole() public {
+    function test_SetAssetManager_ReplacesAndRemoveClears() public {
         this.doInitialize();
-        bytes32 amRole = this.ASSET_MANAGER_ROLE();
-        address directGrant = makeAddr("directGrant");
-        vm.prank(ownerAddress);
-        vm.expectRevert(CannotGrantAssetManagerRole.selector);
-        this.grantRole(amRole, directGrant);
-    }
-
-    function test_RevokeAssetManager_RevokesAndClearsTradeLimit() public {
-        this.doInitialize();
-        bytes32 amRole = this.ASSET_MANAGER_ROLE();
         address manager = makeAddr("removableManager");
         vm.prank(ownerAddress);
-        this.addAssetManager(manager, 1 hours, 1000, 5_000, 0);
-        assertTrue(this.hasRole(amRole, manager));
+        this.setAssetManager(manager, 1 hours, 1000, 5_000, 0);
+        assertEq(this.getAssetManager(), manager);
         assertEq(this.getTradeLimitInvestedBudget(manager), 5_000);
 
         vm.prank(ownerAddress);
-        this.revokeRole(amRole, manager);
-        assertFalse(this.hasRole(amRole, manager));
+        this.removeAssetManager();
+        assertEq(this.getAssetManager(), address(0));
         assertEq(this.getTradeLimitInvestedBudget(manager), 0);
     }
 
@@ -647,7 +639,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         // Cap the stablecoin leg to 1,000 whole USDT (6 decimals → 1_000e6 raw units).
         vm.prank(ownerAddress);
-        this.setTradeLimit(assetManagerAddress, 0, 1000, type(uint64).max, 0);
+        this.setAssetManager(assetManagerAddress, 0, 1000, type(uint64).max, 0);
 
         // USDT is the buy leg; the declared floor (1_001e6) exceeds the 1_000e6 cap.
         uint256 buyAmountMin = 1_001 * 1e6;
@@ -663,7 +655,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         deal(mainnet.WETH, address(this), 10 ether);
 
         vm.prank(ownerAddress);
-        this.setTradeLimit(assetManagerAddress, 0, 1000, type(uint64).max, 0);
+        this.setAssetManager(assetManagerAddress, 0, 1000, type(uint64).max, 0);
 
         uint256 sellAmount = 0.01 ether;
         uint256 buyAmountMin = 1;
@@ -677,7 +669,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
 
         vm.prank(ownerAddress);
-        this.setTradeLimit(assetManagerAddress, 0, 1000, type(uint64).max, 0);
+        this.setAssetManager(assetManagerAddress, 0, 1000, type(uint64).max, 0);
 
         // WETH → WBTC: neither token is a stablecoin, so the size is not measurable in dollars.
         vm.expectRevert(TradeMustTouchStableCoin.selector);
@@ -690,7 +682,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         deal(mainnet.WETH, address(this), 10 ether);
 
         vm.prank(ownerAddress);
-        this.setTradeLimit(assetManagerAddress, 1 hours, 0, type(uint64).max, 0);
+        this.setAssetManager(assetManagerAddress, 1 hours, 0, type(uint64).max, 0);
 
         uint256 sellAmount = 0.01 ether;
         bytes memory swapData = encodeWethToUsdtSwap(sellAmount, 1);
@@ -707,20 +699,18 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
     }
 
-    function test_TradeLimit_IsPerAssetManager() public {
+    function test_SetAssetManager_ReplacesPreviousManager() public {
         this.doInitialize();
         deal(mainnet.WETH, address(this), 10 ether);
 
-        // A throttle set for a different manager must not restrict this asset manager.
+        // Setting a new asset manager replaces the previous one — the old one can no longer trade.
         vm.prank(ownerAddress);
-        this.setTradeLimit(makeAddr("otherManager"), 1 hours, 1, type(uint64).max, 0);
+        this.setAssetManager(makeAddr("otherManager"), 1 hours, 1, type(uint64).max, 0);
 
         uint256 sellAmount = 0.01 ether;
         bytes memory swapData = encodeWethToUsdtSwap(sellAmount, 1);
-
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
-        vm.prank(assetManagerAddress);
+        vm.expectRevert(NotAssetManager.selector);
         this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
     }
 
@@ -784,6 +774,67 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 500 * 1e6, 1, encodeUsdtToWethSwap(500 * 1e6, 1)
         );
         assertEq(this.getTradeLimitInvestedBudget(assetManagerAddress), budgetBeforeSell + 100 - 500);
+    }
+
+    function test_TradeLimit_InvestedTotal_SubTokenTradeCountsAsWholeToken() public {
+        this.doInitialize();
+        deal(mainnet.USDT, address(this), 2_000 * 1e6);
+        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0);
+
+        // A sub-whole-token invest (0.5 USDT) must round UP to 1, not floor to 0 — otherwise a stream of
+        // dust trades could deploy capital past the cap for free.
+        vm.prank(assetManagerAddress);
+        this.marketSell(
+            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 500_000, 1, encodeUsdtToWethSwap(500_000, 1)
+        );
+        assertEq(this.getTradeLimitInvestedBudget(assetManagerAddress), 1_000 - 1);
+    }
+
+    function test_FullAccess_SkipsInvestCapAndTracking() public {
+        this.doInitialize();
+        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0); // start restricted with a small cap
+        vm.prank(ownerAddress);
+        this.setFullAssetManager(assetManagerAddress); // upgrade to full-access
+
+        deal(mainnet.USDT, address(this), 5_000 * 1e6);
+        // Investing 2,000 USDT would exceed the 1,000 cap — full-access ignores it and does not track.
+        vm.prank(assetManagerAddress);
+        this.marketSell(
+            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 2_000 * 1e6, 1, encodeUsdtToWethSwap(2_000 * 1e6, 1)
+        );
+        assertEq(this.getTradeLimitInvested(assetManagerAddress), 0, "invested not tracked for full-access");
+    }
+
+    function test_FullAccess_MinimalBalanceStillEnforced() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.setFullAssetManager(assetManagerAddress);
+
+        deal(mainnet.WETH, address(this), 1 ether);
+        vm.prank(ownerAddress);
+        this.setMinimalBalance(mainnet.WETH, 0.5 ether);
+
+        // Selling below the minimal-balance floor reverts even for a full-access manager.
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(MinimalBalanceNotMet.selector);
+        this.marketSell(
+            address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.6 ether, 1, encodeWethToUsdtSwap(0.6 ether, 1)
+        );
+    }
+
+    function test_SetTradeLimit_DemotesFullAccessToRestricted() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.setFullAssetManager(assetManagerAddress);
+        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0); // restrict again
+
+        deal(mainnet.USDT, address(this), 5_000 * 1e6);
+        // The cap is enforced again: investing 1,001 USDT reverts.
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(TradeInvestedTotalExceeded.selector);
+        this.marketSell(
+            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 1_001 * 1e6, 1, encodeUsdtToWethSwap(1_001 * 1e6, 1)
+        );
     }
 
     function test_TradeLimit_ZeroInterval_SkipsLastTradeTimestampWrite() public {
@@ -957,7 +1008,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         deal(mainnet.WETH, address(this), 1 ether);
         address stranger = makeAddr("subscribedStranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, ASSET_MANAGER_ROLE));
+        vm.expectRevert(NotAssetManager.selector);
         this.stake(address(lidoProtocol), mainnet.WETH, 1 ether);
     }
 
@@ -1056,7 +1107,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256[] memory requestIds = new uint256[](0);
         address stranger = makeAddr("subscribedStranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, ASSET_MANAGER_ROLE));
+        vm.expectRevert(NotAssetManager.selector);
         this.claimUnstaked(address(lidoProtocol), requestIds);
     }
 
@@ -1313,7 +1364,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         _initializeWithMockAMM(mockAmm);
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, ASSET_MANAGER_ROLE));
+        vm.expectRevert(NotAssetManager.selector);
         this.decreaseLiquidity(address(mockAmm), "");
     }
 

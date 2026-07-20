@@ -40,7 +40,6 @@ import {
     NotPendingApproval,
     NotProposalOwner,
     PendingSendNotFound,
-    SendingDisabled,
     PaymentExceedsRiskCap,
     PaymentNotStableCoin,
     RiskControlLevel
@@ -184,19 +183,8 @@ library VaultLogic {
         external
         onlyInitialized(vaultStorage)
     {
-        if (vaultStorage.sendingDisabled) {
-            revert SendingDisabled();
-        }
         _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxSendValue), asset, amount);
         _payOut(vaultStorage, asset, amount, recipient);
-    }
-
-    function disableSending(VaultStorage storage vaultStorage) external onlyInitialized(vaultStorage) {
-        vaultStorage.sendingDisabled = true;
-    }
-
-    function isSendingDisabled(VaultStorage storage vaultStorage) external view returns (bool) {
-        return vaultStorage.sendingDisabled;
     }
 
     /**
@@ -208,9 +196,6 @@ library VaultLogic {
         onlyInitialized(vaultStorage)
         returns (uint256 id)
     {
-        if (vaultStorage.sendingDisabled) {
-            revert SendingDisabled();
-        }
         _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxSendValue), asset, amount);
         id = vaultStorage.nextPendingSendId++;
         vaultStorage.pendingSends[id] =
@@ -220,16 +205,16 @@ library VaultLogic {
 
     /**
      * @notice Owner: execute a queued one-off send. Access control (owner-only) is enforced by the
-     * facade. Re-checks {sendingDisabled} in case it was disabled after the proposal.
+     * facade.
      */
     function approveSend(VaultStorage storage vaultStorage, uint256 id) external onlyInitialized(vaultStorage) {
         PendingSend memory ps = vaultStorage.pendingSends[id];
         if (ps.proposer == address(0)) {
             revert PendingSendNotFound();
         }
-        if (vaultStorage.sendingDisabled) {
-            revert SendingDisabled();
-        }
+        // Re-check the send cap against the value in force at approval time, so tightening the cap after
+        // a proposal (which is immediate everywhere else) also binds an already-queued send.
+        _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxSendValue), ps.asset, ps.amount);
         delete vaultStorage.pendingSends[id];
         _payOut(vaultStorage, ps.asset, ps.amount, ps.recipient);
         emit IBittyV1Owner.SendApproved(id, ps.recipient, ps.asset, ps.amount);
@@ -633,7 +618,10 @@ library VaultLogic {
         uint256 id,
         uint256 payAmount
     ) internal {
-        _accrueScheduledPayment(vaultStorage, scheduledPayment, id);
+        if (_accrueScheduledPayment(vaultStorage, scheduledPayment, id)) {
+            // Nothing to pay right now; the slot and interval were not consumed, so the payment stays due.
+            return;
+        }
         uint256 paidAmount = _transferMoney(
             vaultStorage,
             scheduledPayment.assetAddress,
@@ -657,11 +645,17 @@ library VaultLogic {
      * pay-from-vault-balance path and the on-behalf pay-from-yield path so both honour
      * identical rules and checks-effects-interactions ordering.
      */
+    /**
+     * @dev Runs the validity checks (which revert), then either consumes a payment slot + advances the
+     * interval clock, or — when the payment tolerates an insufficient balance and there is nothing to
+     * pay — returns `true` to signal the caller to skip the transfer WITHOUT consuming a slot, so the
+     * payment stays due and can be made once the vault is funded.
+     */
     function _accrueScheduledPayment(
         VaultStorage storage vaultStorage,
         IBittyV1Vault.ScheduledPayment storage scheduledPayment,
         uint256 id
-    ) internal {
+    ) internal returns (bool skipped) {
         if (scheduledPayment.amount == 0) {
             revert ScheduledPaymentNotFound();
         }
@@ -681,6 +675,18 @@ library VaultLogic {
             revert ScheduledPaymentInInterval();
         }
         _clearAddressProtection(vaultStorage, scheduledPayment.scheduledPaymentAddress);
+
+        // A payment that tolerates insufficient balance and has nothing to pay (zero balance) would
+        // deliver 0. Skip it without burning a payment count or moving the interval clock — otherwise a
+        // payee silently loses a whole period for a zero delivery.
+        if (scheduledPayment.payWithInsufficientBalance) {
+            address balanceToken =
+                scheduledPayment.assetAddress == address(0) ? vaultStorage.weth : scheduledPayment.assetAddress;
+            if (IERC20(balanceToken).balanceOf(address(this)) == 0) {
+                return true;
+            }
+        }
+
         vaultStorage.lastReceiveTimestamps[id] = block.timestamp;
         // type(uint8).max is the "unlimited" sentinel: an uncapped recurring scheduled payment that never
         // decrements and so never runs out.

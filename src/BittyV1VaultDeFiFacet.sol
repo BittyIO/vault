@@ -2,8 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
-import {IBittyV1AssetManager} from "./interfaces/IBittyV1AssetManager.sol";
-import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
+import {IBittyV1AssetManager, NotAssetManager} from "./interfaces/IBittyV1AssetManager.sol";
 import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
@@ -22,9 +21,9 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
     using AssetManagerLogic for AssetManagerStorage;
 
     /**
-     * @dev Passes only for an explicit ASSET_MANAGER_ROLE holder. The owner has no implicit trading
-     *      access — to trade, the owner must add itself via {addAssetManager} (with a cap), which grants
-     *      ASSET_MANAGER_ROLE and subjects the owner to a trade limit like any other manager.
+     * @dev Passes only for the vault's single asset manager. The owner has no implicit trading access —
+     *      to trade, the owner must set itself (or an AI key) as the manager via {setAssetManager} /
+     *      {setFullAssetManager}.
      */
     modifier onlyAssetManager() {
         _checkAssetManager();
@@ -32,8 +31,7 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
     }
 
     function _checkAssetManager() internal view {
-        if (hasRole(ASSET_MANAGER_ROLE, _msgSender())) return;
-        revert IAccessControl.AccessControlUnauthorizedAccount(_msgSender(), ASSET_MANAGER_ROLE);
+        if (_msgSender() != _assetManager.assetManager) revert NotAssetManager();
     }
 
     // ============ AMM ============

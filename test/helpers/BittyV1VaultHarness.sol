@@ -29,21 +29,12 @@ abstract contract BittyV1VaultHarness is BittyV1Vault, BittyV1VaultDeFiFacet {
         return super._grantRole(role, account);
     }
 
-    // Disambiguate the public grantRole (BittyV1Vault blocks ASSET_MANAGER_ROLE) inherited via both
-    // parents. super routes to BittyV1Vault's, preserving the block.
-    function grantRole(bytes32 role, address account)
+    // Disambiguate the beginDefaultAdminTransfer overridden by BittyV1Vault (rejects payment-manager
+    // targets) inherited via both parents. super routes to BittyV1Vault's, preserving the check.
+    function beginDefaultAdminTransfer(address newAdmin)
         public
         override(BittyV1Vault, AccessControlDefaultAdminRulesUpgradeable)
     {
-        super.grantRole(role, account);
-    }
-
-    // Disambiguate the public revokeRole (BittyV1Vault blocks ASSET_MANAGER_ROLE) inherited via both
-    // parents. super routes to BittyV1Vault's, preserving the block.
-    function revokeRole(bytes32 role, address account)
-        public
-        override(BittyV1Vault, AccessControlDefaultAdminRulesUpgradeable)
-    {
-        super.revokeRole(role, account);
+        super.beginDefaultAdminTransfer(newAdmin);
     }
 }
