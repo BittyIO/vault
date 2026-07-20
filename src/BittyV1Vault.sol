@@ -7,7 +7,6 @@ import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
 import {IBittyV1Owner} from "./interfaces/IBittyV1Owner.sol";
 import {IBittyV1PaymentManager} from "./interfaces/IBittyV1PaymentManager.sol";
 import {IBittyV1Vault, AddressZero, OwnerAndManagerMustDiffer, RiskControlLevel} from "./interfaces/IBittyV1Vault.sol";
-import {CannotGrantAssetManagerRole} from "./interfaces/IBittyV1AssetManager.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage, RiskConfig} from "./logic/Storages.sol";
@@ -45,9 +44,8 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
     /**
      * @notice Enforces that the owner (DEFAULT_ADMIN_ROLE) is never also a payment manager, and
      *         vice-versa — the owner already has full, immediate payment authority, so the role would
-     *         be redundant. The owner MAY hold ASSET_MANAGER_ROLE (added via {addAssetManager} with a
-     *         cap), which is the only way for the owner to trade. Every role grant — initialize,
-     *         grantRole, and the 2-step admin transfer — routes through here.
+     *         be redundant. (The owner MAY be the vault's asset manager — that's a single address set via
+     *         {setAssetManager}, not a role.) Every role grant routes through here.
      */
     function _grantRole(bytes32 role, address account) internal virtual override returns (bool) {
         if (role == DEFAULT_ADMIN_ROLE) {
@@ -63,32 +61,10 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
     }
 
     /**
-     * @notice Blocks granting ASSET_MANAGER_ROLE directly: asset managers must be added via
-     *         {addAssetManager}, which requires a non-zero invest cap, so no asset manager can ever
-     *         exist without a trade limit. Other roles (e.g. PAYMENT_MANAGER_ROLE) are unaffected.
-     */
-    function grantRole(bytes32 role, address account) public virtual override {
-        if (role == ASSET_MANAGER_ROLE) revert CannotGrantAssetManagerRole();
-        super.grantRole(role, account);
-    }
-
-    /**
-     * @notice Revoking ASSET_MANAGER_ROLE also clears the manager's trade limit (cap and tracked
-     *         invested portfolio) so no stale invest budget is left behind if the role is later
-     *         re-granted. Access control (owner-only) is enforced by the inherited revokeRole.
-     */
-    function revokeRole(bytes32 role, address account) public virtual override {
-        super.revokeRole(role, account);
-        if (role == ASSET_MANAGER_ROLE) {
-            _assetManager.removeTradeLimit(account);
-        }
-    }
-
-    /**
      * @notice Reject starting an ownership transfer to a payment manager up front. Otherwise the
      *         transfer could be begun but never accepted — the accept's DEFAULT_ADMIN_ROLE grant would
-     *         revert {OwnerAndManagerMustDiffer} — leaving a stuck pending transfer. (The new owner may
-     *         hold ASSET_MANAGER_ROLE; only the payment-manager role is mutually exclusive with owner.)
+     *         revert {OwnerAndManagerMustDiffer} — leaving a stuck pending transfer. (Only the
+     *         payment-manager role is mutually exclusive with the owner.)
      */
     function beginDefaultAdminTransfer(address newAdmin) public virtual override {
         if (hasRole(PAYMENT_MANAGER_ROLE, newAdmin)) {
@@ -347,31 +323,29 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
      * @notice Add an asset manager and its trade guardrail atomically. Only way to grant
      *         ASSET_MANAGER_ROLE; reverts (inside setTradeLimit) if stableCoinInvestCap is 0.
      */
-    function addAssetManager(
+    function setAssetManager(
         address assetManager,
         uint256 interval,
         uint256 maxStableCoinPerTrade,
         uint256 stableCoinInvestCap,
         uint256 expiredAt
     ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _grantRole(ASSET_MANAGER_ROLE, assetManager);
-        _assetManager.setTradeLimit(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
+        _assetManager.setAssetManager(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
         emit TradeLimitSet(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
     }
 
-    /**
-     * @notice Update an existing asset manager's trade guardrail (throttle, per-trade cap, invest cap,
-     *         expiry). Reverts if stableCoinInvestCap is 0, so a manager can never be left uncapped.
-     */
-    function setTradeLimit(
-        address assetManager,
-        uint256 interval,
-        uint256 maxStableCoinPerTrade,
-        uint256 stableCoinInvestCap,
-        uint256 expiredAt
-    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.setTradeLimit(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
-        emit TradeLimitSet(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
+    function setFullAssetManager(address assetManager) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetManager.setFullAssetManager(assetManager);
+        emit FullAssetManagerAdded(assetManager);
+    }
+
+    function removeAssetManager() external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetManager.removeAssetManager();
+        emit AssetManagerRemoved();
+    }
+
+    function getAssetManager() external view returns (address) {
+        return _assetManager.assetManager;
     }
 
     function addLendingProtocols(address[] memory lendingProtocolAddresses)

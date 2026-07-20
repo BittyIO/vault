@@ -111,7 +111,11 @@ library AssetManagerLogic {
         logicStorage.minimalBalances[assetAddress] = minimalBalance;
     }
 
-    function setTradeLimit(
+    /**
+     * @notice Set the vault's single (restricted) asset manager and its trade guardrail, replacing any
+     * previous manager. Reverts if `stableCoinInvestCap == 0`.
+     */
+    function setAssetManager(
         AssetManagerStorage storage logicStorage,
         address assetManager,
         uint256 interval,
@@ -121,18 +125,36 @@ library AssetManagerLogic {
     ) external onlyInitialized(logicStorage) {
         if (assetManager == address(0)) revert AddressZero();
         if (stableCoinInvestCap == 0) revert StableCoinInvestCapZero();
-        TradeLimit storage limit = logicStorage.tradeLimits[assetManager];
+        logicStorage.assetManager = assetManager;
+        TradeLimit storage limit = logicStorage.assetManagerLimit;
         limit.interval = uint64(interval);
         limit.maxStableCoinPerTrade = uint64(maxStableCoinPerTrade);
         limit.stableCoinInvestCap = uint64(stableCoinInvestCap);
         limit.expiredAt = uint96(expiredAt);
+        // A restricted manager: reset the tracked portfolio and any prior full-access grant.
+        limit.stableCoinInvested = 0;
+        limit.lastTradeTimestamp = 0;
+        limit.fullAccess = false;
     }
 
-    function removeTradeLimit(AssetManagerStorage storage logicStorage, address assetManager)
+    /**
+     * @notice Set the vault's single asset manager as full-access: bounded only by minimal balances,
+     * skipping the per-trade cap / invest cap / throttle / stablecoin-leg checks. For keys as trusted as
+     * the owner. Replaces any previous manager.
+     */
+    function setFullAssetManager(AssetManagerStorage storage logicStorage, address assetManager)
         external
         onlyInitialized(logicStorage)
     {
-        delete logicStorage.tradeLimits[assetManager];
+        if (assetManager == address(0)) revert AddressZero();
+        logicStorage.assetManager = assetManager;
+        delete logicStorage.assetManagerLimit;
+        logicStorage.assetManagerLimit.fullAccess = true;
+    }
+
+    function removeAssetManager(AssetManagerStorage storage logicStorage) external onlyInitialized(logicStorage) {
+        logicStorage.assetManager = address(0);
+        delete logicStorage.assetManagerLimit;
     }
 
     function supply(
@@ -426,12 +448,10 @@ library AssetManagerLogic {
         address from,
         address to,
         uint256 sellAmount,
-        uint256 toAmount
+        uint256 toAmount,
+        bool creditReturn
     ) private {
         VaultLogic.checkAsset(vaultStorage, to);
-        if (!vaultStorage.stableCoins.contains(from) && !vaultStorage.stableCoins.contains(to)) {
-            revert TradeMustTouchStableCoin();
-        }
         _checkRebalanceDisabledUntilTimestamp(logicStorage);
 
         uint256 minBal = logicStorage.minimalBalances[from];
@@ -444,7 +464,17 @@ library AssetManagerLogic {
             if (available < sellAmount || available - sellAmount < minBal) revert MinimalBalanceNotMet();
         }
 
-        TradeLimit storage limit = logicStorage.tradeLimits[msg.sender];
+        TradeLimit storage limit = logicStorage.assetManagerLimit;
+
+        // Full-access managers are bounded only by the minimal-balance floor above; skip the entire trade
+        // limit — including the stablecoin-leg requirement — so they may trade any asset (even asset ->
+        // asset) freely and without the per-trade cap/invest/throttle accounting.
+        if (limit.fullAccess) return;
+
+        // Restricted managers must touch a stablecoin (the caps are denominated in stablecoin whole tokens).
+        if (!vaultStorage.stableCoins.contains(from) && !vaultStorage.stableCoins.contains(to)) {
+            revert TradeMustTouchStableCoin();
+        }
 
         if (limit.expiredAt != 0 && block.timestamp >= limit.expiredAt) {
             revert TradeLimitExpired();
@@ -467,11 +497,26 @@ library AssetManagerLogic {
 
         uint256 cap = limit.stableCoinInvestCap;
         if (vaultStorage.stableCoins.contains(from)) {
-            uint256 unit = 10 ** IERC20Metadata(from).decimals();
-            uint256 invested = uint256(limit.stableCoinInvested) + sellAmount / unit;
+            // Stablecoin leaving the vault. Count it (whole tokens, rounded UP so a stream of
+            // sub-whole-token trades cannot dodge the cap). For a stablecoin-for-stablecoin trade count
+            // the LARGER of the two legs — this caps how much a manager can churn through (possibly
+            // manipulated) stable pools regardless of trade direction/rate; without it, repeated
+            // stable->stable trades could bleed the vault unchecked.
+            uint256 fromUnit = 10 ** IERC20Metadata(from).decimals();
+            uint256 wholeSpent = (sellAmount + fromUnit - 1) / fromUnit;
+            if (vaultStorage.stableCoins.contains(to)) {
+                uint256 toUnit = 10 ** IERC20Metadata(to).decimals();
+                uint256 toWhole = (toAmount + toUnit - 1) / toUnit;
+                if (toWhole > wholeSpent) wholeSpent = toWhole;
+            }
+            uint256 invested = uint256(limit.stableCoinInvested) + wholeSpent;
             if (invested > cap) revert TradeInvestedTotalExceeded();
             limit.stableCoinInvested = uint64(invested);
-        } else if (vaultStorage.stableCoins.contains(to)) {
+        } else if (vaultStorage.stableCoins.contains(to) && creditReturn) {
+            // Divesting (asset -> stable) via a SYNCHRONOUS market trade: credit the stablecoin coming
+            // back (floored, conservative). Async intent orders do not credit here — there is no fill
+            // hook, so a placed-then-cancelled buy-stablecoin order must not be able to reduce the
+            // invested total. Freeing the cap therefore requires an actually-settled (market) divest.
             uint256 unit = 10 ** IERC20Metadata(to).decimals();
             uint256 wholeReceived = toAmount / unit;
             uint256 invested = limit.stableCoinInvested;
@@ -553,7 +598,7 @@ library AssetManagerLogic {
     ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
         if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
-        _validateTrade(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin);
+        _validateTrade(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin, true);
         _swapExactIn(logicStorage, ammProtocol, from, sellAmount, to, buyAmountMin, address(this), data);
     }
 
@@ -573,7 +618,7 @@ library AssetManagerLogic {
     ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
         if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
-        _validateTrade(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount);
+        _validateTrade(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount, true);
         _swapExactOut(logicStorage, ammProtocol, from, sellAmountMax, to, buyAmount, address(this), data);
     }
 
@@ -792,7 +837,7 @@ library AssetManagerLogic {
         uint32 validTo
     ) external onlyInitialized(logicStorage) returns (bytes32 orderId) {
         _checkIntentProtocol(logicStorage, intentProtocol);
-        _validateTrade(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin);
+        _validateTrade(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin, false);
         orderId = _intentTrade(logicStorage, intentProtocol, from, sellAmount, to, buyAmountMin, validTo, true);
     }
 
@@ -807,7 +852,7 @@ library AssetManagerLogic {
         uint32 validTo
     ) external onlyInitialized(logicStorage) returns (bytes32 orderId) {
         _checkIntentProtocol(logicStorage, intentProtocol);
-        _validateTrade(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount);
+        _validateTrade(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount, false);
         orderId = _intentTrade(logicStorage, intentProtocol, from, sellAmountMax, to, buyAmount, validTo, false);
     }
 
@@ -925,7 +970,7 @@ library AssetManagerLogic {
     ) external onlyInitialized(logicStorage) returns (bytes32 twapId) {
         _checkIntentProtocol(logicStorage, intentProtocol);
         if (totalSellAmount == 0 || minPartLimit == 0 || n == 0 || partDuration == 0) revert AmountIsZero();
-        _validateTrade(logicStorage, vaultStorage, from, to, totalSellAmount, minPartLimit * n);
+        _validateTrade(logicStorage, vaultStorage, from, to, totalSellAmount, minPartLimit * n, false);
 
         address clone = _cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
@@ -970,7 +1015,7 @@ library AssetManagerLogic {
         uint256 minPartLimit = totalBuyAmount / n;
         if (minPartLimit == 0) revert AmountIsZero();
         uint256 totalSellAmount = sellAmountPerPart * n;
-        _validateTrade(logicStorage, vaultStorage, from, to, totalSellAmount, totalBuyAmount);
+        _validateTrade(logicStorage, vaultStorage, from, to, totalSellAmount, totalBuyAmount, false);
 
         address clone = _cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);

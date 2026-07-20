@@ -105,7 +105,7 @@ contract BittyV1VaultFactoryTest is Test {
         );
         vault = factory.vaultAddress(owner);
         if (assetManager != address(0)) {
-            BittyV1Vault(payable(vault)).addAssetManager(assetManager, 0, 0, type(uint64).max, 0);
+            BittyV1Vault(payable(vault)).setAssetManager(assetManager, 0, 0, type(uint64).max, 0);
         }
         vm.stopPrank();
     }
@@ -767,14 +767,14 @@ contract BittyV1VaultFactoryTest is Test {
         assertEq(vault.getStableCoins()[1], usdcAddress);
     }
 
-    function test_ActivatedVault_ownerGrantsAssetManager() public {
+    function test_ActivatedVault_ownerSetsAssetManager() public {
         _initFactory();
         BittyV1Vault vault = BittyV1Vault(payable(_newVaultFor(owner1)));
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), owner1));
-        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), assetManagerAddress));
+        assertEq(vault.getAssetManager(), assetManagerAddress);
     }
 
-    function test_ActivatedVault_ownerGrantsMultipleAssetManagers() public {
+    function test_ActivatedVault_settingAssetManagerReplacesThePrevious() public {
         _initFactory();
         address manager1 = makeAddr("manager1");
         address manager2 = makeAddr("manager2");
@@ -789,12 +789,12 @@ contract BittyV1VaultFactoryTest is Test {
             intentProtocols
         );
         BittyV1Vault vaultInstance = BittyV1Vault(payable(factory.vaultAddress(owner1)));
-        vaultInstance.addAssetManager(manager1, 0, 0, type(uint64).max, 0);
-        vaultInstance.addAssetManager(manager2, 0, 0, type(uint64).max, 0);
+        vaultInstance.setAssetManager(manager1, 0, 0, type(uint64).max, 0);
+        vaultInstance.setAssetManager(manager2, 0, 0, type(uint64).max, 0);
         vm.stopPrank();
 
-        assertTrue(vaultInstance.hasRole(vaultInstance.ASSET_MANAGER_ROLE(), manager1));
-        assertTrue(vaultInstance.hasRole(vaultInstance.ASSET_MANAGER_ROLE(), manager2));
+        // A vault has a single asset manager; the second set replaces the first.
+        assertEq(vaultInstance.getAssetManager(), manager2);
     }
 
     function test_ActivateVaultFor_nonOwnerCannotGrantRoles() public {
@@ -813,9 +813,7 @@ contract BittyV1VaultFactoryTest is Test {
         address vault = _newVault();
         assertEq(vault, expected);
         assertTrue(BittyV1Vault(payable(vault)).hasRole(BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE(), tx.origin));
-        assertTrue(
-            BittyV1Vault(payable(vault)).hasRole(BittyV1Vault(payable(vault)).ASSET_MANAGER_ROLE(), assetManagerAddress)
-        );
+        assertEq(BittyV1Vault(payable(vault)).getAssetManager(), assetManagerAddress);
     }
 
     function test_ActivateVault_multisigOwnerAddress() public {

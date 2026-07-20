@@ -101,6 +101,11 @@ interface IBittyV1Vault {
     function isAddingProtocolsDisabled() external view returns (bool);
 
     /**
+     * @notice The vault's single asset manager (address(0) = none). Only this address may trade.
+     */
+    function getAssetManager() external view returns (address);
+
+    /**
      * @notice The vault's currently in-force payment risk controls (all zero = no controls). Caps are in
      *         stablecoin whole tokens; a non-zero cap makes that payment path stablecoin-only.
      *         `changeTimelock` is the delay a loosening of any control must wait. A queued loosening is

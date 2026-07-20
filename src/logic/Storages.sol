@@ -42,6 +42,9 @@ struct TradeLimit {
     uint64 stableCoinInvested; // portfolio: whole-token stablecoin currently deployed into assets; +on stable→asset, -on asset→stable
     uint96 expiredAt; // 0 = not expired
     uint128 lastTradeTimestamp;
+    // true = a full-access manager: bounded only by minimalBalance, skips the cap/throttle accounting
+    // (and the stablecoin-leg requirement). Packs into the trailing slot with expiredAt/lastTradeTimestamp.
+    bool fullAccess;
 }
 
 struct AssetManagerStorage {
@@ -50,7 +53,10 @@ struct AssetManagerStorage {
     mapping(address => address) clonedProtocols;
     mapping(address => uint256) minimalBalances;
 
-    mapping(address => TradeLimit) tradeLimits;
+    // The vault's single asset manager (address(0) = none) and its trade guardrail. Only this address
+    // may trade; the owner sets it and may make itself the manager.
+    address assetManager;
+    TradeLimit assetManagerLimit;
 
     EnumerableSet.AddressSet lendingProtocols;
     EnumerableSet.AddressSet stakingProtocols;

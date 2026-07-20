@@ -38,7 +38,6 @@ import {
     PaymentExceedsRiskCap,
     PaymentNotStableCoin
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {CannotGrantAssetManagerRole} from "../../src/interfaces/IBittyV1AssetManager.sol";
 import {RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -100,7 +99,7 @@ contract BittyV1VaultTest is Test {
 
     function _grantAssetManager(address manager) internal {
         vm.prank(ownerAddress);
-        vault.addAssetManager(manager, 0, 0, type(uint64).max, 0);
+        vault.setAssetManager(manager, 0, 0, type(uint64).max, 0);
     }
 
     function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
@@ -194,24 +193,15 @@ contract BittyV1VaultTest is Test {
             RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
-        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), assetManagerAddress));
+        assertEq(vault.getAssetManager(), assetManagerAddress);
     }
 
     function test_OwnerMayBeAddedAsAssetManager() public {
         _initializeVault();
         vm.prank(ownerAddress);
-        vault.addAssetManager(ownerAddress, 0, 0, type(uint64).max, 0);
-        assertTrue(vault.hasRole(vault.ASSET_MANAGER_ROLE(), ownerAddress));
+        vault.setAssetManager(ownerAddress, 0, 0, type(uint64).max, 0);
+        assertEq(vault.getAssetManager(), ownerAddress);
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
-    }
-
-    function test_GrantRoleRevertsForAssetManagerRole() public {
-        _initializeVault();
-        bytes32 assetManagerRole = vault.ASSET_MANAGER_ROLE();
-        address mgr = makeAddr("directGrantMgr");
-        vm.prank(ownerAddress);
-        vm.expectRevert(CannotGrantAssetManagerRole.selector);
-        vault.grantRole(assetManagerRole, mgr);
     }
 
     function test_GrantRoleRevertsWhenOwnerAsPaymentManager() public {
@@ -222,17 +212,16 @@ contract BittyV1VaultTest is Test {
         vault.grantRole(paymentManagerRole, ownerAddress);
     }
 
-    // The invariant only excludes the owner — one non-owner account may hold both manager roles.
-    function test_ManagerMayHoldBothAssetAndPaymentRoles() public {
+    // The asset manager (an address) and a payment-manager role may be the same account.
+    function test_AssetManagerMayAlsoBePaymentManager() public {
         _initializeVault();
         address mgr = makeAddr("mgr");
-        bytes32 amRole = vault.ASSET_MANAGER_ROLE();
         bytes32 pmRole = vault.PAYMENT_MANAGER_ROLE();
         vm.startPrank(ownerAddress);
-        vault.addAssetManager(mgr, 0, 0, type(uint64).max, 0);
+        vault.setAssetManager(mgr, 0, 0, type(uint64).max, 0);
         vault.grantRole(pmRole, mgr);
         vm.stopPrank();
-        assertTrue(vault.hasRole(amRole, mgr));
+        assertEq(vault.getAssetManager(), mgr);
         assertTrue(vault.hasRole(pmRole, mgr));
     }
 
@@ -1846,10 +1835,9 @@ contract BittyV1VaultTest is Test {
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
 
         address newManager = makeAddr("instantManager");
-        bytes32 role = vault.ASSET_MANAGER_ROLE();
         vm.prank(ownerAddress);
-        vault.addAssetManager(newManager, 0, 0, type(uint64).max, 0);
-        assertTrue(vault.hasRole(role, newManager));
+        vault.setAssetManager(newManager, 0, 0, type(uint64).max, 0);
+        assertEq(vault.getAssetManager(), newManager);
     }
 
     function test_acceptDefaultAdminTransfer_revertsBeforeOneDay() public {
@@ -1897,23 +1885,22 @@ contract BittyV1VaultTest is Test {
 
     function test_AdminTransferSucceedsWhenNewAdminIsAssetManager() public {
         _initializeVault();
-        bytes32 assetManagerRole = vault.ASSET_MANAGER_ROLE();
         address newAdmin = makeAddr("newAdmin");
 
         vm.prank(ownerAddress);
         vault.beginDefaultAdminTransfer(newAdmin);
 
-        // The owner and an asset manager may be the same account, so the pending admin holding
-        // ASSET_MANAGER_ROLE does not block the transfer.
+        // The owner and the asset manager may be the same account, so the pending admin being the
+        // vault's asset manager does not block the transfer.
         vm.prank(ownerAddress);
-        vault.addAssetManager(newAdmin, 0, 0, type(uint64).max, 0);
-        assertTrue(vault.hasRole(assetManagerRole, newAdmin));
+        vault.setAssetManager(newAdmin, 0, 0, type(uint64).max, 0);
+        assertEq(vault.getAssetManager(), newAdmin);
 
         vm.warp(block.timestamp + 1 days + 1);
         vm.prank(newAdmin);
         vault.acceptDefaultAdminTransfer();
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), newAdmin));
-        assertTrue(vault.hasRole(assetManagerRole, newAdmin));
+        assertEq(vault.getAssetManager(), newAdmin);
     }
 
     function test_BeginDefaultAdminTransfer_RevertsWhenNewAdminIsPaymentManager() public {

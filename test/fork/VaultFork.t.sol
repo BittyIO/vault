@@ -91,7 +91,7 @@ contract TestVaultFork is Test {
             RiskControlLevel.Zero, vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
         );
         address vaultAddr = factory.vaultAddress(tx.origin);
-        BittyV1Vault(payable(vaultAddr)).addAssetManager(assetManager, 0, 0, type(uint64).max, 0);
+        BittyV1Vault(payable(vaultAddr)).setAssetManager(assetManager, 0, 0, type(uint64).max, 0);
         vm.stopPrank();
         vault = BittyV1Vault(payable(vaultAddr));
     }
@@ -401,12 +401,12 @@ contract TestVaultFork is Test {
             RiskControlLevel.Zero, vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
         );
         address vaultAddr = factory.vaultAddress(customOwner);
-        BittyV1Vault(payable(vaultAddr)).addAssetManager(customAssetManager, 0, 0, type(uint64).max, 0);
+        BittyV1Vault(payable(vaultAddr)).setAssetManager(customAssetManager, 0, 0, type(uint64).max, 0);
         vm.stopPrank();
 
         BittyV1Vault customVault = BittyV1Vault(payable(vaultAddr));
         assertTrue(customVault.hasRole(customVault.DEFAULT_ADMIN_ROLE(), customOwner));
-        assertTrue(customVault.hasRole(customVault.ASSET_MANAGER_ROLE(), customAssetManager));
+        assertEq(customVault.getAssetManager(), customAssetManager);
         assertEq(factory.vaultAddress(customOwner), vaultAddr);
     }
 }

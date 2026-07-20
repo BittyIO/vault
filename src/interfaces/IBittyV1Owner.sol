@@ -33,6 +33,8 @@ interface IBittyV1Owner {
         uint256 stableCoinInvestCap,
         uint256 expiredAt
     );
+    event FullAssetManagerAdded(address indexed assetManager);
+    event AssetManagerRemoved();
     event NewAddressProtectionSet(uint256 protectionDuration);
     event MaxSendValueSet(uint256 value);
     event MaxScheduledValueSet(uint256 value);
@@ -86,11 +88,16 @@ interface IBittyV1Owner {
     function setMinimalBalance(address assetAddress, uint256 minimalBalance) external;
 
     /**
-     * @notice Add an asset manager together with its trade guardrail. Asset managers can only be
-     *         granted this way — `grantRole(ASSET_MANAGER_ROLE, …)` reverts — so no asset manager can
-     *         exist without an invest cap. Reverts if `stableCoinInvestCap == 0`.
+     * @notice Set the vault's single (restricted) asset manager and its trade guardrail, replacing any
+     *         previous manager. Only this address may trade, subject to the caps. The owner may set
+     *         itself. Reverts if `stableCoinInvestCap == 0`.
+     * @param interval Min seconds between trades (0 = no throttle).
+     * @param maxStableCoinPerTrade Max stablecoin per trade in whole tokens (0 = no cap).
+     * @param stableCoinInvestCap Max whole-token stablecoin the manager may have invested into assets
+     *        at once; reverts if 0.
+     * @param expiredAt Unix timestamp after which this asset manager may not trade (0 = never).
      */
-    function addAssetManager(
+    function setAssetManager(
         address assetManager,
         uint256 interval,
         uint256 maxStableCoinPerTrade,
@@ -99,20 +106,17 @@ interface IBittyV1Owner {
     ) external;
 
     /**
-     * @notice Update an existing asset manager's trade guardrail.
-     * @param interval Min seconds between trades (0 = no throttle).
-     * @param maxStableCoinPerTrade Max stablecoin per trade in whole tokens (0 = no cap).
-     * @param stableCoinInvestCap Max whole-token stablecoin the manager may have invested into assets
-     *        at once; reverts if 0, so a manager can never be left uncapped.
-     * @param expiredAt Unix timestamp after which this asset manager may not trade (0 = never).
+     * @notice Set the vault's single asset manager as full-access — bounded only by minimal balances,
+     *         with no invest cap, per-trade cap, throttle, expiry, or stablecoin-leg requirement (so it
+     *         can trade any asset, including asset->asset). Replaces any previous manager. For keys as
+     *         trusted as the owner; use {setAssetManager} for a delegated key that needs guardrails.
      */
-    function setTradeLimit(
-        address assetManager,
-        uint256 interval,
-        uint256 maxStableCoinPerTrade,
-        uint256 stableCoinInvestCap,
-        uint256 expiredAt
-    ) external;
+    function setFullAssetManager(address assetManager) external;
+
+    /**
+     * @notice Remove the vault's asset manager (leaving the vault with none, so no one can trade).
+     */
+    function removeAssetManager() external;
 
     // ============ Sending ============
 
