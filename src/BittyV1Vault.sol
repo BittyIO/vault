@@ -253,6 +253,10 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
         return _vault.getRiskConfig();
     }
 
+    function getRiskControlLevel() external view returns (RiskControlLevel) {
+        return _vault.getRiskControlLevel();
+    }
+
     function payScheduled(uint256 id) external {
         _vault.payScheduled(id);
     }

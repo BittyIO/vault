@@ -99,7 +99,12 @@ library VaultLogic {
     {
         vaultStorage.guard = IBittyV1Guard(guardAddress);
         vaultStorage.riskConfig = _defaultRisk(level);
+        vaultStorage.riskControlLevel = level;
         vaultStorage.isInitialized = true;
+    }
+
+    function getRiskControlLevel(VaultStorage storage vaultStorage) external view returns (RiskControlLevel) {
+        return vaultStorage.riskControlLevel;
     }
 
     /**
