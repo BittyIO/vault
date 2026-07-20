@@ -106,6 +106,13 @@ interface IBittyV1Vault {
     function getAssetManager() external view returns (address);
 
     /**
+     * @notice The risk-control preset chosen at activation (None/Standard/Strict). The live controls may
+     *         have been tuned since — see {getRiskConfig} — but this records the starting preset so the UI
+     *         can show it and offer a reset to its defaults.
+     */
+    function getRiskControlLevel() external view returns (RiskControlLevel);
+
+    /**
      * @notice The vault's currently in-force payment risk controls (all zero = no controls). Caps are in
      *         stablecoin whole tokens; a non-zero cap makes that payment path stablecoin-only.
      *         `changeTimelock` is the delay a loosening of any control must wait. A queued loosening is

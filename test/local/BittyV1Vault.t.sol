@@ -1672,6 +1672,12 @@ contract BittyV1VaultTest is Test {
         assertEq(tl, 0); // Zero level: no loosening delay, changes are instant
     }
 
+    function test_Risk_ControlLevel_RecordedAtActivation() public {
+        assertEq(uint8(_initAtLevel(RiskControlLevel.Zero).getRiskControlLevel()), uint8(RiskControlLevel.Zero));
+        assertEq(uint8(_initAtLevel(RiskControlLevel.Standard).getRiskControlLevel()), uint8(RiskControlLevel.Standard));
+        assertEq(uint8(_initAtLevel(RiskControlLevel.High).getRiskControlLevel()), uint8(RiskControlLevel.High));
+    }
+
     function test_Risk_LevelDefaults_StandardAndHighAreConfigured() public {
         (uint64 stdNap, uint64 stdSend, uint64 stdSched, uint64 stdWl, uint64 stdTl) =
             _initAtLevel(RiskControlLevel.Standard).getRiskConfig();

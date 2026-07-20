@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {IBittyV1Vault} from "../interfaces/IBittyV1Vault.sol";
+import {IBittyV1Vault, RiskControlLevel} from "../interfaces/IBittyV1Vault.sol";
 
 struct IntentOrderRecord {
     address sellToken; // address(0) = no record
@@ -93,6 +93,8 @@ struct VaultStorage {
     // Reentrancy lock for native-ETH payouts (the only path that .call's an arbitrary recipient).
     bool payingEth;
     RiskConfig riskConfig;
+    // The risk-control preset chosen at activation (recorded for the UI: display + reset-to-default).
+    RiskControlLevel riskControlLevel;
 
     mapping(uint256 => IBittyV1Vault.WhitelistedRecipient) whitelistedRecipients;
 
