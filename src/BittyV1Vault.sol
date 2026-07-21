@@ -218,9 +218,18 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
         _vault.approveScheduledPayment(id);
     }
 
-    // DEFAULT_ADMIN_ROLE — controls the time-lock window for new scheduled payments and whitelisted recipients
-    function setNewAddressProtection(uint256 newAddressProtection) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.setNewAddressProtection(newAddressProtection);
+    // DEFAULT_ADMIN_ROLE — time-lock window for newly added scheduled-payment addresses
+    function setScheduledPaymentProtection(uint256 newAddressProtection)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _vault.setScheduledPaymentProtection(newAddressProtection);
+    }
+
+    // DEFAULT_ADMIN_ROLE — time-lock window for newly added whitelisted recipients
+    function setWhitelistedProtection(uint256 newAddressProtection) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.setWhitelistedProtection(newAddressProtection);
     }
 
     function setMaxSendValue(uint256 value) external override onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -243,7 +252,8 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
         external
         view
         returns (
-            uint64 newAddressProtection,
+            uint64 scheduledPaymentProtection,
+            uint64 whitelistedProtection,
             uint64 maxSendValue,
             uint64 maxScheduledValue,
             uint64 maxWhitelistedValue,

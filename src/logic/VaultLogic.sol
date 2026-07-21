@@ -31,7 +31,8 @@ import {
     AddingAssetsDisabled,
     ScheduledPaymentIntervalTooShort,
     AssetAddressNotContract,
-    AddressProtectionNotEnded,
+    ProtectionPeriodNotEnded,
+    ScheduledPaymentProtectionTooLong,
     PayMoreThanScheduledPaymentAmount,
     PayScheduledPaymentAmountTriggerEmpty,
     WhitelistedRecipientNotFound,
@@ -52,17 +53,24 @@ library VaultLogic {
      */
     uint256 constant SCHEDULED_PAYMENT_MINIMAL_INTERVAL = 7 days;
 
+    // Upper bound (~10 years) on the scheduled-payment protection window. A sanity cap so the owner can
+    // never set an absurd/effectively-infinite delay that permanently blocks the recurring-payment path.
+    // (Solidity has no `years` unit — leap years make it ambiguous — so this is expressed in days.)
+    uint64 constant MAX_SCHEDULED_PAYMENT_PROTECTION = 3650 days;
+
     // ---- Risk-control-level default parameters (payment controls) ----
     // TODO(risk-params): fill in the Standard/High defaults. `Zero` is all-zero (no controls).
     // newAddressProtection is seconds; the *_MAX_*_VALUE caps are stablecoin whole tokens
     // (0 = unrestricted / no stablecoin lock); *_CHANGE_TIMELOCK is the loosening delay in seconds.
-    uint64 constant STANDARD_NEW_ADDRESS_PROTECTION = 1 days;
+    uint64 constant STANDARD_SCHEDULED_PAYMENT_PROTECTION = 1 days;
+    uint64 constant STANDARD_WHITELISTED_PROTECTION = 1 days;
     uint64 constant STANDARD_MAX_SEND_VALUE = 100;
     uint64 constant STANDARD_MAX_SCHEDULED_VALUE = 100;
     uint64 constant STANDARD_MAX_WHITELISTED_VALUE = 100;
     uint64 constant STANDARD_CHANGE_TIMELOCK = 1 days;
 
-    uint64 constant HIGH_NEW_ADDRESS_PROTECTION = 3 days;
+    uint64 constant HIGH_SCHEDULED_PAYMENT_PROTECTION = 3 days;
+    uint64 constant HIGH_WHITELISTED_PROTECTION = 3 days;
     uint64 constant HIGH_MAX_SEND_VALUE = 1000;
     uint64 constant HIGH_MAX_SCHEDULED_VALUE = 1000;
     uint64 constant HIGH_MAX_WHITELISTED_VALUE = 1000;
@@ -114,13 +122,15 @@ library VaultLogic {
      */
     function _defaultRisk(RiskControlLevel level) internal pure returns (RiskConfig memory c) {
         if (level == RiskControlLevel.Standard) {
-            c.newAddressProtection.value = STANDARD_NEW_ADDRESS_PROTECTION;
+            c.scheduledPaymentProtection.value = STANDARD_SCHEDULED_PAYMENT_PROTECTION;
+            c.whitelistedProtection.value = STANDARD_WHITELISTED_PROTECTION;
             c.maxSendValue.value = STANDARD_MAX_SEND_VALUE;
             c.maxScheduledValue.value = STANDARD_MAX_SCHEDULED_VALUE;
             c.maxWhitelistedValue.value = STANDARD_MAX_WHITELISTED_VALUE;
             c.changeTimelock.value = STANDARD_CHANGE_TIMELOCK;
         } else if (level == RiskControlLevel.High) {
-            c.newAddressProtection.value = HIGH_NEW_ADDRESS_PROTECTION;
+            c.scheduledPaymentProtection.value = HIGH_SCHEDULED_PAYMENT_PROTECTION;
+            c.whitelistedProtection.value = HIGH_WHITELISTED_PROTECTION;
             c.maxSendValue.value = HIGH_MAX_SEND_VALUE;
             c.maxScheduledValue.value = HIGH_MAX_SCHEDULED_VALUE;
             c.maxWhitelistedValue.value = HIGH_MAX_WHITELISTED_VALUE;
@@ -265,7 +275,8 @@ library VaultLogic {
         if (!byOwner) {
             vaultStorage.scheduledPaymentPendingProposer[id] = msg.sender;
         }
-        _armAddressProtection(vaultStorage, scheduledPayment.scheduledPaymentAddress);
+        vaultStorage.scheduledPaymentEffectiveAt[id] =
+            _protectionDeadline(_effective(vaultStorage.riskConfig.scheduledPaymentProtection));
         emit IBittyV1PaymentManager.ScheduledPaymentAdded(id, scheduledPayment);
     }
 
@@ -297,7 +308,8 @@ library VaultLogic {
             scheduledPayment.amount
         );
         vaultStorage.scheduledPayments[id] = scheduledPayment;
-        _armAddressProtection(vaultStorage, scheduledPayment.scheduledPaymentAddress);
+        vaultStorage.scheduledPaymentEffectiveAt[id] =
+            _protectionDeadline(_effective(vaultStorage.riskConfig.scheduledPaymentProtection));
         emit IBittyV1PaymentManager.ScheduledPaymentUpdated(id, scheduledPayment);
     }
 
@@ -352,24 +364,38 @@ library VaultLogic {
         delete vaultStorage.scheduledPayments[id];
         delete vaultStorage.scheduledPaymentPendingProposer[id];
         delete vaultStorage.lastReceiveTimestamps[id];
-        // Intentionally do NOT clear newAddressProtectionTimestamps[scheduledPaymentAddress]: it is
-        // shared by payee address across scheduled payments and whitelisted recipients. Clearing it on
-        // removal would let a compromised owner drop a still-protected address's time-lock by adding it
-        // under two names/features and removing one. The lock self-clears on the first post-window pay
-        // and re-adding an address only ever extends it (max), so leaving it here is always safe.
+        // Removal is allowed at any time, including during the protection window — that window exists so a
+        // malicious entry can be caught and deleted before it can ever pay. The timer is per-id, so it goes
+        // away with the entry (no shared-address exploit).
+        delete vaultStorage.scheduledPaymentEffectiveAt[id];
         emit IBittyV1PaymentManager.ScheduledPaymentRemoved(id);
     }
 
-    function setNewAddressProtection(VaultStorage storage vaultStorage, uint256 newAddressProtection)
+    function setScheduledPaymentProtection(VaultStorage storage vaultStorage, uint256 protection)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        if (protection > MAX_SCHEDULED_PAYMENT_PROTECTION) {
+            revert ScheduledPaymentProtectionTooLong();
+        }
+        _setHigherSafer(
+            vaultStorage.riskConfig.scheduledPaymentProtection,
+            protection,
+            _effective(vaultStorage.riskConfig.changeTimelock)
+        );
+        emit IBittyV1Owner.ScheduledPaymentProtectionSet(protection);
+    }
+
+    function setWhitelistedProtection(VaultStorage storage vaultStorage, uint256 newAddressProtection)
         external
         onlyInitialized(vaultStorage)
     {
         _setHigherSafer(
-            vaultStorage.riskConfig.newAddressProtection,
+            vaultStorage.riskConfig.whitelistedProtection,
             newAddressProtection,
             _effective(vaultStorage.riskConfig.changeTimelock)
         );
-        emit IBittyV1Owner.NewAddressProtectionSet(newAddressProtection);
+        emit IBittyV1Owner.WhitelistedProtectionSet(newAddressProtection);
     }
 
     function setMaxSendValue(VaultStorage storage vaultStorage, uint256 value) external onlyInitialized(vaultStorage) {
@@ -412,7 +438,8 @@ library VaultLogic {
         external
         view
         returns (
-            uint64 newAddressProtection,
+            uint64 scheduledPaymentProtection,
+            uint64 whitelistedProtection,
             uint64 maxSendValue,
             uint64 maxScheduledValue,
             uint64 maxWhitelistedValue,
@@ -421,7 +448,8 @@ library VaultLogic {
     {
         RiskConfig storage r = vaultStorage.riskConfig;
         return (
-            _effective(r.newAddressProtection),
+            _effective(r.scheduledPaymentProtection),
+            _effective(r.whitelistedProtection),
             _effective(r.maxSendValue),
             _effective(r.maxScheduledValue),
             _effective(r.maxWhitelistedValue),
@@ -430,35 +458,19 @@ library VaultLogic {
     }
 
     /**
-     * @notice Arm the shared address time-lock for a newly introduced payee `recipient`.
-     * @dev No-op when protection is disabled. Never shortens an existing deadline (uses the max), so
-     * introducing an already-protected address through another payment feature cannot reduce its
-     * remaining lock.
+     * @notice Deadline (unix time) for a newly added/edited entry given its protection window; 0 when the
+     * window is disabled (payable immediately). The entry is not payable until block.timestamp reaches it.
      */
-    function _armAddressProtection(VaultStorage storage vaultStorage, address recipient) internal {
-        uint256 protection = _effective(vaultStorage.riskConfig.newAddressProtection);
-        if (protection == 0) {
-            return;
-        }
-        uint256 endsAt = block.timestamp + protection;
-        if (endsAt > vaultStorage.newAddressProtectionTimestamps[recipient]) {
-            vaultStorage.newAddressProtectionTimestamps[recipient] = endsAt;
-        }
+    function _protectionDeadline(uint256 protection) private view returns (uint256) {
+        return protection == 0 ? 0 : block.timestamp + protection;
     }
 
     /**
-     * @notice Enforce and clear the shared address time-lock before paying `recipient`.
-     * @dev Reverts with {AddressProtectionNotEnded} while the window is still open; once elapsed the
-     * deadline is cleared so the check is skipped on every subsequent payment. Shared by the scheduled
-     * payment and whitelisted recipient pay paths — both key on the payee address.
+     * @notice Revert while an entry's protection window is still open.
      */
-    function _clearAddressProtection(VaultStorage storage vaultStorage, address recipient) internal {
-        uint256 endsAt = vaultStorage.newAddressProtectionTimestamps[recipient];
-        if (endsAt > 0) {
-            if (block.timestamp < endsAt) {
-                revert AddressProtectionNotEnded();
-            }
-            delete vaultStorage.newAddressProtectionTimestamps[recipient];
+    function _requireProtectionElapsed(uint256 effectiveAt) private view {
+        if (block.timestamp < effectiveAt) {
+            revert ProtectionPeriodNotEnded();
         }
     }
 
@@ -481,7 +493,8 @@ library VaultLogic {
         if (!byOwner) {
             vaultStorage.whitelistedRecipientPendingProposer[id] = msg.sender;
         }
-        _armAddressProtection(vaultStorage, recipient);
+        vaultStorage.whitelistedRecipientEffectiveAt[id] =
+            _protectionDeadline(_effective(vaultStorage.riskConfig.whitelistedProtection));
         emit IBittyV1PaymentManager.WhitelistedRecipientSet(id, recipient, allowedAsset);
     }
 
@@ -509,7 +522,8 @@ library VaultLogic {
         }
         vaultStorage.whitelistedRecipients[id] =
             IBittyV1Vault.WhitelistedRecipient({recipient: recipient, allowedAsset: allowedAsset});
-        _armAddressProtection(vaultStorage, recipient);
+        vaultStorage.whitelistedRecipientEffectiveAt[id] =
+            _protectionDeadline(_effective(vaultStorage.riskConfig.whitelistedProtection));
         emit IBittyV1PaymentManager.WhitelistedRecipientSet(id, recipient, allowedAsset);
     }
 
@@ -548,8 +562,9 @@ library VaultLogic {
         }
         delete vaultStorage.whitelistedRecipients[id];
         delete vaultStorage.whitelistedRecipientPendingProposer[id];
-        // See removeScheduledPayment: the address-keyed protection deadline is shared, so clearing it
-        // on removal is exploitable. Leave it — it self-clears on the first post-window pay.
+        // Removable at any time, including mid-protection-window — that is how a malicious recipient gets
+        // caught and dropped before it can pay. The per-id timer is cleared with the entry.
+        delete vaultStorage.whitelistedRecipientEffectiveAt[id];
         emit IBittyV1PaymentManager.WhitelistedRecipientRemoved(id);
     }
 
@@ -557,7 +572,7 @@ library VaultLogic {
      * @notice Pay a whitelisted recipient a discretionary amount from the vault's balance.
      * @dev Access control (owner-only) is enforced by the facade. The asset must match the entry's
      * allowedAsset unless that is address(0) (any asset). Not rate-limited — recipients are vetted
-     * by the owner at set time — but a newly added recipient is time-locked by newAddressProtection
+     * by the owner at set time — but a newly added recipient is time-locked by whitelistedProtection
      * until its window elapses. Paid from the vault's idle balance.
      */
     function sendToWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id, address asset, uint256 amount)
@@ -578,7 +593,7 @@ library VaultLogic {
             revert WhitelistedRecipientAssetNotAllowed();
         }
         _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxWhitelistedValue), asset, amount);
-        _clearAddressProtection(vaultStorage, entry.recipient);
+        _requireProtectionElapsed(vaultStorage.whitelistedRecipientEffectiveAt[id]);
         _payOut(vaultStorage, asset, amount, entry.recipient);
         emit IBittyV1Owner.WhitelistedRecipientPaid(id, entry.recipient, asset, amount);
     }
@@ -679,7 +694,7 @@ library VaultLogic {
         ) {
             revert ScheduledPaymentInInterval();
         }
-        _clearAddressProtection(vaultStorage, scheduledPayment.scheduledPaymentAddress);
+        _requireProtectionElapsed(vaultStorage.scheduledPaymentEffectiveAt[id]);
 
         // A payment that tolerates insufficient balance and has nothing to pay (zero balance) would
         // deliver 0. Skip it without burning a payment count or moving the interval clock — otherwise a

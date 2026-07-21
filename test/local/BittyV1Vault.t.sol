@@ -18,7 +18,8 @@ import {
     ScheduledPaymentPaymentCountZero,
     ScheduledPaymentIntervalTooShort,
     AssetAddressNotContract,
-    AddressProtectionNotEnded,
+    ProtectionPeriodNotEnded,
+    ScheduledPaymentProtectionTooLong,
     ScheduledPaymentNotStartYet,
     ScheduledPaymentStartTimestampInPast,
     PayMoreThanScheduledPaymentAmount,
@@ -826,7 +827,7 @@ contract BittyV1VaultTest is Test {
 
     function test_SetNewAddressProtectionRevertUnauthorizedWhenNotInitialized() public {
         vm.expectRevert(); // no roles granted before initialize, AccessControl fires first
-        vault.setNewAddressProtection(1 days);
+        vault.setScheduledPaymentProtection(1 days);
     }
 
     function test_SetNewAddressProtectionRevertUnauthorized() public {
@@ -835,83 +836,95 @@ contract BittyV1VaultTest is Test {
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _adminRole));
-        vault.setNewAddressProtection(1 days);
+        vault.setScheduledPaymentProtection(1 days);
     }
 
     function test_SetNewAddressProtection_RaisingIsImmediate() public {
         _initializeVault();
         vm.startPrank(ownerAddress);
-        vault.setNewAddressProtection(2 days);
-        vault.setNewAddressProtection(5 days); // raising (tightening) applies immediately
+        vault.setScheduledPaymentProtection(2 days);
+        vault.setScheduledPaymentProtection(5 days); // raising (tightening) applies immediately
         vm.stopPrank();
-        (uint64 nap,,,,) = vault.getRiskConfig();
+        (uint64 nap,,,,,) = vault.getRiskConfig();
         assertEq(nap, 5 days);
+    }
+
+    function test_SetScheduledPaymentProtection_capsAtTenYears() public {
+        _initializeVault();
+        vm.startPrank(ownerAddress);
+        vault.setScheduledPaymentProtection(3650 days); // at the cap is allowed
+        (uint64 sched,,,,,) = vault.getRiskConfig();
+        assertEq(sched, 3650 days);
+        // Above the cap reverts, so the recurring-payment path can never be permanently locked out.
+        vm.expectRevert(ScheduledPaymentProtectionTooLong.selector);
+        vault.setScheduledPaymentProtection(3650 days + 1);
+        vm.stopPrank();
     }
 
     function test_Risk_LoweringNewAddressProtection_DelayedByTimelock() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
-        (uint64 nap0,,,, uint64 tl) = v.getRiskConfig();
+        (uint64 nap0,,,,, uint64 tl) = v.getRiskConfig();
         vm.prank(ownerAddress);
-        v.setNewAddressProtection(1 hours); // loosening
-        (uint64 napNow,,,,) = v.getRiskConfig();
+        v.setScheduledPaymentProtection(1 hours); // loosening
+        (uint64 napNow,,,,,) = v.getRiskConfig();
         assertEq(napNow, nap0); // unchanged until the timelock elapses
         vm.warp(block.timestamp + tl);
-        (uint64 napAfter,,,,) = v.getRiskConfig();
+        (uint64 napAfter,,,,,) = v.getRiskConfig();
         assertEq(napAfter, 1 hours);
     }
 
     function test_Risk_Cap_TighteningImmediate_LooseningDelayed() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
-        (, uint64 send0,,, uint64 tl) = v.getRiskConfig();
+        (,, uint64 send0,,, uint64 tl) = v.getRiskConfig();
         vm.prank(ownerAddress);
         v.setMaxSendValue(send0 - 1); // tighten (lower cap) -> immediate
-        (, uint64 sendTight,,,) = v.getRiskConfig();
+        (,, uint64 sendTight,,,) = v.getRiskConfig();
         assertEq(sendTight, send0 - 1);
 
         vm.prank(ownerAddress);
         v.setMaxSendValue(send0 + 1_000); // loosen (raise cap) -> delayed
-        (, uint64 sendNow,,,) = v.getRiskConfig();
+        (,, uint64 sendNow,,,) = v.getRiskConfig();
         assertEq(sendNow, send0 - 1);
         vm.warp(block.timestamp + tl);
-        (, uint64 sendAfter,,,) = v.getRiskConfig();
+        (,, uint64 sendAfter,,,) = v.getRiskConfig();
         assertEq(sendAfter, send0 + 1_000);
     }
 
     function test_Risk_Cap_ClearingToZeroIsLooseningDelayed() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
-        (,,, uint64 wl0, uint64 tl) = v.getRiskConfig();
+        (,,,, uint64 wl0, uint64 tl) = v.getRiskConfig();
         vm.prank(ownerAddress);
         v.setMaxWhitelistedValue(0); // removing the restriction = loosening
-        (,,, uint64 wlNow,) = v.getRiskConfig();
+        (,,,, uint64 wlNow,) = v.getRiskConfig();
         assertEq(wlNow, wl0); // still restricted until the timelock elapses
         vm.warp(block.timestamp + tl);
-        (,,, uint64 wlAfter,) = v.getRiskConfig();
+        (,,,, uint64 wlAfter,) = v.getRiskConfig();
         assertEq(wlAfter, 0);
     }
 
     function test_Risk_ChangeTimelock_LoweringDelayedByItself_RaisingImmediate() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.High);
-        (,,,, uint64 tl0) = v.getRiskConfig();
+        (,,,,, uint64 tl0) = v.getRiskConfig();
 
         vm.prank(ownerAddress);
         v.setChangeTimelock(tl0 + 10 days); // raising is immediate
-        (,,,, uint64 tlRaised) = v.getRiskConfig();
+        (,,,,, uint64 tlRaised) = v.getRiskConfig();
         assertEq(tlRaised, tl0 + 10 days);
 
         vm.prank(ownerAddress);
         v.setChangeTimelock(1 hours); // lowering waits the CURRENT (raised) timelock
-        (,,,, uint64 tlNow) = v.getRiskConfig();
+        (,,,,, uint64 tlNow) = v.getRiskConfig();
         assertEq(tlNow, tl0 + 10 days);
         vm.warp(block.timestamp + tl0 + 10 days);
-        (,,,, uint64 tlAfter) = v.getRiskConfig();
+        (,,,,, uint64 tlAfter) = v.getRiskConfig();
         assertEq(tlAfter, 1 hours);
     }
 
-    function test_PayScheduledPayment_revertAddressProtectionNotEnded() public {
+    function test_PayScheduledPayment_revertProtectionPeriodNotEnded() public {
         _initializeVault();
         uint256 protection = 3 days;
         vm.prank(ownerAddress);
-        vault.setNewAddressProtection(protection);
+        vault.setScheduledPaymentProtection(protection);
 
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -922,7 +935,7 @@ contract BittyV1VaultTest is Test {
 
         deal(address(weth), address(vault), 1 ether);
 
-        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vm.expectRevert(ProtectionPeriodNotEnded.selector);
         vault.payScheduled(aliceId);
     }
 
@@ -930,7 +943,7 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         uint256 protection = 3 days;
         vm.prank(ownerAddress);
-        vault.setNewAddressProtection(protection);
+        vault.setScheduledPaymentProtection(protection);
 
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         uint256 addedAt = block.timestamp;
@@ -976,7 +989,7 @@ contract BittyV1VaultTest is Test {
 
         // Enabling protection only time-locks addresses introduced from now on.
         vm.prank(ownerAddress);
-        vault.setNewAddressProtection(2 days);
+        vault.setScheduledPaymentProtection(2 days);
 
         IBittyV1Vault.ScheduledPayment memory alice = _makeScheduledPayment(
             aliceScheduledPayment, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
@@ -986,7 +999,7 @@ contract BittyV1VaultTest is Test {
 
         deal(address(weth), address(vault), 2 ether);
 
-        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vm.expectRevert(ProtectionPeriodNotEnded.selector);
         vault.payScheduled(aliceId);
 
         vault.payScheduled(bobId);
@@ -999,7 +1012,7 @@ contract BittyV1VaultTest is Test {
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
 
         vm.prank(ownerAddress);
-        vault.setNewAddressProtection(protection);
+        vault.setScheduledPaymentProtection(protection);
 
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
@@ -1012,7 +1025,7 @@ contract BittyV1VaultTest is Test {
 
         deal(address(weth), address(vault), 1 ether);
 
-        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vm.expectRevert(ProtectionPeriodNotEnded.selector);
         vault.payScheduled(aliceId);
 
         vm.warp(block.timestamp + protection);
@@ -1176,10 +1189,10 @@ contract BittyV1VaultTest is Test {
         vault.payScheduledAmount(aliceId, 1 ether);
     }
 
-    function test_PayScheduledPaymentAmount_revertAddressProtectionNotEnded() public {
+    function test_PayScheduledPaymentAmount_revertProtectionPeriodNotEnded() public {
         _initializeVault();
         vm.prank(ownerAddress);
-        vault.setNewAddressProtection(2 days);
+        vault.setScheduledPaymentProtection(2 days);
 
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
         address trigger = makeAddr("trigger");
@@ -1188,7 +1201,7 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(trigger);
-        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vm.expectRevert(ProtectionPeriodNotEnded.selector);
         vault.payScheduledAmount(aliceId, 1 ether);
     }
 
@@ -1370,15 +1383,15 @@ contract BittyV1VaultTest is Test {
         vault.removeScheduledPayment(aliceId);
     }
 
-    function test_SetNewAddressProtection_emitsNewAddressProtectionSetEvent() public {
+    function test_SetNewAddressProtection_emitsScheduledPaymentProtectionSetEvent() public {
         _initializeVault();
         uint256 protection = 1 days;
 
         vm.expectEmit(false, false, false, true, address(vault));
-        emit IBittyV1Owner.NewAddressProtectionSet(protection);
+        emit IBittyV1Owner.ScheduledPaymentProtectionSet(protection);
 
         vm.prank(ownerAddress);
-        vault.setNewAddressProtection(protection);
+        vault.setScheduledPaymentProtection(protection);
     }
 
     function test_PayScheduledPayment_emitsScheduledPaymentPaidEvent() public {
@@ -1446,20 +1459,20 @@ contract BittyV1VaultTest is Test {
     }
 
     function testFuzz_SetNewAddressProtection_anyValueRaisesImmediately(uint256 protection) public {
-        protection = bound(protection, 1, uint256(type(uint64).max));
+        protection = bound(protection, 1, 3650 days);
         _initializeVault(); // Zero level: raising from 0 is a tightening -> immediate
         vm.prank(ownerAddress);
-        vault.setNewAddressProtection(protection);
-        (uint64 nap,,,,) = vault.getRiskConfig();
+        vault.setScheduledPaymentProtection(protection);
+        (uint64 nap,,,,,) = vault.getRiskConfig();
         assertEq(nap, uint64(protection));
     }
 
     function testFuzz_ScheduledPaymentProtection_blocksDuringWindow(uint256 protection, uint256 elapsed) public {
-        protection = bound(protection, 1 hours, 365 days);
+        protection = bound(protection, 1 hours, 3650 days);
         elapsed = bound(elapsed, 0, protection - 1);
         _initializeVault();
         vm.prank(ownerAddress);
-        vault.setNewAddressProtection(protection);
+        vault.setScheduledPaymentProtection(protection);
         address scheduledPaymentAddr = makeAddr("r");
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             scheduledPaymentAddr, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false
@@ -1468,16 +1481,16 @@ contract BittyV1VaultTest is Test {
         uint256 rId = vault.addScheduledPayment(r);
         deal(address(weth), address(vault), 1 ether);
         vm.warp(block.timestamp + elapsed);
-        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vm.expectRevert(ProtectionPeriodNotEnded.selector);
         vault.payScheduled(rId);
     }
 
     function testFuzz_ScheduledPaymentProtection_allowsAfterWindow(uint256 protection, uint256 extra) public {
-        protection = bound(protection, 1 hours, 365 days);
+        protection = bound(protection, 1 hours, 3650 days);
         extra = bound(extra, 0, 365 days);
         _initializeVault();
         vm.prank(ownerAddress);
-        vault.setNewAddressProtection(protection);
+        vault.setScheduledPaymentProtection(protection);
         address scheduledPaymentAddr = makeAddr("r");
         uint256 addedAt = block.timestamp;
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
@@ -1663,7 +1676,7 @@ contract BittyV1VaultTest is Test {
     }
 
     function test_Risk_LevelDefaults_NoneIsAllZero() public {
-        (uint64 nap, uint64 sVal, uint64 scVal, uint64 wlVal, uint64 tl) =
+        (uint64 nap,, uint64 sVal, uint64 scVal, uint64 wlVal, uint64 tl) =
             _initAtLevel(RiskControlLevel.Zero).getRiskConfig();
         assertEq(nap, 0);
         assertEq(sVal, 0);
@@ -1679,7 +1692,7 @@ contract BittyV1VaultTest is Test {
     }
 
     function test_Risk_LevelDefaults_StandardAndHighAreConfigured() public {
-        (uint64 stdNap, uint64 stdSend, uint64 stdSched, uint64 stdWl, uint64 stdTl) =
+        (uint64 stdNap,, uint64 stdSend, uint64 stdSched, uint64 stdWl, uint64 stdTl) =
             _initAtLevel(RiskControlLevel.Standard).getRiskConfig();
         assertGt(stdNap, 0);
         assertGt(stdSend, 0);
@@ -1687,7 +1700,7 @@ contract BittyV1VaultTest is Test {
         assertGt(stdWl, 0);
         assertGt(stdTl, 0);
 
-        (uint64 hiNap, uint64 hiSend, uint64 hiSched, uint64 hiWl, uint64 hiTl) =
+        (uint64 hiNap,, uint64 hiSend, uint64 hiSched, uint64 hiWl, uint64 hiTl) =
             _initAtLevel(RiskControlLevel.High).getRiskConfig();
         assertGt(hiNap, 0);
         assertGt(hiSend, 0);
@@ -1818,7 +1831,7 @@ contract BittyV1VaultTest is Test {
         vault.setMaxSendValue(5_000); // raise (loosen) -> instant
         vault.setMaxSendValue(0); // clear (loosen) -> instant
         vm.stopPrank();
-        (, uint64 sVal,,,) = vault.getRiskConfig();
+        (,, uint64 sVal,,,) = vault.getRiskConfig();
         assertEq(sVal, 0);
     }
 
@@ -2242,7 +2255,7 @@ contract BittyV1VaultTest is Test {
         vm.stopPrank();
     }
 
-    // ─── New-address protection shared by scheduled payments and whitelisted recipients ─────────
+    // ─── Per-entry, per-function protection (scheduled payments vs whitelisted recipients) ─────────
 
     function test_WhitelistedRecipient_protectionBlocksThenAllowsAfterWindow() public {
         _initializeVault();
@@ -2250,62 +2263,20 @@ contract BittyV1VaultTest is Test {
         address to = makeAddr("wlr");
 
         vm.startPrank(ownerAddress);
-        vault.setNewAddressProtection(protection);
+        vault.setWhitelistedProtection(protection);
         uint256 bobIdWr = vault.addWhitelistedRecipient(to, address(weth));
         vm.stopPrank();
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(ownerAddress);
-        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vm.expectRevert(ProtectionPeriodNotEnded.selector);
         vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
 
         vm.warp(block.timestamp + protection);
         vm.prank(ownerAddress);
         vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
-    }
-
-    // Regression: the address-keyed protection deadline is shared, so removing one of two entries
-    // pointing at the same address must NOT clear the lock for the remaining one.
-    function test_AddressProtection_notBypassableViaTwoWhitelistNames() public {
-        _initializeVault();
-        uint256 protection = 7 days;
-        address payee = makeAddr("payee");
-        deal(address(weth), address(vault), 1 ether);
-
-        vm.startPrank(ownerAddress);
-        vault.setNewAddressProtection(protection);
-        uint256 aIdWr = vault.addWhitelistedRecipient(payee, address(0));
-        uint256 bIdWr = vault.addWhitelistedRecipient(payee, address(0)); // same payee, second entry
-        vault.removeWhitelistedRecipient(bIdWr); // must not clear the shared lock for aIdWr
-        vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.sendToWhitelistedRecipient(aIdWr, address(weth), 1 ether);
-        vm.stopPrank();
-
-        vm.warp(block.timestamp + protection);
-        vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(aIdWr, address(weth), 1 ether);
-        assertEq(weth.balanceOf(payee), 1 ether);
-    }
-
-    // Regression: same bypass across features (scheduled payment + whitelist on one address).
-    function test_AddressProtection_notBypassableCrossFeature() public {
-        _initializeVault();
-        uint256 protection = 7 days;
-        address payee = makeAddr("payee");
-        deal(address(weth), address(vault), 1 ether);
-
-        vm.startPrank(ownerAddress);
-        vault.setNewAddressProtection(protection);
-        uint256 wlIdWr = vault.addWhitelistedRecipient(payee, address(0));
-        IBittyV1Vault.ScheduledPayment memory sp =
-            _makeScheduledPayment(payee, address(0), address(weth), 0.1 ether, 1, block.timestamp, 0, false);
-        uint256 spId = vault.addScheduledPayment(sp);
-        vault.removeScheduledPayment(spId); // must not clear protection[payee]
-        vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.sendToWhitelistedRecipient(wlIdWr, address(weth), 1 ether);
-        vm.stopPrank();
     }
 
     function test_WhitelistedRecipient_noProtectionWhenDisabled() public {
@@ -2320,23 +2291,22 @@ contract BittyV1VaultTest is Test {
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
-    function test_WhitelistedRecipient_removeClearsProtectionAndReAddReArms() public {
+    function test_WhitelistedRecipient_removeThenReAddArmsFreshWindow() public {
         _initializeVault();
         uint256 protection = 2 days;
         address to = makeAddr("wlr");
 
         vm.startPrank(ownerAddress);
-        vault.setNewAddressProtection(protection);
+        vault.setWhitelistedProtection(protection);
         uint256 bobIdWr = vault.addWhitelistedRecipient(to, address(weth));
         vault.removeWhitelistedRecipient(bobIdWr);
-        // Re-adding arms a fresh window from now.
         bobIdWr = vault.addWhitelistedRecipient(to, address(weth));
         vm.stopPrank();
 
         deal(address(weth), address(vault), 1 ether);
 
         vm.prank(ownerAddress);
-        vm.expectRevert(AddressProtectionNotEnded.selector);
+        vm.expectRevert(ProtectionPeriodNotEnded.selector);
         vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
 
         vm.warp(block.timestamp + protection);
@@ -2345,78 +2315,78 @@ contract BittyV1VaultTest is Test {
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
-    function test_AddressProtection_protectedScheduledAddressCannotBePaidViaWhitelist() public {
+    // The two protections are independent: scheduled payments use scheduledPaymentProtection and
+    // whitelisted recipients use whitelistedProtection, each tracked per entry id with its own duration.
+    function test_Protection_scheduledAndWhitelistedUseTheirOwnDuration() public {
         _initializeVault();
-        uint256 protection = 5 days;
-        address shared = makeAddr("sharedPayee");
-
-        vm.prank(ownerAddress);
-        vault.setNewAddressProtection(protection);
-
-        // Introduce `shared` as a scheduled payment — it is time-locked.
-        IBittyV1Vault.ScheduledPayment memory r =
-            _makeScheduledPayment(shared, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        vm.prank(ownerAddress);
-        uint256 aliceId = vault.addScheduledPayment(r);
-
-        // Whitelisting the SAME address under a new name does not escape the shared lock.
-        vm.prank(ownerAddress);
-        uint256 bobIdWr = vault.addWhitelistedRecipient(shared, address(weth));
-
-        deal(address(weth), address(vault), 2 ether);
-
-        vm.prank(ownerAddress);
-        vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
-
-        // The scheduled path is blocked too.
-        vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.payScheduled(aliceId);
-
-        // After the window both paths are payable.
-        vm.warp(block.timestamp + protection);
-        vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
-        vault.payScheduled(aliceId);
-        assertEq(weth.balanceOf(shared), 2 ether);
-    }
-
-    function test_AddressProtection_reIntroducingLaterOnlyExtendsSharedLock() public {
-        _initializeVault();
-        uint256 protection = 10 days;
-        address shared = makeAddr("sharedPayee");
-        // Use a fixed literal base rather than a `block.timestamp`-derived local: under via_ir such a
-        // local can be re-aliased to the timestamp opcode and re-read after warps, corrupting the math.
+        address payee = makeAddr("payee");
         uint256 base = 1_000_000;
         vm.warp(base);
 
         vm.startPrank(ownerAddress);
-        vault.setNewAddressProtection(protection);
-        IBittyV1Vault.ScheduledPayment memory r =
-            _makeScheduledPayment(shared, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
-        uint256 aliceId = vault.addScheduledPayment(r);
+        vault.setScheduledPaymentProtection(1 days);
+        vault.setWhitelistedProtection(5 days);
+        IBittyV1Vault.ScheduledPayment memory sp =
+            _makeScheduledPayment(payee, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        uint256 spId = vault.addScheduledPayment(sp);
+        uint256 wlId = vault.addWhitelistedRecipient(payee, address(weth));
         vm.stopPrank();
-        // Scheduled add arms the shared lock: unlocks at base + 10d.
 
-        // Re-introduce the same address via whitelist 3 days later: the shared lock is pushed out
-        // (max), never pulled in, so it now unlocks at the later deadline (base + 3d + 10d = base + 13d).
-        vm.warp(base + 3 days);
+        deal(address(weth), address(vault), 2 ether);
+
+        // After 1 day the scheduled payment is payable; the whitelist entry (5d window) is still locked.
+        vm.warp(base + 1 days);
+        vault.payScheduled(spId);
+        assertEq(weth.balanceOf(payee), 1 ether);
         vm.prank(ownerAddress);
-        uint256 bobIdWr = vault.addWhitelistedRecipient(shared, address(weth));
+        vm.expectRevert(ProtectionPeriodNotEnded.selector);
+        vault.sendToWhitelistedRecipient(wlId, address(weth), 1 ether);
 
+        // After 5 days the whitelist entry is payable too.
+        vm.warp(base + 5 days);
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient(wlId, address(weth), 1 ether);
+        assertEq(weth.balanceOf(payee), 2 ether);
+    }
+
+    // Each entry has its own window: two whitelist entries for the same address are independent, so
+    // removing one never affects the other's protection.
+    function test_Protection_perEntryIndependent() public {
+        _initializeVault();
+        uint256 protection = 7 days;
+        address payee = makeAddr("payee");
         deal(address(weth), address(vault), 1 ether);
 
-        // Past the original 10-day deadline but before the extended 13-day one — still blocked.
-        vm.warp(base + 10 days + 1);
-        vm.prank(ownerAddress);
-        vm.expectRevert(AddressProtectionNotEnded.selector);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
+        vm.startPrank(ownerAddress);
+        vault.setWhitelistedProtection(protection);
+        uint256 aId = vault.addWhitelistedRecipient(payee, address(0));
+        uint256 bId = vault.addWhitelistedRecipient(payee, address(0));
+        vault.removeWhitelistedRecipient(bId); // does not touch aId's window
+        vm.expectRevert(ProtectionPeriodNotEnded.selector);
+        vault.sendToWhitelistedRecipient(aId, address(weth), 1 ether);
+        vm.stopPrank();
 
-        // After the extended deadline — payable.
-        vm.warp(base + 13 days);
+        vm.warp(block.timestamp + protection);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
-        assertEq(weth.balanceOf(shared), 1 ether);
+        vault.sendToWhitelistedRecipient(aId, address(weth), 1 ether);
+        assertEq(weth.balanceOf(payee), 1 ether);
+    }
+
+    // The protection window is exactly the delete opportunity: a still-protected entry can be removed
+    // mid-window, after which it no longer exists.
+    function test_Protection_deleteDuringWindowRemovesEntry() public {
+        _initializeVault();
+        vm.startPrank(ownerAddress);
+        vault.setScheduledPaymentProtection(3 days);
+        IBittyV1Vault.ScheduledPayment memory sp =
+            _makeScheduledPayment(makeAddr("payee"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
+        uint256 spId = vault.addScheduledPayment(sp);
+        vault.removeScheduledPayment(spId); // deleted while still in its protection window
+        vm.stopPrank();
+
+        deal(address(weth), address(vault), 1 ether);
+        vm.expectRevert(ScheduledPaymentNotFound.selector);
+        vault.payScheduled(spId);
     }
 
     // ─── Payment manager: propose → owner approve ───────────────────────────────

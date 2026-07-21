@@ -35,7 +35,8 @@ interface IBittyV1Owner {
     );
     event FullAssetManagerAdded(address indexed assetManager);
     event AssetManagerRemoved();
-    event NewAddressProtectionSet(uint256 protectionDuration);
+    event ScheduledPaymentProtectionSet(uint256 protectionDuration);
+    event WhitelistedProtectionSet(uint256 protectionDuration);
     event MaxSendValueSet(uint256 value);
     event MaxScheduledValueSet(uint256 value);
     event MaxWhitelistedValueSet(uint256 value);
@@ -138,11 +139,16 @@ interface IBittyV1Owner {
     function approveWhitelistedRecipient(uint256 id) external;
 
     /**
-     * @notice Set the time-lock window applied to every newly added scheduled payment / whitelisted
-     * recipient before it can be paid. Lowering it is a loosening (waits the change timelock); raising
-     * it is immediate.
+     * @notice Set the time-lock window applied to every newly added scheduled-payment address before it
+     * can be paid. Lowering it is a loosening (waits the change timelock); raising it is immediate.
      */
-    function setNewAddressProtection(uint256 newAddressProtection) external;
+    function setScheduledPaymentProtection(uint256 newAddressProtection) external;
+
+    /**
+     * @notice Set the time-lock window applied to every newly added whitelisted recipient before it can
+     * be paid. Lowering it is a loosening (waits the change timelock); raising it is immediate.
+     */
+    function setWhitelistedProtection(uint256 newAddressProtection) external;
 
     /**
      * @notice Set a per-path payment cap (stablecoin whole tokens). A non-zero cap makes that path

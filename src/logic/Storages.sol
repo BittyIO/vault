@@ -25,7 +25,9 @@ struct TimelockedValue {
 // owner may set any value, but loosening is delayed by `changeTimelock` (see TimelockedValue).
 struct RiskConfig {
     // Time-lock (seconds) applied to a newly added payee before its first payout; higher = safer.
-    TimelockedValue newAddressProtection;
+    // Split per payment path: one for scheduled-payment addresses, one for whitelisted recipients.
+    TimelockedValue scheduledPaymentProtection;
+    TimelockedValue whitelistedProtection;
     // Per-payment caps in stablecoin whole tokens; 0 = unrestricted (any asset, no cap). A non-zero cap
     // makes that path stablecoin-only AND requires amount <= cap * 10**decimals. Lower (non-zero) = safer.
     TimelockedValue maxSendValue; // one-off sends
@@ -83,7 +85,11 @@ struct VaultStorage {
     bool isInitialized;
     mapping(uint256 => IBittyV1Vault.ScheduledPayment) scheduledPayments;
     mapping(uint256 => uint256) lastReceiveTimestamps;
-    mapping(address => uint256) newAddressProtectionTimestamps;
+    // Per-entry protection deadline (unix time): a newly added scheduled payment / whitelisted recipient
+    // cannot be paid until block.timestamp reaches this. 0 = no protection (payable immediately). Keyed by
+    // the entry's id, so deleting the entry during its window removes the entry entirely.
+    mapping(uint256 => uint256) scheduledPaymentEffectiveAt;
+    mapping(uint256 => uint256) whitelistedRecipientEffectiveAt;
     IBittyV1Guard guard;
     address weth;
     EnumerableSet.AddressSet assets;

@@ -20,7 +20,10 @@ error ScheduledPaymentStartTimestampInPast();
 error ScheduledPaymentInInterval();
 error ScheduledPaymentIntervalTooShort();
 error AssetAddressNotContract();
-error AddressProtectionNotEnded();
+error ProtectionPeriodNotEnded();
+// Scheduled-payment protection is capped (~10 years) so it can never be set to an absurd/effectively
+// infinite delay that permanently blocks the vault's recurring-payment path.
+error ScheduledPaymentProtectionTooLong();
 error PayMoreThanScheduledPaymentAmount();
 error PayScheduledPaymentAmountTriggerEmpty();
 
@@ -122,7 +125,8 @@ interface IBittyV1Vault {
         external
         view
         returns (
-            uint64 newAddressProtection,
+            uint64 scheduledPaymentProtection,
+            uint64 whitelistedProtection,
             uint64 maxSendValue,
             uint64 maxScheduledValue,
             uint64 maxWhitelistedValue,
