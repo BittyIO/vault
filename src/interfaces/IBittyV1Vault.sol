@@ -4,6 +4,8 @@ pragma solidity ^0.8.34;
 // common errors
 error AddressZero();
 error AmountIsZero();
+error ArrayLengthMismatch();
+error EmptyArray();
 error TransferFailed();
 error NotInitialized();
 error AlreadyInitialized();

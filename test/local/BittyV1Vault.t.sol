@@ -13,6 +13,8 @@ import {
     IBittyV1Vault,
     AddressZero,
     AmountIsZero,
+    ArrayLengthMismatch,
+    EmptyArray,
     ScheduledPaymentNotFound,
     ScheduledPaymentImmutable,
     ScheduledPaymentPaymentCountZero,
@@ -1719,7 +1721,7 @@ contract BittyV1VaultTest is Test {
         vault.setMaxSendValue(1_000);
         vm.prank(ownerAddress);
         vm.expectRevert(PaymentNotStableCoin.selector);
-        vault.send(makeAddr("payee"), address(weth), 1);
+        _send(makeAddr("payee"), address(weth), 1);
     }
 
     function test_Risk_Send_RevertsOverCap() public {
@@ -1729,7 +1731,7 @@ contract BittyV1VaultTest is Test {
         vault.setMaxSendValue(1_000);
         vm.prank(ownerAddress);
         vm.expectRevert(PaymentExceedsRiskCap.selector);
-        vault.send(makeAddr("payee"), address(usdc), 1_001 * 1e6);
+        _send(makeAddr("payee"), address(usdc), 1_001 * 1e6);
     }
 
     function test_Risk_Send_SucceedsWithinCap() public {
@@ -1740,7 +1742,7 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vault.setMaxSendValue(1_000);
         vm.prank(ownerAddress);
-        vault.send(payee, address(usdc), 1_000 * 1e6);
+        _send(payee, address(usdc), 1_000 * 1e6);
         assertEq(usdc.balanceOf(payee), 1_000 * 1e6);
     }
 
@@ -1756,7 +1758,7 @@ contract BittyV1VaultTest is Test {
         // Payment manager proposes a 5,000 USDC send while there is no cap (pending id 0).
         address payee = makeAddr("sendPayee");
         vm.prank(pm);
-        vault.send(payee, address(usdc), 5_000 * 1e6);
+        _send(payee, address(usdc), 5_000 * 1e6);
 
         // Owner tightens the send cap to 1,000 (immediate at Zero level).
         vm.prank(ownerAddress);
@@ -2055,6 +2057,15 @@ contract BittyV1VaultTest is Test {
     function _arr(address a) internal pure returns (address[] memory arr) {
         arr = new address[](1);
         arr[0] = a;
+    }
+
+    function _amounts(uint256 amount) internal pure returns (uint256[] memory values) {
+        values = new uint256[](1);
+        values[0] = amount;
+    }
+
+    function _send(address recipient, address asset, uint256 amount) internal {
+        vault.send(_arr(recipient), _arr(asset), _amounts(amount));
     }
 
     /// @dev Registers a staking mock in the guard + vault, funds the vault, and stakes it.
@@ -2459,7 +2470,7 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), 10 ether);
 
         vm.prank(pm);
-        vault.send(to, address(weth), 1 ether); // proposal id 0, no transfer
+        _send(to, address(weth), 1 ether); // proposal id 0, no transfer
         assertEq(weth.balanceOf(to), 0);
 
         vm.prank(ownerAddress);
@@ -2472,8 +2483,100 @@ contract BittyV1VaultTest is Test {
         address to = makeAddr("payee");
         deal(address(weth), address(vault), 10 ether);
         vm.prank(ownerAddress);
-        vault.send(to, address(weth), 1 ether);
+        _send(to, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
+    }
+
+    function test_SendBatch_ownerTransfersMultipleAssetsToMultipleRecipients() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        address alice = makeAddr("alice");
+        address bob = makeAddr("bob");
+        deal(address(weth), address(vault), 2 ether);
+        usdc.mint(address(vault), 500e6);
+
+        address[] memory recipients = new address[](2);
+        recipients[0] = alice;
+        recipients[1] = bob;
+        address[] memory assets = new address[](2);
+        assets[0] = address(weth);
+        assets[1] = address(usdc);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 2 ether;
+        amounts[1] = 500e6;
+
+        vm.prank(ownerAddress);
+        vault.send(recipients, assets, amounts);
+
+        assertEq(weth.balanceOf(alice), 2 ether);
+        assertEq(usdc.balanceOf(bob), 500e6);
+    }
+
+    function test_SendBatch_paymentManagerProposalApprovesAtomically() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _grantPaymentManager(pm);
+        address alice = makeAddr("alice");
+        address bob = makeAddr("bob");
+        deal(address(weth), address(vault), 3 ether);
+
+        address[] memory recipients = new address[](2);
+        recipients[0] = alice;
+        recipients[1] = bob;
+        address[] memory assets = new address[](2);
+        assets[0] = address(weth);
+        assets[1] = address(weth);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 1 ether;
+        amounts[1] = 2 ether;
+
+        vm.prank(pm);
+        vault.send(recipients, assets, amounts);
+        assertEq(weth.balanceOf(alice), 0);
+        assertEq(weth.balanceOf(bob), 0);
+
+        vm.prank(ownerAddress);
+        vault.approveSend(0);
+        assertEq(weth.balanceOf(alice), 1 ether);
+        assertEq(weth.balanceOf(bob), 2 ether);
+    }
+
+    function test_SendBatch_riskCapAppliesToAggregateBatchValue() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        usdc.mint(address(vault), 1_200e6);
+        vm.prank(ownerAddress);
+        vault.setMaxSendValue(1_000);
+
+        address[] memory recipients = new address[](2);
+        recipients[0] = makeAddr("alice");
+        recipients[1] = makeAddr("bob");
+        address[] memory assets = new address[](2);
+        assets[0] = address(usdc);
+        assets[1] = address(usdc);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 600e6;
+        amounts[1] = 600e6;
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(PaymentExceedsRiskCap.selector);
+        vault.send(recipients, assets, amounts);
+    }
+
+    function test_SendBatch_revertsForEmptyOrMismatchedArrays() public {
+        _initializeVault();
+        address[] memory recipients = new address[](0);
+        address[] memory assets = new address[](0);
+        uint256[] memory amounts = new uint256[](0);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(EmptyArray.selector);
+        vault.send(recipients, assets, amounts);
+
+        recipients = _arr(makeAddr("payee"));
+        vm.prank(ownerAddress);
+        vm.expectRevert(ArrayLengthMismatch.selector);
+        vault.send(recipients, assets, amounts);
     }
 
     function test_PaymentManager_cancelOwnSendNotOthers() public {
@@ -2485,7 +2588,7 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), 10 ether);
 
         vm.prank(pm);
-        vault.send(makeAddr("payee"), address(weth), 1 ether); // id 0
+        _send(makeAddr("payee"), address(weth), 1 ether); // id 0
 
         vm.prank(pm2);
         vm.expectRevert(NotProposalOwner.selector);
@@ -2559,7 +2662,7 @@ contract BittyV1VaultTest is Test {
         _grantPaymentManager(pm);
         deal(address(weth), address(vault), 10 ether);
         vm.prank(pm);
-        vault.send(makeAddr("payee"), address(weth), 1 ether); // id 0
+        _send(makeAddr("payee"), address(weth), 1 ether); // id 0
         vm.prank(ownerAddress);
         vault.cancelSend(0); // owner cancels a manager's proposal
         vm.prank(ownerAddress);
@@ -2686,7 +2789,7 @@ contract BittyV1VaultTest is Test {
         assertEq(to.balance, 0);
 
         vm.prank(ownerAddress);
-        vault.send(to, address(0), 2 ether);
+        _send(to, address(0), 2 ether);
 
         assertEq(to.balance, 2 ether);
         assertEq(weth.balanceOf(address(vault)), 3 ether);
@@ -2741,7 +2844,7 @@ contract BittyV1VaultTest is Test {
         address to = makeAddr("payee");
 
         vm.prank(pm);
-        vault.send(to, address(0), 2 ether); // proposal, no transfer
+        _send(to, address(0), 2 ether); // proposal, no transfer
         assertEq(to.balance, 0);
 
         vm.prank(ownerAddress);

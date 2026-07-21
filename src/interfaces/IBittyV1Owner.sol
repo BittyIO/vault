@@ -45,7 +45,7 @@ interface IBittyV1Owner {
     // Owner approval of payment-manager proposals (creation events live on {IBittyV1PaymentManager}).
     event ScheduledPaymentApproved(uint256 indexed id);
     event WhitelistedRecipientApproved(uint256 indexed id);
-    event SendApproved(uint256 indexed id, address recipient, address asset, uint256 amount);
+    event SendApproved(uint256 indexed id, address[] recipients, address[] assets, uint256[] amounts);
 
     // ============ Vault config ============
 

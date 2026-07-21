@@ -175,11 +175,15 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PaymentManager
 
     // ============ Sending ============
 
-    function send(address recipient, address asset, uint256 amount) external override onlyOwnerOrPaymentManager {
+    function send(address[] calldata recipients, address[] calldata assets, uint256[] calldata amounts)
+        external
+        override
+        onlyOwnerOrPaymentManager
+    {
         if (_byOwner()) {
-            _vault.send(recipient, asset, amount);
+            _vault.send(recipients, assets, amounts);
         } else {
-            _vault.proposeSend(recipient, asset, amount);
+            _vault.proposeSend(recipients, assets, amounts);
         }
     }
 
