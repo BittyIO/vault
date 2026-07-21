@@ -76,9 +76,9 @@ struct AssetManagerStorage {
 
 struct PendingSend {
     address proposer; // address(0) = slot empty
-    address recipient;
-    address asset;
-    uint256 amount;
+    address[] recipients;
+    address[] assets;
+    uint256[] amounts;
 }
 
 struct VaultStorage {

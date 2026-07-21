@@ -16,7 +16,9 @@ interface IBittyV1PaymentManager {
     event ScheduledPaymentRemoved(uint256 indexed id);
     event WhitelistedRecipientSet(uint256 indexed id, address recipient, address allowedAsset);
     event WhitelistedRecipientRemoved(uint256 indexed id);
-    event SendProposed(uint256 indexed id, address indexed proposer, address recipient, address asset, uint256 amount);
+    event SendProposed(
+        uint256 indexed id, address indexed proposer, address[] recipients, address[] assets, uint256[] amounts
+    );
     event SendCancelled(uint256 indexed id);
 
     // ============ Scheduled payments ============
@@ -34,10 +36,11 @@ interface IBittyV1PaymentManager {
     // ============ One-off sends ============
 
     /**
-     * @notice Owner: transfer an asset immediately. Payment manager: queue a pending send that the
-     * owner must approve (its id is in the {SendProposed} event).
+     * @notice Owner: execute a batch of transfers immediately. Payment manager: queue the entire batch
+     * for owner approval (its id is in the {SendProposed} event). All arrays must be non-empty and
+     * have equal lengths.
      */
-    function send(address recipient, address asset, uint256 amount) external;
+    function send(address[] calldata recipients, address[] calldata assets, uint256[] calldata amounts) external;
 
     /**
      * @notice Owner, or the payment manager who proposed it: cancel a pending one-off send.

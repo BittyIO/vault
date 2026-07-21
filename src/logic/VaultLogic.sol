@@ -9,7 +9,9 @@ import {
     NotInitialized,
     InsufficientBalance,
     TransferFailed,
-    ReentrantCall
+    ReentrantCall,
+    ArrayLengthMismatch,
+    EmptyArray
 } from "../interfaces/IBittyV1Vault.sol";
 import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
 import {IBittyV1PaymentManager} from "../interfaces/IBittyV1PaymentManager.sol";
@@ -17,6 +19,7 @@ import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBitt
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {VaultStorage, PendingSend, RiskConfig, TimelockedValue} from "./Storages.sol";
 import {
@@ -194,28 +197,70 @@ library VaultLogic {
         _apply(tv, n, loosen, timelock);
     }
 
-    function send(VaultStorage storage vaultStorage, address recipient, address asset, uint256 amount)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxSendValue), asset, amount);
-        _payOut(vaultStorage, asset, amount, recipient);
+    /**
+     * @dev Validates a batch (array lengths, non-zero recipients/amounts, stablecoin-only when a cap
+     * is set, and the aggregate risk cap) in a single pass. When `execute` is true each transfer is
+     * performed in the same loop, but only after the running stablecoin total has been re-checked
+     * against the cap, so an over-cap batch reverts before any funds move. Checking the monotonically
+     * increasing running total per item is equivalent to summing first and comparing once, while
+     * keeping validation single-sourced and iterating the batch only once.
+     */
+    function _processSendBatch(
+        VaultStorage storage vaultStorage,
+        address[] memory recipients,
+        address[] memory assets,
+        uint256[] memory amounts,
+        bool execute
+    ) private {
+        uint256 length = recipients.length;
+        if (length == 0) revert EmptyArray();
+        if (assets.length != length || amounts.length != length) revert ArrayLengthMismatch();
+
+        uint64 cap = _effective(vaultStorage.riskConfig.maxSendValue);
+        uint256 totalStableValue;
+        for (uint256 i = 0; i < length; i++) {
+            address recipient = recipients[i];
+            address asset = assets[i];
+            uint256 amount = amounts[i];
+            if (recipient == address(0)) revert AddressZero();
+            if (amount == 0) revert AmountIsZero();
+            if (cap != 0) {
+                if (!vaultStorage.stableCoins.contains(asset)) revert PaymentNotStableCoin();
+                uint256 scale = 10 ** IERC20Metadata(asset).decimals();
+                totalStableValue += Math.mulDiv(amount, 1e18, scale, Math.Rounding.Ceil);
+                if (totalStableValue > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
+            }
+            if (execute) _payOut(vaultStorage, asset, amount, recipient);
+        }
+    }
+
+    function send(
+        VaultStorage storage vaultStorage,
+        address[] memory recipients,
+        address[] memory assets,
+        uint256[] memory amounts
+    ) external onlyInitialized(vaultStorage) {
+        _processSendBatch(vaultStorage, recipients, assets, amounts, true);
     }
 
     /**
      * @notice Queue a payment-manager-proposed one-off send for owner approval. Access control
      * (payment-manager) is enforced by the facade.
      */
-    function proposeSend(VaultStorage storage vaultStorage, address recipient, address asset, uint256 amount)
-        external
-        onlyInitialized(vaultStorage)
-        returns (uint256 id)
-    {
-        _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxSendValue), asset, amount);
+    function proposeSend(
+        VaultStorage storage vaultStorage,
+        address[] memory recipients,
+        address[] memory assets,
+        uint256[] memory amounts
+    ) external onlyInitialized(vaultStorage) returns (uint256 id) {
+        _processSendBatch(vaultStorage, recipients, assets, amounts, false);
         id = vaultStorage.nextPendingSendId++;
-        vaultStorage.pendingSends[id] =
-            PendingSend({proposer: msg.sender, recipient: recipient, asset: asset, amount: amount});
-        emit IBittyV1PaymentManager.SendProposed(id, msg.sender, recipient, asset, amount);
+        PendingSend storage ps = vaultStorage.pendingSends[id];
+        ps.proposer = msg.sender;
+        ps.recipients = recipients;
+        ps.assets = assets;
+        ps.amounts = amounts;
+        emit IBittyV1PaymentManager.SendProposed(id, msg.sender, recipients, assets, amounts);
     }
 
     /**
@@ -227,12 +272,11 @@ library VaultLogic {
         if (ps.proposer == address(0)) {
             revert PendingSendNotFound();
         }
-        // Re-check the send cap against the value in force at approval time, so tightening the cap after
-        // a proposal (which is immediate everywhere else) also binds an already-queued send.
-        _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxSendValue), ps.asset, ps.amount);
         delete vaultStorage.pendingSends[id];
-        _payOut(vaultStorage, ps.asset, ps.amount, ps.recipient);
-        emit IBittyV1Owner.SendApproved(id, ps.recipient, ps.asset, ps.amount);
+        // Re-check against the controls in force at approval time, so a tightening also binds an
+        // already-queued batch.
+        _processSendBatch(vaultStorage, ps.recipients, ps.assets, ps.amounts, true);
+        emit IBittyV1Owner.SendApproved(id, ps.recipients, ps.assets, ps.amounts);
     }
 
     /**
