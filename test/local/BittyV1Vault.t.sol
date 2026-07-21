@@ -825,12 +825,12 @@ contract BittyV1VaultTest is Test {
         vault.payScheduled(aliceId);
     }
 
-    function test_SetNewAddressProtectionRevertUnauthorizedWhenNotInitialized() public {
+    function test_SetScheduledPaymentProtectionRevertUnauthorizedWhenNotInitialized() public {
         vm.expectRevert(); // no roles granted before initialize, AccessControl fires first
         vault.setScheduledPaymentProtection(1 days);
     }
 
-    function test_SetNewAddressProtectionRevertUnauthorized() public {
+    function test_SetScheduledPaymentProtectionRevertUnauthorized() public {
         _initializeVault();
         bytes32 _adminRole = vault.DEFAULT_ADMIN_ROLE();
         address stranger = makeAddr("stranger");
@@ -839,7 +839,7 @@ contract BittyV1VaultTest is Test {
         vault.setScheduledPaymentProtection(1 days);
     }
 
-    function test_SetNewAddressProtection_RaisingIsImmediate() public {
+    function test_SetScheduledPaymentProtection_RaisingIsImmediate() public {
         _initializeVault();
         vm.startPrank(ownerAddress);
         vault.setScheduledPaymentProtection(2 days);
@@ -861,7 +861,7 @@ contract BittyV1VaultTest is Test {
         vm.stopPrank();
     }
 
-    function test_Risk_LoweringNewAddressProtection_DelayedByTimelock() public {
+    function test_Risk_LoweringScheduledPaymentProtection_DelayedByTimelock() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
         (uint64 nap0,,,,, uint64 tl) = v.getRiskConfig();
         vm.prank(ownerAddress);
@@ -1383,7 +1383,7 @@ contract BittyV1VaultTest is Test {
         vault.removeScheduledPayment(aliceId);
     }
 
-    function test_SetNewAddressProtection_emitsScheduledPaymentProtectionSetEvent() public {
+    function test_SetScheduledPaymentProtection_emitsScheduledPaymentProtectionSetEvent() public {
         _initializeVault();
         uint256 protection = 1 days;
 
@@ -1458,7 +1458,7 @@ contract BittyV1VaultTest is Test {
         uint256 rId = vault.addScheduledPayment(r);
     }
 
-    function testFuzz_SetNewAddressProtection_anyValueRaisesImmediately(uint256 protection) public {
+    function testFuzz_SetScheduledPaymentProtection_anyValueRaisesImmediately(uint256 protection) public {
         protection = bound(protection, 1, 3650 days);
         _initializeVault(); // Zero level: raising from 0 is a tightening -> immediate
         vm.prank(ownerAddress);

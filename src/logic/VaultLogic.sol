@@ -60,7 +60,7 @@ library VaultLogic {
 
     // ---- Risk-control-level default parameters (payment controls) ----
     // TODO(risk-params): fill in the Standard/High defaults. `Zero` is all-zero (no controls).
-    // newAddressProtection is seconds; the *_MAX_*_VALUE caps are stablecoin whole tokens
+    // Protection windows are seconds; the *_MAX_*_VALUE caps are stablecoin whole tokens
     // (0 = unrestricted / no stablecoin lock); *_CHANGE_TIMELOCK is the loosening delay in seconds.
     uint64 constant STANDARD_SCHEDULED_PAYMENT_PROTECTION = 1 days;
     uint64 constant STANDARD_WHITELISTED_PROTECTION = 1 days;
@@ -179,7 +179,7 @@ library VaultLogic {
         }
     }
 
-    // For newAddressProtection & changeTimelock: higher = safer, so lowering is a loosening.
+    // For scheduled/whitelisted protection & changeTimelock: higher = safer, so lowering is a loosening.
     function _setHigherSafer(TimelockedValue storage tv, uint256 next, uint64 timelock) private {
         _settle(tv);
         uint64 n = uint64(next);
@@ -386,16 +386,16 @@ library VaultLogic {
         emit IBittyV1Owner.ScheduledPaymentProtectionSet(protection);
     }
 
-    function setWhitelistedProtection(VaultStorage storage vaultStorage, uint256 newAddressProtection)
+    function setWhitelistedProtection(VaultStorage storage vaultStorage, uint256 protection)
         external
         onlyInitialized(vaultStorage)
     {
         _setHigherSafer(
             vaultStorage.riskConfig.whitelistedProtection,
-            newAddressProtection,
+            protection,
             _effective(vaultStorage.riskConfig.changeTimelock)
         );
-        emit IBittyV1Owner.WhitelistedProtectionSet(newAddressProtection);
+        emit IBittyV1Owner.WhitelistedProtectionSet(protection);
     }
 
     function setMaxSendValue(VaultStorage storage vaultStorage, uint256 value) external onlyInitialized(vaultStorage) {

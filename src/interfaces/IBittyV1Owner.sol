@@ -142,13 +142,13 @@ interface IBittyV1Owner {
      * @notice Set the time-lock window applied to every newly added scheduled-payment address before it
      * can be paid. Lowering it is a loosening (waits the change timelock); raising it is immediate.
      */
-    function setScheduledPaymentProtection(uint256 newAddressProtection) external;
+    function setScheduledPaymentProtection(uint256 protection) external;
 
     /**
      * @notice Set the time-lock window applied to every newly added whitelisted recipient before it can
      * be paid. Lowering it is a loosening (waits the change timelock); raising it is immediate.
      */
-    function setWhitelistedProtection(uint256 newAddressProtection) external;
+    function setWhitelistedProtection(uint256 protection) external;
 
     /**
      * @notice Set a per-path payment cap (stablecoin whole tokens). A non-zero cap makes that path
