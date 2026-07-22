@@ -49,16 +49,23 @@ struct TradeLimit {
     bool fullAccess;
 }
 
-struct AssetManagerStorage {
+// Rolling one-off send quota for the vault's operator (stablecoin-normalized 1e18 units in sentInPeriod).
+struct OperatorLimit {
+    uint64 interval; // window length in seconds; 0 = no rolling window
+    uint64 maxStableCoinPerPeriod; // whole stablecoin tokens per window; 0 = no cap
+    uint128 periodStartTimestamp;
+    uint256 sentInPeriod;
+}
+
+struct ManagerStorage {
     bool isInitialized;
 
     mapping(address => address) clonedProtocols;
     mapping(address => uint256) minimalBalances;
 
-    // The vault's single asset manager (address(0) = none) and its trade guardrail. Only this address
-    // may trade; the owner sets it and may make itself the manager.
-    address assetManager;
-    TradeLimit assetManagerLimit;
+    // The vault's single manager (address(0) = none) and its trade guardrail. Only this address may trade.
+    address manager;
+    TradeLimit managerLimit;
 
     EnumerableSet.AddressSet lendingProtocols;
     EnumerableSet.AddressSet stakingProtocols;
@@ -101,6 +108,10 @@ struct VaultStorage {
     RiskConfig riskConfig;
     // The risk-control preset chosen at activation (recorded for the UI: display + reset-to-default).
     RiskControlLevel riskControlLevel;
+
+    // Registered operators and each one's rolling one-off send quota.
+    EnumerableSet.AddressSet operators;
+    mapping(address => OperatorLimit) operatorLimits;
 
     mapping(uint256 => IBittyV1Vault.WhitelistedRecipient) whitelistedRecipients;
 

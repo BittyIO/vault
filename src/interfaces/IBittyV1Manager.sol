@@ -10,7 +10,7 @@ error TradeMustTouchStableCoin();
 error TradeLimitExpired();
 error TradeInvestedTotalExceeded();
 error StableCoinInvestCapZero();
-error NotAssetManager();
+error NotManager();
 error InvalidLendingProtocol();
 error InvalidStakingProtocol();
 error InvalidAMMProtocol();
@@ -22,13 +22,13 @@ error DisableRebalanceUntilTimestampTooLong();
 error RebalanceDisabled();
 
 /**
- * @title IBittyV1AssetManager
- * @notice Only the asset-manager (ASSET_MANAGER_ROLE) trading/yield functions and their events.
- *         Implemented by {BittyV1VaultDeFiFacet}. Owner-only asset-manager config (setMinimalBalance,
- *         setTradeLimit, protocol add/remove) lives in {IBittyV1Owner}; the asset-manager read
- *         functions (getSuppliedBalance, getLiquidity, protocol getters, …) live in {IBittyV1Vault}.
+ * @title IBittyV1Manager
+ * @notice Only the vault manager's trading/yield functions and their events. Implemented by
+ *         {BittyV1VaultDeFiFacet}. Owner-only manager config (setMinimalBalance, setManager, protocol
+ *         add/remove) lives in {IBittyV1Owner}; manager read functions (getSuppliedBalance,
+ *         getLiquidity, protocol getters, …) live in {IBittyV1Vault}.
  */
-interface IBittyV1AssetManager {
+interface IBittyV1Manager {
     event RebalanceDisabledUntil(uint256 timestamp);
 
     // ============ Lending ============

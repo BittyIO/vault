@@ -105,7 +105,7 @@ contract BittyV1VaultFactoryTest is Test {
         );
         vault = factory.vaultAddress(owner);
         if (assetManager != address(0)) {
-            BittyV1Vault(payable(vault)).setAssetManager(assetManager, 0, 0, type(uint64).max, 0);
+            BittyV1Vault(payable(vault)).setManager(assetManager, 0, 0, type(uint64).max, 0);
         }
         vm.stopPrank();
     }
@@ -771,7 +771,7 @@ contract BittyV1VaultFactoryTest is Test {
         _initFactory();
         BittyV1Vault vault = BittyV1Vault(payable(_newVaultFor(owner1)));
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), owner1));
-        assertEq(vault.getAssetManager(), assetManagerAddress);
+        assertEq(vault.getManager(), assetManagerAddress);
     }
 
     function test_ActivatedVault_settingAssetManagerReplacesThePrevious() public {
@@ -789,12 +789,12 @@ contract BittyV1VaultFactoryTest is Test {
             intentProtocols
         );
         BittyV1Vault vaultInstance = BittyV1Vault(payable(factory.vaultAddress(owner1)));
-        vaultInstance.setAssetManager(manager1, 0, 0, type(uint64).max, 0);
-        vaultInstance.setAssetManager(manager2, 0, 0, type(uint64).max, 0);
+        vaultInstance.setManager(manager1, 0, 0, type(uint64).max, 0);
+        vaultInstance.setManager(manager2, 0, 0, type(uint64).max, 0);
         vm.stopPrank();
 
         // A vault has a single asset manager; the second set replaces the first.
-        assertEq(vaultInstance.getAssetManager(), manager2);
+        assertEq(vaultInstance.getManager(), manager2);
     }
 
     function test_ActivateVaultFor_nonOwnerCannotGrantRoles() public {
@@ -813,7 +813,7 @@ contract BittyV1VaultFactoryTest is Test {
         address vault = _newVault();
         assertEq(vault, expected);
         assertTrue(BittyV1Vault(payable(vault)).hasRole(BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE(), tx.origin));
-        assertEq(BittyV1Vault(payable(vault)).getAssetManager(), assetManagerAddress);
+        assertEq(BittyV1Vault(payable(vault)).getManager(), assetManagerAddress);
     }
 
     function test_ActivateVault_multisigOwnerAddress() public {

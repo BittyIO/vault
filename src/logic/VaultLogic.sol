@@ -14,14 +14,14 @@ import {
     EmptyArray
 } from "../interfaces/IBittyV1Vault.sol";
 import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
-import {IBittyV1PaymentManager} from "../interfaces/IBittyV1PaymentManager.sol";
+import {IBittyV1Operator} from "../interfaces/IBittyV1Operator.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
-import {VaultStorage, PendingSend, RiskConfig, TimelockedValue} from "./Storages.sol";
+import {VaultStorage, PendingSend, RiskConfig, TimelockedValue, OperatorLimit} from "./Storages.sol";
 import {
     IBittyV1Vault,
     ScheduledPaymentNotFound,
@@ -45,7 +45,11 @@ import {
     NotProposalOwner,
     PendingSendNotFound,
     PaymentExceedsRiskCap,
+    PaymentExceedsPeriodLimit,
     PaymentNotStableCoin,
+    OperatorSendCapZero,
+    OperatorNotFound,
+    OperatorAlreadyRegistered,
     RiskControlLevel
 } from "../interfaces/IBittyV1Vault.sol";
 
@@ -199,24 +203,30 @@ library VaultLogic {
 
     /**
      * @dev Validates a batch (array lengths, non-zero recipients/amounts, stablecoin-only when a cap
-     * is set, and the aggregate risk cap) in a single pass. When `execute` is true each transfer is
-     * performed in the same loop, but only after the running stablecoin total has been re-checked
-     * against the cap, so an over-cap batch reverts before any funds move. Checking the monotonically
-     * increasing running total per item is equivalent to summing first and comparing once, while
-     * keeping validation single-sourced and iterating the batch only once.
+     * or operator period quota is active, and the aggregate risk cap) in a single pass. When `execute` is
+     * true each transfer is performed only after all checks pass. `operatorAddr` must be the vault's
+     * operator for period-quota enforcement; the owner direct-send path passes address(0). When
+     * `updatePeriodAccounting` is true the operator's period tally is incremented (approval execution only).
      */
     function _processSendBatch(
         VaultStorage storage vaultStorage,
         address[] memory recipients,
         address[] memory assets,
         uint256[] memory amounts,
-        bool execute
+        bool execute,
+        address operatorAddr,
+        bool updatePeriodAccounting
     ) private {
         uint256 length = recipients.length;
         if (length == 0) revert EmptyArray();
         if (assets.length != length || amounts.length != length) revert ArrayLengthMismatch();
 
         uint64 cap = _effective(vaultStorage.riskConfig.maxSendValue);
+        OperatorLimit storage opLimit = vaultStorage.operatorLimits[operatorAddr];
+        bool periodLimitActive = operatorAddr != address(0) && vaultStorage.operators.contains(operatorAddr)
+            && opLimit.interval != 0 && opLimit.maxStableCoinPerPeriod != 0;
+        bool requireStable = cap != 0 || periodLimitActive;
+
         uint256 totalStableValue;
         for (uint256 i = 0; i < length; i++) {
             address recipient = recipients[i];
@@ -224,13 +234,46 @@ library VaultLogic {
             uint256 amount = amounts[i];
             if (recipient == address(0)) revert AddressZero();
             if (amount == 0) revert AmountIsZero();
-            if (cap != 0) {
+            if (requireStable) {
                 if (!vaultStorage.stableCoins.contains(asset)) revert PaymentNotStableCoin();
                 uint256 scale = 10 ** IERC20Metadata(asset).decimals();
                 totalStableValue += Math.mulDiv(amount, 1e18, scale, Math.Rounding.Ceil);
-                if (totalStableValue > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
+                if (cap != 0 && totalStableValue > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
             }
-            if (execute) _payOut(vaultStorage, asset, amount, recipient);
+        }
+
+        if (periodLimitActive) {
+            _checkOperatorSendPeriod(opLimit, totalStableValue, updatePeriodAccounting);
+        }
+
+        if (!execute) return;
+
+        for (uint256 i = 0; i < length; i++) {
+            _payOut(vaultStorage, assets[i], amounts[i], recipients[i]);
+        }
+    }
+
+    /**
+     * @notice Enforce the operator's rolling one-off send quota. Resets the window when elapsed.
+     */
+    function _checkOperatorSendPeriod(OperatorLimit storage limit, uint256 batchStableValue, bool updateAccounting)
+        private
+    {
+        uint128 periodStart = limit.periodStartTimestamp;
+        uint256 sent = limit.sentInPeriod;
+
+        if (periodStart == 0 || block.timestamp >= periodStart + limit.interval) {
+            periodStart = uint128(block.timestamp);
+            sent = 0;
+        }
+
+        if (sent + batchStableValue > uint256(limit.maxStableCoinPerPeriod) * 1e18) {
+            revert PaymentExceedsPeriodLimit();
+        }
+
+        if (updateAccounting) {
+            limit.periodStartTimestamp = periodStart;
+            limit.sentInPeriod = sent + batchStableValue;
         }
     }
 
@@ -240,7 +283,7 @@ library VaultLogic {
         address[] memory assets,
         uint256[] memory amounts
     ) external onlyInitialized(vaultStorage) {
-        _processSendBatch(vaultStorage, recipients, assets, amounts, true);
+        _processSendBatch(vaultStorage, recipients, assets, amounts, true, address(0), false);
     }
 
     /**
@@ -253,14 +296,14 @@ library VaultLogic {
         address[] memory assets,
         uint256[] memory amounts
     ) external onlyInitialized(vaultStorage) returns (uint256 id) {
-        _processSendBatch(vaultStorage, recipients, assets, amounts, false);
+        _processSendBatch(vaultStorage, recipients, assets, amounts, false, msg.sender, false);
         id = vaultStorage.nextPendingSendId++;
         PendingSend storage ps = vaultStorage.pendingSends[id];
         ps.proposer = msg.sender;
         ps.recipients = recipients;
         ps.assets = assets;
         ps.amounts = amounts;
-        emit IBittyV1PaymentManager.SendProposed(id, msg.sender, recipients, assets, amounts);
+        emit IBittyV1Operator.SendProposed(id, msg.sender, recipients, assets, amounts);
     }
 
     /**
@@ -275,7 +318,7 @@ library VaultLogic {
         delete vaultStorage.pendingSends[id];
         // Re-check against the controls in force at approval time, so a tightening also binds an
         // already-queued batch.
-        _processSendBatch(vaultStorage, ps.recipients, ps.assets, ps.amounts, true);
+        _processSendBatch(vaultStorage, ps.recipients, ps.assets, ps.amounts, true, ps.proposer, true);
         emit IBittyV1Owner.SendApproved(id, ps.recipients, ps.assets, ps.amounts);
     }
 
@@ -295,7 +338,7 @@ library VaultLogic {
             revert NotProposalOwner();
         }
         delete vaultStorage.pendingSends[id];
-        emit IBittyV1PaymentManager.SendCancelled(id);
+        emit IBittyV1Operator.SendCancelled(id);
     }
 
     function addScheduledPayment(
@@ -321,7 +364,7 @@ library VaultLogic {
         }
         vaultStorage.scheduledPaymentEffectiveAt[id] =
             _protectionDeadline(_effective(vaultStorage.riskConfig.scheduledPaymentProtection));
-        emit IBittyV1PaymentManager.ScheduledPaymentAdded(id, scheduledPayment);
+        emit IBittyV1Operator.ScheduledPaymentAdded(id, scheduledPayment);
     }
 
     function updateScheduledPayment(
@@ -354,7 +397,7 @@ library VaultLogic {
         vaultStorage.scheduledPayments[id] = scheduledPayment;
         vaultStorage.scheduledPaymentEffectiveAt[id] =
             _protectionDeadline(_effective(vaultStorage.riskConfig.scheduledPaymentProtection));
-        emit IBittyV1PaymentManager.ScheduledPaymentUpdated(id, scheduledPayment);
+        emit IBittyV1Operator.ScheduledPaymentUpdated(id, scheduledPayment);
     }
 
     /**
@@ -412,7 +455,7 @@ library VaultLogic {
         // malicious entry can be caught and deleted before it can ever pay. The timer is per-id, so it goes
         // away with the entry (no shared-address exploit).
         delete vaultStorage.scheduledPaymentEffectiveAt[id];
-        emit IBittyV1PaymentManager.ScheduledPaymentRemoved(id);
+        emit IBittyV1Operator.ScheduledPaymentRemoved(id);
     }
 
     function setScheduledPaymentProtection(VaultStorage storage vaultStorage, uint256 protection)
@@ -461,6 +504,56 @@ library VaultLogic {
     {
         _setCap(vaultStorage.riskConfig.maxWhitelistedValue, value, _effective(vaultStorage.riskConfig.changeTimelock));
         emit IBittyV1Owner.MaxWhitelistedValueSet(value);
+    }
+
+    function setOperator(
+        VaultStorage storage vaultStorage,
+        address operator,
+        uint256 interval,
+        uint256 maxStableCoinPerPeriod
+    ) external onlyInitialized(vaultStorage) {
+        if (operator == address(0)) revert AddressZero();
+        if (maxStableCoinPerPeriod == 0) revert OperatorSendCapZero();
+        if (vaultStorage.operators.contains(operator)) revert OperatorAlreadyRegistered();
+        vaultStorage.operators.add(operator);
+        OperatorLimit storage limit = vaultStorage.operatorLimits[operator];
+        limit.interval = uint64(interval);
+        limit.maxStableCoinPerPeriod = uint64(maxStableCoinPerPeriod);
+        limit.periodStartTimestamp = 0;
+        limit.sentInPeriod = 0;
+        emit IBittyV1Owner.OperatorSendLimitSet(operator, interval, maxStableCoinPerPeriod);
+    }
+
+    function updateOperator(
+        VaultStorage storage vaultStorage,
+        address operator,
+        uint256 interval,
+        uint256 maxStableCoinPerPeriod
+    ) external onlyInitialized(vaultStorage) {
+        if (operator == address(0)) revert AddressZero();
+        if (maxStableCoinPerPeriod == 0) revert OperatorSendCapZero();
+        if (!vaultStorage.operators.contains(operator)) revert OperatorNotFound();
+        OperatorLimit storage limit = vaultStorage.operatorLimits[operator];
+        limit.interval = uint64(interval);
+        limit.maxStableCoinPerPeriod = uint64(maxStableCoinPerPeriod);
+        emit IBittyV1Owner.OperatorSendLimitSet(operator, interval, maxStableCoinPerPeriod);
+    }
+
+    function removeOperator(VaultStorage storage vaultStorage, address operator)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        if (!vaultStorage.operators.remove(operator)) revert OperatorNotFound();
+        delete vaultStorage.operatorLimits[operator];
+        emit IBittyV1Owner.OperatorRemoved(operator);
+    }
+
+    function getOperators(VaultStorage storage vaultStorage) external view returns (address[] memory) {
+        return vaultStorage.operators.values();
+    }
+
+    function isOperator(VaultStorage storage vaultStorage, address account) external view returns (bool) {
+        return vaultStorage.operators.contains(account);
     }
 
     /**
@@ -539,7 +632,7 @@ library VaultLogic {
         }
         vaultStorage.whitelistedRecipientEffectiveAt[id] =
             _protectionDeadline(_effective(vaultStorage.riskConfig.whitelistedProtection));
-        emit IBittyV1PaymentManager.WhitelistedRecipientSet(id, recipient, allowedAsset);
+        emit IBittyV1Operator.WhitelistedRecipientSet(id, recipient, allowedAsset);
     }
 
     /**
@@ -568,7 +661,7 @@ library VaultLogic {
             IBittyV1Vault.WhitelistedRecipient({recipient: recipient, allowedAsset: allowedAsset});
         vaultStorage.whitelistedRecipientEffectiveAt[id] =
             _protectionDeadline(_effective(vaultStorage.riskConfig.whitelistedProtection));
-        emit IBittyV1PaymentManager.WhitelistedRecipientSet(id, recipient, allowedAsset);
+        emit IBittyV1Operator.WhitelistedRecipientSet(id, recipient, allowedAsset);
     }
 
     /**
@@ -609,7 +702,7 @@ library VaultLogic {
         // Removable at any time, including mid-protection-window — that is how a malicious recipient gets
         // caught and dropped before it can pay. The per-id timer is cleared with the entry.
         delete vaultStorage.whitelistedRecipientEffectiveAt[id];
-        emit IBittyV1PaymentManager.WhitelistedRecipientRemoved(id);
+        emit IBittyV1Operator.WhitelistedRecipientRemoved(id);
     }
 
     /**

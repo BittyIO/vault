@@ -31,17 +31,23 @@ error PayScheduledPaymentAmountTriggerEmpty();
 
 error AddingAssetsDisabled();
 error AddingProtocolsDisabled();
-error OwnerAndManagerMustDiffer();
+error OwnerAndOperatorMustDiffer();
+
+error OperatorSendCapZero();
+error NotOperator();
+error OperatorNotFound();
+error OperatorAlreadyRegistered();
 
 // payment risk-control errors
 error PaymentExceedsRiskCap();
+error PaymentExceedsPeriodLimit();
 error PaymentNotStableCoin();
 
 // whitelisted recipient errors
 error WhitelistedRecipientNotFound();
 error WhitelistedRecipientAssetNotAllowed();
 
-// payment-manager approval errors
+// operator approval errors
 error PaymentNotApproved();
 error NotPendingApproval();
 error NotProposalOwner();
@@ -56,8 +62,8 @@ enum RiskControlLevel {
 /**
  * @title IBittyV1Vault
  * @notice The vault's shared types, errors, and the no-role (permissionless) + read functions.
- *         Owner-only functions live in {IBittyV1Owner}; asset-manager (ASSET_MANAGER_ROLE) functions
- *         live in {IBittyV1AssetManager}.
+ *         Owner-only functions live in {IBittyV1Owner}; manager trading/yield functions live in
+ *         {IBittyV1Manager}.
  *
  * @dev Bitty Vault helps you manage your assets safely across different devices, people or AI agents.
  * There are 3 principles for Bitty Vault design:
@@ -102,13 +108,22 @@ interface IBittyV1Vault {
 
     function getAssets() external view returns (address[] memory);
     function getStableCoins() external view returns (address[] memory);
+    function wethAddress() external view returns (address);
     function isAddingAssetsDisabled() external view returns (bool);
     function isAddingProtocolsDisabled() external view returns (bool);
 
     /**
-     * @notice The vault's single asset manager (address(0) = none). Only this address may trade.
+     * @notice The vault's single manager (address(0) = none). Only this address may trade.
      */
-    function getAssetManager() external view returns (address);
+    function getManager() external view returns (address);
+
+    /**
+     * @notice Registered operators. Each may propose payments (pending owner approval) subject to its
+     *         own limit from {setOperator} / {updateOperator}.
+     */
+    function getOperators() external view returns (address[] memory);
+
+    function isOperator(address account) external view returns (bool);
 
     /**
      * @notice The risk-control preset chosen at activation (None/Standard/Strict). The live controls may
@@ -121,7 +136,8 @@ interface IBittyV1Vault {
      * @notice The vault's currently in-force payment risk controls (all zero = no controls). Caps are in
      *         stablecoin whole tokens; a non-zero cap makes that payment path stablecoin-only.
      *         `changeTimelock` is the delay a loosening of any control must wait. A queued loosening is
-     *         reflected here only once its delay has elapsed.
+     *         reflected here only once its delay has elapsed. Operator send quotas are configured via
+     *         {setOperator} / {updateOperator}, not here.
      */
     function getRiskConfig()
         external

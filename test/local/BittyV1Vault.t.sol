@@ -7,7 +7,7 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {IVaultFull} from "../helpers/IVaultFull.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {IBittyV1PaymentManager} from "../../src/interfaces/IBittyV1PaymentManager.sol";
+import {IBittyV1Operator} from "../../src/interfaces/IBittyV1Operator.sol";
 import {VaultLogic} from "../../src/logic/VaultLogic.sol";
 import {
     IBittyV1Vault,
@@ -36,10 +36,14 @@ import {
     NotPendingApproval,
     NotProposalOwner,
     PendingSendNotFound,
-    OwnerAndManagerMustDiffer,
+    NotOperator,
+    OwnerAndOperatorMustDiffer,
+    PaymentExceedsPeriodLimit,
     TransferFailed,
     PaymentExceedsRiskCap,
-    PaymentNotStableCoin
+    PaymentNotStableCoin,
+    OperatorAlreadyRegistered,
+    OperatorNotFound
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
@@ -102,7 +106,7 @@ contract BittyV1VaultTest is Test {
 
     function _grantAssetManager(address manager) internal {
         vm.prank(ownerAddress);
-        vault.setAssetManager(manager, 0, 0, type(uint64).max, 0);
+        vault.setManager(manager, 0, 0, type(uint64).max, 0);
     }
 
     function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
@@ -196,36 +200,107 @@ contract BittyV1VaultTest is Test {
             RiskControlLevel.Zero
         );
         _grantAssetManager(assetManagerAddress);
-        assertEq(vault.getAssetManager(), assetManagerAddress);
+        assertEq(vault.getManager(), assetManagerAddress);
     }
 
     function test_OwnerMayBeAddedAsAssetManager() public {
         _initializeVault();
         vm.prank(ownerAddress);
-        vault.setAssetManager(ownerAddress, 0, 0, type(uint64).max, 0);
-        assertEq(vault.getAssetManager(), ownerAddress);
+        vault.setManager(ownerAddress, 0, 0, type(uint64).max, 0);
+        assertEq(vault.getManager(), ownerAddress);
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
     }
 
-    function test_GrantRoleRevertsWhenOwnerAsPaymentManager() public {
+    function test_SetOperatorRevertsWhenOwner() public {
         _initializeVault();
-        bytes32 paymentManagerRole = vault.PAYMENT_MANAGER_ROLE();
         vm.prank(ownerAddress);
-        vm.expectRevert(OwnerAndManagerMustDiffer.selector);
-        vault.grantRole(paymentManagerRole, ownerAddress);
+        vm.expectRevert(OwnerAndOperatorMustDiffer.selector);
+        vault.setOperator(ownerAddress, 1 days, 1_000);
     }
 
-    // The asset manager (an address) and a payment-manager role may be the same account.
-    function test_AssetManagerMayAlsoBePaymentManager() public {
+    function test_ManagerMayAlsoBeOperator() public {
         _initializeVault();
         address mgr = makeAddr("mgr");
-        bytes32 pmRole = vault.PAYMENT_MANAGER_ROLE();
         vm.startPrank(ownerAddress);
-        vault.setAssetManager(mgr, 0, 0, type(uint64).max, 0);
-        vault.grantRole(pmRole, mgr);
+        vault.setManager(mgr, 0, 0, type(uint64).max, 0);
+        vault.setOperator(mgr, 1 days, 1_000);
         vm.stopPrank();
-        assertEq(vault.getAssetManager(), mgr);
-        assertTrue(vault.hasRole(pmRole, mgr));
+        assertEq(vault.getManager(), mgr);
+        assertTrue(vault.isOperator(mgr));
+    }
+
+    function test_MultipleOperators_eachHasIndependentSendQuota() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        usdc.mint(address(vault), 2_000e6);
+        address op1 = makeAddr("op1");
+        address op2 = makeAddr("op2");
+        _setOperator(op1, 1 days, 500);
+        _setOperator(op2, 1 days, 300);
+
+        address[] memory recipients = _arr(makeAddr("payee1"));
+        address[] memory assets = _arr(address(usdc));
+        uint256[] memory amounts = _amounts(400e6);
+
+        vm.prank(op1);
+        vault.send(recipients, assets, amounts);
+        vm.prank(ownerAddress);
+        vault.approveSend(0);
+
+        amounts[0] = 200e6;
+        vm.prank(op2);
+        vault.send(recipients, assets, amounts);
+        vm.prank(ownerAddress);
+        vault.approveSend(1);
+
+        amounts[0] = 200e6;
+        vm.prank(op1);
+        vm.expectRevert(PaymentExceedsPeriodLimit.selector);
+        vault.send(recipients, assets, amounts);
+    }
+
+    function test_setOperator_revertsWhenAlreadyRegistered() public {
+        _initializeVault();
+        address op = makeAddr("op");
+        _setOperator(op, 1 days, 500);
+        vm.prank(ownerAddress);
+        vm.expectRevert(OperatorAlreadyRegistered.selector);
+        vault.setOperator(op, 2 days, 1_000);
+    }
+
+    function test_updateOperator_changesLimits_preservesPeriodUsage() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        usdc.mint(address(vault), 2_000e6);
+        address op = makeAddr("op");
+        _setOperator(op, 1 days, 500);
+
+        address payee = makeAddr("payee");
+        vm.prank(op);
+        _send(payee, address(usdc), 400e6);
+        vm.prank(ownerAddress);
+        vault.approveSend(0);
+
+        vm.prank(ownerAddress);
+        vault.updateOperator(op, 1 days, 450);
+        vm.prank(op);
+        vm.expectRevert(PaymentExceedsPeriodLimit.selector);
+        _send(payee, address(usdc), 100e6);
+
+        vm.prank(ownerAddress);
+        vault.updateOperator(op, 1 days, 600);
+        vm.prank(op);
+        _send(payee, address(usdc), 100e6);
+        vm.prank(ownerAddress);
+        vault.approveSend(1);
+        assertEq(usdc.balanceOf(payee), 500e6);
+    }
+
+    function test_updateOperator_revertsWhenNotFound() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(OperatorNotFound.selector);
+        vault.updateOperator(makeAddr("missing"), 1 days, 500);
     }
 
     function test_GrantRoleRevertsIfAssetManagerGrantedAdminRole() public {
@@ -341,11 +416,10 @@ contract BittyV1VaultTest is Test {
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
         );
-        bytes32 _scheduledPaymentRole = vault.PAYMENT_MANAGER_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, _scheduledPaymentRole));
-        uint256 aliceId = vault.addScheduledPayment(r);
+        vm.expectRevert(NotOperator.selector);
+        vault.addScheduledPayment(r);
     }
 
     function test_AddScheduledPaymentRevertAssetAddressNotContract() public {
@@ -673,10 +747,9 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         uint256 aliceId = vault.addScheduledPayment(r);
         r.amount = 2 ether;
-        bytes32 _scheduledPaymentRole = vault.PAYMENT_MANAGER_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, _scheduledPaymentRole));
+        vm.expectRevert(NotOperator.selector);
         vault.updateScheduledPayment(aliceId, r);
     }
 
@@ -724,10 +797,9 @@ contract BittyV1VaultTest is Test {
         );
         vm.prank(ownerAddress);
         uint256 aliceId = vault.addScheduledPayment(r);
-        bytes32 _scheduledPaymentRole = vault.PAYMENT_MANAGER_ROLE();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, _scheduledPaymentRole));
+        vm.expectRevert(NotOperator.selector);
         vault.removeScheduledPayment(aliceId);
     }
 
@@ -1341,7 +1413,7 @@ contract BittyV1VaultTest is Test {
         );
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit IBittyV1PaymentManager.ScheduledPaymentAdded(1, r);
+        emit IBittyV1Operator.ScheduledPaymentAdded(1, r);
 
         vm.prank(ownerAddress);
         uint256 aliceId = vault.addScheduledPayment(r);
@@ -1368,7 +1440,7 @@ contract BittyV1VaultTest is Test {
         );
 
         vm.expectEmit(true, false, false, true, address(vault));
-        emit IBittyV1PaymentManager.ScheduledPaymentUpdated(aliceId, updated);
+        emit IBittyV1Operator.ScheduledPaymentUpdated(aliceId, updated);
 
         vm.prank(ownerAddress);
         vault.updateScheduledPayment(aliceId, updated);
@@ -1379,7 +1451,7 @@ contract BittyV1VaultTest is Test {
         uint256 aliceId = _addScheduledPayment(makeAddr("scheduledPayment"), 1 ether, 1, 0);
 
         vm.expectEmit(true, false, false, false, address(vault));
-        emit IBittyV1PaymentManager.ScheduledPaymentRemoved(aliceId);
+        emit IBittyV1Operator.ScheduledPaymentRemoved(aliceId);
 
         vm.prank(ownerAddress);
         vault.removeScheduledPayment(aliceId);
@@ -1750,12 +1822,10 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         MockERC20 usdc = _addStableCoin(6);
         usdc.mint(address(vault), 5_000 * 1e6);
-        bytes32 pmRole = vault.PAYMENT_MANAGER_ROLE();
         address pm = makeAddr("pmSend");
-        vm.prank(ownerAddress);
-        vault.grantRole(pmRole, pm);
+        _setOperator(pm, 1 days, type(uint64).max);
 
-        // Payment manager proposes a 5,000 USDC send while there is no cap (pending id 0).
+        // Operator proposes a 5,000 USDC send while there is no cap (pending id 0).
         address payee = makeAddr("sendPayee");
         vm.prank(pm);
         _send(payee, address(usdc), 5_000 * 1e6);
@@ -1857,8 +1927,8 @@ contract BittyV1VaultTest is Test {
 
         address newManager = makeAddr("instantManager");
         vm.prank(ownerAddress);
-        vault.setAssetManager(newManager, 0, 0, type(uint64).max, 0);
-        assertEq(vault.getAssetManager(), newManager);
+        vault.setManager(newManager, 0, 0, type(uint64).max, 0);
+        assertEq(vault.getManager(), newManager);
     }
 
     function test_acceptDefaultAdminTransfer_revertsBeforeOneDay() public {
@@ -1914,27 +1984,23 @@ contract BittyV1VaultTest is Test {
         // The owner and the asset manager may be the same account, so the pending admin being the
         // vault's asset manager does not block the transfer.
         vm.prank(ownerAddress);
-        vault.setAssetManager(newAdmin, 0, 0, type(uint64).max, 0);
-        assertEq(vault.getAssetManager(), newAdmin);
+        vault.setManager(newAdmin, 0, 0, type(uint64).max, 0);
+        assertEq(vault.getManager(), newAdmin);
 
         vm.warp(block.timestamp + 1 days + 1);
         vm.prank(newAdmin);
         vault.acceptDefaultAdminTransfer();
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), newAdmin));
-        assertEq(vault.getAssetManager(), newAdmin);
+        assertEq(vault.getManager(), newAdmin);
     }
 
-    function test_BeginDefaultAdminTransfer_RevertsWhenNewAdminIsPaymentManager() public {
+    function test_BeginDefaultAdminTransfer_AllowsAnyNonOwnerAddress() public {
         _initializeVault();
-        bytes32 pmRole = vault.PAYMENT_MANAGER_ROLE();
-        address pm = makeAddr("pm");
+        address newAdmin = makeAddr("newAdmin");
         vm.prank(ownerAddress);
-        vault.grantRole(pmRole, pm);
-
-        // Fail fast: the owner cannot start a transfer to a payment manager (it could never be accepted).
-        vm.prank(ownerAddress);
-        vm.expectRevert(OwnerAndManagerMustDiffer.selector);
-        vault.beginDefaultAdminTransfer(pm);
+        vault.beginDefaultAdminTransfer(newAdmin);
+        (address pendingAdmin,) = vault.pendingDefaultAdmin();
+        assertEq(pendingAdmin, newAdmin);
     }
 
     function test_renounceDefaultAdmin_requiresTransferToZeroAndDelay() public {
@@ -2246,21 +2312,18 @@ contract BittyV1VaultTest is Test {
         vault.removeWhitelistedRecipient(99999);
     }
 
-    function test_WhitelistedRecipient_onlyOwnerOrPaymentManager() public {
+    function test_WhitelistedRecipient_onlyOwnerOrOperator() public {
         _initializeVault();
         address stranger = makeAddr("stranger");
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
-        bytes32 pmRole = vault.PAYMENT_MANAGER_ROLE();
 
         vm.startPrank(stranger);
-        // create/edit/remove are owner-or-payment-manager (a stranger is neither)
-        vm.expectRevert(_roleError(stranger, pmRole));
+        vm.expectRevert(NotOperator.selector);
         uint256 bobIdWr = vault.addWhitelistedRecipient(makeAddr("to"), address(0));
-        vm.expectRevert(_roleError(stranger, pmRole));
+        vm.expectRevert(NotOperator.selector);
         vault.updateWhitelistedRecipient(bobIdWr, makeAddr("to"), address(0));
-        vm.expectRevert(_roleError(stranger, pmRole));
+        vm.expectRevert(NotOperator.selector);
         vault.removeWhitelistedRecipient(bobIdWr);
-        // paying out stays strictly owner-only
         vm.expectRevert(_roleError(stranger, adminRole));
         vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1);
         vm.stopPrank();
@@ -2400,12 +2463,11 @@ contract BittyV1VaultTest is Test {
         vault.payScheduled(spId);
     }
 
-    // ─── Payment manager: propose → owner approve ───────────────────────────────
+    // ─── Operator: propose → owner approve ───────────────────────────────
 
-    function _grantPaymentManager(address pm) internal {
-        bytes32 role = vault.PAYMENT_MANAGER_ROLE();
+    function _setOperator(address op, uint256 interval, uint256 maxPerPeriod) internal {
         vm.prank(ownerAddress);
-        vault.grantRole(role, pm);
+        vault.setOperator(op, interval, maxPerPeriod);
     }
 
     function _spTo(address to) internal view returns (IBittyV1Vault.ScheduledPayment memory) {
@@ -2415,7 +2477,7 @@ contract BittyV1VaultTest is Test {
     function test_PaymentManager_scheduledPendingUntilApproved() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
+        _setOperator(pm, 1 days, type(uint64).max);
         address to = makeAddr("payee");
         deal(address(weth), address(vault), 10 ether);
 
@@ -2444,7 +2506,7 @@ contract BittyV1VaultTest is Test {
     function test_PaymentManager_whitelistedPendingUntilApproved() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
+        _setOperator(pm, 1 days, type(uint64).max);
         address to = makeAddr("payee");
         deal(address(weth), address(vault), 10 ether);
 
@@ -2465,17 +2527,18 @@ contract BittyV1VaultTest is Test {
     function test_PaymentManager_sendProposalThenApprove() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
+        _setOperator(pm, 1 days, type(uint64).max);
+        MockERC20 usdc = _addStableCoin(6);
         address to = makeAddr("payee");
-        deal(address(weth), address(vault), 10 ether);
+        usdc.mint(address(vault), 10e6);
 
         vm.prank(pm);
-        _send(to, address(weth), 1 ether); // proposal id 0, no transfer
-        assertEq(weth.balanceOf(to), 0);
+        _send(to, address(usdc), 1e6); // proposal id 0, no transfer
+        assertEq(usdc.balanceOf(to), 0);
 
         vm.prank(ownerAddress);
         vault.approveSend(0);
-        assertEq(weth.balanceOf(to), 1 ether);
+        assertEq(usdc.balanceOf(to), 1e6);
     }
 
     function test_PaymentManager_ownerSendIsImmediate() public {
@@ -2515,30 +2578,31 @@ contract BittyV1VaultTest is Test {
     function test_SendBatch_paymentManagerProposalApprovesAtomically() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
+        _setOperator(pm, 1 days, type(uint64).max);
+        MockERC20 usdc = _addStableCoin(6);
         address alice = makeAddr("alice");
         address bob = makeAddr("bob");
-        deal(address(weth), address(vault), 3 ether);
+        usdc.mint(address(vault), 300e6);
 
         address[] memory recipients = new address[](2);
         recipients[0] = alice;
         recipients[1] = bob;
         address[] memory assets = new address[](2);
-        assets[0] = address(weth);
-        assets[1] = address(weth);
+        assets[0] = address(usdc);
+        assets[1] = address(usdc);
         uint256[] memory amounts = new uint256[](2);
-        amounts[0] = 1 ether;
-        amounts[1] = 2 ether;
+        amounts[0] = 100e6;
+        amounts[1] = 200e6;
 
         vm.prank(pm);
         vault.send(recipients, assets, amounts);
-        assertEq(weth.balanceOf(alice), 0);
-        assertEq(weth.balanceOf(bob), 0);
+        assertEq(usdc.balanceOf(alice), 0);
+        assertEq(usdc.balanceOf(bob), 0);
 
         vm.prank(ownerAddress);
         vault.approveSend(0);
-        assertEq(weth.balanceOf(alice), 1 ether);
-        assertEq(weth.balanceOf(bob), 2 ether);
+        assertEq(usdc.balanceOf(alice), 100e6);
+        assertEq(usdc.balanceOf(bob), 200e6);
     }
 
     function test_SendBatch_riskCapAppliesToAggregateBatchValue() public {
@@ -2583,12 +2647,13 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         address pm = makeAddr("pm");
         address pm2 = makeAddr("pm2");
-        _grantPaymentManager(pm);
-        _grantPaymentManager(pm2);
-        deal(address(weth), address(vault), 10 ether);
+        _setOperator(pm, 1 days, type(uint64).max);
+        _setOperator(pm2, 1 days, type(uint64).max);
+        MockERC20 usdc = _addStableCoin(6);
+        usdc.mint(address(vault), 10e6);
 
         vm.prank(pm);
-        _send(makeAddr("payee"), address(weth), 1 ether); // id 0
+        _send(makeAddr("payee"), address(usdc), 1e6); // id 0
 
         vm.prank(pm2);
         vm.expectRevert(NotProposalOwner.selector);
@@ -2605,7 +2670,7 @@ contract BittyV1VaultTest is Test {
     function test_PaymentManager_cannotEditOrRemoveApprovedEntry() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
+        _setOperator(pm, 1 days, type(uint64).max);
         IBittyV1Vault.ScheduledPayment memory r = _spTo(makeAddr("payee"));
         vm.prank(ownerAddress);
         uint256 pId = vault.addScheduledPayment(r); // owner-created = approved
@@ -2623,7 +2688,7 @@ contract BittyV1VaultTest is Test {
     function test_PaymentManager_cancelOwnPendingScheduled() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
+        _setOperator(pm, 1 days, type(uint64).max);
         vm.prank(pm);
         uint256 pId = vault.addScheduledPayment(_spTo(makeAddr("payee")));
         vm.prank(pm);
@@ -2636,7 +2701,7 @@ contract BittyV1VaultTest is Test {
     function test_PaymentManager_onlyOwnerApproves() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
+        _setOperator(pm, 1 days, type(uint64).max);
         vm.prank(pm);
         uint256 pId = vault.addScheduledPayment(_spTo(makeAddr("payee")));
 
@@ -2659,10 +2724,11 @@ contract BittyV1VaultTest is Test {
     function test_PaymentManager_ownerCancelsPendingSend() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
-        deal(address(weth), address(vault), 10 ether);
+        _setOperator(pm, 1 days, type(uint64).max);
+        MockERC20 usdc = _addStableCoin(6);
+        usdc.mint(address(vault), 10e6);
         vm.prank(pm);
-        _send(makeAddr("payee"), address(weth), 1 ether); // id 0
+        _send(makeAddr("payee"), address(usdc), 1e6); // id 0
         vm.prank(ownerAddress);
         vault.cancelSend(0); // owner cancels a manager's proposal
         vm.prank(ownerAddress);
@@ -2673,7 +2739,7 @@ contract BittyV1VaultTest is Test {
     function test_PaymentManager_managerEditsOwnPendingScheduled() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
+        _setOperator(pm, 1 days, type(uint64).max);
         address to = makeAddr("payee");
         deal(address(weth), address(vault), 10 ether);
         vm.prank(pm);
@@ -2696,7 +2762,7 @@ contract BittyV1VaultTest is Test {
     function test_PaymentManager_managerEditsOwnPendingWhitelisted() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
+        _setOperator(pm, 1 days, type(uint64).max);
         address to2 = makeAddr("payee2");
         deal(address(weth), address(vault), 10 ether);
         vm.prank(pm);
@@ -2714,7 +2780,7 @@ contract BittyV1VaultTest is Test {
     function test_PaymentManager_managerCannotTouchApprovedWhitelisted() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
+        _setOperator(pm, 1 days, type(uint64).max);
         address to = makeAddr("payee");
         vm.prank(ownerAddress);
         uint256 wIdWr = vault.addWhitelistedRecipient(to, address(0)); // approved
@@ -2730,7 +2796,7 @@ contract BittyV1VaultTest is Test {
     function test_PaymentManager_managerCancelsOwnPendingWhitelisted() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
+        _setOperator(pm, 1 days, type(uint64).max);
         vm.prank(pm);
         uint256 wIdWr = vault.addWhitelistedRecipient(makeAddr("payee"), address(0));
         vm.prank(pm);
@@ -2836,20 +2902,16 @@ contract BittyV1VaultTest is Test {
         assertEq(to.balance, 2 ether);
     }
 
-    function test_ETH_paymentManagerSendProposalPaysEth() public {
+    function test_Operator_ethSendProposalRevertsWhenPeriodLimitSet() public {
         _initializeVault();
         address pm = makeAddr("pm");
-        _grantPaymentManager(pm);
+        _setOperator(pm, 1 days, type(uint64).max);
         _fundVaultWeth(5 ether);
         address to = makeAddr("payee");
 
         vm.prank(pm);
-        _send(to, address(0), 2 ether); // proposal, no transfer
-        assertEq(to.balance, 0);
-
-        vm.prank(ownerAddress);
-        vault.approveSend(0);
-        assertEq(to.balance, 2 ether);
+        vm.expectRevert(PaymentNotStableCoin.selector);
+        _send(to, address(0), 2 ether);
     }
 
     function test_ETH_reentrantRecipientCannotDoublePay() public {
