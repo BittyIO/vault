@@ -4,12 +4,8 @@ pragma solidity ^0.8.34;
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {AmountIsZero, RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
-import {NotAssetManager} from "../../src/interfaces/IBittyV1AssetManager.sol";
-import {
-    InvalidIntentProtocol,
-    InvalidValidTo,
-    MinimalBalanceNotMet
-} from "../../src/interfaces/IBittyV1AssetManager.sol";
+import {NotManager} from "../../src/interfaces/IBittyV1Manager.sol";
+import {InvalidIntentProtocol, InvalidValidTo, MinimalBalanceNotMet} from "../../src/interfaces/IBittyV1Manager.sol";
 import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {OrderNotExpired} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
@@ -75,7 +71,7 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
             RiskControlLevel.Zero
         );
         vm.prank(tx.origin);
-        this.setAssetManager(address(this), 0, 0, type(uint64).max, 0);
+        this.setManager(address(this), 0, 0, type(uint64).max, 0);
 
         // add the second (skip) protocol to the vault set (owner-only)
         vm.prank(tx.origin);
@@ -166,7 +162,7 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
 
     function testLimitOrderOnlyAssetManager() public {
         vm.prank(STRANGER);
-        vm.expectRevert(NotAssetManager.selector);
+        vm.expectRevert(NotManager.selector);
         this.limitSell(address(mock), WETH, USDC, 1 ether, 1000e6, validTo);
     }
 
@@ -294,7 +290,7 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
     // ---------- owner acts as asset manager ----------
 
     function _amRoleError(address) private pure returns (bytes memory) {
-        return abi.encodeWithSelector(NotAssetManager.selector);
+        return abi.encodeWithSelector(NotManager.selector);
     }
 
     // The owner has no implicit trading access — it must hold ASSET_MANAGER_ROLE to trade.
@@ -307,7 +303,7 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
     // The owner may opt into trading by adding itself as an asset manager (with a cap).
     function testOwnerCanTradeWhenAddedAsAssetManager() public {
         vm.prank(tx.origin);
-        this.setAssetManager(tx.origin, 0, 0, type(uint64).max, 0);
+        this.setManager(tx.origin, 0, 0, type(uint64).max, 0);
         vm.prank(tx.origin);
         bytes32 id = this.limitSell(address(mock), WETH, USDC, 1 ether, 1000e6, validTo);
         assertTrue(id != bytes32(0));
@@ -385,7 +381,7 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
 
     function testTwapOnlyAssetManager() public {
         vm.prank(STRANGER);
-        vm.expectRevert(NotAssetManager.selector);
+        vm.expectRevert(NotManager.selector);
         this.twapSell(address(mock), WETH, USDC, 4 ether, 1000e6, 4, 300, 0);
     }
 

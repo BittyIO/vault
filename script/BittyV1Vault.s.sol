@@ -12,7 +12,7 @@ import {BittyV1VaultDeFiFacet} from "../src/BittyV1VaultDeFiFacet.sol";
 /// (from step 1 / `deployments/<chain>.toml`) when compiling this script:
 ///
 ///   --libraries src/logic/VaultLogic.sol:VaultLogic:{VAULT_LOGIC}}
-///   --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{ASSET_MANAGER_LOGIC}}
+///   --libraries src/logic/ManagerLogic.sol:ManagerLogic:{MANAGER_LOGIC}}
 ///
 /// Usage:
 ///   source .env
@@ -21,7 +21,7 @@ import {BittyV1VaultDeFiFacet} from "../src/BittyV1VaultDeFiFacet.sol";
 ///     --broadcast \
 ///     --private-key $SEPOLIA_PRIVATE_KEY \
 ///     --libraries src/logic/VaultLogic.sol:VaultLogic:{VAULT_LOGIC} \
-///     --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{ASSET_MANAGER_LOGIC} \
+///     --libraries src/logic/ManagerLogic.sol:ManagerLogic:{MANAGER_LOGIC} \
 ///     -vvvv
 contract BittyV1Vault is DeployScript, Create2Deployer {
     function deploy() public override {

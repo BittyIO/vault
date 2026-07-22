@@ -22,7 +22,7 @@ import {
     InvalidIntentProtocol,
     InvalidValidTo,
     InvalidSwapData
-} from "../interfaces/IBittyV1AssetManager.sol";
+} from "../interfaces/IBittyV1Manager.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
 import {IBittyV1LendingProtocol} from "protocol-contracts/src/interfaces/IBittyV1LendingProtocol.sol";
 import {IBittyV1StakingProtocol} from "protocol-contracts/src/interfaces/IBittyV1StakingProtocol.sol";
@@ -41,10 +41,10 @@ import {
     AlreadyInitialized,
     AddingProtocolsDisabled
 } from "../interfaces/IBittyV1Vault.sol";
-import {AssetManagerStorage, VaultStorage, IntentOrderRecord, TradeLimit} from "./Storages.sol";
+import {ManagerStorage, VaultStorage, IntentOrderRecord, TradeLimit} from "./Storages.sol";
 import {VaultLogic} from "./VaultLogic.sol";
 
-library AssetManagerLogic {
+library ManagerLogic {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
     using Address for address;
@@ -52,28 +52,28 @@ library AssetManagerLogic {
 
     uint256 constant REBALANCE_DISABLE_MAX_DURATION = 4 * 365 days;
 
-    modifier onlyInitialized(AssetManagerStorage storage logicStorage) {
+    modifier onlyInitialized(ManagerStorage storage logicStorage) {
         if (!logicStorage.isInitialized) {
             revert NotInitialized();
         }
         _;
     }
 
-    modifier onlyNotInitialized(AssetManagerStorage storage logicStorage) {
+    modifier onlyNotInitialized(ManagerStorage storage logicStorage) {
         if (logicStorage.isInitialized) {
             revert AlreadyInitialized();
         }
         _;
     }
 
-    modifier onlyAddingProtocolsEnabled(AssetManagerStorage storage logicStorage) {
+    modifier onlyAddingProtocolsEnabled(ManagerStorage storage logicStorage) {
         if (logicStorage.addingProtocolsDisabled) {
             revert AddingProtocolsDisabled();
         }
         _;
     }
 
-    function initialize(AssetManagerStorage storage logicStorage, address guardAddress)
+    function initialize(ManagerStorage storage logicStorage, address guardAddress)
         external
         onlyNotInitialized(logicStorage)
     {
@@ -84,11 +84,11 @@ library AssetManagerLogic {
         logicStorage.isInitialized = true;
     }
 
-    function getClone(AssetManagerStorage storage logicStorage, address protocol) external view returns (address) {
+    function getClone(ManagerStorage storage logicStorage, address protocol) external view returns (address) {
         return logicStorage.clonedProtocols[protocol];
     }
 
-    function _cloneProtocol(AssetManagerStorage storage logicStorage, address protocol)
+    function _cloneProtocol(ManagerStorage storage logicStorage, address protocol)
         private
         onlyInitialized(logicStorage)
         returns (address clonedProtocol)
@@ -103,7 +103,7 @@ library AssetManagerLogic {
         return clonedProtocol;
     }
 
-    function setMinimalBalance(AssetManagerStorage storage logicStorage, address assetAddress, uint256 minimalBalance)
+    function setMinimalBalance(ManagerStorage storage logicStorage, address assetAddress, uint256 minimalBalance)
         external
         onlyInitialized(logicStorage)
     {
@@ -112,21 +112,21 @@ library AssetManagerLogic {
     }
 
     /**
-     * @notice Set the vault's single (restricted) asset manager and its trade guardrail, replacing any
+     * @notice Set the vault's single (restricted) manager and its trade guardrail, replacing any
      * previous manager. Reverts if `stableCoinInvestCap == 0`.
      */
-    function setAssetManager(
-        AssetManagerStorage storage logicStorage,
-        address assetManager,
+    function setManager(
+        ManagerStorage storage logicStorage,
+        address manager,
         uint256 interval,
         uint256 maxStableCoinPerTrade,
         uint256 stableCoinInvestCap,
         uint256 expiredAt
     ) external onlyInitialized(logicStorage) {
-        if (assetManager == address(0)) revert AddressZero();
+        if (manager == address(0)) revert AddressZero();
         if (stableCoinInvestCap == 0) revert StableCoinInvestCapZero();
-        logicStorage.assetManager = assetManager;
-        TradeLimit storage limit = logicStorage.assetManagerLimit;
+        logicStorage.manager = manager;
+        TradeLimit storage limit = logicStorage.managerLimit;
         limit.interval = uint64(interval);
         limit.maxStableCoinPerTrade = uint64(maxStableCoinPerTrade);
         limit.stableCoinInvestCap = uint64(stableCoinInvestCap);
@@ -138,31 +138,29 @@ library AssetManagerLogic {
     }
 
     /**
-     * @notice Set the vault's single asset manager as full-access: bounded only by minimal balances,
+     * @notice Set the vault's single manager as full-access: bounded only by minimal balances,
      * skipping the per-trade cap / invest cap / throttle / stablecoin-leg checks. For keys as trusted as
      * the owner. Replaces any previous manager.
      */
-    function setFullAssetManager(AssetManagerStorage storage logicStorage, address assetManager)
+    function setFullManager(ManagerStorage storage logicStorage, address manager)
         external
         onlyInitialized(logicStorage)
     {
-        if (assetManager == address(0)) revert AddressZero();
-        logicStorage.assetManager = assetManager;
-        delete logicStorage.assetManagerLimit;
-        logicStorage.assetManagerLimit.fullAccess = true;
+        if (manager == address(0)) revert AddressZero();
+        logicStorage.manager = manager;
+        delete logicStorage.managerLimit;
+        logicStorage.managerLimit.fullAccess = true;
     }
 
-    function removeAssetManager(AssetManagerStorage storage logicStorage) external onlyInitialized(logicStorage) {
-        logicStorage.assetManager = address(0);
-        delete logicStorage.assetManagerLimit;
+    function removeManager(ManagerStorage storage logicStorage) external onlyInitialized(logicStorage) {
+        logicStorage.manager = address(0);
+        delete logicStorage.managerLimit;
     }
 
-    function supply(
-        AssetManagerStorage storage logicStorage,
-        address lendingProtocol,
-        address assetAddress,
-        uint256 amount
-    ) external onlyInitialized(logicStorage) {
+    function supply(ManagerStorage storage logicStorage, address lendingProtocol, address assetAddress, uint256 amount)
+        external
+        onlyInitialized(logicStorage)
+    {
         if (!logicStorage.lendingProtocols.contains(lendingProtocol)) {
             revert InvalidLendingProtocol();
         }
@@ -190,7 +188,7 @@ library AssetManagerLogic {
      * @return delivered The amount of `assetAddress` delivered to `recipient`.
      */
     function withdraw(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         address lendingProtocol,
         address assetAddress,
         uint256 amount,
@@ -216,7 +214,7 @@ library AssetManagerLogic {
         return IBittyV1LendingProtocol(lendingProtocol).withdraw(assetAddress, amount, recipient);
     }
 
-    function getSuppliedBalance(AssetManagerStorage storage logicStorage, address lendingProtocol, address assetAddress)
+    function getSuppliedBalance(ManagerStorage storage logicStorage, address lendingProtocol, address assetAddress)
         external
         view
         onlyInitialized(logicStorage)
@@ -229,12 +227,10 @@ library AssetManagerLogic {
         return IBittyV1LendingProtocol(_clonedProtocol).getSuppliedBalance(assetAddress);
     }
 
-    function stake(
-        AssetManagerStorage storage logicStorage,
-        address stakingProtocol,
-        address assetAddress,
-        uint256 amount
-    ) external onlyInitialized(logicStorage) {
+    function stake(ManagerStorage storage logicStorage, address stakingProtocol, address assetAddress, uint256 amount)
+        external
+        onlyInitialized(logicStorage)
+    {
         if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
             revert InvalidStakingProtocol();
         }
@@ -263,7 +259,7 @@ library AssetManagerLogic {
      * @return delivered The amount of `assetAddress` delivered to `recipient`.
      */
     function unstake(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         address stakingProtocol,
         address assetAddress,
         uint256 amount,
@@ -289,7 +285,7 @@ library AssetManagerLogic {
         return IBittyV1StakingProtocol(stakingProtocol).unstake(assetAddress, amount, recipient);
     }
 
-    function getStakedBalance(AssetManagerStorage storage logicStorage, address stakingProtocol, address assetAddress)
+    function getStakedBalance(ManagerStorage storage logicStorage, address stakingProtocol, address assetAddress)
         external
         view
         onlyInitialized(logicStorage)
@@ -305,7 +301,7 @@ library AssetManagerLogic {
         return IBittyV1StakingProtocol(_clonedProtocol).getStakedBalance(assetAddress);
     }
 
-    function getUnstakeRequestIds(AssetManagerStorage storage logicStorage, address stakingProtocol)
+    function getUnstakeRequestIds(ManagerStorage storage logicStorage, address stakingProtocol)
         external
         view
         onlyInitialized(logicStorage)
@@ -318,11 +314,10 @@ library AssetManagerLogic {
         return IBittyV1StakingProtocol(_clonedProtocol).getUnstakeRequestIds();
     }
 
-    function claimUnstaked(
-        AssetManagerStorage storage logicStorage,
-        address stakingProtocol,
-        uint256[] memory requestIds
-    ) external onlyInitialized(logicStorage) {
+    function claimUnstaked(ManagerStorage storage logicStorage, address stakingProtocol, uint256[] memory requestIds)
+        external
+        onlyInitialized(logicStorage)
+    {
         if (requestIds.length == 0) {
             return;
         }
@@ -379,7 +374,7 @@ library AssetManagerLogic {
      * @dev Per-protocol views are queried through try/catch because they revert for assets a protocol
      * does not support (e.g. Lido's InvalidAsset); an unsupported/empty position contributes 0.
      */
-    function _totalBalance(AssetManagerStorage storage logicStorage, address assetAddress)
+    function _totalBalance(ManagerStorage storage logicStorage, address assetAddress)
         private
         view
         returns (uint256 total)
@@ -405,7 +400,7 @@ library AssetManagerLogic {
         }
     }
 
-    function _checkAMMProtocol(AssetManagerStorage storage logicStorage, address ammProtocol) private view {
+    function _checkAMMProtocol(ManagerStorage storage logicStorage, address ammProtocol) private view {
         if (!logicStorage.ammProtocols.contains(ammProtocol)) {
             revert InvalidAMMProtocol();
         }
@@ -417,7 +412,7 @@ library AssetManagerLogic {
         }
     }
 
-    function _checkRebalanceDisabledUntilTimestamp(AssetManagerStorage storage logicStorage) private view {
+    function _checkRebalanceDisabledUntilTimestamp(ManagerStorage storage logicStorage) private view {
         if (
             logicStorage.rebalanceDisabledUntilTimestamp > 0
                 && block.timestamp < logicStorage.rebalanceDisabledUntilTimestamp
@@ -432,7 +427,7 @@ library AssetManagerLogic {
      * coming back (a floor for exact-in trades, exact for exact-out). The sell leg (`from`) may be
      * any token the vault holds — it need not be on the vault asset allowlist (e.g. airdrops or
      * mistaken transfers can still be sold out). The buy leg (`to`) must remain an allowlisted asset
-     * or stablecoin. Enforces, per asset manager (keyed by msg.sender, preserved through
+     * or stablecoin. Enforces, per manager (keyed by msg.sender, preserved through
      * delegatecall): a stablecoin size cap and a frequency throttle. The size cap is denominated in
      * stablecoin whole tokens, so when it is set the trade must have a stablecoin as either leg; the
      * stablecoin leg's amount is measured against the cap.
@@ -443,7 +438,7 @@ library AssetManagerLogic {
      * investing rather than allowing it.
      */
     function _validateTrade(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address from,
         address to,
@@ -464,7 +459,7 @@ library AssetManagerLogic {
             if (available < sellAmount || available - sellAmount < minBal) revert MinimalBalanceNotMet();
         }
 
-        TradeLimit storage limit = logicStorage.assetManagerLimit;
+        TradeLimit storage limit = logicStorage.managerLimit;
 
         // Full-access managers are bounded only by the minimal-balance floor above; skip the entire trade
         // limit — including the stablecoin-leg requirement — so they may trade any asset (even asset ->
@@ -531,7 +526,7 @@ library AssetManagerLogic {
     }
 
     function addLiquidity(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         address ammProtocol,
         address token0,
         uint256 amount0,
@@ -552,7 +547,7 @@ library AssetManagerLogic {
         IBittyV1AMMProtocol(clone).addLiquidity(data);
     }
 
-    function removeLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
+    function removeLiquidity(ManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
         external
         onlyInitialized(logicStorage)
     {
@@ -562,7 +557,7 @@ library AssetManagerLogic {
         IBittyV1AMMProtocol(clone).removeLiquidity(data);
     }
 
-    function decreaseLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
+    function decreaseLiquidity(ManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
         external
         onlyInitialized(logicStorage)
     {
@@ -572,7 +567,7 @@ library AssetManagerLogic {
         IBittyV1AMMProtocol(clone).decreaseLiquidity(data);
     }
 
-    function claimAMMFees(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
+    function claimAMMFees(ManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
         external
         onlyInitialized(logicStorage)
     {
@@ -587,7 +582,7 @@ library AssetManagerLogic {
      * `to`, back into the vault. Subject to the rebalance guards (rebalance-disabled + minimal balance).
      */
     function marketSell(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address ammProtocol,
         address from,
@@ -607,7 +602,7 @@ library AssetManagerLogic {
      * back into the vault. Subject to the rebalance guards (rebalance-disabled + minimal balance).
      */
     function marketBuy(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address ammProtocol,
         address from,
@@ -623,7 +618,7 @@ library AssetManagerLogic {
     }
 
     function _swapExactIn(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         address ammProtocol,
         address sellAssetAddress,
         uint256 sellAmount,
@@ -661,7 +656,7 @@ library AssetManagerLogic {
     }
 
     function _swapExactOut(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         address ammProtocol,
         address sellAssetAddress,
         uint256 sellAmountMax,
@@ -695,7 +690,7 @@ library AssetManagerLogic {
         }
     }
 
-    function disableRebalanceUntilTimestamp(AssetManagerStorage storage logicStorage, uint256 timestamp)
+    function disableRebalanceUntilTimestamp(ManagerStorage storage logicStorage, uint256 timestamp)
         external
         onlyInitialized(logicStorage)
     {
@@ -711,11 +706,11 @@ library AssetManagerLogic {
         logicStorage.rebalanceDisabledUntilTimestamp = uint64(timestamp);
     }
 
-    function disableAddingProtocols(AssetManagerStorage storage logicStorage) external onlyInitialized(logicStorage) {
+    function disableAddingProtocols(ManagerStorage storage logicStorage) external onlyInitialized(logicStorage) {
         logicStorage.addingProtocolsDisabled = true;
     }
 
-    function addLendingProtocols(AssetManagerStorage storage logicStorage, address[] memory lendingProtocolAddresses)
+    function addLendingProtocols(ManagerStorage storage logicStorage, address[] memory lendingProtocolAddresses)
         external
         onlyAddingProtocolsEnabled(logicStorage)
         onlyInitialized(logicStorage)
@@ -728,7 +723,7 @@ library AssetManagerLogic {
         }
     }
 
-    function addStakingProtocols(AssetManagerStorage storage logicStorage, address[] memory stakingProtocolAddresses)
+    function addStakingProtocols(ManagerStorage storage logicStorage, address[] memory stakingProtocolAddresses)
         external
         onlyAddingProtocolsEnabled(logicStorage)
         onlyInitialized(logicStorage)
@@ -741,7 +736,7 @@ library AssetManagerLogic {
         }
     }
 
-    function removeLendingProtocols(AssetManagerStorage storage logicStorage, address[] memory lendingProtocolAddresses)
+    function removeLendingProtocols(ManagerStorage storage logicStorage, address[] memory lendingProtocolAddresses)
         external
         onlyInitialized(logicStorage)
     {
@@ -750,7 +745,7 @@ library AssetManagerLogic {
         }
     }
 
-    function removeStakingProtocols(AssetManagerStorage storage logicStorage, address[] memory stakingProtocolAddresses)
+    function removeStakingProtocols(ManagerStorage storage logicStorage, address[] memory stakingProtocolAddresses)
         external
         onlyInitialized(logicStorage)
     {
@@ -759,7 +754,7 @@ library AssetManagerLogic {
         }
     }
 
-    function addAMMProtocols(AssetManagerStorage storage logicStorage, address[] memory ammProtocolAddresses)
+    function addAMMProtocols(ManagerStorage storage logicStorage, address[] memory ammProtocolAddresses)
         external
         onlyAddingProtocolsEnabled(logicStorage)
         onlyInitialized(logicStorage)
@@ -772,7 +767,7 @@ library AssetManagerLogic {
         }
     }
 
-    function removeAMMProtocols(AssetManagerStorage storage logicStorage, address[] memory ammProtocolAddresses)
+    function removeAMMProtocols(ManagerStorage storage logicStorage, address[] memory ammProtocolAddresses)
         external
         onlyInitialized(logicStorage)
     {
@@ -781,19 +776,19 @@ library AssetManagerLogic {
         }
     }
 
-    function getLendingProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+    function getLendingProtocols(ManagerStorage storage logicStorage) external view returns (address[] memory) {
         return logicStorage.lendingProtocols.values();
     }
 
-    function getStakingProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+    function getStakingProtocols(ManagerStorage storage logicStorage) external view returns (address[] memory) {
         return logicStorage.stakingProtocols.values();
     }
 
-    function getAMMProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+    function getAMMProtocols(ManagerStorage storage logicStorage) external view returns (address[] memory) {
         return logicStorage.ammProtocols.values();
     }
 
-    function getLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
+    function getLiquidity(ManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
         external
         view
         returns (uint256)
@@ -805,13 +800,13 @@ library AssetManagerLogic {
 
     // ============ Intent protocols ============
 
-    function _checkIntentProtocol(AssetManagerStorage storage logicStorage, address intentProtocol) private view {
+    function _checkIntentProtocol(ManagerStorage storage logicStorage, address intentProtocol) private view {
         if (!logicStorage.intentProtocols.contains(intentProtocol)) revert InvalidIntentProtocol();
         if (logicStorage.guard.isIntentProtocolDeprecated(intentProtocol)) revert Deprecated();
         if (!logicStorage.guard.isIntentProtocolRegistered(intentProtocol)) revert NotRegistered();
     }
 
-    function _executeCancel(AssetManagerStorage storage logicStorage, address intentProtocol, bytes32 orderId) private {
+    function _executeCancel(ManagerStorage storage logicStorage, address intentProtocol, bytes32 orderId) private {
         address clone = logicStorage.clonedProtocols[intentProtocol];
         IBittyV1IntentProtocol.CancelInstructions memory instr =
             IBittyV1IntentProtocol(clone).buildCancelInstructions(orderId);
@@ -827,7 +822,7 @@ library AssetManagerLogic {
     }
 
     function limitSell(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address intentProtocol,
         address from,
@@ -842,7 +837,7 @@ library AssetManagerLogic {
     }
 
     function limitBuy(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address intentProtocol,
         address from,
@@ -857,7 +852,7 @@ library AssetManagerLogic {
     }
 
     function _intentTrade(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         address intentProtocol,
         address sellAssetAddress,
         uint256 sellAmount,
@@ -894,7 +889,7 @@ library AssetManagerLogic {
         emit IBittyV1IntentProtocol.OrderCreated(orderId, address(this));
     }
 
-    function cancelLimitOrder(AssetManagerStorage storage logicStorage, address intentProtocol, bytes memory data)
+    function cancelLimitOrder(ManagerStorage storage logicStorage, address intentProtocol, bytes memory data)
         external
         onlyInitialized(logicStorage)
     {
@@ -916,7 +911,7 @@ library AssetManagerLogic {
      *      orders. Keepers should call this promptly once orders expire to free the reservation.
      */
     function cleanExpiredLimitOrders(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         address intentProtocol,
         bytes32[] calldata orderDigests
     ) external onlyInitialized(logicStorage) {
@@ -932,7 +927,7 @@ library AssetManagerLogic {
         }
     }
 
-    function addIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
+    function addIntentProtocols(ManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
         external
         onlyAddingProtocolsEnabled(logicStorage)
         onlyInitialized(logicStorage)
@@ -943,7 +938,7 @@ library AssetManagerLogic {
         }
     }
 
-    function removeIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
+    function removeIntentProtocols(ManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
         external
         onlyInitialized(logicStorage)
     {
@@ -952,12 +947,12 @@ library AssetManagerLogic {
         }
     }
 
-    function getIntentProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+    function getIntentProtocols(ManagerStorage storage logicStorage) external view returns (address[] memory) {
         return logicStorage.intentProtocols.values();
     }
 
     function twapSell(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address intentProtocol,
         address from,
@@ -999,7 +994,7 @@ library AssetManagerLogic {
     }
 
     function twapBuy(
-        AssetManagerStorage storage logicStorage,
+        ManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address intentProtocol,
         address from,
@@ -1043,7 +1038,7 @@ library AssetManagerLogic {
         emit IBittyV1IntentProtocol.TwapCreated(twapId, address(this));
     }
 
-    function cancelTwapOrder(AssetManagerStorage storage logicStorage, address intentProtocol, bytes32 twapId)
+    function cancelTwapOrder(ManagerStorage storage logicStorage, address intentProtocol, bytes32 twapId)
         external
         onlyInitialized(logicStorage)
     {

@@ -91,7 +91,7 @@ contract TestVaultFork is Test {
             RiskControlLevel.Zero, vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
         );
         address vaultAddr = factory.vaultAddress(tx.origin);
-        BittyV1Vault(payable(vaultAddr)).setAssetManager(assetManager, 0, 0, type(uint64).max, 0);
+        BittyV1Vault(payable(vaultAddr)).setManager(assetManager, 0, 0, type(uint64).max, 0);
         vm.stopPrank();
         vault = BittyV1Vault(payable(vaultAddr));
     }
@@ -230,7 +230,7 @@ contract TestVaultFork is Test {
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)) - wethBefore, amount);
     }
 
-    function test_RevertSupplyWhenNotAssetManager() public {
+    function test_RevertSupplyWhenNotManager() public {
         deal(mainnet.WETH, address(vault), 1 ether);
         vm.prank(makeAddr("random"));
         vm.expectRevert();
@@ -401,12 +401,12 @@ contract TestVaultFork is Test {
             RiskControlLevel.Zero, vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
         );
         address vaultAddr = factory.vaultAddress(customOwner);
-        BittyV1Vault(payable(vaultAddr)).setAssetManager(customAssetManager, 0, 0, type(uint64).max, 0);
+        BittyV1Vault(payable(vaultAddr)).setManager(customAssetManager, 0, 0, type(uint64).max, 0);
         vm.stopPrank();
 
         BittyV1Vault customVault = BittyV1Vault(payable(vaultAddr));
         assertTrue(customVault.hasRole(customVault.DEFAULT_ADMIN_ROLE(), customOwner));
-        assertEq(customVault.getAssetManager(), customAssetManager);
+        assertEq(customVault.getManager(), customAssetManager);
         assertEq(factory.vaultAddress(customOwner), vaultAddr);
     }
 }
