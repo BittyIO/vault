@@ -20,6 +20,7 @@ import {
     InvalidStakingProtocol,
     InvalidAMMProtocol,
     InvalidIntentProtocol,
+    IntentProtocolMismatch,
     InvalidValidTo,
     InvalidSwapData
 } from "../interfaces/IBittyV1Manager.sol";
@@ -813,13 +814,14 @@ library ManagerLogic {
     }
 
     function _executeCancel(ManagerStorage storage logicStorage, address intentProtocol, bytes32 orderId) private {
+        IntentOrderRecord memory record = logicStorage.intentOrderRecords[orderId];
+        if (record.owningProtocol != intentProtocol) revert IntentProtocolMismatch();
         address clone = logicStorage.clonedProtocols[intentProtocol];
         IBittyV1IntentProtocol.CancelInstructions memory instr =
             IBittyV1IntentProtocol(clone).buildCancelInstructions(orderId);
         if (instr.cancelTarget != address(0)) {
             instr.cancelTarget.functionCall(instr.cancelCalldata);
         }
-        IntentOrderRecord memory record = logicStorage.intentOrderRecords[orderId];
         if (record.reservedSell > 0) {
             uint256 c = logicStorage.committedIntentSell[record.sellToken];
             logicStorage.committedIntentSell[record.sellToken] = c > record.reservedSell ? c - record.reservedSell : 0;
@@ -888,8 +890,12 @@ library ManagerLogic {
             IERC20(instr.sellToken).forceApprove(instr.approveTarget, type(uint256).max);
         }
 
-        logicStorage.intentOrderRecords[orderId] =
-            IntentOrderRecord({sellToken: instr.sellToken, expiresAt: uint96(validTo), reservedSell: sellAmount});
+        logicStorage.intentOrderRecords[orderId] = IntentOrderRecord({
+            sellToken: instr.sellToken,
+            expiresAt: uint96(validTo),
+            owningProtocol: intentProtocol,
+            reservedSell: sellAmount
+        });
         logicStorage.committedIntentSell[instr.sellToken] += sellAmount;
 
         emit IBittyV1IntentProtocol.OrderCreated(orderId, address(this));
@@ -992,7 +998,10 @@ library ManagerLogic {
         }
 
         logicStorage.intentOrderRecords[twapId] = IntentOrderRecord({
-            sellToken: instr.sellToken, expiresAt: uint96(expiresAt_), reservedSell: totalSellAmount
+            sellToken: instr.sellToken,
+            expiresAt: uint96(expiresAt_),
+            owningProtocol: intentProtocol,
+            reservedSell: totalSellAmount
         });
         logicStorage.committedIntentSell[instr.sellToken] += totalSellAmount;
 
@@ -1037,7 +1046,10 @@ library ManagerLogic {
         }
 
         logicStorage.intentOrderRecords[twapId] = IntentOrderRecord({
-            sellToken: instr.sellToken, expiresAt: uint96(expiresAt_), reservedSell: totalSellAmount
+            sellToken: instr.sellToken,
+            expiresAt: uint96(expiresAt_),
+            owningProtocol: intentProtocol,
+            reservedSell: totalSellAmount
         });
         logicStorage.committedIntentSell[instr.sellToken] += totalSellAmount;
 
