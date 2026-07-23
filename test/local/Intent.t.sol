@@ -5,7 +5,12 @@ import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessCon
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {AmountIsZero, RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
 import {NotManager} from "../../src/interfaces/IBittyV1Manager.sol";
-import {InvalidIntentProtocol, InvalidValidTo, MinimalBalanceNotMet} from "../../src/interfaces/IBittyV1Manager.sol";
+import {
+    InvalidIntentProtocol,
+    IntentProtocolMismatch,
+    InvalidValidTo,
+    MinimalBalanceNotMet
+} from "../../src/interfaces/IBittyV1Manager.sol";
 import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {OrderNotExpired} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
@@ -184,6 +189,31 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
         // mockSkip has never been cloned (no order placed on it yet)
         vm.expectRevert(InvalidIntentProtocol.selector);
         this.cancelLimitOrder(address(mockSkip), abi.encode(bytes32(uint256(1))));
+    }
+
+    function testCancelLimitOrder_wrongProtocolReverts() public {
+        bytes32 id = this.limitSell(address(mock), WETH, USDC, 1 ether, 1000e6, validTo);
+        // give mockSkip a clone so the no-clone guard passes and we reach the ownership check;
+        // distinct amounts keep its orderId from colliding with mock's record
+        this.limitSell(address(mockSkip), WETH, USDC, 2 ether, 2000e6, validTo);
+
+        vm.expectRevert(IntentProtocolMismatch.selector);
+        this.cancelLimitOrder(address(mockSkip), abi.encode(id));
+
+        // the rightful protocol can still cancel it
+        this.cancelLimitOrder(address(mock), abi.encode(id));
+        assertEq(registry.lastCancelled(), id);
+    }
+
+    function testCleanExpiredLimitOrders_wrongProtocolReverts() public {
+        bytes32 id = this.limitSell(address(mock), WETH, USDC, 1 ether, 1000e6, validTo);
+        this.limitSell(address(mockSkip), WETH, USDC, 2 ether, 2000e6, validTo);
+        vm.warp(uint256(validTo) + 1);
+
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = id;
+        vm.expectRevert(IntentProtocolMismatch.selector);
+        this.cleanExpiredLimitOrders(address(mockSkip), ids);
     }
 
     // ---------- cleanExpiredLimitOrders (permissionless) ----------
@@ -377,6 +407,17 @@ contract TestIntent is ProtocolTestSetup, BittyV1VaultHarness {
     function testCancelTwapUnknownId() public {
         vm.expectRevert(InvalidIntentProtocol.selector);
         this.cancelTwapOrder(address(mock), bytes32(uint256(0xDEAD)));
+    }
+
+    function testCancelTwapOrder_wrongProtocolReverts() public {
+        bytes32 twapId = this.twapSell(address(mock), WETH, USDC, 4 ether, 1000e6, 4, 300, 0);
+        this.twapSell(address(mockSkip), WETH, USDC, 2 ether, 500e6, 4, 300, 0);
+
+        vm.expectRevert(IntentProtocolMismatch.selector);
+        this.cancelTwapOrder(address(mockSkip), twapId);
+
+        this.cancelTwapOrder(address(mock), twapId);
+        assertEq(registry.lastCancelled(), twapId);
     }
 
     function testTwapOnlyAssetManager() public {

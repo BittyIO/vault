@@ -15,6 +15,7 @@ error InvalidLendingProtocol();
 error InvalidStakingProtocol();
 error InvalidAMMProtocol();
 error InvalidIntentProtocol();
+error IntentProtocolMismatch();
 error InvalidValidTo();
 error InvalidSwapData();
 error DisableRebalanceUntilTimestampTooEarly();

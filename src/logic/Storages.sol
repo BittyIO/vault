@@ -8,6 +8,8 @@ import {IBittyV1Vault, RiskControlLevel} from "../interfaces/IBittyV1Vault.sol";
 struct IntentOrderRecord {
     address sellToken; // address(0) = no record
     uint96 expiresAt; // packs with sellToken into one slot; timestamp fits easily
+    // Intent protocol this order was placed through; a cancel must pass the same protocol.
+    address owningProtocol;
     // Amount of sellToken this open order reserves; released from committedIntentSell on cancel/expiry.
     uint256 reservedSell;
 }
