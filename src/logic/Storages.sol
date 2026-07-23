@@ -51,8 +51,8 @@ struct TradeLimit {
 
 // Rolling one-off send quota for the vault's operator (stablecoin-normalized 1e18 units in sentInPeriod).
 struct OperatorLimit {
-    uint64 interval; // window length in seconds; 0 = no rolling window
-    uint64 maxStableCoinPerPeriod; // whole stablecoin tokens per window; 0 = no cap
+    uint64 interval; // window length in seconds; setOperator/updateOperator reject 0 (cap must be enforceable)
+    uint64 maxStableCoinPerPeriod; // whole stablecoin tokens per window; setOperator/updateOperator reject 0
     uint128 periodStartTimestamp;
     uint256 sentInPeriod;
 }
