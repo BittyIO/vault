@@ -374,6 +374,9 @@ library VaultLogic {
         IBittyV1Vault.ScheduledPayment memory scheduledPayment,
         bool byOwner
     ) external onlyInitialized(vaultStorage) {
+        if (scheduledPayment.startTimestamp < block.timestamp) {
+            revert ScheduledPaymentStartTimestampInPast();
+        }
         IBittyV1Vault.ScheduledPayment memory existing = vaultStorage.scheduledPayments[id];
         if (existing.scheduledPaymentAddress == address(0)) {
             revert ScheduledPaymentNotFound();

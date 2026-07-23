@@ -567,7 +567,7 @@ contract BittyV1VaultTest is Test {
         uint256 aliceId = vault.addScheduledPayment(r);
     }
 
-    function test_UpdateScheduledPaymentAllowsPastStartTimestamp() public {
+    function test_UpdateScheduledPaymentRevertStartTimestampInPast() public {
         _initializeVault();
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("scheduledPayment"), address(0), address(weth), 1 ether, 1, block.timestamp, 1 days, false
@@ -577,6 +577,7 @@ contract BittyV1VaultTest is Test {
 
         r.startTimestamp = block.timestamp - 1;
         vm.prank(ownerAddress);
+        vm.expectRevert(ScheduledPaymentStartTimestampInPast.selector);
         vault.updateScheduledPayment(aliceId, r);
     }
 
