@@ -43,7 +43,8 @@ import {
     PaymentExceedsRiskCap,
     PaymentNotStableCoin,
     OperatorAlreadyRegistered,
-    OperatorNotFound
+    OperatorNotFound,
+    OperatorIntervalZero
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
@@ -301,6 +302,24 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vm.expectRevert(OperatorNotFound.selector);
         vault.updateOperator(makeAddr("missing"), 1 days, 500);
+    }
+
+    // interval == 0 would silently disable the per-period send cap in _processSendBatch, so it is
+    // rejected up front — a registered operator always has a live rolling window.
+    function test_setOperator_revertsWhenIntervalZero() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(OperatorIntervalZero.selector);
+        vault.setOperator(makeAddr("op"), 0, 500);
+    }
+
+    function test_updateOperator_revertsWhenIntervalZero() public {
+        _initializeVault();
+        address op = makeAddr("op");
+        _setOperator(op, 1 days, 500);
+        vm.prank(ownerAddress);
+        vm.expectRevert(OperatorIntervalZero.selector);
+        vault.updateOperator(op, 0, 500);
     }
 
     function test_GrantRoleRevertsIfAssetManagerGrantedAdminRole() public {

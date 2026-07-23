@@ -66,7 +66,7 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1Manager {
         uint256 amount1,
         bytes memory data
     ) external override onlyManager {
-        _manager.addLiquidity(ammProtocol, token0, amount0, token1, amount1, data);
+        _manager.addLiquidity(_vault, ammProtocol, token0, amount0, token1, amount1, data);
     }
 
     function removeLiquidity(address ammProtocol, bytes memory data) external override onlyManager {

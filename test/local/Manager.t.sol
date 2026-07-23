@@ -1316,9 +1316,39 @@ contract TestManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(this.getClonedProvider(address(mockAmm)), address(0), "no clone before first use");
 
         vm.prank(assetManagerAddress);
-        this.addLiquidity(address(mockAmm), address(0), 0, address(0), 0, "");
+        this.addLiquidity(address(mockAmm), mainnet.WETH, 0, mainnet.USDT, 0, "");
 
         assertTrue(this.getClonedProvider(address(mockAmm)) != address(0), "addLiquidity must clone on first use");
+    }
+
+    // Both tokens deployed into an LP must be registered vault assets — otherwise addLiquidity is a path
+    // to move unregistered tokens out around the asset allowlist.
+    function test_AddLiquidity_RejectsUnregisteredToken0() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initializeWithMockAMM(mockAmm);
+        address unregistered = makeAddr("unregisteredToken");
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(NotRegistered.selector);
+        this.addLiquidity(address(mockAmm), unregistered, 1 ether, mainnet.USDT, 0, "");
+    }
+
+    function test_AddLiquidity_RejectsUnregisteredToken1() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initializeWithMockAMM(mockAmm);
+        address unregistered = makeAddr("unregisteredToken");
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(NotRegistered.selector);
+        this.addLiquidity(address(mockAmm), mainnet.WETH, 1 ether, unregistered, 1 ether, "");
+    }
+
+    // An add with both tokens registered is allowed.
+    function test_AddLiquidity_SucceedsWithRegisteredTokens() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initializeWithMockAMM(mockAmm);
+        deal(mainnet.WETH, address(this), 1000 ether);
+
+        vm.prank(assetManagerAddress);
+        this.addLiquidity(address(mockAmm), mainnet.WETH, 800 ether, mainnet.USDT, 0, "");
     }
 
     function test_RemoveLiquidity_RevertsWithoutClone() public {

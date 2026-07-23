@@ -48,6 +48,7 @@ import {
     PaymentExceedsPeriodLimit,
     PaymentNotStableCoin,
     OperatorSendCapZero,
+    OperatorIntervalZero,
     OperatorNotFound,
     OperatorAlreadyRegistered,
     RiskControlLevel
@@ -513,6 +514,7 @@ library VaultLogic {
         uint256 maxStableCoinPerPeriod
     ) external onlyInitialized(vaultStorage) {
         if (operator == address(0)) revert AddressZero();
+        if (interval == 0) revert OperatorIntervalZero();
         if (maxStableCoinPerPeriod == 0) revert OperatorSendCapZero();
         if (vaultStorage.operators.contains(operator)) revert OperatorAlreadyRegistered();
         vaultStorage.operators.add(operator);
@@ -531,6 +533,7 @@ library VaultLogic {
         uint256 maxStableCoinPerPeriod
     ) external onlyInitialized(vaultStorage) {
         if (operator == address(0)) revert AddressZero();
+        if (interval == 0) revert OperatorIntervalZero();
         if (maxStableCoinPerPeriod == 0) revert OperatorSendCapZero();
         if (!vaultStorage.operators.contains(operator)) revert OperatorNotFound();
         OperatorLimit storage limit = vaultStorage.operatorLimits[operator];

@@ -527,6 +527,7 @@ library ManagerLogic {
 
     function addLiquidity(
         ManagerStorage storage logicStorage,
+        VaultStorage storage vaultStorage,
         address ammProtocol,
         address token0,
         uint256 amount0,
@@ -536,6 +537,10 @@ library ManagerLogic {
     ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
         if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
+
+        VaultLogic.checkAsset(vaultStorage, token0);
+        VaultLogic.checkAsset(vaultStorage, token1);
+
         address clone = _cloneProtocol(logicStorage, ammProtocol);
         if (token0 != address(0) && amount0 > 0 && IERC20(token0).allowance(address(this), clone) < amount0) {
             IERC20(token0).forceApprove(clone, type(uint256).max);
@@ -543,6 +548,7 @@ library ManagerLogic {
         if (token1 != address(0) && amount1 > 0 && IERC20(token1).allowance(address(this), clone) < amount1) {
             IERC20(token1).forceApprove(clone, type(uint256).max);
         }
+
         _approveNFTIfNeeded(clone);
         IBittyV1AMMProtocol(clone).addLiquidity(data);
     }

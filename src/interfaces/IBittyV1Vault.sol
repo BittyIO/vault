@@ -34,6 +34,7 @@ error AddingProtocolsDisabled();
 error OwnerAndOperatorMustDiffer();
 
 error OperatorSendCapZero();
+error OperatorIntervalZero();
 error NotOperator();
 error OperatorNotFound();
 error OperatorAlreadyRegistered();
