@@ -161,8 +161,8 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
         _vault.removeScheduledPayment(id, _byOwner());
     }
 
-    function approveScheduledPayment(uint256 id) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.approveScheduledPayment(id);
+    function approveScheduledPayment(uint256 id, bytes32 expectedHash) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.approveScheduledPayment(id, expectedHash);
     }
 
     function setScheduledPaymentProtection(uint256 protection) external override onlyRole(DEFAULT_ADMIN_ROLE) {

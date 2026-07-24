@@ -52,6 +52,7 @@ error WhitelistedRecipientAssetNotAllowed();
 error PaymentNotApproved();
 error NotPendingApproval();
 error NotProposalOwner();
+error ScheduledPaymentContentMismatch();
 error PendingSendNotFound();
 
 enum RiskControlLevel {

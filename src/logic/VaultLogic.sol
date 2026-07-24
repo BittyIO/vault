@@ -43,6 +43,7 @@ import {
     PaymentNotApproved,
     NotPendingApproval,
     NotProposalOwner,
+    ScheduledPaymentContentMismatch,
     PendingSendNotFound,
     PaymentExceedsRiskCap,
     PaymentExceedsPeriodLimit,
@@ -406,17 +407,23 @@ library VaultLogic {
 
     /**
      * @notice Owner approval of a payment-manager-proposed scheduled payment. Access control
-     * (owner-only) is enforced by the facade.
+     * (owner-only) is enforced by the facade. The owner binds the approval to the exact content they
+     * reviewed via `expectedHash`; if the proposer edited the entry after review, the stored hash no
+     * longer matches and the call reverts, so an approval can never confirm swapped content.
      */
-    function approveScheduledPayment(VaultStorage storage vaultStorage, uint256 id)
+    function approveScheduledPayment(VaultStorage storage vaultStorage, uint256 id, bytes32 expectedHash)
         external
         onlyInitialized(vaultStorage)
     {
-        if (vaultStorage.scheduledPayments[id].amount == 0) {
+        IBittyV1Vault.ScheduledPayment memory scheduledPayment = vaultStorage.scheduledPayments[id];
+        if (scheduledPayment.amount == 0) {
             revert ScheduledPaymentNotFound();
         }
         if (vaultStorage.scheduledPaymentPendingProposer[id] == address(0)) {
             revert NotPendingApproval();
+        }
+        if (keccak256(abi.encode(scheduledPayment)) != expectedHash) {
+            revert ScheduledPaymentContentMismatch();
         }
         delete vaultStorage.scheduledPaymentPendingProposer[id];
         emit IBittyV1Owner.ScheduledPaymentApproved(id);

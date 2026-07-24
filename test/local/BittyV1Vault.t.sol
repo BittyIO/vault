@@ -35,6 +35,7 @@ import {
     PaymentNotApproved,
     NotPendingApproval,
     NotProposalOwner,
+    ScheduledPaymentContentMismatch,
     PendingSendNotFound,
     NotOperator,
     OwnerAndOperatorMustDiffer,
@@ -2494,6 +2495,10 @@ contract BittyV1VaultTest is Test {
         return _makeScheduledPayment(to, address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
     }
 
+    function _spHash(IBittyV1Vault.ScheduledPayment memory p) internal pure returns (bytes32) {
+        return keccak256(abi.encode(p));
+    }
+
     function test_PaymentManager_scheduledPendingUntilApproved() public {
         _initializeVault();
         address pm = makeAddr("pm");
@@ -2508,7 +2513,7 @@ contract BittyV1VaultTest is Test {
         vault.payScheduled(pId);
 
         vm.prank(ownerAddress);
-        vault.approveScheduledPayment(pId);
+        vault.approveScheduledPayment(pId, _spHash(_spTo(to)));
         vault.payScheduled(pId);
         assertEq(weth.balanceOf(to), 1 ether);
     }
@@ -2728,7 +2733,7 @@ contract BittyV1VaultTest is Test {
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
         vm.prank(pm);
         vm.expectRevert(_roleError(pm, adminRole));
-        vault.approveScheduledPayment(pId);
+        vault.approveScheduledPayment(pId, bytes32(0));
     }
 
     function test_PaymentManager_approveNonPendingReverts() public {
@@ -2738,7 +2743,7 @@ contract BittyV1VaultTest is Test {
 
         vm.prank(ownerAddress);
         vm.expectRevert(NotPendingApproval.selector);
-        vault.approveScheduledPayment(pId);
+        vault.approveScheduledPayment(pId, _spHash(_spTo(makeAddr("payee"))));
     }
 
     function test_PaymentManager_ownerCancelsPendingSend() public {
@@ -2774,9 +2779,39 @@ contract BittyV1VaultTest is Test {
         vault.payScheduled(pId);
 
         vm.prank(ownerAddress);
-        vault.approveScheduledPayment(pId);
+        vault.approveScheduledPayment(pId, _spHash(r2));
         vault.payScheduled(pId);
         assertEq(weth.balanceOf(to), 2 ether);
+    }
+
+    function test_PaymentManager_approveRevertsWhenContentSwappedAfterReview() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _setOperator(pm, 1 days, type(uint64).max);
+        address payee = makeAddr("payee");
+        deal(address(weth), address(vault), 10 ether);
+
+        vm.prank(pm);
+        uint256 pId = vault.addScheduledPayment(_spTo(payee));
+
+        // owner reviews the benign proposal and captures its content hash
+        bytes32 reviewedHash = _spHash(_spTo(payee));
+
+        // proposer front-runs the approval, swapping the payee to itself
+        IBittyV1Vault.ScheduledPayment memory swapped = _spTo(pm);
+        vm.prank(pm);
+        vault.updateScheduledPayment(pId, swapped);
+
+        // owner's approval bound to the reviewed content now reverts
+        vm.prank(ownerAddress);
+        vm.expectRevert(ScheduledPaymentContentMismatch.selector);
+        vault.approveScheduledPayment(pId, reviewedHash);
+
+        // approval only succeeds against the current (swapped) content, which the owner would re-review
+        vm.prank(ownerAddress);
+        vault.approveScheduledPayment(pId, _spHash(swapped));
+        vault.payScheduled(pId);
+        assertEq(weth.balanceOf(pm), 1 ether);
     }
 
     function test_PaymentManager_managerEditsOwnPendingWhitelisted() public {
@@ -2829,7 +2864,7 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         vm.prank(ownerAddress);
         vm.expectRevert(ScheduledPaymentNotFound.selector);
-        vault.approveScheduledPayment(99999);
+        vault.approveScheduledPayment(99999, bytes32(0));
     }
 
     function test_PaymentManager_approveWhitelistedNotFoundAndNotPending() public {
