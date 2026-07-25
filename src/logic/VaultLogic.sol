@@ -14,18 +14,19 @@ import {
     EmptyArray
 } from "../interfaces/IBittyV1Vault.sol";
 import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
-import {IBittyV1Operator} from "../interfaces/IBittyV1Operator.sol";
+import {IBittyV1PayoutOperator} from "../interfaces/IBittyV1PayoutOperator.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
-import {VaultStorage, PendingSend, RiskConfig, TimelockedValue, OperatorLimit} from "./Storages.sol";
+import {VaultStorage, PendingSend, RiskConfig, TimelockedValue, PayoutOperatorLimit} from "./Storages.sol";
 import {
     IBittyV1Vault,
     ScheduledPaymentNotFound,
     ScheduledPaymentImmutable,
+    ImmutableScheduledPaymentLocked,
     ScheduledPaymentPaymentCountZero,
     ScheduledPaymentTriggerError,
     ScheduledPaymentNotStartYet,
@@ -49,10 +50,10 @@ import {
     PaymentExceedsRiskCap,
     PaymentExceedsPeriodLimit,
     PaymentNotStableCoin,
-    OperatorSendCapZero,
-    OperatorIntervalZero,
-    OperatorNotFound,
-    OperatorAlreadyRegistered,
+    PayoutOperatorSendCapZero,
+    PayoutOperatorIntervalZero,
+    PayoutOperatorNotFound,
+    PayoutOperatorAlreadyRegistered,
     RiskControlLevel
 } from "../interfaces/IBittyV1Vault.sol";
 
@@ -62,6 +63,11 @@ library VaultLogic {
      * @dev this is a protection for the vault.
      */
     uint256 constant SCHEDULED_PAYMENT_MINIMAL_INTERVAL = 7 days;
+
+    // Clamp bounds for the lock window of an approved immutable scheduled payment (see
+    // {_immutableLockDeadline}). Once the window passes the entry is permanent.
+    uint256 constant IMMUTABLE_LOCK_MIN_WINDOW = 1 days;
+    uint256 constant IMMUTABLE_LOCK_MAX_WINDOW = 7 days;
 
     // Upper bound (~10 years) on the scheduled-payment protection window. A sanity cap so the owner can
     // never set an absurd/effectively-infinite delay that permanently blocks the recurring-payment path.
@@ -206,10 +212,10 @@ library VaultLogic {
 
     /**
      * @dev Validates a batch (array lengths, non-zero recipients/amounts, stablecoin-only when a cap
-     * or operator period quota is active, and the aggregate risk cap) in a single pass. When `execute` is
-     * true each transfer is performed only after all checks pass. `operatorAddr` must be the vault's
-     * operator for period-quota enforcement; the owner direct-send path passes address(0). When
-     * `updatePeriodAccounting` is true the operator's period tally is incremented (approval execution only).
+     * or payout operator period quota is active, and the aggregate risk cap) in a single pass. When `execute` is
+     * true each transfer is performed only after all checks pass. `payoutOperatorAddr` must be the vault's
+     * payout operator for period-quota enforcement; the owner direct-send path passes address(0). When
+     * `updatePeriodAccounting` is true the payout operator's period tally is incremented (approval execution only).
      */
     function _processSendBatch(
         VaultStorage storage vaultStorage,
@@ -217,7 +223,7 @@ library VaultLogic {
         address[] memory assets,
         uint256[] memory amounts,
         bool execute,
-        address operatorAddr,
+        address payoutOperatorAddr,
         bool updatePeriodAccounting
     ) private {
         uint256 length = recipients.length;
@@ -225,9 +231,10 @@ library VaultLogic {
         if (assets.length != length || amounts.length != length) revert ArrayLengthMismatch();
 
         uint64 cap = _effective(vaultStorage.riskConfig.maxSendValue);
-        OperatorLimit storage opLimit = vaultStorage.operatorLimits[operatorAddr];
-        bool periodLimitActive = operatorAddr != address(0) && vaultStorage.operators.contains(operatorAddr)
-            && opLimit.interval != 0 && opLimit.maxStableCoinPerPeriod != 0;
+        PayoutOperatorLimit storage opLimit = vaultStorage.payoutOperatorLimits[payoutOperatorAddr];
+        bool periodLimitActive = payoutOperatorAddr != address(0)
+            && vaultStorage.payoutOperators.contains(payoutOperatorAddr) && opLimit.interval != 0
+            && opLimit.maxStableCoinPerPeriod != 0;
         bool requireStable = cap != 0 || periodLimitActive;
 
         uint256 totalStableValue;
@@ -246,7 +253,7 @@ library VaultLogic {
         }
 
         if (periodLimitActive) {
-            _checkOperatorSendPeriod(opLimit, totalStableValue, updatePeriodAccounting);
+            _checkPayoutOperatorSendPeriod(opLimit, totalStableValue, updatePeriodAccounting);
         }
 
         if (!execute) return;
@@ -257,11 +264,13 @@ library VaultLogic {
     }
 
     /**
-     * @notice Enforce the operator's rolling one-off send quota. Resets the window when elapsed.
+     * @notice Enforce the payout operator's rolling one-off send quota. Resets the window when elapsed.
      */
-    function _checkOperatorSendPeriod(OperatorLimit storage limit, uint256 batchStableValue, bool updateAccounting)
-        private
-    {
+    function _checkPayoutOperatorSendPeriod(
+        PayoutOperatorLimit storage limit,
+        uint256 batchStableValue,
+        bool updateAccounting
+    ) private {
         uint128 periodStart = limit.periodStartTimestamp;
         uint256 sent = limit.sentInPeriod;
 
@@ -290,8 +299,8 @@ library VaultLogic {
     }
 
     /**
-     * @notice Queue a payment-manager-proposed one-off send for owner approval. Access control
-     * (payment-manager) is enforced by the facade.
+     * @notice Queue a payment-asset manager-proposed one-off send for owner approval. Access control
+     * (payment-asset manager) is enforced by the facade.
      */
     function proposeSend(
         VaultStorage storage vaultStorage,
@@ -306,7 +315,7 @@ library VaultLogic {
         ps.recipients = recipients;
         ps.assets = assets;
         ps.amounts = amounts;
-        emit IBittyV1Operator.SendProposed(id, msg.sender, recipients, assets, amounts);
+        emit IBittyV1PayoutOperator.SendProposed(id, msg.sender, recipients, assets, amounts);
     }
 
     /**
@@ -326,7 +335,7 @@ library VaultLogic {
     }
 
     /**
-     * @notice Cancel a queued one-off send. The owner may cancel any; a payment manager may cancel
+     * @notice Cancel a queued one-off send. The owner may cancel any; a payment asset manager may cancel
      * only its own. Access control (owner-or-proposer) is enforced by the facade + the check below.
      */
     function cancelSend(VaultStorage storage vaultStorage, uint256 id, bool byOwner)
@@ -341,7 +350,7 @@ library VaultLogic {
             revert NotProposalOwner();
         }
         delete vaultStorage.pendingSends[id];
-        emit IBittyV1Operator.SendCancelled(id);
+        emit IBittyV1PayoutOperator.SendCancelled(id);
     }
 
     function addScheduledPayment(
@@ -361,13 +370,16 @@ library VaultLogic {
         );
         id = ++vaultStorage.nextScheduledPaymentId;
         vaultStorage.scheduledPayments[id] = scheduledPayment;
-        // msg.sender (the proposing payment manager) survives the delegatecall from the facade.
+        uint256 effectiveAt = _protectionDeadline(_effective(vaultStorage.riskConfig.scheduledPaymentProtection));
+        // msg.sender (the proposing payment asset manager) survives the delegatecall from the facade.
         if (!byOwner) {
             vaultStorage.scheduledPaymentPendingProposer[id] = msg.sender;
+        } else if (scheduledPayment.isImmutable) {
+            // An owner-added immutable entry starts its permanent-lock window immediately.
+            effectiveAt = _immutableLockDeadline(vaultStorage);
         }
-        vaultStorage.scheduledPaymentEffectiveAt[id] =
-            _protectionDeadline(_effective(vaultStorage.riskConfig.scheduledPaymentProtection));
-        emit IBittyV1Operator.ScheduledPaymentAdded(id, scheduledPayment);
+        vaultStorage.scheduledPaymentEffectiveAt[id] = effectiveAt;
+        emit IBittyV1PayoutOperator.ScheduledPaymentAdded(id, scheduledPayment);
     }
 
     function updateScheduledPayment(
@@ -390,7 +402,7 @@ library VaultLogic {
             // An owner edit vets the entry, so it approves any pending proposal.
             delete vaultStorage.scheduledPaymentPendingProposer[id];
         } else if (vaultStorage.scheduledPaymentPendingProposer[id] != msg.sender) {
-            // A payment manager may only edit its own still-pending proposal, never an approved entry.
+            // A payment asset manager may only edit its own still-pending proposal, never an approved entry.
             revert NotProposalOwner();
         }
         _checkScheduledPayment(scheduledPayment);
@@ -401,13 +413,18 @@ library VaultLogic {
             scheduledPayment.amount
         );
         vaultStorage.scheduledPayments[id] = scheduledPayment;
-        vaultStorage.scheduledPaymentEffectiveAt[id] =
-            _protectionDeadline(_effective(vaultStorage.riskConfig.scheduledPaymentProtection));
-        emit IBittyV1Operator.ScheduledPaymentUpdated(id, scheduledPayment);
+        uint256 effectiveAt = _protectionDeadline(_effective(vaultStorage.riskConfig.scheduledPaymentProtection));
+        if (byOwner && scheduledPayment.isImmutable) {
+            // An owner edit that makes a (necessarily still-mutable) entry immutable starts its
+            // permanent-lock window fresh, so the irreversible change gets a full review period.
+            effectiveAt = _immutableLockDeadline(vaultStorage);
+        }
+        vaultStorage.scheduledPaymentEffectiveAt[id] = effectiveAt;
+        emit IBittyV1PayoutOperator.ScheduledPaymentUpdated(id, scheduledPayment);
     }
 
     /**
-     * @notice Owner approval of a payment-manager-proposed scheduled payment. Access control
+     * @notice Owner approval of a payment-asset manager-proposed scheduled payment. Access control
      * (owner-only) is enforced by the facade. The owner binds the approval to the exact content they
      * reviewed via `expectedHash`; if the proposer edited the entry after review, the stored hash no
      * longer matches and the call reverts, so an approval can never confirm swapped content.
@@ -427,6 +444,11 @@ library VaultLogic {
             revert ScheduledPaymentContentMismatch();
         }
         delete vaultStorage.scheduledPaymentPendingProposer[id];
+        if (scheduledPayment.isImmutable) {
+            // Approving an immutable proposal is when it becomes permanent-track, so its lock window
+            // (re)starts here — the proposal's age must not shorten the owner's review period.
+            vaultStorage.scheduledPaymentEffectiveAt[id] = _immutableLockDeadline(vaultStorage);
+        }
         emit IBittyV1Owner.ScheduledPaymentApproved(id);
     }
 
@@ -456,9 +478,20 @@ library VaultLogic {
         external
         onlyInitialized(vaultStorage)
     {
-        // A payment manager may only cancel its own still-pending proposal; the owner can remove any.
+        // A payment asset manager may only cancel its own still-pending proposal; the owner can remove any.
         if (!byOwner && vaultStorage.scheduledPaymentPendingProposer[id] != msg.sender) {
             revert NotProposalOwner();
+        }
+        // An approved immutable entry with payments remaining is permanent once its lock window has
+        // passed — not even the owner can remove it, so it survives an owner-key compromise and the
+        // vault's renounce. (Exhausted entries may be cleaned up; pending proposals were never approved.)
+        IBittyV1Vault.ScheduledPayment storage existing = vaultStorage.scheduledPayments[id];
+        if (
+            existing.isImmutable && existing.remainingPaymentCount > 0
+                && vaultStorage.scheduledPaymentPendingProposer[id] == address(0)
+                && block.timestamp >= vaultStorage.scheduledPaymentEffectiveAt[id]
+        ) {
+            revert ImmutableScheduledPaymentLocked();
         }
         delete vaultStorage.scheduledPayments[id];
         delete vaultStorage.scheduledPaymentPendingProposer[id];
@@ -467,7 +500,7 @@ library VaultLogic {
         // malicious entry can be caught and deleted before it can ever pay. The timer is per-id, so it goes
         // away with the entry (no shared-address exploit).
         delete vaultStorage.scheduledPaymentEffectiveAt[id];
-        emit IBittyV1Operator.ScheduledPaymentRemoved(id);
+        emit IBittyV1PayoutOperator.ScheduledPaymentRemoved(id);
     }
 
     function setScheduledPaymentProtection(VaultStorage storage vaultStorage, uint256 protection)
@@ -518,56 +551,56 @@ library VaultLogic {
         emit IBittyV1Owner.MaxWhitelistedValueSet(value);
     }
 
-    function setOperator(
+    function setPayoutOperator(
         VaultStorage storage vaultStorage,
-        address operator,
+        address payoutOperator,
         uint256 interval,
         uint256 maxStableCoinPerPeriod
     ) external onlyInitialized(vaultStorage) {
-        if (operator == address(0)) revert AddressZero();
-        if (interval == 0) revert OperatorIntervalZero();
-        if (maxStableCoinPerPeriod == 0) revert OperatorSendCapZero();
-        if (vaultStorage.operators.contains(operator)) revert OperatorAlreadyRegistered();
-        vaultStorage.operators.add(operator);
-        OperatorLimit storage limit = vaultStorage.operatorLimits[operator];
+        if (payoutOperator == address(0)) revert AddressZero();
+        if (interval == 0) revert PayoutOperatorIntervalZero();
+        if (maxStableCoinPerPeriod == 0) revert PayoutOperatorSendCapZero();
+        if (vaultStorage.payoutOperators.contains(payoutOperator)) revert PayoutOperatorAlreadyRegistered();
+        vaultStorage.payoutOperators.add(payoutOperator);
+        PayoutOperatorLimit storage limit = vaultStorage.payoutOperatorLimits[payoutOperator];
         limit.interval = uint64(interval);
         limit.maxStableCoinPerPeriod = uint64(maxStableCoinPerPeriod);
         limit.periodStartTimestamp = 0;
         limit.sentInPeriod = 0;
-        emit IBittyV1Owner.OperatorSendLimitSet(operator, interval, maxStableCoinPerPeriod);
+        emit IBittyV1Owner.PayoutOperatorSendLimitSet(payoutOperator, interval, maxStableCoinPerPeriod);
     }
 
-    function updateOperator(
+    function updatePayoutOperator(
         VaultStorage storage vaultStorage,
-        address operator,
+        address payoutOperator,
         uint256 interval,
         uint256 maxStableCoinPerPeriod
     ) external onlyInitialized(vaultStorage) {
-        if (operator == address(0)) revert AddressZero();
-        if (interval == 0) revert OperatorIntervalZero();
-        if (maxStableCoinPerPeriod == 0) revert OperatorSendCapZero();
-        if (!vaultStorage.operators.contains(operator)) revert OperatorNotFound();
-        OperatorLimit storage limit = vaultStorage.operatorLimits[operator];
+        if (payoutOperator == address(0)) revert AddressZero();
+        if (interval == 0) revert PayoutOperatorIntervalZero();
+        if (maxStableCoinPerPeriod == 0) revert PayoutOperatorSendCapZero();
+        if (!vaultStorage.payoutOperators.contains(payoutOperator)) revert PayoutOperatorNotFound();
+        PayoutOperatorLimit storage limit = vaultStorage.payoutOperatorLimits[payoutOperator];
         limit.interval = uint64(interval);
         limit.maxStableCoinPerPeriod = uint64(maxStableCoinPerPeriod);
-        emit IBittyV1Owner.OperatorSendLimitSet(operator, interval, maxStableCoinPerPeriod);
+        emit IBittyV1Owner.PayoutOperatorSendLimitSet(payoutOperator, interval, maxStableCoinPerPeriod);
     }
 
-    function removeOperator(VaultStorage storage vaultStorage, address operator)
+    function removePayoutOperator(VaultStorage storage vaultStorage, address payoutOperator)
         external
         onlyInitialized(vaultStorage)
     {
-        if (!vaultStorage.operators.remove(operator)) revert OperatorNotFound();
-        delete vaultStorage.operatorLimits[operator];
-        emit IBittyV1Owner.OperatorRemoved(operator);
+        if (!vaultStorage.payoutOperators.remove(payoutOperator)) revert PayoutOperatorNotFound();
+        delete vaultStorage.payoutOperatorLimits[payoutOperator];
+        emit IBittyV1Owner.PayoutOperatorRemoved(payoutOperator);
     }
 
-    function getOperators(VaultStorage storage vaultStorage) external view returns (address[] memory) {
-        return vaultStorage.operators.values();
+    function getPayoutOperators(VaultStorage storage vaultStorage) external view returns (address[] memory) {
+        return vaultStorage.payoutOperators.values();
     }
 
-    function isOperator(VaultStorage storage vaultStorage, address account) external view returns (bool) {
-        return vaultStorage.operators.contains(account);
+    function isPayoutOperator(VaultStorage storage vaultStorage, address account) external view returns (bool) {
+        return vaultStorage.payoutOperators.contains(account);
     }
 
     /**
@@ -617,6 +650,20 @@ library VaultLogic {
     }
 
     /**
+     * @dev The deadline after which an approved immutable scheduled payment is permanently locked
+     * (irremovable; it was never editable) and before which it cannot pay. Follows the vault's
+     * scheduledPaymentProtection, clamped: a floor so a zero-protection vault still gets a review
+     * window before an entry becomes irreversible, and a cap so a compromised owner key cannot raise
+     * the protection and plant an entry whose review window (and payout delay) stretches for years.
+     */
+    function _immutableLockDeadline(VaultStorage storage vaultStorage) private view returns (uint256) {
+        uint256 window = _effective(vaultStorage.riskConfig.scheduledPaymentProtection);
+        if (window < IMMUTABLE_LOCK_MIN_WINDOW) window = IMMUTABLE_LOCK_MIN_WINDOW;
+        if (window > IMMUTABLE_LOCK_MAX_WINDOW) window = IMMUTABLE_LOCK_MAX_WINDOW;
+        return block.timestamp + window;
+    }
+
+    /**
      * @notice Revert while an entry's protection window is still open.
      */
     function _requireProtectionElapsed(uint256 effectiveAt) private view {
@@ -646,12 +693,12 @@ library VaultLogic {
         }
         vaultStorage.whitelistedRecipientEffectiveAt[id] =
             _protectionDeadline(_effective(vaultStorage.riskConfig.whitelistedProtection));
-        emit IBittyV1Operator.WhitelistedRecipientSet(id, recipient, allowedAsset);
+        emit IBittyV1PayoutOperator.WhitelistedRecipientSet(id, recipient, allowedAsset);
     }
 
     /**
      * @notice Update an existing whitelisted recipient. Reverts if `id` does not exist.
-     * @dev Access control (owner-or-payment-manager) is enforced by the facade.
+     * @dev Access control (owner-or-payment-asset manager) is enforced by the facade.
      */
     function updateWhitelistedRecipient(
         VaultStorage storage vaultStorage,
@@ -675,11 +722,11 @@ library VaultLogic {
             IBittyV1Vault.WhitelistedRecipient({recipient: recipient, allowedAsset: allowedAsset});
         vaultStorage.whitelistedRecipientEffectiveAt[id] =
             _protectionDeadline(_effective(vaultStorage.riskConfig.whitelistedProtection));
-        emit IBittyV1Operator.WhitelistedRecipientSet(id, recipient, allowedAsset);
+        emit IBittyV1PayoutOperator.WhitelistedRecipientSet(id, recipient, allowedAsset);
     }
 
     /**
-     * @notice Owner approval of a payment-manager-proposed whitelisted recipient. Access control
+     * @notice Owner approval of a payment-asset manager-proposed whitelisted recipient. Access control
      * (owner-only) is enforced by the facade.
      */
     function approveWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id, bytes32 expectedHash)
@@ -720,7 +767,7 @@ library VaultLogic {
         // Removable at any time, including mid-protection-window — that is how a malicious recipient gets
         // caught and dropped before it can pay. The per-id timer is cleared with the entry.
         delete vaultStorage.whitelistedRecipientEffectiveAt[id];
-        emit IBittyV1Operator.WhitelistedRecipientRemoved(id);
+        emit IBittyV1PayoutOperator.WhitelistedRecipientRemoved(id);
     }
 
     /**

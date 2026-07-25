@@ -7,7 +7,7 @@ import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {IVaultFull} from "../helpers/IVaultFull.sol";
-import {AddressZero, RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
+import {AddressZero, OwnershipNotTransferable, RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {
     IBittyV1VaultFactory,
@@ -105,7 +105,7 @@ contract BittyV1VaultFactoryTest is Test {
         );
         vault = factory.vaultAddress(owner);
         if (assetManager != address(0)) {
-            BittyV1Vault(payable(vault)).setManager(assetManager, 0, 0, type(uint64).max, 0);
+            BittyV1Vault(payable(vault)).setAssetManager(assetManager, 0, 0, type(uint64).max, 0);
         }
         vm.stopPrank();
     }
@@ -138,67 +138,64 @@ contract BittyV1VaultFactoryTest is Test {
         assertTrue(vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), owner1));
     }
 
-    function test_activatedVault_adminTransferRequiresOneDayDelay() public {
+    function test_activatedVault_ownershipNotTransferable() public {
         _initFactory();
         BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
 
         vm.prank(owner1);
+        vm.expectRevert(OwnershipNotTransferable.selector);
         vaultInstance.beginDefaultAdminTransfer(owner2);
 
-        (, uint48 schedule) = vaultInstance.pendingDefaultAdmin();
-
-        vm.prank(owner2);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminDelay.selector, schedule
-            )
-        );
-        vaultInstance.acceptDefaultAdminTransfer();
-
-        vm.warp(block.timestamp + 1 days - 1);
-        vm.prank(owner2);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminDelay.selector, schedule
-            )
-        );
-        vaultInstance.acceptDefaultAdminTransfer();
+        (address pendingAdmin,) = vaultInstance.pendingDefaultAdmin();
+        assertEq(pendingAdmin, address(0));
+        assertEq(vaultInstance.defaultAdmin(), owner1);
     }
 
-    function test_activatedVault_adminTransferSucceedsAfterOneDay() public {
+    function test_activatedVault_renounceRequiresOneDayDelay() public {
         _initFactory();
         BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
+        bytes32 adminRole = vaultInstance.DEFAULT_ADMIN_ROLE();
 
         vm.prank(owner1);
-        vaultInstance.beginDefaultAdminTransfer(owner2);
+        vaultInstance.beginDefaultAdminTransfer(address(0));
 
-        vm.warp(block.timestamp + 1 days + 1);
-        vm.prank(owner2);
-        vaultInstance.acceptDefaultAdminTransfer();
+        (, uint48 schedule) = vaultInstance.pendingDefaultAdmin();
+        vm.warp(block.timestamp + 1 days - 1);
+        vm.prank(owner1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminDelay.selector, schedule
+            )
+        );
+        vaultInstance.renounceRole(adminRole, owner1);
 
-        assertEq(vaultInstance.defaultAdmin(), owner2);
-        assertTrue(vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), owner2));
-        assertFalse(vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), owner1));
+        vm.warp(block.timestamp + 2);
+        vm.prank(owner1);
+        vaultInstance.renounceRole(adminRole, owner1);
+
+        assertEq(vaultInstance.defaultAdmin(), address(0));
+        assertFalse(vaultInstance.hasRole(adminRole, owner1));
     }
 
     function test_activatedVault_cancelDefaultAdminTransfer() public {
         _initFactory();
         BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
+        bytes32 adminRole = vaultInstance.DEFAULT_ADMIN_ROLE();
 
         vm.startPrank(owner1);
-        vaultInstance.beginDefaultAdminTransfer(owner2);
+        vaultInstance.beginDefaultAdminTransfer(address(0));
         vaultInstance.cancelDefaultAdminTransfer();
         vm.stopPrank();
 
-        (address pendingAdmin,) = vaultInstance.pendingDefaultAdmin();
-        assertEq(pendingAdmin, address(0));
-
+        // A cancelled renounce leaves the owner's role untouched even after the delay elapses.
+        (, uint48 schedule) = vaultInstance.pendingDefaultAdmin();
+        assertEq(schedule, 0);
         vm.warp(block.timestamp + 1 days + 1);
-        vm.prank(owner2);
+        vm.prank(owner1);
         vm.expectRevert(
-            abi.encodeWithSelector(IAccessControlDefaultAdminRules.AccessControlInvalidDefaultAdmin.selector, owner2)
+            abi.encodeWithSelector(IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminDelay.selector, 0)
         );
-        vaultInstance.acceptDefaultAdminTransfer();
+        vaultInstance.renounceRole(adminRole, owner1);
         assertEq(vaultInstance.defaultAdmin(), owner1);
     }
 
@@ -700,7 +697,7 @@ contract BittyV1VaultFactoryTest is Test {
         _initFactory();
         // The owner is the caller and cannot be specified: an attacker activating their
         // vault gets their own address, which cannot occupy the victim's deterministic
-        // address, so the pre-activation asset-manager-injection vector is structurally
+        // address, so the pre-activation asset manager-injection vector is structurally
         // impossible.
         address attacker = makeAddr("attacker");
         vm.prank(attacker);
@@ -771,13 +768,13 @@ contract BittyV1VaultFactoryTest is Test {
         _initFactory();
         BittyV1Vault vault = BittyV1Vault(payable(_newVaultFor(owner1)));
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), owner1));
-        assertEq(vault.getManager(), assetManagerAddress);
+        assertEq(vault.getAssetManager(), assetManagerAddress);
     }
 
     function test_ActivatedVault_settingAssetManagerReplacesThePrevious() public {
         _initFactory();
-        address manager1 = makeAddr("manager1");
-        address manager2 = makeAddr("manager2");
+        address assetManager1 = makeAddr("assetManager1");
+        address assetManager2 = makeAddr("assetManager2");
 
         vm.startPrank(owner1);
         factory.activateVault(
@@ -789,12 +786,12 @@ contract BittyV1VaultFactoryTest is Test {
             intentProtocols
         );
         BittyV1Vault vaultInstance = BittyV1Vault(payable(factory.vaultAddress(owner1)));
-        vaultInstance.setManager(manager1, 0, 0, type(uint64).max, 0);
-        vaultInstance.setManager(manager2, 0, 0, type(uint64).max, 0);
+        vaultInstance.setAssetManager(assetManager1, 0, 0, type(uint64).max, 0);
+        vaultInstance.setAssetManager(assetManager2, 0, 0, type(uint64).max, 0);
         vm.stopPrank();
 
         // A vault has a single asset manager; the second set replaces the first.
-        assertEq(vaultInstance.getManager(), manager2);
+        assertEq(vaultInstance.getAssetManager(), assetManager2);
     }
 
     function test_ActivateVaultFor_nonOwnerCannotGrantRoles() public {
@@ -813,7 +810,7 @@ contract BittyV1VaultFactoryTest is Test {
         address vault = _newVault();
         assertEq(vault, expected);
         assertTrue(BittyV1Vault(payable(vault)).hasRole(BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE(), tx.origin));
-        assertEq(BittyV1Vault(payable(vault)).getManager(), assetManagerAddress);
+        assertEq(BittyV1Vault(payable(vault)).getAssetManager(), assetManagerAddress);
     }
 
     function test_ActivateVault_multisigOwnerAddress() public {

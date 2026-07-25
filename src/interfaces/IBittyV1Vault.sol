@@ -31,13 +31,22 @@ error PayScheduledPaymentAmountTriggerEmpty();
 
 error AddingAssetsDisabled();
 error AddingProtocolsDisabled();
-error OwnerAndOperatorMustDiffer();
+error OwnerAndPayoutOperatorMustDiffer();
+// Vault ownership is permanent: the owner may renounce (leaving the vault ownerless) but can never
+// hand the admin role to another account.
+error OwnershipNotTransferable();
+// An approved immutable scheduled payment becomes permanent once its lock window passes: not even the
+// owner can remove it (it was never editable). This makes a seasoned immutable payment a safe payout
+// route that survives an owner-key compromise — and the vault's renounce path.
+error ImmutableScheduledPaymentLocked();
+// The 1-day admin delay is the guaranteed renounce review window and can never be changed.
+error DefaultAdminDelayImmutable();
 
-error OperatorSendCapZero();
-error OperatorIntervalZero();
-error NotOperator();
-error OperatorNotFound();
-error OperatorAlreadyRegistered();
+error PayoutOperatorSendCapZero();
+error PayoutOperatorIntervalZero();
+error NotPayoutOperator();
+error PayoutOperatorNotFound();
+error PayoutOperatorAlreadyRegistered();
 
 // payment risk-control errors
 error PaymentExceedsRiskCap();
@@ -48,7 +57,7 @@ error PaymentNotStableCoin();
 error WhitelistedRecipientNotFound();
 error WhitelistedRecipientAssetNotAllowed();
 
-// operator approval errors
+// payout operator approval errors
 error PaymentNotApproved();
 error NotPendingApproval();
 error NotProposalOwner();
@@ -65,8 +74,8 @@ enum RiskControlLevel {
 /**
  * @title IBittyV1Vault
  * @notice The vault's shared types, errors, and the no-role (permissionless) + read functions.
- *         Owner-only functions live in {IBittyV1Owner}; manager trading/yield functions live in
- *         {IBittyV1Manager}.
+ *         Owner-only functions live in {IBittyV1Owner}; asset manager trading/yield functions live in
+ *         {IBittyV1AssetManager}.
  *
  * @dev Bitty Vault helps you manage your assets safely across different devices, people or AI agents.
  * There are 3 principles for Bitty Vault design:
@@ -116,17 +125,17 @@ interface IBittyV1Vault {
     function isAddingProtocolsDisabled() external view returns (bool);
 
     /**
-     * @notice The vault's single manager (address(0) = none). Only this address may trade.
+     * @notice The vault's single asset manager (address(0) = none). Only this address may trade.
      */
-    function getManager() external view returns (address);
+    function getAssetManager() external view returns (address);
 
     /**
-     * @notice Registered operators. Each may propose payments (pending owner approval) subject to its
-     *         own limit from {setOperator} / {updateOperator}.
+     * @notice Registered payout operators. Each may propose payments (pending owner approval) subject to its
+     *         own limit from {setPayoutOperator} / {updatePayoutOperator}.
      */
-    function getOperators() external view returns (address[] memory);
+    function getPayoutOperators() external view returns (address[] memory);
 
-    function isOperator(address account) external view returns (bool);
+    function isPayoutOperator(address account) external view returns (bool);
 
     /**
      * @notice The risk-control preset chosen at activation (None/Standard/Strict). The live controls may
@@ -139,8 +148,8 @@ interface IBittyV1Vault {
      * @notice The vault's currently in-force payment risk controls (all zero = no controls). Caps are in
      *         stablecoin whole tokens; a non-zero cap makes that payment path stablecoin-only.
      *         `changeTimelock` is the delay a loosening of any control must wait. A queued loosening is
-     *         reflected here only once its delay has elapsed. Operator send quotas are configured via
-     *         {setOperator} / {updateOperator}, not here.
+     *         reflected here only once its delay has elapsed. Payout operator send quotas are configured via
+     *         {setPayoutOperator} / {updatePayoutOperator}, not here.
      */
     function getRiskConfig()
         external

@@ -42,32 +42,32 @@ struct RiskConfig {
 struct TradeLimit {
     uint64 interval; // 0 = no limit
     uint64 maxStableCoinPerTrade; // 0 = no cap
-    uint64 stableCoinInvestCap; // guardrail: max whole-token stablecoin the manager may have invested at once; owner-set, 0 = no trade limit configured
+    uint64 stableCoinInvestCap; // guardrail: max whole-token stablecoin the assetManager may have invested at once; owner-set, 0 = no trade limit configured
     uint64 stableCoinInvested; // portfolio: whole-token stablecoin currently deployed into assets; +on stable→asset, -on asset→stable
     uint96 expiredAt; // 0 = not expired
     uint128 lastTradeTimestamp;
-    // true = a full-access manager: bounded only by minimalBalance, skips the cap/throttle accounting
+    // true = a full-access asset manager: bounded only by minimalBalance, skips the cap/throttle accounting
     // (and the stablecoin-leg requirement). Packs into the trailing slot with expiredAt/lastTradeTimestamp.
     bool fullAccess;
 }
 
-// Rolling one-off send quota for the vault's operator (stablecoin-normalized 1e18 units in sentInPeriod).
-struct OperatorLimit {
-    uint64 interval; // window length in seconds; setOperator/updateOperator reject 0 (cap must be enforceable)
-    uint64 maxStableCoinPerPeriod; // whole stablecoin tokens per window; setOperator/updateOperator reject 0
+// Rolling one-off send quota for the vault's payout operator (stablecoin-normalized 1e18 units in sentInPeriod).
+struct PayoutOperatorLimit {
+    uint64 interval; // window length in seconds; setPayoutOperator/updatePayoutOperator reject 0 (cap must be enforceable)
+    uint64 maxStableCoinPerPeriod; // whole stablecoin tokens per window; setPayoutOperator/updatePayoutOperator reject 0
     uint128 periodStartTimestamp;
     uint256 sentInPeriod;
 }
 
-struct ManagerStorage {
+struct AssetManagerStorage {
     bool isInitialized;
 
     mapping(address => address) clonedProtocols;
     mapping(address => uint256) minimalBalances;
 
-    // The vault's single manager (address(0) = none) and its trade guardrail. Only this address may trade.
-    address manager;
-    TradeLimit managerLimit;
+    // The vault's single asset manager (address(0) = none) and its trade guardrail. Only this address may trade.
+    address assetManager;
+    TradeLimit assetManagerLimit;
 
     EnumerableSet.AddressSet lendingProtocols;
     EnumerableSet.AddressSet stakingProtocols;
@@ -111,9 +111,9 @@ struct VaultStorage {
     // The risk-control preset chosen at activation (recorded for the UI: display + reset-to-default).
     RiskControlLevel riskControlLevel;
 
-    // Registered operators and each one's rolling one-off send quota.
-    EnumerableSet.AddressSet operators;
-    mapping(address => OperatorLimit) operatorLimits;
+    // Registered payout operators and each one's rolling one-off send quota.
+    EnumerableSet.AddressSet payoutOperators;
+    mapping(address => PayoutOperatorLimit) payoutOperatorLimits;
 
     mapping(uint256 => IBittyV1Vault.WhitelistedRecipient) whitelistedRecipients;
 
