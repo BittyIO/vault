@@ -36,6 +36,7 @@ import {
     NotPendingApproval,
     NotProposalOwner,
     ScheduledPaymentContentMismatch,
+    WhitelistedRecipientContentMismatch,
     PendingSendNotFound,
     NotOperator,
     OwnerAndOperatorMustDiffer,
@@ -2499,6 +2500,13 @@ contract BittyV1VaultTest is Test {
         return keccak256(abi.encode(p));
     }
 
+    function _wrHash(address recipient, address allowedAsset) internal pure returns (bytes32) {
+        return
+            keccak256(
+                abi.encode(IBittyV1Vault.WhitelistedRecipient({recipient: recipient, allowedAsset: allowedAsset}))
+            );
+    }
+
     function test_PaymentManager_scheduledPendingUntilApproved() public {
         _initializeVault();
         address pm = makeAddr("pm");
@@ -2543,7 +2551,7 @@ contract BittyV1VaultTest is Test {
         vault.sendToWhitelistedRecipient(wIdWr, address(weth), 1 ether);
 
         vm.prank(ownerAddress);
-        vault.approveWhitelistedRecipient(wIdWr);
+        vault.approveWhitelistedRecipient(wIdWr, _wrHash(to, address(0)));
         vm.prank(ownerAddress);
         vault.sendToWhitelistedRecipient(wIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
@@ -2826,10 +2834,40 @@ contract BittyV1VaultTest is Test {
         vault.updateWhitelistedRecipient(wIdWr, to2, address(weth)); // edit own pending
 
         vm.prank(ownerAddress);
-        vault.approveWhitelistedRecipient(wIdWr);
+        vault.approveWhitelistedRecipient(wIdWr, _wrHash(to2, address(weth)));
         vm.prank(ownerAddress);
         vault.sendToWhitelistedRecipient(wIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to2), 1 ether);
+    }
+
+    function test_PaymentManager_approveWhitelistedRevertsWhenContentSwappedAfterReview() public {
+        _initializeVault();
+        address pm = makeAddr("pm");
+        _setOperator(pm, 1 days, type(uint64).max);
+        address payee = makeAddr("payee");
+        deal(address(weth), address(vault), 10 ether);
+
+        vm.prank(pm);
+        uint256 wId = vault.addWhitelistedRecipient(payee, address(0));
+
+        // owner reviews the benign proposal and captures its content hash
+        bytes32 reviewedHash = _wrHash(payee, address(0));
+
+        // proposer front-runs the approval, swapping the recipient to itself
+        vm.prank(pm);
+        vault.updateWhitelistedRecipient(wId, pm, address(weth));
+
+        // owner's approval bound to the reviewed content now reverts
+        vm.prank(ownerAddress);
+        vm.expectRevert(WhitelistedRecipientContentMismatch.selector);
+        vault.approveWhitelistedRecipient(wId, reviewedHash);
+
+        // approval only succeeds against the current (swapped) content, which the owner would re-review
+        vm.prank(ownerAddress);
+        vault.approveWhitelistedRecipient(wId, _wrHash(pm, address(weth)));
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient(wId, address(weth), 1 ether);
+        assertEq(weth.balanceOf(pm), 1 ether);
     }
 
     function test_PaymentManager_managerCannotTouchApprovedWhitelisted() public {
@@ -2871,13 +2909,13 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         vm.prank(ownerAddress);
         vm.expectRevert(WhitelistedRecipientNotFound.selector);
-        vault.approveWhitelistedRecipient(99999);
+        vault.approveWhitelistedRecipient(99999, bytes32(0));
 
         vm.prank(ownerAddress);
         uint256 wIdWr = vault.addWhitelistedRecipient(makeAddr("to"), address(0)); // owner-created = approved
         vm.prank(ownerAddress);
         vm.expectRevert(NotPendingApproval.selector);
-        vault.approveWhitelistedRecipient(wIdWr);
+        vault.approveWhitelistedRecipient(wIdWr, bytes32(0));
     }
 
     function test_PaymentManager_cancelSendNotFound() public {
