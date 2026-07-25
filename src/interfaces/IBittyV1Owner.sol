@@ -119,7 +119,9 @@ interface IBittyV1Owner {
     /// @param expectedHash keccak256(abi.encode(the ScheduledPayment the owner reviewed)); the call
     /// reverts if the stored entry no longer matches, so a proposer cannot swap content before approval.
     function approveScheduledPayment(uint256 id, bytes32 expectedHash) external;
-    function approveWhitelistedRecipient(uint256 id) external;
+    /// @param expectedHash keccak256(abi.encode(the WhitelistedRecipient the owner reviewed)); the call
+    /// reverts if the stored entry no longer matches, so a proposer cannot swap content before approval.
+    function approveWhitelistedRecipient(uint256 id, bytes32 expectedHash) external;
 
     function setScheduledPaymentProtection(uint256 protection) external;
     function setWhitelistedProtection(uint256 protection) external;

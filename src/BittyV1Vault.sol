@@ -237,8 +237,12 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
         _vault.removeWhitelistedRecipient(id, _byOwner());
     }
 
-    function approveWhitelistedRecipient(uint256 id) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.approveWhitelistedRecipient(id);
+    function approveWhitelistedRecipient(uint256 id, bytes32 expectedHash)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _vault.approveWhitelistedRecipient(id, expectedHash);
     }
 
     function sendToWhitelistedRecipient(uint256 id, address asset, uint256 amount)

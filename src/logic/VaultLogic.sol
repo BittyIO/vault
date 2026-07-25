@@ -44,6 +44,7 @@ import {
     NotPendingApproval,
     NotProposalOwner,
     ScheduledPaymentContentMismatch,
+    WhitelistedRecipientContentMismatch,
     PendingSendNotFound,
     PaymentExceedsRiskCap,
     PaymentExceedsPeriodLimit,
@@ -681,15 +682,19 @@ library VaultLogic {
      * @notice Owner approval of a payment-manager-proposed whitelisted recipient. Access control
      * (owner-only) is enforced by the facade.
      */
-    function approveWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id)
+    function approveWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id, bytes32 expectedHash)
         external
         onlyInitialized(vaultStorage)
     {
-        if (vaultStorage.whitelistedRecipients[id].recipient == address(0)) {
+        IBittyV1Vault.WhitelistedRecipient memory recipient = vaultStorage.whitelistedRecipients[id];
+        if (recipient.recipient == address(0)) {
             revert WhitelistedRecipientNotFound();
         }
         if (vaultStorage.whitelistedRecipientPendingProposer[id] == address(0)) {
             revert NotPendingApproval();
+        }
+        if (keccak256(abi.encode(recipient)) != expectedHash) {
+            revert WhitelistedRecipientContentMismatch();
         }
         delete vaultStorage.whitelistedRecipientPendingProposer[id];
         emit IBittyV1Owner.WhitelistedRecipientApproved(id);
