@@ -4,30 +4,30 @@ pragma solidity ^0.8.34;
 import {WETH} from "solmate/tokens/WETH.sol";
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
 import {IBittyV1Owner} from "./interfaces/IBittyV1Owner.sol";
-import {IBittyV1Operator} from "./interfaces/IBittyV1Operator.sol";
+import {IBittyV1PayoutOperator} from "./interfaces/IBittyV1PayoutOperator.sol";
 import {
     IBittyV1Vault,
     AddressZero,
-    OwnerAndOperatorMustDiffer,
-    NotOperator,
+    OwnerAndPayoutOperatorMustDiffer,
+    NotPayoutOperator,
     RiskControlLevel
 } from "./interfaces/IBittyV1Vault.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
-import {ManagerLogic} from "./logic/ManagerLogic.sol";
-import {VaultStorage, ManagerStorage} from "./logic/Storages.sol";
+import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
+import {VaultStorage, AssetManagerStorage} from "./logic/Storages.sol";
 
 /**
  * @title BittyV1Vault
  * @notice Core custody + payments: asset allowlist, scheduled payments and whitelisted recipients.
- *         Manager trading/yield lives in {BittyV1VaultDeFiFacet}, reached through this contract's fallback.
+ *         Asset manager trading/yield lives in {BittyV1VaultDeFiFacet}, reached through this contract's fallback.
  */
-contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
-    using ManagerLogic for ManagerStorage;
+contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator {
+    using AssetManagerLogic for AssetManagerStorage;
     using VaultLogic for VaultStorage;
 
-    modifier onlyOwnerOrOperator() {
-        if (!hasRole(DEFAULT_ADMIN_ROLE, _msgSender()) && !_vault.isOperator(_msgSender())) {
-            revert NotOperator();
+    modifier onlyOwnerOrPayoutOperator() {
+        if (!hasRole(DEFAULT_ADMIN_ROLE, _msgSender()) && !_vault.isPayoutOperator(_msgSender())) {
+            revert NotPayoutOperator();
         }
         _;
     }
@@ -77,18 +77,18 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
             _vault.addAssets(assetAddresses);
         }
 
-        _manager.initialize(guardAddress);
+        _assetManager.initialize(guardAddress);
         if (lendingProtocols.length > 0) {
-            _manager.addLendingProtocols(lendingProtocols);
+            _assetManager.addLendingProtocols(lendingProtocols);
         }
         if (stakingProtocols.length > 0) {
-            _manager.addStakingProtocols(stakingProtocols);
+            _assetManager.addStakingProtocols(stakingProtocols);
         }
         if (ammProtocols.length > 0) {
-            _manager.addAMMProtocols(ammProtocols);
+            _assetManager.addAMMProtocols(ammProtocols);
         }
         if (intentProtocols.length > 0) {
-            _manager.addIntentProtocols(intentProtocols);
+            _assetManager.addIntentProtocols(intentProtocols);
         }
     }
 
@@ -112,18 +112,18 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
     }
 
     function disableAddingProtocols() external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _manager.disableAddingProtocols();
+        _assetManager.disableAddingProtocols();
         emit ProtocolsLocked();
     }
 
     function isAddingProtocolsDisabled() external view returns (bool) {
-        return _manager.addingProtocolsDisabled;
+        return _assetManager.addingProtocolsDisabled;
     }
 
     function send(address[] calldata recipients, address[] calldata assets, uint256[] calldata amounts)
         external
         override
-        onlyOwnerOrOperator
+        onlyOwnerOrPayoutOperator
     {
         if (_byOwner()) {
             _vault.send(recipients, assets, amounts);
@@ -136,14 +136,14 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
         _vault.approveSend(id);
     }
 
-    function cancelSend(uint256 id) external override onlyOwnerOrOperator {
+    function cancelSend(uint256 id) external override onlyOwnerOrPayoutOperator {
         _vault.cancelSend(id, _byOwner());
     }
 
     function addScheduledPayment(IBittyV1Vault.ScheduledPayment calldata scheduledPayment_)
         external
         override
-        onlyOwnerOrOperator
+        onlyOwnerOrPayoutOperator
         returns (uint256 id)
     {
         return _vault.addScheduledPayment(scheduledPayment_, _byOwner());
@@ -152,12 +152,12 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
     function updateScheduledPayment(uint256 id, IBittyV1Vault.ScheduledPayment calldata scheduledPayment_)
         external
         override
-        onlyOwnerOrOperator
+        onlyOwnerOrPayoutOperator
     {
         _vault.updateScheduledPayment(id, scheduledPayment_, _byOwner());
     }
 
-    function removeScheduledPayment(uint256 id) external override onlyOwnerOrOperator {
+    function removeScheduledPayment(uint256 id) external override onlyOwnerOrPayoutOperator {
         _vault.removeScheduledPayment(id, _byOwner());
     }
 
@@ -219,7 +219,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
     function addWhitelistedRecipient(address recipient, address allowedAsset)
         external
         override
-        onlyOwnerOrOperator
+        onlyOwnerOrPayoutOperator
         returns (uint256 id)
     {
         return _vault.addWhitelistedRecipient(recipient, allowedAsset, _byOwner());
@@ -228,12 +228,12 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
     function updateWhitelistedRecipient(uint256 id, address recipient, address allowedAsset)
         external
         override
-        onlyOwnerOrOperator
+        onlyOwnerOrPayoutOperator
     {
         _vault.updateWhitelistedRecipient(id, recipient, allowedAsset, _byOwner());
     }
 
-    function removeWhitelistedRecipient(uint256 id) external override onlyOwnerOrOperator {
+    function removeWhitelistedRecipient(uint256 id) external override onlyOwnerOrPayoutOperator {
         _vault.removeWhitelistedRecipient(id, _byOwner());
     }
 
@@ -262,62 +262,62 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _manager.setMinimalBalance(assetAddress, newMinimalBalance);
+        _assetManager.setMinimalBalance(assetAddress, newMinimalBalance);
         emit MinimalBalanceSet(assetAddress, newMinimalBalance);
     }
 
-    function setManager(
-        address manager,
+    function setAssetManager(
+        address assetManager,
         uint256 interval,
         uint256 maxStableCoinPerTrade,
         uint256 stableCoinInvestCap,
         uint256 expiredAt
     ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _manager.setManager(manager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
-        emit TradeLimitSet(manager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
+        _assetManager.setAssetManager(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
+        emit TradeLimitSet(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
     }
 
-    function setFullManager(address manager) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _manager.setFullManager(manager);
-        emit FullManagerAdded(manager);
+    function setFullAssetManager(address assetManager) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetManager.setFullAssetManager(assetManager);
+        emit FullAssetManagerAdded(assetManager);
     }
 
-    function removeManager() external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _manager.removeManager();
-        emit ManagerRemoved();
+    function removeAssetManager() external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetManager.removeAssetManager();
+        emit AssetManagerRemoved();
     }
 
-    function getManager() external view returns (address) {
-        return _manager.manager;
+    function getAssetManager() external view returns (address) {
+        return _assetManager.assetManager;
     }
 
-    function setOperator(address operator, uint256 interval, uint256 maxStableCoinPerPeriod)
+    function setPayoutOperator(address payoutOperator, uint256 interval, uint256 maxStableCoinPerPeriod)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        if (hasRole(DEFAULT_ADMIN_ROLE, operator)) revert OwnerAndOperatorMustDiffer();
-        _vault.setOperator(operator, interval, maxStableCoinPerPeriod);
+        if (hasRole(DEFAULT_ADMIN_ROLE, payoutOperator)) revert OwnerAndPayoutOperatorMustDiffer();
+        _vault.setPayoutOperator(payoutOperator, interval, maxStableCoinPerPeriod);
     }
 
-    function updateOperator(address operator, uint256 interval, uint256 maxStableCoinPerPeriod)
+    function updatePayoutOperator(address payoutOperator, uint256 interval, uint256 maxStableCoinPerPeriod)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _vault.updateOperator(operator, interval, maxStableCoinPerPeriod);
+        _vault.updatePayoutOperator(payoutOperator, interval, maxStableCoinPerPeriod);
     }
 
-    function removeOperator(address operator) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.removeOperator(operator);
+    function removePayoutOperator(address payoutOperator) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.removePayoutOperator(payoutOperator);
     }
 
-    function getOperators() external view returns (address[] memory) {
-        return _vault.getOperators();
+    function getPayoutOperators() external view returns (address[] memory) {
+        return _vault.getPayoutOperators();
     }
 
-    function isOperator(address account) external view returns (bool) {
-        return _vault.isOperator(account);
+    function isPayoutOperator(address account) external view returns (bool) {
+        return _vault.isPayoutOperator(account);
     }
 
     function addLendingProtocols(address[] memory lendingProtocolAddresses)
@@ -325,7 +325,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _manager.addLendingProtocols(lendingProtocolAddresses);
+        _assetManager.addLendingProtocols(lendingProtocolAddresses);
         emit LendingProtocolsAdded(lendingProtocolAddresses);
     }
 
@@ -334,7 +334,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _manager.removeLendingProtocols(lendingProtocolAddresses);
+        _assetManager.removeLendingProtocols(lendingProtocolAddresses);
         emit LendingProtocolsRemoved(lendingProtocolAddresses);
     }
 
@@ -343,7 +343,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _manager.addStakingProtocols(stakingProtocolAddresses);
+        _assetManager.addStakingProtocols(stakingProtocolAddresses);
         emit StakingProtocolsAdded(stakingProtocolAddresses);
     }
 
@@ -352,17 +352,17 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _manager.removeStakingProtocols(stakingProtocolAddresses);
+        _assetManager.removeStakingProtocols(stakingProtocolAddresses);
         emit StakingProtocolsRemoved(stakingProtocolAddresses);
     }
 
     function addAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _manager.addAMMProtocols(ammProtocolAddresses);
+        _assetManager.addAMMProtocols(ammProtocolAddresses);
         emit AMMProtocolsAdded(ammProtocolAddresses);
     }
 
     function removeAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _manager.removeAMMProtocols(ammProtocolAddresses);
+        _assetManager.removeAMMProtocols(ammProtocolAddresses);
         emit AMMProtocolsRemoved(ammProtocolAddresses);
     }
 
@@ -371,7 +371,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _manager.addIntentProtocols(intentProtocolAddresses);
+        _assetManager.addIntentProtocols(intentProtocolAddresses);
         emit IntentProtocolsAdded(intentProtocolAddresses);
     }
 
@@ -380,7 +380,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1Operator {
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _manager.removeIntentProtocols(intentProtocolAddresses);
+        _assetManager.removeIntentProtocols(intentProtocolAddresses);
         emit IntentProtocolsRemoved(intentProtocolAddresses);
     }
 

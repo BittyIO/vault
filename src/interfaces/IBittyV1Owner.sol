@@ -5,11 +5,11 @@ import {IBittyV1Vault} from "./IBittyV1Vault.sol";
 
 /**
  * @title IBittyV1Owner
- * @notice The owner-only (DEFAULT_ADMIN_ROLE) vault surface: config, manager guardrails, operator
- *         guardrails, approval of operator proposals, and the whitelisted-recipient payout. Implemented
- *         by {BittyV1Vault}. Payment creation (callable by owner or operator) lives in
- *         {IBittyV1Operator}; reads/permissionless in {IBittyV1Vault}; manager trading/yield in
- *         {IBittyV1Manager}.
+ * @notice The owner-only (DEFAULT_ADMIN_ROLE) vault surface: config, asset manager guardrails, payout operator
+ *         guardrails, approval of payout operator proposals, and the whitelisted-recipient payout. Implemented
+ *         by {BittyV1Vault}. Payment creation (callable by owner or payout operator) lives in
+ *         {IBittyV1PayoutOperator}; reads/permissionless in {IBittyV1Vault}; asset manager trading/yield in
+ *         {IBittyV1AssetManager}.
  */
 interface IBittyV1Owner {
     // ============ Events ============
@@ -27,16 +27,16 @@ interface IBittyV1Owner {
     event IntentProtocolsRemoved(address[] protocols);
     event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
     event TradeLimitSet(
-        address indexed manager,
+        address indexed assetManager,
         uint256 interval,
         uint256 maxStableCoinPerTrade,
         uint256 stableCoinInvestCap,
         uint256 expiredAt
     );
-    event FullManagerAdded(address indexed manager);
-    event ManagerRemoved();
-    event OperatorSendLimitSet(address indexed operator, uint256 interval, uint256 maxStableCoinPerPeriod);
-    event OperatorRemoved(address indexed operator);
+    event FullAssetManagerAdded(address indexed assetManager);
+    event AssetManagerRemoved();
+    event PayoutOperatorSendLimitSet(address indexed payoutOperator, uint256 interval, uint256 maxStableCoinPerPeriod);
+    event PayoutOperatorRemoved(address indexed payoutOperator);
     event ScheduledPaymentProtectionSet(uint256 protectionDuration);
     event WhitelistedProtectionSet(uint256 protectionDuration);
     event MaxSendValueSet(uint256 value);
@@ -44,7 +44,7 @@ interface IBittyV1Owner {
     event MaxWhitelistedValueSet(uint256 value);
     event ChangeTimelockSet(uint256 value);
     event WhitelistedRecipientPaid(uint256 indexed id, address indexed recipient, address asset, uint256 amount);
-    // Owner approval of operator proposals (creation events live on {IBittyV1Operator}).
+    // Owner approval of payout operator proposals (creation events live on {IBittyV1PayoutOperator}).
     event ScheduledPaymentApproved(uint256 indexed id);
     event WhitelistedRecipientApproved(uint256 indexed id);
     event SendApproved(uint256 indexed id, address[] recipients, address[] assets, uint256[] amounts);
@@ -67,17 +67,17 @@ interface IBittyV1Owner {
     function addIntentProtocols(address[] memory intentProtocolAddresses) external;
     function removeIntentProtocols(address[] memory intentProtocolAddresses) external;
 
-    // ============ Manager guardrails (owner-set) ============
+    // ============ Asset manager guardrails (owner-set) ============
 
     function setMinimalBalance(address assetAddress, uint256 minimalBalance) external;
 
     /**
-     * @notice Set the vault's single (restricted) manager and its trade guardrail, replacing any previous
-     *         manager. Only this address may trade, subject to the caps. The owner may set itself. Reverts
+     * @notice Set the vault's single (restricted) asset manager and its trade guardrail, replacing any previous
+     *         asset manager. Only this address may trade, subject to the caps. The owner may set itself. Reverts
      *         if `stableCoinInvestCap == 0`.
      */
-    function setManager(
-        address manager,
+    function setAssetManager(
+        address assetManager,
         uint256 interval,
         uint256 maxStableCoinPerTrade,
         uint256 stableCoinInvestCap,
@@ -85,36 +85,36 @@ interface IBittyV1Owner {
     ) external;
 
     /**
-     * @notice Set the vault's single manager as full-access — bounded only by minimal balances, with no
+     * @notice Set the vault's single asset manager as full-access — bounded only by minimal balances, with no
      *         invest cap, per-trade cap, throttle, expiry, or stablecoin-leg requirement. Replaces any
-     *         previous manager. For keys as trusted as the owner; use {setManager} for a delegated key.
+     *         previous asset manager. For keys as trusted as the owner; use {setAssetManager} for a delegated key.
      */
-    function setFullManager(address manager) external;
+    function setFullAssetManager(address assetManager) external;
 
-    function removeManager() external;
+    function removeAssetManager() external;
 
-    // ============ Operator guardrails (owner-set) ============
+    // ============ Payout operator guardrails (owner-set) ============
 
     /**
-     * @notice Register a new operator and its rolling one-off send quota. Does not remove other operators.
-     *         The owner may not be an operator. Reverts if already registered or if
+     * @notice Register a new payout operator and its rolling one-off send quota. Does not remove other payout operators.
+     *         The owner may not be an payout operator. Reverts if already registered or if
      *         `maxStableCoinPerPeriod == 0`.
      */
-    function setOperator(address operator, uint256 interval, uint256 maxStableCoinPerPeriod) external;
+    function setPayoutOperator(address payoutOperator, uint256 interval, uint256 maxStableCoinPerPeriod) external;
 
     /**
-     * @notice Update an existing operator's rolling one-off send quota. Preserves the current period
+     * @notice Update an existing payout operator's rolling one-off send quota. Preserves the current period
      *         usage. Reverts if not registered or if `maxStableCoinPerPeriod == 0`.
      */
-    function updateOperator(address operator, uint256 interval, uint256 maxStableCoinPerPeriod) external;
+    function updatePayoutOperator(address payoutOperator, uint256 interval, uint256 maxStableCoinPerPeriod) external;
 
-    function removeOperator(address operator) external;
+    function removePayoutOperator(address payoutOperator) external;
 
     // ============ Sending ============
 
     function approveSend(uint256 id) external;
 
-    // ============ Operator approvals ============
+    // ============ Payout operator approvals ============
 
     /// @param expectedHash keccak256(abi.encode(the ScheduledPayment the owner reviewed)); the call
     /// reverts if the stored entry no longer matches, so a proposer cannot swap content before approval.

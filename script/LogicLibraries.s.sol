@@ -4,7 +4,7 @@ pragma solidity ^0.8.34;
 import {DeployScript} from "./BaseDeploy.sol";
 import {Create2Deployer} from "./Create2Deployer.sol";
 import {VaultLogic as VaultLogicImplementation} from "../src/logic/VaultLogic.sol";
-import {ManagerLogic as ManagerLogicImplementation} from "../src/logic/ManagerLogic.sol";
+import {AssetManagerLogic as AssetManagerLogicImplementation} from "../src/logic/AssetManagerLogic.sol";
 
 /// @notice Step 1a — deploy VaultLogic via CREATE2 (salt = 0).
 ///
@@ -24,20 +24,21 @@ contract VaultLogic is DeployScript, Create2Deployer {
     }
 }
 
-/// @notice Step 1b — deploy ManagerLogic via CREATE2 (salt = 0).
+/// @notice Step 1b — deploy AssetManagerLogic via CREATE2 (salt = 0).
 ///
-/// Run after step 1a. ManagerLogic links against VaultLogic.
+/// Run after step 1a. AssetManagerLogic links against VaultLogic.
 ///
 /// Usage:
 ///   source .env
-///   forge script script/LogicLibraries.s.sol:ManagerLogic \
+///   forge script script/LogicLibraries.s.sol:AssetManagerLogic \
 ///     --rpc-url sepolia \
 ///     --broadcast \
 ///     --private-key $SEPOLIA_PRIVATE_KEY \
 ///     -vvvv
-contract ManagerLogic is DeployScript, Create2Deployer {
+contract AssetManagerLogic is DeployScript, Create2Deployer {
     function deploy() public override {
-        address managerLogic = _deployCreate2("ManagerLogic", type(ManagerLogicImplementation).creationCode);
-        saveAddress("MANAGER_LOGIC", managerLogic);
+        address assetManagerLogic =
+            _deployCreate2("AssetManagerLogic", type(AssetManagerLogicImplementation).creationCode);
+        saveAddress("ASSET_MANAGER_LOGIC", assetManagerLogic);
     }
 }

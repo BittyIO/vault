@@ -10,7 +10,7 @@ error TradeMustTouchStableCoin();
 error TradeLimitExpired();
 error TradeInvestedTotalExceeded();
 error StableCoinInvestCapZero();
-error NotManager();
+error NotAssetManager();
 error InvalidLendingProtocol();
 error InvalidStakingProtocol();
 error InvalidAMMProtocol();
@@ -23,13 +23,13 @@ error DisableRebalanceUntilTimestampTooLong();
 error RebalanceDisabled();
 
 /**
- * @title IBittyV1Manager
- * @notice Only the vault manager's trading/yield functions and their events. Implemented by
- *         {BittyV1VaultDeFiFacet}. Owner-only manager config (setMinimalBalance, setManager, protocol
- *         add/remove) lives in {IBittyV1Owner}; manager read functions (getSuppliedBalance,
+ * @title IBittyV1AssetManager
+ * @notice Only the vault asset manager's trading/yield functions and their events. Implemented by
+ *         {BittyV1VaultDeFiFacet}. Owner-only asset manager config (setMinimalBalance, setAssetManager, protocol
+ *         add/remove) lives in {IBittyV1Owner}; asset manager read functions (getSuppliedBalance,
  *         getLiquidity, protocol getters, …) live in {IBittyV1Vault}.
  */
-interface IBittyV1Manager {
+interface IBittyV1AssetManager {
     event RebalanceDisabledUntil(uint256 timestamp);
 
     // ============ Lending ============
@@ -92,7 +92,7 @@ interface IBittyV1Manager {
     // ============ Rebalance ============
 
     /**
-     * @notice Disable rebalancing (asset-manager trades) until `timestamp`.
+     * @notice Disable rebalancing (asset manager trades) until `timestamp`.
      */
     function disableRebalanceUntilTimestamp(uint256 timestamp) external;
 

@@ -24,7 +24,7 @@ interface ImmutableCreate2Factory {
 contract BittyV1VaultFactory is DeployScript {
     ImmutableCreate2Factory constant IMMUTABLE_CREATE2 =
         ImmutableCreate2Factory(0x0000000000FFe8B47B3e2130213B802212439497);
-    bytes32 constant FACTORY_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab98234df8a3fddd95c000f651bcea;
+    bytes32 constant FACTORY_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab982325268b998cf4e0000067104d;
 
     function deploy() public override {
         address vaultImpl = getAddress("VAULT_IMPLEMENTATION");

@@ -67,7 +67,7 @@ Deployment scripts read chain-specific addresses from `deployments/<chain>.toml`
 
 ### Step 1 — Deploy logic libraries
 
-Deploy `VaultLogic` and `ManagerLogic` via the canonical CREATE2 deployer (`0x4e59b44847b379578588920cA78FbF26c0B4956C`, salt `0x0`). Both live in `script/LogicLibraries.s.sol` and must be broadcast separately.
+Deploy `VaultLogic` and `AssetManagerLogic` via the canonical CREATE2 deployer (`0x4e59b44847b379578588920cA78FbF26c0B4956C`, salt `0x0`). Both live in `script/LogicLibraries.s.sol` and must be broadcast separately.
 
 **1a — Deploy VaultLogic** (no `--libraries` flag):
 
@@ -80,10 +80,10 @@ forge script script/LogicLibraries.s.sol:VaultLogic \
   -vvvv
 ```
 
-**1b — Deploy ManagerLogic** (links against VaultLogic at `{vaultLogicAddress}`):
+**1b — Deploy AssetManagerLogic** (links against VaultLogic at `{vaultLogicAddress}`):
 
 ```shell
-forge script script/LogicLibraries.s.sol:ManagerLogic \
+forge script script/LogicLibraries.s.sol:AssetManagerLogic \
   --rpc-url sepolia \
   --broadcast \
   --private-key $SEPOLIA_PRIVATE_KEY \
@@ -126,7 +126,7 @@ Each script is idempotent — contracts already present at their expected addres
 
 ### Verify logic libraries
 
-`ManagerLogic` links against `VaultLogic`, so pass its deployed address via `--libraries`:
+`AssetManagerLogic` links against `VaultLogic`, so pass its deployed address via `--libraries`:
 
 ```shell
 forge verify-contract \
@@ -138,7 +138,7 @@ forge verify-contract \
 forge verify-contract \
   --chain sepolia \
   {assetManagerLogicAddress} \
-  src/logic/ManagerLogic.sol:ManagerLogic \
+  src/logic/AssetManagerLogic.sol:AssetManagerLogic \
   --libraries src/logic/VaultLogic.sol:VaultLogic:{vaultLogicAddress} \
   --etherscan-api-key $ETHERSCAN_API_KEY
 ```
@@ -153,7 +153,7 @@ forge verify-contract \
   {VaultImplementationAddress} \
   src/BittyV1Vault.sol:BittyV1Vault \
   --libraries src/logic/VaultLogic.sol:VaultLogic:{vaultLogicAddress} \
-  --libraries src/logic/ManagerLogic.sol:ManagerLogic:{ManagerLogicAddress} \
+  --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{AssetManagerLogicAddress} \
   --etherscan-api-key $ETHERSCAN_API_KEY
 ```
 
