@@ -90,7 +90,7 @@ forge script script/LogicLibraries.s.sol:AssetManagerLogic \
   -vvvv
 ```
 
-Writes `VAULT_LOGIC` and `MANAGER_LOGIC` to `deployments/<chain>.toml`.
+Writes `VAULT_LOGIC` and `ASSET_MANAGER_LOGIC` to `deployments/<chain>.toml`.
 
 ### Step 2 — Deploy Bitty Vault implementation
 
