@@ -80,9 +80,9 @@ library VaultLogic {
     // (0 = unrestricted / no stablecoin lock); *_CHANGE_TIMELOCK is the loosening delay in seconds.
     uint64 constant STANDARD_SCHEDULED_PAYMENT_PROTECTION = 1 days;
     uint64 constant STANDARD_WHITELISTED_PROTECTION = 1 days;
-    uint64 constant STANDARD_MAX_SEND_VALUE = 100;
-    uint64 constant STANDARD_MAX_SCHEDULED_VALUE = 100;
-    uint64 constant STANDARD_MAX_WHITELISTED_VALUE = 100;
+    uint64 constant STANDARD_MAX_SEND_VALUE = 10000;
+    uint64 constant STANDARD_MAX_SCHEDULED_VALUE = 10000;
+    uint64 constant STANDARD_MAX_WHITELISTED_VALUE = 10000;
     uint64 constant STANDARD_CHANGE_TIMELOCK = 1 days;
 
     uint64 constant HIGH_SCHEDULED_PAYMENT_PROTECTION = 3 days;
