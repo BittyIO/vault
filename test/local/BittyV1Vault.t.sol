@@ -192,6 +192,54 @@ contract BittyV1VaultTest is Test {
         assertEq(weth.balanceOf(address(vault)), amount);
     }
 
+    function test_ETHToWETH_wrapsStrandedNativeEth() public {
+        vault.initialize(
+            ownerAddress,
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet,
+            RiskControlLevel.Zero
+        );
+
+        // Native ETH that landed on the vault before it existed (a pre-deployment
+        // deposit to the counterfactual address) — receive() never wrapped it.
+        uint256 amount = 0.03 ether;
+        vm.deal(address(vault), amount);
+        assertEq(weth.balanceOf(address(vault)), 0);
+
+        // Permissionless: anyone can convert the vault's native ETH to WETH.
+        vm.prank(makeAddr("keeper"));
+        vault.ETHToWETH();
+
+        assertEq(address(vault).balance, 0);
+        assertEq(weth.balanceOf(address(vault)), amount);
+    }
+
+    function test_ETHToWETH_noopWhenNoNativeEth() public {
+        vault.initialize(
+            ownerAddress,
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            defiFacet,
+            RiskControlLevel.Zero
+        );
+
+        // Nothing to wrap — must not revert.
+        vault.ETHToWETH();
+        assertEq(address(vault).balance, 0);
+        assertEq(weth.balanceOf(address(vault)), 0);
+    }
+
     function test_InitSucceedsWithDifferentAssetManager() public {
         vault.initialize(
             ownerAddress,

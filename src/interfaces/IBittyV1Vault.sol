@@ -194,4 +194,12 @@ interface IBittyV1Vault {
      * @notice Permissionless cleanup of expired limit orders (does not affect TWAP orders).
      */
     function cleanExpiredLimitOrders(address intentProtocol, bytes32[] calldata orderDigests) external;
+
+    /**
+     * @notice Wrap any native ETH the vault holds into WETH. receive() auto-wraps incoming ETH, but ETH
+     *         that arrived before the vault was deployed (e.g. a deposit to the counterfactual address) sits
+     *         as raw native ETH the vault's WETH-denominated ETH accounting can't spend; this converts it.
+     *         Permissionless — it only moves the vault's own ETH into its own WETH.
+     */
+    function ETHToWETH() external;
 }

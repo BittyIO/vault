@@ -43,6 +43,23 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         }
     }
 
+    /**
+     * @notice Wrap any native ETH the vault is holding into WETH.
+     * @dev receive() auto-wraps incoming ETH, but ETH that arrived before the
+     *      vault was deployed (e.g. a deposit sent to the counterfactual address
+     *      ahead of activation) sits as raw native ETH that the vault's
+     *      WETH-denominated ETH accounting can't spend. This converts that balance
+     *      to WETH. Permissionless — it only moves the vault's own ETH into its own
+     *      WETH, so there's nothing to gate.
+     */
+    function ETHToWETH() external {
+        address weth = _vault.weth;
+        uint256 ethBalance = address(this).balance;
+        if (ethBalance > 0 && weth != address(0)) {
+            WETH(payable(weth)).deposit{value: ethBalance}();
+        }
+    }
+
     fallback() external payable {
         address facet = _defiFacet;
         assembly {

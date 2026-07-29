@@ -57,6 +57,34 @@ Where signing and UI risk is live — not just who holds the keys.
 
 EOA and Safe carry frontend and signing risk on **every** interaction. Bitty Vault concentrates that risk into **owner configuration** — the moments when policy changes. Day-to-day execution runs under onchain guard checks, so a compromised DeFi frontend cannot override what the owner already locked in.
 
+## What protection costs
+
+The security above is not free — but it is cheap. Because funds never leave the vault and every action is checked against the guard, a compromised DeFi frontend, a malicious relayer, or a leaked asset-manager key **cannot drain your money**. The price of that immunity is a little extra gas on each operation: instead of hitting the protocol directly, every call routes through the vault and its guard. The path is
+
+```
+asset manager ─► Vault (CALL) ─► DeFi facet (delegatecall) ─► AssetManagerLogic (delegatecall)
+                                     │
+                                     ├─► Guard (staticcall: is protocol deprecated?)
+                                     └─► per-vault protocol clone (CALL ─► minimal-proxy delegatecall) ─► real protocol
+```
+
+Two things add gas versus a direct call:
+
+1. **Dispatch plumbing** — ~4–5 extra cross-contract hops (fallback delegatecall, library delegatecall, guard staticcall, clone call, proxy delegatecall). About **12–20k gas, fixed**, the same for every protocol.
+2. **Token custody** — funds live in the vault but the clone executes, so each operation routes the input token `vault → clone → protocol` and the receipt/output token back `protocol → clone → vault`: typically **2 extra ERC-20 transfers per operation** (~25–50k each). This is the dominant cost.
+
+Estimated extra gas per operation (derived from the call graph and standard mainnet opcode/ERC-20 costs, not a live benchmark). USD assumes **ETH = $1,900**:
+
+| Protocol | Operation | Extra gas vs. direct | @ ~0.045 gwei (now) | @ 3 gwei (normal) |
+| --- | --- | --- | --- | --- |
+| Uniswap V3 | market sell / buy | ~85k | $0.007 | $0.48 |
+| Aave V3 | supply / withdraw | ~95k | $0.008 | $0.54 |
+| Lido | stake | ~82k | $0.007 | $0.47 |
+| Sky (sUSDS) | stake / unstake | ~75k | $0.006 | $0.43 |
+| CoW Swap | place limit / TWAP order | ~110k | $0.009 | $0.62 |
+
+Fractions of a cent today, and well under a dollar even at normal gas — the cost of a single trade. Weigh that against the alternative: with an EOA or a Safe, one bad signature on a compromised frontend can take **everything**. A few cents of gas per operation is what it costs to make that impossible.
+
 ## Development
 
 Build, test, deploy, and verify instructions live in [dev.md](./dev.md).
