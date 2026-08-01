@@ -233,6 +233,35 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         _vault.payScheduledAmount(id, amount);
     }
 
+    /**
+     * @notice Pay a scheduledPayment its full scheduled amount straight out of a staked position: the
+     *         reserve keeps earning yield until payment time, and the unstaked asset is delivered
+     *         directly to the configured payee in one step. The recipient is hard-sourced from the
+     *         scheduledPayment config (never a parameter), so funds can only reach a configured payee.
+     *         Authorization mirrors {payScheduled}. Only works for protocols whose unstake settles
+     *         synchronously to a recipient (e.g. Sky); queued withdrawals (e.g. Lido) revert.
+     */
+    function payScheduledFromStaking(uint256 id, address stakingProtocol) external {
+        (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
+            _vault.accrueScheduledPaymentOnBehalf(id);
+        _assetManager.unstake(stakingProtocol, _payoutAsset(assetAddress), payAmount, scheduledPaymentAddress);
+    }
+
+    /**
+     * @notice Pay a scheduledPayment its full scheduled amount straight out of a supplied (lending)
+     *         position. See {payScheduledFromStaking} for the recipient-safety guarantees.
+     */
+    function payScheduledFromLending(uint256 id, address lendingProtocol) external {
+        (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
+            _vault.accrueScheduledPaymentOnBehalf(id);
+        _assetManager.withdraw(lendingProtocol, _payoutAsset(assetAddress), payAmount, scheduledPaymentAddress);
+    }
+
+    // An ETH (address(0)) scheduled payment is delivered as WETH out of the yield-position paths.
+    function _payoutAsset(address assetAddress) private view returns (address) {
+        return assetAddress == address(0) ? _vault.weth : assetAddress;
+    }
+
     function addWhitelistedRecipient(address recipient, address allowedAsset)
         external
         override

@@ -834,13 +834,41 @@ library VaultLogic {
         _payScheduled(vaultStorage, scheduledPayment, id, amount);
     }
 
+    /**
+     * @notice Run every {payScheduled} eligibility check and apply its state effects (advance the
+     * interval clock, clear the new-payee time-lock, consume a payment slot) WITHOUT transferring —
+     * returning the payee, asset and amount so the caller can deliver the funds straight from a yield
+     * position (see {BittyV1Vault.payScheduledFromLending}/{payScheduledFromStaking}). The recipient is
+     * hard-sourced from the scheduledPayment config, so funds can only ever reach a configured payee.
+     * Authorization mirrors {payScheduled}: the scheduledPayment's trigger, or anyone if unset.
+     */
+    function accrueScheduledPaymentOnBehalf(VaultStorage storage vaultStorage, uint256 id)
+        external
+        onlyInitialized(vaultStorage)
+        returns (address scheduledPaymentAddress, address assetAddress, uint256 payAmount)
+    {
+        IBittyV1Vault.ScheduledPayment storage scheduledPayment = vaultStorage.scheduledPayments[id];
+        if (scheduledPayment.trigger != address(0) && msg.sender != scheduledPayment.trigger) {
+            revert ScheduledPaymentTriggerError();
+        }
+        payAmount = scheduledPayment.amount;
+        // fromPosition = true: the payout is delivered from the yield position, not the vault balance,
+        // so the zero-vault-balance skip must not apply (it would wrongly leave the payment unconsumed).
+        _accrueScheduledPayment(vaultStorage, scheduledPayment, id, true);
+        scheduledPaymentAddress = scheduledPayment.scheduledPaymentAddress;
+        assetAddress = scheduledPayment.assetAddress;
+        emit IBittyV1Vault.ScheduledPaymentPaid(
+            id, scheduledPaymentAddress, assetAddress, payAmount, scheduledPayment.remainingPaymentCount
+        );
+    }
+
     function _payScheduled(
         VaultStorage storage vaultStorage,
         IBittyV1Vault.ScheduledPayment storage scheduledPayment,
         uint256 id,
         uint256 payAmount
     ) internal {
-        if (_accrueScheduledPayment(vaultStorage, scheduledPayment, id)) {
+        if (_accrueScheduledPayment(vaultStorage, scheduledPayment, id, false)) {
             // Nothing to pay right now; the slot and interval were not consumed, so the payment stays due.
             return;
         }
@@ -876,7 +904,8 @@ library VaultLogic {
     function _accrueScheduledPayment(
         VaultStorage storage vaultStorage,
         IBittyV1Vault.ScheduledPayment storage scheduledPayment,
-        uint256 id
+        uint256 id,
+        bool fromPosition
     ) internal returns (bool skipped) {
         if (scheduledPayment.amount == 0) {
             revert ScheduledPaymentNotFound();
@@ -900,8 +929,9 @@ library VaultLogic {
 
         // A payment that tolerates insufficient balance and has nothing to pay (zero balance) would
         // deliver 0. Skip it without burning a payment count or moving the interval clock — otherwise a
-        // payee silently loses a whole period for a zero delivery.
-        if (scheduledPayment.payWithInsufficientBalance) {
+        // payee silently loses a whole period for a zero delivery. Not applicable when paying straight
+        // from a yield position (`fromPosition`): the funds come from the position, not the vault balance.
+        if (!fromPosition && scheduledPayment.payWithInsufficientBalance) {
             address balanceToken =
                 scheduledPayment.assetAddress == address(0) ? vaultStorage.weth : scheduledPayment.assetAddress;
             if (IERC20(balanceToken).balanceOf(address(this)) == 0) {

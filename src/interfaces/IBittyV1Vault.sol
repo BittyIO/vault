@@ -191,6 +191,18 @@ interface IBittyV1Vault {
     function payScheduledAmount(uint256 id, uint256 amount) external;
 
     /**
+     * @notice Pay a scheduled payment straight out of a staked position (delivered to the configured
+     * payee). Trigger-gated like {payScheduled}.
+     */
+    function payScheduledFromStaking(uint256 id, address stakingProtocol) external;
+
+    /**
+     * @notice Pay a scheduled payment straight out of a supplied (lending) position (delivered to the
+     * configured payee). Trigger-gated like {payScheduled}.
+     */
+    function payScheduledFromLending(uint256 id, address lendingProtocol) external;
+
+    /**
      * @notice Permissionless cleanup of expired limit orders (does not affect TWAP orders).
      */
     function cleanExpiredLimitOrders(address intentProtocol, bytes32[] calldata orderDigests) external;

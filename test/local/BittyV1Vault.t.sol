@@ -2347,6 +2347,65 @@ contract BittyV1VaultTest is Test {
         IVaultFull(payable(address(vault))).supply(address(impl), address(usdc), supplyAmount);
     }
 
+    function test_payScheduledFromStaking_deliversToPayee() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        MockStakingProtocol impl = new MockStakingProtocol();
+        address payee = makeAddr("rentScheduledPayment");
+        _setupStakedReserve(usdc, impl, 1_000e6);
+
+        uint256 payAmount = 250e6;
+        vm.prank(ownerAddress);
+        uint256 id = vault.addScheduledPayment(
+            _makeScheduledPayment(
+                payee,
+                address(0),
+                address(usdc),
+                payAmount,
+                3,
+                block.timestamp,
+                VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+                false
+            )
+        );
+
+        // Triggerless → callable by anyone; delivered straight from the staked reserve.
+        vm.prank(makeAddr("caller"));
+        vault.payScheduledFromStaking(id, address(impl));
+
+        assertEq(usdc.balanceOf(payee), payAmount, "payee received the scheduled amount");
+        assertEq(usdc.balanceOf(address(vault)), 0, "nothing routed through the vault");
+    }
+
+    function test_payScheduledFromLending_deliversToPayee() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        address payee = makeAddr("payrollScheduledPayment");
+        _setupSuppliedReserve(usdc, impl, 800e6);
+
+        uint256 payAmount = 300e6;
+        vm.prank(ownerAddress);
+        uint256 id = vault.addScheduledPayment(
+            _makeScheduledPayment(
+                payee,
+                address(0),
+                address(usdc),
+                payAmount,
+                2,
+                block.timestamp,
+                VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+                false
+            )
+        );
+
+        vm.prank(makeAddr("caller"));
+        vault.payScheduledFromLending(id, address(impl));
+
+        assertEq(usdc.balanceOf(payee), payAmount, "payee received the scheduled amount");
+        assertEq(usdc.balanceOf(address(vault)), 0, "nothing routed through the vault");
+    }
+
     // ─── Unlimited scheduled payment ───────────────────────────────────────────
 
     function test_ScheduledPayment_maxPaymentCountIsUnlimited() public {
