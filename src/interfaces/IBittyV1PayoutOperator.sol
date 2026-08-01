@@ -37,10 +37,23 @@ interface IBittyV1PayoutOperator {
 
     /**
      * @notice Owner: execute a batch of transfers immediately. Payout operator: queue the entire batch for
-     *         owner approval (its id is in the {SendProposed} event). All arrays must be non-empty and
-     *         have equal lengths.
+     *         owner approval (its id is in the {SendProposed} event). recipients/assets/amounts must be
+     *         non-empty and equal length.
+     * @dev Owner-direct sends may also source funds from yield positions before paying: for row `i`,
+     *      `stakingAmounts[i]` of `assets[i]` is unstaked from `stakingProtocols[i]` and `lendingAmounts[i]`
+     *      withdrawn from `lendingProtocols[i]` into the vault first (`address(0)` / `0` = skip that leg).
+     *      When any position array is non-empty all four must equal `assets.length`; pass empty arrays for a
+     *      plain vault-balance send. Position sourcing is ignored on the payout-operator propose path.
      */
-    function send(address[] calldata recipients, address[] calldata assets, uint256[] calldata amounts) external;
+    function send(
+        address[] calldata recipients,
+        address[] calldata assets,
+        uint256[] calldata amounts,
+        address[] calldata stakingProtocols,
+        uint256[] calldata stakingAmounts,
+        address[] calldata lendingProtocols,
+        uint256[] calldata lendingAmounts
+    ) external;
 
     /**
      * @notice Owner, or the payout operator who proposed it: cancel a pending one-off send.

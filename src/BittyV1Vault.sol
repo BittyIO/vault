@@ -8,6 +8,7 @@ import {IBittyV1PayoutOperator} from "./interfaces/IBittyV1PayoutOperator.sol";
 import {
     IBittyV1Vault,
     AddressZero,
+    ArrayLengthMismatch,
     OwnerAndPayoutOperatorMustDiffer,
     NotPayoutOperator,
     RiskControlLevel
@@ -137,15 +138,72 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         return _assetManager.addingProtocolsDisabled;
     }
 
-    function send(address[] calldata recipients, address[] calldata assets, uint256[] calldata amounts)
-        external
-        override
-        onlyOwnerOrPayoutOperator
-    {
+    function send(
+        address[] calldata recipients,
+        address[] calldata assets,
+        uint256[] calldata amounts,
+        address[] calldata stakingProtocols,
+        uint256[] calldata stakingAmounts,
+        address[] calldata lendingProtocols,
+        uint256[] calldata lendingAmounts
+    ) external override onlyOwnerOrPayoutOperator {
         if (_byOwner()) {
+            _pullFromPositions(assets, stakingProtocols, stakingAmounts, lendingProtocols, lendingAmounts);
             _vault.send(recipients, assets, amounts);
         } else {
             _vault.proposeSend(recipients, assets, amounts);
+        }
+    }
+
+    /**
+     * @dev Unstake / withdraw each row's `assets[i]` from its position into the vault before a send.
+     *      No-op when all position arrays are empty (plain send); otherwise all four must equal
+     *      `assets.length`. Delivered to the vault (address(this)); the send then pays from balance.
+     */
+    function _pullFromPositions(
+        address[] calldata assets,
+        address[] calldata stakingProtocols,
+        uint256[] calldata stakingAmounts,
+        address[] calldata lendingProtocols,
+        uint256[] calldata lendingAmounts
+    ) private {
+        if (
+            stakingProtocols.length == 0 && stakingAmounts.length == 0 && lendingProtocols.length == 0
+                && lendingAmounts.length == 0
+        ) {
+            return;
+        }
+        uint256 n = assets.length;
+        if (
+            stakingProtocols.length != n || stakingAmounts.length != n || lendingProtocols.length != n
+                || lendingAmounts.length != n
+        ) {
+            revert ArrayLengthMismatch();
+        }
+        for (uint256 i = 0; i < n; i++) {
+            _pullOneFromPositions(
+                assets[i], stakingProtocols[i], stakingAmounts[i], lendingProtocols[i], lendingAmounts[i]
+            );
+        }
+    }
+
+    /**
+     * @dev Unstake / withdraw a single asset from its position into the vault before a send.
+     *      `address(0)` protocol or `0` amount skips that leg. Delivered to the vault (address(this)).
+     */
+    function _pullOneFromPositions(
+        address assetAddress,
+        address stakingProtocol,
+        uint256 stakingAmount,
+        address lendingProtocol,
+        uint256 lendingAmount
+    ) private {
+        address asset = _payoutAsset(assetAddress);
+        if (stakingProtocol != address(0) && stakingAmount > 0) {
+            _assetManager.unstake(stakingProtocol, asset, stakingAmount, address(this));
+        }
+        if (lendingProtocol != address(0) && lendingAmount > 0) {
+            _assetManager.withdraw(lendingProtocol, asset, lendingAmount, address(this));
         }
     }
 
@@ -291,11 +349,16 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         _vault.approveWhitelistedRecipient(id, expectedHash);
     }
 
-    function sendToWhitelistedRecipient(uint256 id, address asset, uint256 amount)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function sendToWhitelistedRecipient(
+        uint256 id,
+        address asset,
+        uint256 amount,
+        address stakingProtocol,
+        uint256 stakingAmount,
+        address lendingProtocol,
+        uint256 lendingAmount
+    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pullOneFromPositions(asset, stakingProtocol, stakingAmount, lendingProtocol, lendingAmount);
         _vault.sendToWhitelistedRecipient(id, asset, amount);
     }
 

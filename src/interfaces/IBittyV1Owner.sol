@@ -130,5 +130,18 @@ interface IBittyV1Owner {
     function setMaxWhitelistedValue(uint256 value) external;
     function setChangeTimelock(uint256 value) external;
 
-    function sendToWhitelistedRecipient(uint256 id, address asset, uint256 amount) external;
+    /**
+     * @notice Owner: pay a whitelisted recipient. May first source the funds from yield positions —
+     *         `stakingAmount` of `asset` is unstaked from `stakingProtocol` and `lendingAmount` withdrawn
+     *         from `lendingProtocol` into the vault before paying (`address(0)` / `0` = skip that leg).
+     */
+    function sendToWhitelistedRecipient(
+        uint256 id,
+        address asset,
+        uint256 amount,
+        address stakingProtocol,
+        uint256 stakingAmount,
+        address lendingProtocol,
+        uint256 lendingAmount
+    ) external;
 }

@@ -297,20 +297,20 @@ contract BittyV1VaultTest is Test {
         uint256[] memory amounts = _amounts(400e6);
 
         vm.prank(op1);
-        vault.send(recipients, assets, amounts);
+        _send(recipients, assets, amounts);
         vm.prank(ownerAddress);
         vault.approveSend(0);
 
         amounts[0] = 200e6;
         vm.prank(op2);
-        vault.send(recipients, assets, amounts);
+        _send(recipients, assets, amounts);
         vm.prank(ownerAddress);
         vault.approveSend(1);
 
         amounts[0] = 200e6;
         vm.prank(op1);
         vm.expectRevert(PaymentExceedsPeriodLimit.selector);
-        vault.send(recipients, assets, amounts);
+        _send(recipients, assets, amounts);
     }
 
     function test_setPayoutOperator_revertsWhenAlreadyRegistered() public {
@@ -1922,7 +1922,7 @@ contract BittyV1VaultTest is Test {
         vault.setMaxWhitelistedValue(1_000);
         vm.prank(ownerAddress);
         vm.expectRevert(PaymentExceedsRiskCap.selector);
-        vault.sendToWhitelistedRecipient(id, address(usdc), 1_001 * 1e6);
+        _sendWl(id, address(usdc), 1_001 * 1e6);
     }
 
     function test_Risk_Scheduled_CapAppliesToNewAdds() public {
@@ -2320,7 +2320,17 @@ contract BittyV1VaultTest is Test {
     }
 
     function _send(address recipient, address asset, uint256 amount) internal {
-        vault.send(_arr(recipient), _arr(asset), _amounts(amount));
+        _send(_arr(recipient), _arr(asset), _amounts(amount));
+    }
+
+    // Whitelisted-recipient send from vault balance (no yield-position sourcing).
+    function _sendWl(uint256 id, address asset, uint256 amount) internal {
+        vault.sendToWhitelistedRecipient(id, asset, amount, address(0), 0, address(0), 0);
+    }
+
+    // Plain vault-balance send (empty position arrays) — most tests don't source from positions.
+    function _send(address[] memory recipients, address[] memory assets, uint256[] memory amounts) internal {
+        vault.send(recipients, assets, amounts, new address[](0), new uint256[](0), new address[](0), new uint256[](0));
     }
 
     /// @dev Registers a staking mock in the guard + vault, funds the vault, and stakes it.
@@ -2406,6 +2416,54 @@ contract BittyV1VaultTest is Test {
         assertEq(usdc.balanceOf(address(vault)), 0, "nothing routed through the vault");
     }
 
+    function test_send_sourcesFromLendingPosition() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        address payee = makeAddr("payee");
+        _setupSuppliedReserve(usdc, impl, 1_000e6);
+        assertEq(usdc.balanceOf(address(vault)), 0, "vault holds no free balance");
+
+        uint256 amount = 400e6;
+        vm.prank(ownerAddress);
+        vault.send(
+            _arr(payee),
+            _arr(address(usdc)),
+            _amounts(amount),
+            new address[](1),
+            _amounts(0),
+            _arr(address(impl)),
+            _amounts(amount)
+        );
+
+        assertEq(usdc.balanceOf(payee), amount, "payee paid from the lending position");
+        assertEq(usdc.balanceOf(address(vault)), 0, "no residual in the vault");
+    }
+
+    function test_send_sourcesFromStakingPosition() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        MockStakingProtocol impl = new MockStakingProtocol();
+        address payee = makeAddr("payee");
+        _setupStakedReserve(usdc, impl, 1_000e6);
+        assertEq(usdc.balanceOf(address(vault)), 0, "vault holds no free balance");
+
+        uint256 amount = 250e6;
+        vm.prank(ownerAddress);
+        vault.send(
+            _arr(payee),
+            _arr(address(usdc)),
+            _amounts(amount),
+            _arr(address(impl)),
+            _amounts(amount),
+            new address[](1),
+            _amounts(0)
+        );
+
+        assertEq(usdc.balanceOf(payee), amount, "payee paid from the staked position");
+        assertEq(usdc.balanceOf(address(vault)), 0, "no residual in the vault");
+    }
+
     // ─── Unlimited scheduled payment ───────────────────────────────────────────
 
     function test_ScheduledPayment_maxPaymentCountIsUnlimited() public {
@@ -2489,12 +2547,48 @@ contract BittyV1VaultTest is Test {
         usdc.mint(address(vault), 5_000e6);
 
         vm.startPrank(ownerAddress);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(usdc), 5_000e6);
+        _sendWl(bobIdWr, address(weth), 1 ether);
+        _sendWl(bobIdWr, address(usdc), 5_000e6);
         vm.stopPrank();
 
         assertEq(weth.balanceOf(to), 1 ether);
         assertEq(usdc.balanceOf(to), 5_000e6);
+    }
+
+    function test_WhitelistedRecipient_sourcesFromLendingPosition() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        address to = makeAddr("wlr");
+        vm.prank(ownerAddress);
+        uint256 wId = vault.addWhitelistedRecipient(to, address(usdc));
+        _setupSuppliedReserve(usdc, impl, 1_000e6);
+        assertEq(usdc.balanceOf(address(vault)), 0, "vault holds no free balance");
+
+        uint256 amount = 400e6;
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient(wId, address(usdc), amount, address(0), 0, address(impl), amount);
+
+        assertEq(usdc.balanceOf(to), amount, "recipient paid from the lending position");
+        assertEq(usdc.balanceOf(address(vault)), 0, "no residual in the vault");
+    }
+
+    function test_WhitelistedRecipient_sourcesFromStakingPosition() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        MockStakingProtocol impl = new MockStakingProtocol();
+        address to = makeAddr("wlr");
+        vm.prank(ownerAddress);
+        uint256 wId = vault.addWhitelistedRecipient(to, address(usdc));
+        _setupStakedReserve(usdc, impl, 1_000e6);
+        assertEq(usdc.balanceOf(address(vault)), 0, "vault holds no free balance");
+
+        uint256 amount = 250e6;
+        vm.prank(ownerAddress);
+        vault.sendToWhitelistedRecipient(wId, address(usdc), amount, address(impl), amount, address(0), 0);
+
+        assertEq(usdc.balanceOf(to), amount, "recipient paid from the staked position");
+        assertEq(usdc.balanceOf(address(vault)), 0, "no residual in the vault");
     }
 
     function test_WhitelistedRecipient_sendRevertsOnZeroAmount() public {
@@ -2506,7 +2600,7 @@ contract BittyV1VaultTest is Test {
 
         vm.prank(ownerAddress);
         vm.expectRevert(AmountIsZero.selector);
-        vault.sendToWhitelistedRecipient(wId, address(weth), 0);
+        _sendWl(wId, address(weth), 0);
     }
 
     function test_WhitelistedRecipient_restrictsToAllowedAsset() public {
@@ -2521,10 +2615,10 @@ contract BittyV1VaultTest is Test {
 
         vm.prank(ownerAddress);
         vm.expectRevert(WhitelistedRecipientAssetNotAllowed.selector);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(usdc), 5_000e6);
+        _sendWl(bobIdWr, address(usdc), 5_000e6);
 
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
+        _sendWl(bobIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
@@ -2533,7 +2627,7 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), 1 ether);
         vm.prank(ownerAddress);
         vm.expectRevert(WhitelistedRecipientNotFound.selector);
-        vault.sendToWhitelistedRecipient(99999, address(weth), 1 ether);
+        _sendWl(99999, address(weth), 1 ether);
     }
 
     function test_WhitelistedRecipient_remove() public {
@@ -2550,7 +2644,7 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), 1 ether);
         vm.prank(ownerAddress);
         vm.expectRevert(WhitelistedRecipientNotFound.selector);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
+        _sendWl(bobIdWr, address(weth), 1 ether);
     }
 
     function test_WhitelistedRecipient_removeRevertsWhenNotFound() public {
@@ -2573,7 +2667,7 @@ contract BittyV1VaultTest is Test {
         vm.expectRevert(NotPayoutOperator.selector);
         vault.removeWhitelistedRecipient(bobIdWr);
         vm.expectRevert(_roleError(stranger, adminRole));
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1);
+        _sendWl(bobIdWr, address(weth), 1);
         vm.stopPrank();
     }
 
@@ -2593,11 +2687,11 @@ contract BittyV1VaultTest is Test {
 
         vm.prank(ownerAddress);
         vm.expectRevert(ProtectionPeriodNotEnded.selector);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
+        _sendWl(bobIdWr, address(weth), 1 ether);
 
         vm.warp(block.timestamp + protection);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
+        _sendWl(bobIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
@@ -2609,7 +2703,7 @@ contract BittyV1VaultTest is Test {
 
         deal(address(weth), address(vault), 1 ether);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
+        _sendWl(bobIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
@@ -2629,11 +2723,11 @@ contract BittyV1VaultTest is Test {
 
         vm.prank(ownerAddress);
         vm.expectRevert(ProtectionPeriodNotEnded.selector);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
+        _sendWl(bobIdWr, address(weth), 1 ether);
 
         vm.warp(block.timestamp + protection);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(bobIdWr, address(weth), 1 ether);
+        _sendWl(bobIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
@@ -2662,12 +2756,12 @@ contract BittyV1VaultTest is Test {
         assertEq(weth.balanceOf(payee), 1 ether);
         vm.prank(ownerAddress);
         vm.expectRevert(ProtectionPeriodNotEnded.selector);
-        vault.sendToWhitelistedRecipient(wlId, address(weth), 1 ether);
+        _sendWl(wlId, address(weth), 1 ether);
 
         // After 5 days the whitelist entry is payable too.
         vm.warp(base + 5 days);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(wlId, address(weth), 1 ether);
+        _sendWl(wlId, address(weth), 1 ether);
         assertEq(weth.balanceOf(payee), 2 ether);
     }
 
@@ -2685,12 +2779,12 @@ contract BittyV1VaultTest is Test {
         uint256 bId = vault.addWhitelistedRecipient(payee, address(0));
         vault.removeWhitelistedRecipient(bId); // does not touch aId's window
         vm.expectRevert(ProtectionPeriodNotEnded.selector);
-        vault.sendToWhitelistedRecipient(aId, address(weth), 1 ether);
+        _sendWl(aId, address(weth), 1 ether);
         vm.stopPrank();
 
         vm.warp(block.timestamp + protection);
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(aId, address(weth), 1 ether);
+        _sendWl(aId, address(weth), 1 ether);
         assertEq(weth.balanceOf(payee), 1 ether);
     }
 
@@ -2774,12 +2868,12 @@ contract BittyV1VaultTest is Test {
 
         vm.prank(ownerAddress);
         vm.expectRevert(PaymentNotApproved.selector);
-        vault.sendToWhitelistedRecipient(wIdWr, address(weth), 1 ether);
+        _sendWl(wIdWr, address(weth), 1 ether);
 
         vm.prank(ownerAddress);
         vault.approveWhitelistedRecipient(wIdWr, _wrHash(to, address(0)));
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(wIdWr, address(weth), 1 ether);
+        _sendWl(wIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to), 1 ether);
     }
 
@@ -2828,7 +2922,7 @@ contract BittyV1VaultTest is Test {
         amounts[1] = 500e6;
 
         vm.prank(ownerAddress);
-        vault.send(recipients, assets, amounts);
+        _send(recipients, assets, amounts);
 
         assertEq(weth.balanceOf(alice), 2 ether);
         assertEq(usdc.balanceOf(bob), 500e6);
@@ -2854,7 +2948,7 @@ contract BittyV1VaultTest is Test {
         amounts[1] = 200e6;
 
         vm.prank(pm);
-        vault.send(recipients, assets, amounts);
+        _send(recipients, assets, amounts);
         assertEq(usdc.balanceOf(alice), 0);
         assertEq(usdc.balanceOf(bob), 0);
 
@@ -2883,7 +2977,7 @@ contract BittyV1VaultTest is Test {
 
         vm.prank(ownerAddress);
         vm.expectRevert(PaymentExceedsRiskCap.selector);
-        vault.send(recipients, assets, amounts);
+        _send(recipients, assets, amounts);
     }
 
     function test_SendBatch_revertsForEmptyOrMismatchedArrays() public {
@@ -2894,12 +2988,12 @@ contract BittyV1VaultTest is Test {
 
         vm.prank(ownerAddress);
         vm.expectRevert(EmptyArray.selector);
-        vault.send(recipients, assets, amounts);
+        _send(recipients, assets, amounts);
 
         recipients = _arr(makeAddr("payee"));
         vm.prank(ownerAddress);
         vm.expectRevert(ArrayLengthMismatch.selector);
-        vault.send(recipients, assets, amounts);
+        _send(recipients, assets, amounts);
     }
 
     function test_PaymentAssetManager_cancelOwnSendNotOthers() public {
@@ -3062,7 +3156,7 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vault.approveWhitelistedRecipient(wIdWr, _wrHash(to2, address(weth)));
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(wIdWr, address(weth), 1 ether);
+        _sendWl(wIdWr, address(weth), 1 ether);
         assertEq(weth.balanceOf(to2), 1 ether);
     }
 
@@ -3092,7 +3186,7 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vault.approveWhitelistedRecipient(wId, _wrHash(pm, address(weth)));
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(wId, address(weth), 1 ether);
+        _sendWl(wId, address(weth), 1 ether);
         assertEq(weth.balanceOf(pm), 1 ether);
     }
 
@@ -3217,7 +3311,7 @@ contract BittyV1VaultTest is Test {
         uint256 wIdWr = vault.addWhitelistedRecipient(to, address(0)); // allowedAsset = any
 
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(wIdWr, address(0), 2 ether);
+        _sendWl(wIdWr, address(0), 2 ether);
         assertEq(to.balance, 2 ether);
     }
 
