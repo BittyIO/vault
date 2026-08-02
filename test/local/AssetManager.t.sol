@@ -1464,4 +1464,180 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         assertApproxEqAbs(IBittyV1StakingProtocol(clonedProtocol).getStakedBalance(mainnet.WETH), stakeAmount, 10);
     }
+
+    // ============ Auto yield ============
+
+    function test_SetAutoYieldingRevertNotOwner() public {
+        this.doInitialize();
+        address stranger = makeAddr("stranger");
+        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        vm.prank(stranger);
+        this.setAutoYielding(mainnet.WETH, address(aaveProtocol), true);
+    }
+
+    function test_SetAutoYieldingRevertAssetAddressZero() public {
+        this.doInitialize();
+        vm.expectRevert(AddressZero.selector);
+        vm.prank(ownerAddress);
+        this.setAutoYielding(address(0), address(aaveProtocol), true);
+    }
+
+    function test_SetAutoYieldingRevertUnregisteredLendingProtocol() public {
+        this.doInitialize();
+        // A staking protocol is not a valid supply route (and vice versa below).
+        vm.expectRevert(InvalidLendingProtocol.selector);
+        vm.prank(ownerAddress);
+        this.setAutoYielding(mainnet.WETH, address(lidoProtocol), true);
+    }
+
+    function test_SetAutoYieldingRevertUnregisteredStakingProtocol() public {
+        this.doInitialize();
+        vm.expectRevert(InvalidStakingProtocol.selector);
+        vm.prank(ownerAddress);
+        this.setAutoYielding(mainnet.WETH, address(aaveProtocol), false);
+    }
+
+    function test_SetAndGetAutoYielding() public {
+        this.doInitialize();
+        (address protocol, bool isSupplying) = this.getAutoYielding(mainnet.WETH);
+        assertEq(protocol, address(0));
+
+        vm.prank(ownerAddress);
+        this.setAutoYielding(mainnet.WETH, address(aaveProtocol), true);
+        (protocol, isSupplying) = this.getAutoYielding(mainnet.WETH);
+        assertEq(protocol, address(aaveProtocol));
+        assertTrue(isSupplying);
+
+        vm.prank(ownerAddress);
+        this.setAutoYielding(mainnet.WETH, address(0), true);
+        (protocol,) = this.getAutoYielding(mainnet.WETH);
+        assertEq(protocol, address(0));
+    }
+
+    // Sends native ETH to the vault, triggering receive() → wrap to WETH → auto-yield.
+    // Clears any WETH the harness setup left behind first so the deposit is the only source.
+    function _depositEth(uint256 amount) internal {
+        deal(mainnet.WETH, address(this), 0);
+        vm.deal(address(this), amount);
+        (bool ok,) = address(this).call{value: amount}("");
+        assertTrue(ok, "eth deposit failed");
+    }
+
+    function test_AutoYieldRevertNotTrigger() public {
+        this.doInitialize();
+        // Auto-yield is not permissionless: an unauthorized caller is rejected.
+        vm.prank(makeAddr("attacker"));
+        vm.expectRevert(NotAutoYieldTrigger.selector);
+        this.autoYield(mainnet.WETH);
+    }
+
+    function test_AutoYieldTriggerCanSweep() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.setAutoYielding(mainnet.WETH, address(aaveProtocol), true);
+        address keeper = makeAddr("keeper");
+        vm.prank(ownerAddress);
+        this.setAutoYieldTrigger(keeper);
+        assertEq(this.getAutoYieldTrigger(), keeper);
+
+        // The vault holds WETH (not from an ETH deposit) — the trigger sweeps it into the route.
+        deal(mainnet.WETH, address(this), 1 ether);
+        vm.prank(keeper);
+        this.autoYield(mainnet.WETH);
+
+        address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
+        assertApproxEqAbs(IBittyV1LendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH), 1 ether, 10);
+        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
+    }
+
+    function test_AutoYieldTriggerClearedRevokesAccess() public {
+        this.doInitialize();
+        address keeper = makeAddr("keeper");
+        vm.prank(ownerAddress);
+        this.setAutoYieldTrigger(keeper);
+        vm.prank(ownerAddress);
+        this.setAutoYieldTrigger(address(0));
+
+        vm.prank(keeper);
+        vm.expectRevert(NotAutoYieldTrigger.selector);
+        this.autoYield(mainnet.WETH);
+    }
+
+    function test_AutoYieldNoRouteKeepsWeth() public {
+        this.doInitialize();
+        _depositEth(1 ether);
+        // No route configured → the deposit is wrapped but stays liquid in the vault.
+        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 1 ether);
+    }
+
+    function test_AutoYieldSupplyOnDeposit() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.setAutoYielding(mainnet.WETH, address(aaveProtocol), true);
+
+        _depositEth(1 ether);
+
+        address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
+        assertApproxEqAbs(IBittyV1LendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH), 1 ether, 10);
+        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
+    }
+
+    function test_AutoYieldStakeOnDeposit() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.setAutoYielding(mainnet.WETH, address(lidoProtocol), false);
+
+        _depositEth(0.5 ether);
+
+        assertApproxEqAbs(this.getStakedBalance(address(lidoProtocol), mainnet.WETH), 0.5 ether, 10);
+        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
+    }
+
+    function test_AutoYieldKeepsMinimalBalanceLiquid() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.setAutoYielding(mainnet.WETH, address(lidoProtocol), false);
+        vm.prank(ownerAddress);
+        this.setMinimalBalance(mainnet.WETH, 0.3 ether);
+
+        _depositEth(1 ether);
+        assertApproxEqAbs(this.getStakedBalance(address(lidoProtocol), mainnet.WETH), 0.7 ether, 10);
+        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0.3 ether);
+    }
+
+    function test_AutoYieldNothingSpendableKeepsWeth() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.setAutoYielding(mainnet.WETH, address(lidoProtocol), false);
+        vm.prank(ownerAddress);
+        this.setMinimalBalance(mainnet.WETH, 1 ether);
+
+        // Whole deposit sits at the liquid floor → nothing yielded, all WETH stays.
+        _depositEth(1 ether);
+        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 1 ether);
+        assertEq(this.getStakedBalance(address(lidoProtocol), mainnet.WETH), 0);
+    }
+
+    function test_AutoYieldSkippedAfterProtocolRemoved() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.setAutoYielding(mainnet.WETH, address(lidoProtocol), false);
+        vm.prank(ownerAddress);
+        this.removeStakingProtocols(stakingProtocols);
+
+        // Route now invalid → auto-yield is a caught no-op; the deposit still succeeds.
+        _depositEth(1 ether);
+        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 1 ether);
+    }
+
+    function test_AutoYieldSkippedForDeprecatedProtocol() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.setAutoYielding(mainnet.WETH, address(lidoProtocol), false);
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).deprecateStakingProtocols(stakingProtocols);
+
+        _depositEth(1 ether);
+        assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 1 ether);
+    }
 }

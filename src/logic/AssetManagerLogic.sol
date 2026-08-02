@@ -4,36 +4,14 @@ pragma solidity ^0.8.34;
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IBittyV1Guard, NotRegistered, Deprecated} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {
-    DisableRebalanceUntilTimestampTooEarly,
-    DisableRebalanceUntilTimestampTooLong,
-    RebalanceDisabled,
-    SellAmountMismatch,
-    BuyAmountNotEnough,
-    MinimalBalanceNotMet,
-    TradeSizeExceeded,
-    TradeInInterval,
-    TradeMustTouchStableCoin,
-    TradeLimitExpired,
-    TradeInvestedTotalExceeded,
     StableCoinInvestCapZero,
     InvalidLendingProtocol,
-    InvalidStakingProtocol,
-    InvalidAMMProtocol,
-    InvalidIntentProtocol,
-    IntentProtocolMismatch,
-    InvalidValidTo,
-    InvalidSwapData
+    InvalidStakingProtocol
 } from "../interfaces/IBittyV1AssetManager.sol";
-import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
 import {IBittyV1LendingProtocol} from "protocol-contracts/src/interfaces/IBittyV1LendingProtocol.sol";
 import {IBittyV1StakingProtocol} from "protocol-contracts/src/interfaces/IBittyV1StakingProtocol.sol";
-import {IBittyV1AMMProtocol} from "protocol-contracts/src/interfaces/IBittyV1AMMProtocol.sol";
-import {IBittyV1IntentProtocol, OrderNotExpired} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
-import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {
     AddressZero,
     AmountIsZero,
@@ -42,16 +20,20 @@ import {
     AlreadyInitialized,
     AddingProtocolsDisabled
 } from "../interfaces/IBittyV1Vault.sol";
-import {AssetManagerStorage, VaultStorage, IntentOrderRecord, TradeLimit} from "./Storages.sol";
-import {VaultLogic} from "./VaultLogic.sol";
+import {AssetManagerStorage, TradeLimit, AutoYieldConfig} from "./Storages.sol";
+import {AssetManagerShared} from "./AssetManagerShared.sol";
 
+/**
+ * @title AssetManagerLogic
+ * @notice The asset manager's yield (lending / staking / auto-yield) surface, plus asset-manager
+ *         config and protocol registration. Trading (market swaps, AMM liquidity, intent limit/TWAP
+ *         orders) lives in {AssetManagerTradeLogic}; the two share {AssetManagerShared} and operate on
+ *         the same {AssetManagerStorage}. Split so each deployed library stays under the EIP-170
+ *         24,576-byte limit.
+ */
 library AssetManagerLogic {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
-    using Address for address;
-    using Clones for address;
-
-    uint256 constant REBALANCE_DISABLE_MAX_DURATION = 4 * 365 days;
 
     modifier onlyInitialized(AssetManagerStorage storage logicStorage) {
         if (!logicStorage.isInitialized) {
@@ -87,21 +69,6 @@ library AssetManagerLogic {
 
     function getClone(AssetManagerStorage storage logicStorage, address protocol) external view returns (address) {
         return logicStorage.clonedProtocols[protocol];
-    }
-
-    function _cloneProtocol(AssetManagerStorage storage logicStorage, address protocol)
-        private
-        onlyInitialized(logicStorage)
-        returns (address clonedProtocol)
-    {
-        clonedProtocol = logicStorage.clonedProtocols[protocol];
-        if (clonedProtocol != address(0)) {
-            return clonedProtocol;
-        }
-        clonedProtocol = protocol.clone();
-        IBittyV1Protocol(clonedProtocol).initialize(address(this));
-        logicStorage.clonedProtocols[protocol] = clonedProtocol;
-        return clonedProtocol;
     }
 
     function setMinimalBalance(AssetManagerStorage storage logicStorage, address assetAddress, uint256 minimalBalance)
@@ -158,12 +125,25 @@ library AssetManagerLogic {
         delete logicStorage.assetManagerLimit;
     }
 
+    // ============ Lending ============
+
     function supply(
         AssetManagerStorage storage logicStorage,
         address lendingProtocol,
         address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
+        _supply(logicStorage, lendingProtocol, assetAddress, amount);
+    }
+
+    // Shared by supply and autoYield: full validation + execution against the REGISTERED protocol
+    // address (cloned on first use).
+    function _supply(
+        AssetManagerStorage storage logicStorage,
+        address lendingProtocol,
+        address assetAddress,
+        uint256 amount
+    ) private {
         if (!logicStorage.lendingProtocols.contains(lendingProtocol)) {
             revert InvalidLendingProtocol();
         }
@@ -176,7 +156,7 @@ library AssetManagerLogic {
         if (amount == 0) {
             revert AmountIsZero();
         }
-        lendingProtocol = _cloneProtocol(logicStorage, lendingProtocol);
+        lendingProtocol = AssetManagerShared.cloneProtocol(logicStorage, lendingProtocol);
         if (IERC20(assetAddress).allowance(address(this), lendingProtocol) < amount) {
             IERC20(assetAddress).forceApprove(lendingProtocol, type(uint256).max);
         }
@@ -230,12 +210,25 @@ library AssetManagerLogic {
         return IBittyV1LendingProtocol(_clonedProtocol).getSuppliedBalance(assetAddress);
     }
 
+    // ============ Staking ============
+
     function stake(
         AssetManagerStorage storage logicStorage,
         address stakingProtocol,
         address assetAddress,
         uint256 amount
     ) external onlyInitialized(logicStorage) {
+        _stake(logicStorage, stakingProtocol, assetAddress, amount);
+    }
+
+    // Shared by stake and autoYield: full validation + execution against the REGISTERED protocol
+    // address (cloned on first use).
+    function _stake(
+        AssetManagerStorage storage logicStorage,
+        address stakingProtocol,
+        address assetAddress,
+        uint256 amount
+    ) private {
         if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
             revert InvalidStakingProtocol();
         }
@@ -248,7 +241,7 @@ library AssetManagerLogic {
         if (amount == 0) {
             revert AmountIsZero();
         }
-        stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
+        stakingProtocol = AssetManagerShared.cloneProtocol(logicStorage, stakingProtocol);
         if (IERC20(assetAddress).allowance(address(this), stakingProtocol) < amount) {
             IERC20(assetAddress).forceApprove(stakingProtocol, type(uint256).max);
         }
@@ -334,6 +327,83 @@ library AssetManagerLogic {
         IBittyV1StakingProtocol(stakingProtocol).claimUnstaked(requestIds);
     }
 
+    // ============ Auto yield ============
+
+    /**
+     * @notice Set (or clear, protocol = address(0)) the default yield route for `assetAddress`.
+     * @dev The protocol must already be registered on the vault for the chosen kind — autoYield can
+     * never route funds anywhere the owner hasn't enabled. Re-validated again at execution time, so a
+     * later protocol removal or deprecation disables the route rather than bypassing the check.
+     */
+    function setAutoYielding(
+        AssetManagerStorage storage logicStorage,
+        address assetAddress,
+        address protocol,
+        bool isSupplying
+    ) external onlyInitialized(logicStorage) {
+        if (assetAddress == address(0)) {
+            revert AddressZero();
+        }
+        if (protocol == address(0)) {
+            delete logicStorage.autoYieldConfigs[assetAddress];
+            return;
+        }
+        if (isSupplying) {
+            if (!logicStorage.lendingProtocols.contains(protocol)) {
+                revert InvalidLendingProtocol();
+            }
+        } else {
+            if (!logicStorage.stakingProtocols.contains(protocol)) {
+                revert InvalidStakingProtocol();
+            }
+        }
+        logicStorage.autoYieldConfigs[assetAddress] = AutoYieldConfig({protocol: protocol, isSupplying: isSupplying});
+    }
+
+    function getAutoYielding(AssetManagerStorage storage logicStorage, address assetAddress)
+        external
+        view
+        returns (address protocol, bool isSupplying)
+    {
+        AutoYieldConfig storage cfg = logicStorage.autoYieldConfigs[assetAddress];
+        return (cfg.protocol, cfg.isSupplying);
+    }
+
+    /**
+     * @notice Sweep the vault's spendable wallet balance of `assetAddress` into its configured
+     * default yield route (supply or stake). Best-effort: a no-op (returns 0) when no route is
+     * configured or nothing is spendable, so the vault's {receive} can call it on every deposit
+     * without ever reverting. Not exposed as a standalone entry point — routing funds on demand must
+     * not be triggerable by third parties (a griefer could otherwise strand the asset manager's
+     * swap liquidity in a protocol).
+     * @dev Spendable excludes tokens reserved by open intent orders (they must stay liquid to settle)
+     * and the asset's minimalBalance, which doubles as the owner's liquid buffer for payments.
+     * @return amount The amount supplied/staked.
+     */
+    function autoYield(AssetManagerStorage storage logicStorage, address assetAddress)
+        external
+        onlyInitialized(logicStorage)
+        returns (uint256 amount)
+    {
+        AutoYieldConfig memory cfg = logicStorage.autoYieldConfigs[assetAddress];
+        if (cfg.protocol == address(0)) {
+            return 0;
+        }
+        uint256 balance = AssetManagerShared.addressBalance(assetAddress);
+        uint256 reserved = logicStorage.committedIntentSell[assetAddress] + logicStorage.minimalBalances[assetAddress];
+        amount = balance > reserved ? balance - reserved : 0;
+        if (amount == 0) {
+            return 0;
+        }
+        if (cfg.isSupplying) {
+            _supply(logicStorage, cfg.protocol, assetAddress, amount);
+        } else {
+            _stake(logicStorage, cfg.protocol, assetAddress, amount);
+        }
+    }
+
+    // ============ Receipt-token / staking helpers ============
+
     function _getReceiptToken(address protocol, address asset) private view returns (address) {
         (bool success, bytes memory data) =
             protocol.staticcall(abi.encodeWithSignature("receiptTokenOf(address)", asset));
@@ -353,373 +423,62 @@ library AssetManagerLogic {
         }
     }
 
-    function _approveNFTIfNeeded(address protocol) private {
-        (bool success, bytes memory data) = protocol.staticcall(abi.encodeWithSignature("positionAssetManager()"));
-        if (!success || data.length < 32) return;
-        address nft = abi.decode(data, (address));
-        (bool success2, bytes memory result) =
-            nft.staticcall(abi.encodeWithSignature("isApprovedForAll(address,address)", address(this), protocol));
-        if (!success2 || result.length < 32) return;
-        bool approved = abi.decode(result, (bool));
-        if (!approved) {
-            nft.functionCall(abi.encodeWithSignature("setApprovalForAll(address,bool)", protocol, true));
-        }
-    }
-
-    function _addressBalance(address assetAddress) private view returns (uint256) {
-        if (assetAddress == address(0)) {
-            revert AddressZero();
-        }
-        return IERC20(assetAddress).balanceOf(address(this));
-    }
-
-    /**
-     * @notice The vault's total economic holding of `assetAddress`: the spot balance plus every
-     * supplied (lending) and staked position denominated in the asset. So a minimal-balance reserve
-     * counts assets that are earning yield, not just idle spot.
-     * @dev Per-protocol views are queried through try/catch because they revert for assets a protocol
-     * does not support (e.g. Lido's InvalidAsset); an unsupported/empty position contributes 0.
-     */
-    function _totalBalance(AssetManagerStorage storage logicStorage, address assetAddress)
-        private
-        view
-        returns (uint256 total)
-    {
-        total = _addressBalance(assetAddress);
-
-        uint256 lendingCount = logicStorage.lendingProtocols.length();
-        for (uint256 i = 0; i < lendingCount; i++) {
-            address clone = logicStorage.clonedProtocols[logicStorage.lendingProtocols.at(i)];
-            if (clone == address(0)) continue;
-            try IBittyV1LendingProtocol(clone).getSuppliedBalance(assetAddress) returns (uint256 supplied) {
-                total += supplied;
-            } catch {}
-        }
-
-        uint256 stakingCount = logicStorage.stakingProtocols.length();
-        for (uint256 i = 0; i < stakingCount; i++) {
-            address clone = logicStorage.clonedProtocols[logicStorage.stakingProtocols.at(i)];
-            if (clone == address(0)) continue;
-            try IBittyV1StakingProtocol(clone).getStakedBalance(assetAddress) returns (uint256 staked) {
-                total += staked;
-            } catch {}
-        }
-    }
-
-    function _checkAMMProtocol(AssetManagerStorage storage logicStorage, address ammProtocol) private view {
-        if (!logicStorage.ammProtocols.contains(ammProtocol)) {
-            revert InvalidAMMProtocol();
-        }
-        if (
-            !logicStorage.guard.isAMMProtocolRegistered(ammProtocol)
-                && !logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)
-        ) {
-            revert NotRegistered();
-        }
-    }
-
-    function _checkRebalanceDisabledUntilTimestamp(AssetManagerStorage storage logicStorage) private view {
-        if (
-            logicStorage.rebalanceDisabledUntilTimestamp > 0
-                && block.timestamp < logicStorage.rebalanceDisabledUntilTimestamp
-        ) {
-            revert RebalanceDisabled();
-        }
-    }
-
-    /**
-     * @notice Shared gate for every asset manager trade (market/limit/TWAP).
-     * @dev `sellAmount` is the amount of `from` leaving the vault and `toAmount` the amount of `to`
-     * coming back (a floor for exact-in trades, exact for exact-out). The sell leg (`from`) may be
-     * any token the vault holds — it need not be on the vault asset allowlist (e.g. airdrops or
-     * mistaken transfers can still be sold out). The buy leg (`to`) must remain an allowlisted asset
-     * or stablecoin. Enforces, per asset manager (keyed by msg.sender, preserved through
-     * delegatecall): a stablecoin size cap and a frequency throttle. The size cap is denominated in
-     * stablecoin whole tokens, so when it is set the trade must have a stablecoin as either leg; the
-     * stablecoin leg's amount is measured against the cap.
-     * `stableCoinInvested` (the asset manager's deployed portfolio) rises by the stablecoin spent on
-     * stable→asset trades and falls when assets are sold back, and may never exceed `stableCoinInvestCap`.
-     * `expiredAt` blocks all trades once reached (0 = no expiry). Every caller here holds
-     * ASSET_MANAGER_ROLE and is always enforced, so an unconfigured cap of 0 blocks stable→asset
-     * investing rather than allowing it.
-     */
-    function _validateTrade(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address from,
-        address to,
-        uint256 sellAmount,
-        uint256 toAmount,
-        bool creditReturn
-    ) private {
-        VaultLogic.checkAsset(vaultStorage, to);
-        _checkRebalanceDisabledUntilTimestamp(logicStorage);
-
-        uint256 minBal = logicStorage.minimalBalances[from];
-        // Tokens already promised to open limit/TWAP orders are still on-chain but not free to sell, so
-        // measure against balance minus that reservation, not the raw balance.
-        uint256 committed = logicStorage.committedIntentSell[from];
-        if (minBal > 0 || committed > 0) {
-            uint256 bal = _totalBalance(logicStorage, from);
-            uint256 available = bal > committed ? bal - committed : 0;
-            if (available < sellAmount || available - sellAmount < minBal) revert MinimalBalanceNotMet();
-        }
-
-        TradeLimit storage limit = logicStorage.assetManagerLimit;
-
-        // Full-access asset managers are bounded only by the minimal-balance floor above; skip the entire trade
-        // limit — including the stablecoin-leg requirement — so they may trade any asset (even asset ->
-        // asset) freely and without the per-trade cap/invest/throttle accounting.
-        if (limit.fullAccess) return;
-
-        // Restricted asset managers must touch a stablecoin (the caps are denominated in stablecoin whole tokens).
-        if (!vaultStorage.stableCoins.contains(from) && !vaultStorage.stableCoins.contains(to)) {
-            revert TradeMustTouchStableCoin();
-        }
-
-        if (limit.expiredAt != 0 && block.timestamp >= limit.expiredAt) {
-            revert TradeLimitExpired();
-        }
-
-        uint256 maxWholeTokens = limit.maxStableCoinPerTrade;
-        if (maxWholeTokens != 0) {
-            address stableCoin;
-            uint256 stableAmount;
-            if (vaultStorage.stableCoins.contains(from)) {
-                stableCoin = from;
-                stableAmount = sellAmount;
-            } else if (vaultStorage.stableCoins.contains(to)) {
-                stableCoin = to;
-                stableAmount = toAmount;
-            }
-            uint256 maxUnits = maxWholeTokens * (10 ** IERC20Metadata(stableCoin).decimals());
-            if (stableAmount > maxUnits) revert TradeSizeExceeded();
-        }
-
-        uint256 cap = limit.stableCoinInvestCap;
-        if (vaultStorage.stableCoins.contains(from)) {
-            // Stablecoin leaving the vault. Count it (whole tokens, rounded UP so a stream of
-            // sub-whole-token trades cannot dodge the cap). For a stablecoin-for-stablecoin trade count
-            // the LARGER of the two legs — this caps how much a asset manager can churn through (possibly
-            // manipulated) stable pools regardless of trade direction/rate; without it, repeated
-            // stable->stable trades could bleed the vault unchecked.
-            uint256 fromUnit = 10 ** IERC20Metadata(from).decimals();
-            uint256 wholeSpent = (sellAmount + fromUnit - 1) / fromUnit;
-            if (vaultStorage.stableCoins.contains(to)) {
-                uint256 toUnit = 10 ** IERC20Metadata(to).decimals();
-                uint256 toWhole = (toAmount + toUnit - 1) / toUnit;
-                if (toWhole > wholeSpent) wholeSpent = toWhole;
-            }
-            uint256 invested = uint256(limit.stableCoinInvested) + wholeSpent;
-            if (invested > cap) revert TradeInvestedTotalExceeded();
-            limit.stableCoinInvested = uint64(invested);
-        } else if (vaultStorage.stableCoins.contains(to) && creditReturn) {
-            // Divesting (asset -> stable) via a SYNCHRONOUS market trade: credit the stablecoin coming
-            // back (floored, conservative). Async intent orders do not credit here — there is no fill
-            // hook, so a placed-then-cancelled buy-stablecoin order must not be able to reduce the
-            // invested total. Freeing the cap therefore requires an actually-settled (market) divest.
-            uint256 unit = 10 ** IERC20Metadata(to).decimals();
-            uint256 wholeReceived = toAmount / unit;
-            uint256 invested = limit.stableCoinInvested;
-            limit.stableCoinInvested = uint64(invested > wholeReceived ? invested - wholeReceived : 0);
-        }
-
-        if (limit.interval != 0) {
-            uint256 last = limit.lastTradeTimestamp;
-            if (last != 0 && block.timestamp - last < limit.interval) revert TradeInInterval();
-            limit.lastTradeTimestamp = uint128(block.timestamp);
-        }
-    }
-
-    function addLiquidity(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address ammProtocol,
-        address token0,
-        uint256 amount0,
-        address token1,
-        uint256 amount1,
-        bytes memory data
-    ) external onlyInitialized(logicStorage) {
-        _checkAMMProtocol(logicStorage, ammProtocol);
-        if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
-
-        VaultLogic.checkAsset(vaultStorage, token0);
-        VaultLogic.checkAsset(vaultStorage, token1);
-
-        address clone = _cloneProtocol(logicStorage, ammProtocol);
-        if (token0 != address(0) && amount0 > 0 && IERC20(token0).allowance(address(this), clone) < amount0) {
-            IERC20(token0).forceApprove(clone, type(uint256).max);
-        }
-        if (token1 != address(0) && amount1 > 0 && IERC20(token1).allowance(address(this), clone) < amount1) {
-            IERC20(token1).forceApprove(clone, type(uint256).max);
-        }
-
-        _approveNFTIfNeeded(clone);
-        IBittyV1AMMProtocol(clone).addLiquidity(data);
-    }
-
-    function removeLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
-        external
-        onlyInitialized(logicStorage)
-    {
-        address clone = logicStorage.clonedProtocols[ammProtocol];
-        if (clone == address(0)) revert InvalidAMMProtocol();
-        _approveNFTIfNeeded(clone);
-        IBittyV1AMMProtocol(clone).removeLiquidity(data);
-    }
-
-    function decreaseLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
-        external
-        onlyInitialized(logicStorage)
-    {
-        address clone = logicStorage.clonedProtocols[ammProtocol];
-        if (clone == address(0)) revert InvalidAMMProtocol();
-        _approveNFTIfNeeded(clone);
-        IBittyV1AMMProtocol(clone).decreaseLiquidity(data);
-    }
-
-    function claimAMMFees(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
-        external
-        onlyInitialized(logicStorage)
-    {
-        address clone = logicStorage.clonedProtocols[ammProtocol];
-        if (clone == address(0)) revert InvalidAMMProtocol();
-        _approveNFTIfNeeded(clone);
-        IBittyV1AMMProtocol(clone).claimAMMFees(data);
-    }
-
-    /**
-     * @notice Asset manager rebalance: sell exactly `sellAmount` of `from` for ≥ `buyAmountMin` of
-     * `to`, back into the vault. Subject to the rebalance guards (rebalance-disabled + minimal balance).
-     */
-    function marketSell(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address ammProtocol,
-        address from,
-        address to,
-        uint256 sellAmount,
-        uint256 buyAmountMin,
-        bytes memory data
-    ) external onlyInitialized(logicStorage) {
-        _checkAMMProtocol(logicStorage, ammProtocol);
-        if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
-        _validateTrade(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin, true);
-        _swapExactIn(logicStorage, ammProtocol, from, sellAmount, to, buyAmountMin, address(this), data);
-    }
-
-    /**
-     * @notice Asset manager rebalance: buy exactly `buyAmount` of `to` for ≤ `sellAmountMax` of `from`,
-     * back into the vault. Subject to the rebalance guards (rebalance-disabled + minimal balance).
-     */
-    function marketBuy(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address ammProtocol,
-        address from,
-        address to,
-        uint256 buyAmount,
-        uint256 sellAmountMax,
-        bytes memory data
-    ) external onlyInitialized(logicStorage) {
-        _checkAMMProtocol(logicStorage, ammProtocol);
-        if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
-        _validateTrade(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount, true);
-        _swapExactOut(logicStorage, ammProtocol, from, sellAmountMax, to, buyAmount, address(this), data);
-    }
-
-    function _swapExactIn(
-        AssetManagerStorage storage logicStorage,
-        address ammProtocol,
-        address sellAssetAddress,
-        uint256 sellAmount,
-        address toAssetAddress,
-        uint256 buyAmountMin,
-        address recipient,
-        bytes memory data
-    ) private {
-        if (sellAmount == 0 || buyAmountMin == 0) revert AmountIsZero();
-        (address sellToken_, uint256 sellAmount_, address buyToken_, uint256 buyAmountMin_) =
-            abi.decode(data, (address, uint256, address, uint256));
-        if (
-            sellToken_ != sellAssetAddress || sellAmount_ != sellAmount || buyToken_ != toAssetAddress
-                || buyAmountMin_ != buyAmountMin
-        ) revert InvalidSwapData();
-
-        uint256 sellAssetBalanceBefore = _addressBalance(sellAssetAddress);
-        if (sellAssetBalanceBefore < sellAmount) revert InsufficientBalance();
-
-        uint256 recipientBuyBalanceBefore = IERC20(toAssetAddress).balanceOf(recipient);
-
-        ammProtocol = _cloneProtocol(logicStorage, ammProtocol);
-        if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmount) {
-            IERC20(sellAssetAddress).forceApprove(ammProtocol, type(uint256).max);
-        }
-        IBittyV1AMMProtocol(ammProtocol).swap(data, recipient);
-
-        // Guard against the AMM pulling more than the authorized sellAmount. A slightly-higher
-        // ending balance is fine and expected: protocols can refund dust ETH to the vault, which
-        // receive() wraps into WETH (matches _swapExactOut's over-spend check below).
-        if (sellAssetBalanceBefore - _addressBalance(sellAssetAddress) > sellAmount) revert SellAmountMismatch();
-        if (IERC20(toAssetAddress).balanceOf(recipient) - recipientBuyBalanceBefore < buyAmountMin) {
-            revert BuyAmountNotEnough();
-        }
-    }
-
-    function _swapExactOut(
-        AssetManagerStorage storage logicStorage,
-        address ammProtocol,
-        address sellAssetAddress,
-        uint256 sellAmountMax,
-        address toAssetAddress,
-        uint256 buyAmount,
-        address recipient,
-        bytes memory data
-    ) private {
-        if (buyAmount == 0 || sellAmountMax == 0) revert AmountIsZero();
-        (address sellToken_, uint256 sellAmountMax_, address buyToken_, uint256 buyAmount_) =
-            abi.decode(data, (address, uint256, address, uint256));
-        if (
-            sellToken_ != sellAssetAddress || sellAmountMax_ != sellAmountMax || buyToken_ != toAssetAddress
-                || buyAmount_ != buyAmount
-        ) revert InvalidSwapData();
-
-        uint256 sellAssetBalanceBefore = _addressBalance(sellAssetAddress);
-        if (sellAssetBalanceBefore < sellAmountMax) revert InsufficientBalance();
-
-        uint256 recipientBuyBalanceBefore = IERC20(toAssetAddress).balanceOf(recipient);
-
-        ammProtocol = _cloneProtocol(logicStorage, ammProtocol);
-        if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmountMax) {
-            IERC20(sellAssetAddress).forceApprove(ammProtocol, type(uint256).max);
-        }
-        IBittyV1AMMProtocol(ammProtocol).swapExactOut(data, recipient);
-
-        if (sellAssetBalanceBefore - _addressBalance(sellAssetAddress) > sellAmountMax) revert SellAmountMismatch();
-        if (IERC20(toAssetAddress).balanceOf(recipient) - recipientBuyBalanceBefore < buyAmount) {
-            revert BuyAmountNotEnough();
-        }
-    }
-
-    function disableRebalanceUntilTimestamp(AssetManagerStorage storage logicStorage, uint256 timestamp)
-        external
-        onlyInitialized(logicStorage)
-    {
-        if (timestamp == 0) {
-            return;
-        }
-        if (timestamp < logicStorage.rebalanceDisabledUntilTimestamp) {
-            revert DisableRebalanceUntilTimestampTooEarly();
-        }
-        if (timestamp > block.timestamp + REBALANCE_DISABLE_MAX_DURATION) {
-            revert DisableRebalanceUntilTimestampTooLong();
-        }
-        logicStorage.rebalanceDisabledUntilTimestamp = uint64(timestamp);
-    }
+    // ============ Protocol registration ============
 
     function disableAddingProtocols(AssetManagerStorage storage logicStorage) external onlyInitialized(logicStorage) {
         logicStorage.addingProtocolsDisabled = true;
+    }
+
+    // Which protocol registry an add/remove targets. Lets the four protocol kinds share one
+    // add/remove implementation instead of repeating the loop + guard check four times each.
+    enum ProtocolType {
+        Lending,
+        Staking,
+        AMM,
+        Intent
+    }
+
+    function _protocolSet(AssetManagerStorage storage logicStorage, ProtocolType kind)
+        private
+        view
+        returns (EnumerableSet.AddressSet storage)
+    {
+        if (kind == ProtocolType.Lending) return logicStorage.lendingProtocols;
+        if (kind == ProtocolType.Staking) return logicStorage.stakingProtocols;
+        if (kind == ProtocolType.AMM) return logicStorage.ammProtocols;
+        return logicStorage.intentProtocols;
+    }
+
+    function _isProtocolRegistered(IBittyV1Guard guard, address protocol, ProtocolType kind)
+        private
+        view
+        returns (bool)
+    {
+        if (kind == ProtocolType.Lending) return guard.isLendingProtocolRegistered(protocol);
+        if (kind == ProtocolType.Staking) return guard.isStakingProtocolRegistered(protocol);
+        if (kind == ProtocolType.AMM) return guard.isAMMProtocolRegistered(protocol);
+        return guard.isIntentProtocolRegistered(protocol);
+    }
+
+    function _addProtocols(AssetManagerStorage storage logicStorage, address[] memory protocols, ProtocolType kind)
+        private
+    {
+        EnumerableSet.AddressSet storage set = _protocolSet(logicStorage, kind);
+        for (uint256 i = 0; i < protocols.length; i++) {
+            if (!_isProtocolRegistered(logicStorage.guard, protocols[i], kind)) {
+                revert NotRegistered();
+            }
+            set.add(protocols[i]);
+        }
+    }
+
+    function _removeProtocols(AssetManagerStorage storage logicStorage, address[] memory protocols, ProtocolType kind)
+        private
+    {
+        EnumerableSet.AddressSet storage set = _protocolSet(logicStorage, kind);
+        for (uint256 i = 0; i < protocols.length; i++) {
+            set.remove(protocols[i]);
+        }
     }
 
     function addLendingProtocols(AssetManagerStorage storage logicStorage, address[] memory lendingProtocolAddresses)
@@ -727,12 +486,7 @@ library AssetManagerLogic {
         onlyAddingProtocolsEnabled(logicStorage)
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < lendingProtocolAddresses.length; i++) {
-            if (!logicStorage.guard.isLendingProtocolRegistered(lendingProtocolAddresses[i])) {
-                revert NotRegistered();
-            }
-            logicStorage.lendingProtocols.add(lendingProtocolAddresses[i]);
-        }
+        _addProtocols(logicStorage, lendingProtocolAddresses, ProtocolType.Lending);
     }
 
     function addStakingProtocols(AssetManagerStorage storage logicStorage, address[] memory stakingProtocolAddresses)
@@ -740,30 +494,21 @@ library AssetManagerLogic {
         onlyAddingProtocolsEnabled(logicStorage)
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < stakingProtocolAddresses.length; i++) {
-            if (!logicStorage.guard.isStakingProtocolRegistered(stakingProtocolAddresses[i])) {
-                revert NotRegistered();
-            }
-            logicStorage.stakingProtocols.add(stakingProtocolAddresses[i]);
-        }
+        _addProtocols(logicStorage, stakingProtocolAddresses, ProtocolType.Staking);
     }
 
     function removeLendingProtocols(AssetManagerStorage storage logicStorage, address[] memory lendingProtocolAddresses)
         external
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < lendingProtocolAddresses.length; i++) {
-            logicStorage.lendingProtocols.remove(lendingProtocolAddresses[i]);
-        }
+        _removeProtocols(logicStorage, lendingProtocolAddresses, ProtocolType.Lending);
     }
 
     function removeStakingProtocols(AssetManagerStorage storage logicStorage, address[] memory stakingProtocolAddresses)
         external
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < stakingProtocolAddresses.length; i++) {
-            logicStorage.stakingProtocols.remove(stakingProtocolAddresses[i]);
-        }
+        _removeProtocols(logicStorage, stakingProtocolAddresses, ProtocolType.Staking);
     }
 
     function addAMMProtocols(AssetManagerStorage storage logicStorage, address[] memory ammProtocolAddresses)
@@ -771,21 +516,29 @@ library AssetManagerLogic {
         onlyAddingProtocolsEnabled(logicStorage)
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < ammProtocolAddresses.length; i++) {
-            if (!logicStorage.guard.isAMMProtocolRegistered(ammProtocolAddresses[i])) {
-                revert NotRegistered();
-            }
-            logicStorage.ammProtocols.add(ammProtocolAddresses[i]);
-        }
+        _addProtocols(logicStorage, ammProtocolAddresses, ProtocolType.AMM);
     }
 
     function removeAMMProtocols(AssetManagerStorage storage logicStorage, address[] memory ammProtocolAddresses)
         external
         onlyInitialized(logicStorage)
     {
-        for (uint256 i = 0; i < ammProtocolAddresses.length; i++) {
-            logicStorage.ammProtocols.remove(ammProtocolAddresses[i]);
-        }
+        _removeProtocols(logicStorage, ammProtocolAddresses, ProtocolType.AMM);
+    }
+
+    function addIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
+        external
+        onlyAddingProtocolsEnabled(logicStorage)
+        onlyInitialized(logicStorage)
+    {
+        _addProtocols(logicStorage, intentProtocolAddresses, ProtocolType.Intent);
+    }
+
+    function removeIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
+        external
+        onlyInitialized(logicStorage)
+    {
+        _removeProtocols(logicStorage, intentProtocolAddresses, ProtocolType.Intent);
     }
 
     function getLendingProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
@@ -800,276 +553,7 @@ library AssetManagerLogic {
         return logicStorage.ammProtocols.values();
     }
 
-    function getLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
-        external
-        view
-        returns (uint256)
-    {
-        address clone = logicStorage.clonedProtocols[ammProtocol];
-        if (clone == address(0)) return 0;
-        return IBittyV1AMMProtocol(clone).getLiquidity(data);
-    }
-
-    // ============ Intent protocols ============
-
-    function _checkIntentProtocol(AssetManagerStorage storage logicStorage, address intentProtocol) private view {
-        if (!logicStorage.intentProtocols.contains(intentProtocol)) revert InvalidIntentProtocol();
-        if (logicStorage.guard.isIntentProtocolDeprecated(intentProtocol)) revert Deprecated();
-        if (!logicStorage.guard.isIntentProtocolRegistered(intentProtocol)) revert NotRegistered();
-    }
-
-    function _executeCancel(AssetManagerStorage storage logicStorage, address intentProtocol, bytes32 orderId) private {
-        IntentOrderRecord memory record = logicStorage.intentOrderRecords[orderId];
-        if (record.owningProtocol != intentProtocol) revert IntentProtocolMismatch();
-        address clone = logicStorage.clonedProtocols[intentProtocol];
-        IBittyV1IntentProtocol.CancelInstructions memory instr =
-            IBittyV1IntentProtocol(clone).buildCancelInstructions(orderId);
-        if (instr.cancelTarget != address(0)) {
-            instr.cancelTarget.functionCall(instr.cancelCalldata);
-        }
-        if (record.reservedSell > 0) {
-            uint256 c = logicStorage.committedIntentSell[record.sellToken];
-            logicStorage.committedIntentSell[record.sellToken] = c > record.reservedSell ? c - record.reservedSell : 0;
-        }
-        delete logicStorage.intentOrderRecords[orderId];
-    }
-
-    function limitSell(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address intentProtocol,
-        address from,
-        address to,
-        uint256 sellAmount,
-        uint256 buyAmountMin,
-        uint32 validTo
-    ) external onlyInitialized(logicStorage) returns (bytes32 orderId) {
-        _checkIntentProtocol(logicStorage, intentProtocol);
-        _validateTrade(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin, false);
-        orderId = _intentTrade(logicStorage, intentProtocol, from, sellAmount, to, buyAmountMin, validTo, true);
-    }
-
-    function limitBuy(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address intentProtocol,
-        address from,
-        address to,
-        uint256 buyAmount,
-        uint256 sellAmountMax,
-        uint32 validTo
-    ) external onlyInitialized(logicStorage) returns (bytes32 orderId) {
-        _checkIntentProtocol(logicStorage, intentProtocol);
-        _validateTrade(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount, false);
-        orderId = _intentTrade(logicStorage, intentProtocol, from, sellAmountMax, to, buyAmount, validTo, false);
-    }
-
-    function _intentTrade(
-        AssetManagerStorage storage logicStorage,
-        address intentProtocol,
-        address sellAssetAddress,
-        uint256 sellAmount,
-        address toAssetAddress,
-        uint256 buyAmountMin,
-        uint32 validTo,
-        bool isSellOrder
-    ) private returns (bytes32 orderId) {
-        if (sellAmount == 0 || buyAmountMin == 0) revert AmountIsZero();
-        if (validTo <= block.timestamp) revert InvalidValidTo();
-
-        address clone = _cloneProtocol(logicStorage, intentProtocol);
-        bytes memory data = abi.encode(sellAssetAddress, sellAmount, toAssetAddress, buyAmountMin, validTo, isSellOrder);
-
-        IBittyV1IntentProtocol.OrderInstructions memory instr =
-            IBittyV1IntentProtocol(clone).buildLimitOrderInstructions(data, address(this));
-        orderId = instr.orderId;
-
-        if (instr.registerTarget != address(0)) {
-            instr.registerTarget.functionCall(instr.registerCalldata);
-        }
-
-        if (
-            instr.approveTarget != address(0) && instr.sellAmount > 0
-                && IERC20(instr.sellToken).allowance(address(this), instr.approveTarget) < instr.sellAmount
-        ) {
-            IERC20(instr.sellToken).forceApprove(instr.approveTarget, type(uint256).max);
-        }
-
-        logicStorage.intentOrderRecords[orderId] = IntentOrderRecord({
-            sellToken: instr.sellToken,
-            expiresAt: uint96(validTo),
-            owningProtocol: intentProtocol,
-            reservedSell: sellAmount
-        });
-        logicStorage.committedIntentSell[instr.sellToken] += sellAmount;
-
-        emit IBittyV1IntentProtocol.OrderCreated(orderId, address(this));
-    }
-
-    function cancelLimitOrder(AssetManagerStorage storage logicStorage, address intentProtocol, bytes memory data)
-        external
-        onlyInitialized(logicStorage)
-    {
-        if (logicStorage.clonedProtocols[intentProtocol] == address(0)) revert InvalidIntentProtocol();
-
-        bytes32 orderId = abi.decode(data, (bytes32));
-        if (logicStorage.intentOrderRecords[orderId].sellToken == address(0)) revert InvalidIntentProtocol();
-
-        _executeCancel(logicStorage, intentProtocol, orderId);
-        emit IBittyV1IntentProtocol.OrderCancelled(orderId, address(this));
-    }
-
-    /**
-     * @notice Permissionless cleanup of expired limit orders (does not affect TWAP orders).
-     *         Reverts if any order is still live.
-     * @dev Also releases each order's committedIntentSell reservation. A filled-but-not-yet-expired
-     *      order still holds its reservation (settlement gives no on-chain callback), so until this runs
-     *      the vault under-reports sellable balance for that token and may block otherwise-valid new
-     *      orders. Keepers should call this promptly once orders expire to free the reservation.
-     */
-    function cleanExpiredLimitOrders(
-        AssetManagerStorage storage logicStorage,
-        address intentProtocol,
-        bytes32[] calldata orderDigests
-    ) external onlyInitialized(logicStorage) {
-        if (logicStorage.clonedProtocols[intentProtocol] == address(0)) {
-            revert InvalidIntentProtocol();
-        }
-
-        for (uint256 i = 0; i < orderDigests.length; i++) {
-            bytes32 orderId = orderDigests[i];
-            IntentOrderRecord memory record = logicStorage.intentOrderRecords[orderId];
-            if (record.expiresAt == 0 || block.timestamp <= record.expiresAt) revert OrderNotExpired();
-            _executeCancel(logicStorage, intentProtocol, orderId);
-        }
-    }
-
-    function addIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
-        external
-        onlyAddingProtocolsEnabled(logicStorage)
-        onlyInitialized(logicStorage)
-    {
-        for (uint256 i = 0; i < intentProtocolAddresses.length; i++) {
-            if (!logicStorage.guard.isIntentProtocolRegistered(intentProtocolAddresses[i])) revert NotRegistered();
-            logicStorage.intentProtocols.add(intentProtocolAddresses[i]);
-        }
-    }
-
-    function removeIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
-        external
-        onlyInitialized(logicStorage)
-    {
-        for (uint256 i = 0; i < intentProtocolAddresses.length; i++) {
-            logicStorage.intentProtocols.remove(intentProtocolAddresses[i]);
-        }
-    }
-
     function getIntentProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
         return logicStorage.intentProtocols.values();
-    }
-
-    function twapSell(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address intentProtocol,
-        address from,
-        address to,
-        uint256 totalSellAmount,
-        uint256 minPartLimit,
-        uint256 n,
-        uint256 partDuration,
-        uint256 span
-    ) external onlyInitialized(logicStorage) returns (bytes32 twapId) {
-        _checkIntentProtocol(logicStorage, intentProtocol);
-        if (totalSellAmount == 0 || minPartLimit == 0 || n == 0 || partDuration == 0) revert AmountIsZero();
-        _validateTrade(logicStorage, vaultStorage, from, to, totalSellAmount, minPartLimit * n, false);
-
-        address clone = _cloneProtocol(logicStorage, intentProtocol);
-        bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
-
-        (IBittyV1IntentProtocol.OrderInstructions memory instr, uint256 expiresAt_) =
-            IBittyV1IntentProtocol(clone).buildTwapInstructions(data);
-        twapId = instr.orderId;
-
-        if (instr.registerTarget != address(0)) {
-            instr.registerTarget.functionCall(instr.registerCalldata);
-        }
-
-        if (
-            instr.approveTarget != address(0) && instr.sellAmount > 0
-                && IERC20(instr.sellToken).allowance(address(this), instr.approveTarget) < instr.sellAmount
-        ) {
-            IERC20(instr.sellToken).forceApprove(instr.approveTarget, type(uint256).max);
-        }
-
-        logicStorage.intentOrderRecords[twapId] = IntentOrderRecord({
-            sellToken: instr.sellToken,
-            expiresAt: uint96(expiresAt_),
-            owningProtocol: intentProtocol,
-            reservedSell: totalSellAmount
-        });
-        logicStorage.committedIntentSell[instr.sellToken] += totalSellAmount;
-
-        emit IBittyV1IntentProtocol.TwapCreated(twapId, address(this));
-    }
-
-    function twapBuy(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address intentProtocol,
-        address from,
-        address to,
-        uint256 totalBuyAmount,
-        uint256 sellAmountPerPart,
-        uint256 n,
-        uint256 partDuration,
-        uint256 span
-    ) external onlyInitialized(logicStorage) returns (bytes32 twapId) {
-        _checkIntentProtocol(logicStorage, intentProtocol);
-        if (totalBuyAmount == 0 || sellAmountPerPart == 0 || n == 0 || partDuration == 0) revert AmountIsZero();
-        uint256 minPartLimit = totalBuyAmount / n;
-        if (minPartLimit == 0) revert AmountIsZero();
-        uint256 totalSellAmount = sellAmountPerPart * n;
-        _validateTrade(logicStorage, vaultStorage, from, to, totalSellAmount, totalBuyAmount, false);
-
-        address clone = _cloneProtocol(logicStorage, intentProtocol);
-        bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
-
-        (IBittyV1IntentProtocol.OrderInstructions memory instr, uint256 expiresAt_) =
-            IBittyV1IntentProtocol(clone).buildTwapInstructions(data);
-        twapId = instr.orderId;
-
-        if (instr.registerTarget != address(0)) {
-            instr.registerTarget.functionCall(instr.registerCalldata);
-        }
-
-        if (
-            instr.approveTarget != address(0) && instr.sellAmount > 0
-                && IERC20(instr.sellToken).allowance(address(this), instr.approveTarget) < instr.sellAmount
-        ) {
-            IERC20(instr.sellToken).forceApprove(instr.approveTarget, type(uint256).max);
-        }
-
-        logicStorage.intentOrderRecords[twapId] = IntentOrderRecord({
-            sellToken: instr.sellToken,
-            expiresAt: uint96(expiresAt_),
-            owningProtocol: intentProtocol,
-            reservedSell: totalSellAmount
-        });
-        logicStorage.committedIntentSell[instr.sellToken] += totalSellAmount;
-
-        emit IBittyV1IntentProtocol.TwapCreated(twapId, address(this));
-    }
-
-    function cancelTwapOrder(AssetManagerStorage storage logicStorage, address intentProtocol, bytes32 twapId)
-        external
-        onlyInitialized(logicStorage)
-    {
-        IntentOrderRecord memory record = logicStorage.intentOrderRecords[twapId];
-        if (record.sellToken == address(0)) revert InvalidIntentProtocol();
-
-        _executeCancel(logicStorage, intentProtocol, twapId);
-
-        emit IBittyV1IntentProtocol.TwapCancelled(twapId, address(this));
     }
 }

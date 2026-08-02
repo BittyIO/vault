@@ -26,6 +26,9 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
     using AssetManagerLogic for AssetManagerStorage;
     using VaultLogic for VaultStorage;
 
+    // {autoYield} may only be invoked by the vault itself (from {receive}) or the owner-set trigger.
+    error NotAutoYieldTrigger();
+
     modifier onlyOwnerOrPayoutOperator() {
         if (!hasRole(DEFAULT_ADMIN_ROLE, _msgSender()) && !_vault.isPayoutOperator(_msgSender())) {
             revert NotPayoutOperator();
@@ -41,7 +44,22 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         address weth = _vault.weth;
         if (msg.value > 0 && weth != address(0) && msg.sender != weth) {
             WETH(payable(weth)).deposit{value: msg.value}();
+            try this.autoYield(weth) {} catch {}
         }
+    }
+
+    /**
+     * @notice Sweep the vault's spendable balance of `assetAddress` into its configured yield route.
+     *         Callable only by the vault itself (from {receive}, on deposit) or the owner-set auto-yield
+     *         trigger (see {setAutoYieldTrigger}) — never permissionless, so a griefer can't strand the
+     *         asset manager's swap liquidity by routing it on demand. A no-op when no route is configured
+     *         or nothing is spendable.
+     */
+    function autoYield(address assetAddress) external {
+        if (msg.sender != address(this) && msg.sender != _assetManager.autoYieldTrigger) {
+            revert NotAutoYieldTrigger();
+        }
+        _assetManager.autoYield(assetAddress);
     }
 
     /**
@@ -373,6 +391,27 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
     {
         _assetManager.setMinimalBalance(assetAddress, newMinimalBalance);
         emit MinimalBalanceSet(assetAddress, newMinimalBalance);
+    }
+
+    function setAutoYielding(address assetAddress, address protocol, bool isSupplying)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _assetManager.setAutoYielding(assetAddress, protocol, isSupplying);
+    }
+
+    function getAutoYielding(address assetAddress) external view returns (address protocol, bool isSupplying) {
+        return _assetManager.getAutoYielding(assetAddress);
+    }
+
+    function setAutoYieldTrigger(address trigger) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetManager.autoYieldTrigger = trigger;
+        emit AutoYieldTriggerSet(trigger);
+    }
+
+    function getAutoYieldTrigger() external view returns (address) {
+        return _assetManager.autoYieldTrigger;
     }
 
     function setAssetManager(

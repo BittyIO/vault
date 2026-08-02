@@ -130,6 +130,18 @@ interface IBittyV1Vault {
     function getAssetManager() external view returns (address);
 
     /**
+     * @notice The asset's default yield route (see {IBittyV1Owner.setAutoYielding}). protocol =
+     *         address(0) means no route is configured; isSupplying is meaningless in that case.
+     */
+    function getAutoYielding(address assetAddress) external view returns (address protocol, bool isSupplying);
+
+    /**
+     * @notice The address (besides the vault itself) allowed to trigger {autoYield}. address(0) = only
+     *         the vault's own deposit path may trigger it.
+     */
+    function getAutoYieldTrigger() external view returns (address);
+
+    /**
      * @notice Registered payout operators. Each may propose payments (pending owner approval) subject to its
      *         own limit from {setPayoutOperator} / {updatePayoutOperator}.
      */
@@ -179,6 +191,13 @@ interface IBittyV1Vault {
     function getWhitelistedRecipient(uint256 id) external view returns (address recipient, address allowedAsset);
 
     // ============ Permissionless (trigger-gated / keeper) ============
+
+    /**
+     * @notice Sweep the vault's spendable balance of `assetAddress` into its configured yield route.
+     *         Trigger-gated: callable by the vault itself (on deposit) or the owner-set auto-yield
+     *         trigger (see {IBittyV1Owner.setAutoYieldTrigger}). No-op when unconfigured / nothing spendable.
+     */
+    function autoYield(address assetAddress) external;
 
     /**
      * @notice Pay a scheduled payment its full scheduled amount. Trigger-gated if a trigger is set.
