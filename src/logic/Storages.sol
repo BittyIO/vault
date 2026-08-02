@@ -59,6 +59,15 @@ struct PayoutOperatorLimit {
     uint256 sentInPeriod;
 }
 
+// An asset's default yield route: once the owner sets one, the vault auto-routes the asset's
+// spendable wallet balance into the protocol on deposit (the vault's receive() sweeps freshly-wrapped
+// ETH into the WETH route), so deposits earn by default. `protocol` is the REGISTERED protocol address
+// (not the vault's clone); address(0) = no route configured.
+struct AutoYieldConfig {
+    address protocol;
+    bool isSupplying; // true = lending supply; false = staking stake
+}
+
 struct AssetManagerStorage {
     bool isInitialized;
 
@@ -81,6 +90,14 @@ struct AssetManagerStorage {
     mapping(bytes32 => IntentOrderRecord) intentOrderRecords;
 
     mapping(address => uint256) committedIntentSell;
+
+    // Owner-set default yield route per asset (see AutoYieldConfig).
+    mapping(address => AutoYieldConfig) autoYieldConfigs;
+
+    // Owner-set address allowed to trigger {autoYield} on demand (besides the vault itself, which
+    // triggers it from receive()). address(0) = only the vault (deposits) may trigger it. A trusted
+    // keeper — never permissionless, so a griefer can't strand the asset manager's swap liquidity.
+    address autoYieldTrigger;
 }
 
 struct PendingSend {

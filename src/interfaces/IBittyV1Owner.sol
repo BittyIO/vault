@@ -26,6 +26,7 @@ interface IBittyV1Owner {
     event IntentProtocolsAdded(address[] protocols);
     event IntentProtocolsRemoved(address[] protocols);
     event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
+    event AutoYieldTriggerSet(address indexed trigger);
     event TradeLimitSet(
         address indexed assetManager,
         uint256 interval,
@@ -70,6 +71,25 @@ interface IBittyV1Owner {
     // ============ Asset manager guardrails (owner-set) ============
 
     function setMinimalBalance(address assetAddress, uint256 minimalBalance) external;
+
+    /**
+     * @notice Set (or clear, protocol = address(0)) the asset's default yield route. Once set, the
+     *         vault auto-routes spendable balance of `assetAddress` into `protocol` on deposit — the
+     *         vault's {receive} sweeps freshly-wrapped ETH into the WETH route, so ETH deposits earn
+     *         by default. Routing is never a standalone entry point (that would let a griefer strand
+     *         the asset manager's swap liquidity). `isSupplying` picks the kind: true = lending supply,
+     *         false = staking stake; the protocol must already be registered on the vault for that
+     *         kind. The asset's minimalBalance is kept liquid (never auto-yielded), as are tokens
+     *         reserved by open intent orders.
+     */
+    function setAutoYielding(address assetAddress, address protocol, bool isSupplying) external;
+
+    /**
+     * @notice Set (or clear, trigger = address(0)) the address allowed to call {IBittyV1Vault.autoYield}
+     *         on demand, on top of the vault's own deposit-time trigger. Use a trusted keeper — the call
+     *         moves funds into a yield position, so it must never be permissionless.
+     */
+    function setAutoYieldTrigger(address trigger) external;
 
     /**
      * @notice Set the vault's single (restricted) asset manager and its trade guardrail, replacing any previous

@@ -6,6 +6,7 @@ import {IBittyV1AssetManager, NotAssetManager} from "./interfaces/IBittyV1AssetM
 import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
+import {AssetManagerTradeLogic} from "./logic/AssetManagerTradeLogic.sol";
 import {AssetManagerStorage} from "./logic/Storages.sol";
 
 /**
@@ -19,6 +20,7 @@ import {AssetManagerStorage} from "./logic/Storages.sol";
  */
 contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
     using AssetManagerLogic for AssetManagerStorage;
+    using AssetManagerTradeLogic for AssetManagerStorage;
 
     /**
      * @dev Passes only for the vault's single asset manager. The owner has no implicit trading access —
