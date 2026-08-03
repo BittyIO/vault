@@ -11,6 +11,9 @@ error TradeLimitExpired();
 error TradeInvestedTotalExceeded();
 error StableCoinInvestCapZero();
 error NotAssetManager();
+// The asset manager's grant has not matured yet: a newly (re)appointed manager is deferred by the
+// vault's changeTimelock cool-down before it may trade.
+error AssetManagerNotActive();
 error InvalidLendingProtocol();
 error InvalidStakingProtocol();
 error InvalidAMMProtocol();

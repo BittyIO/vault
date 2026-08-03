@@ -116,13 +116,15 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         _assetManager.initialize(guardAddress);
 
         if (riskLevel == RiskControlLevel.Zero) {
-            _assetManager.setFullAssetManager(owner);
+            _assetManager.setFullAssetManager(owner, 0);
             emit FullAssetManagerAdded(owner);
         } else if (riskLevel == RiskControlLevel.Standard) {
-            _assetManager.setAssetManager(owner, VaultLogic.STANDARD_RISK_TIMELOCK, 0, VaultLogic.STANDARD_RISK_CAP, 0);
+            _assetManager.setAssetManager(
+                owner, VaultLogic.STANDARD_RISK_TIMELOCK, 0, VaultLogic.STANDARD_RISK_CAP, 0, 0
+            );
             emit TradeLimitSet(owner, VaultLogic.STANDARD_RISK_TIMELOCK, 0, VaultLogic.STANDARD_RISK_CAP, 0);
         } else {
-            _assetManager.setAssetManager(owner, VaultLogic.HIGH_RISK_TIMELOCK, 0, VaultLogic.HIGH_RISK_CAP, 0);
+            _assetManager.setAssetManager(owner, VaultLogic.HIGH_RISK_TIMELOCK, 0, VaultLogic.HIGH_RISK_CAP, 0, 0);
             emit TradeLimitSet(owner, VaultLogic.HIGH_RISK_TIMELOCK, 0, VaultLogic.HIGH_RISK_CAP, 0);
         }
         if (lendingProtocols.length > 0) {
@@ -440,12 +442,14 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         uint256 stableCoinInvestCap,
         uint256 expiredAt
     ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.setAssetManager(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
+        _assetManager.setAssetManager(
+            assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt, _vault.getChangeTimelock()
+        );
         emit TradeLimitSet(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
     }
 
     function setFullAssetManager(address assetManager) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.setFullAssetManager(assetManager);
+        _assetManager.setFullAssetManager(assetManager, _vault.getChangeTimelock());
         emit FullAssetManagerAdded(assetManager);
     }
 

@@ -17,6 +17,7 @@ import {
     TradeInvestedTotalExceeded,
     StableCoinInvestCapZero,
     NotAssetManager,
+    AssetManagerNotActive,
     DisableRebalanceUntilTimestampTooEarly,
     DisableRebalanceUntilTimestampTooLong
 } from "../../src/interfaces/IBittyV1AssetManager.sol";
@@ -834,6 +835,95 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         vm.expectRevert(TradeInvestedTotalExceeded.selector);
         this.marketSell(
             address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 1_001 * 1e6, 1, encodeUsdtToWethSwap(1_001 * 1e6, 1)
+        );
+    }
+
+    function test_AssetManagerGrant_FullAccessCoolsDownByChangeTimelock() public {
+        this.doInitialize();
+        // Raise the loosening delay (tightening → instant); later AM (re)appointments now cool down by it.
+        vm.prank(ownerAddress);
+        this.setChangeTimelock(3 days);
+
+        vm.prank(ownerAddress);
+        this.setFullAssetManager(assetManagerAddress);
+
+        deal(mainnet.WETH, address(this), 1 ether);
+
+        // A compromised owner key that escalates to full-access cannot trade until the cool-down elapses.
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(AssetManagerNotActive.selector);
+        this.marketSell(
+            address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.5 ether, 1, encodeWethToUsdtSwap(0.5 ether, 1)
+        );
+
+        vm.warp(block.timestamp + 3 days);
+        vm.prank(assetManagerAddress);
+        this.marketSell(
+            address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.5 ether, 1, encodeWethToUsdtSwap(0.5 ether, 1)
+        );
+    }
+
+    function test_AssetManagerGrant_RestrictedCoolsDownByChangeTimelock() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.setChangeTimelock(3 days);
+
+        // Re-appointing a restricted manager is deferred too — a fresh trading key serves the cool-down.
+        vm.prank(ownerAddress);
+        this.setAssetManager(assetManagerAddress, 0, 0, type(uint64).max, 0);
+
+        deal(mainnet.USDT, address(this), 5_000 * 1e6);
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(AssetManagerNotActive.selector);
+        this.marketSell(
+            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 500 * 1e6, 1, encodeUsdtToWethSwap(500 * 1e6, 1)
+        );
+
+        vm.warp(block.timestamp + 3 days);
+        vm.prank(assetManagerAddress);
+        this.marketSell(
+            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 500 * 1e6, 1, encodeUsdtToWethSwap(500 * 1e6, 1)
+        );
+    }
+
+    function test_AssetManagerGrant_RemovalIsInstant() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.setChangeTimelock(3 days);
+        vm.prank(ownerAddress);
+        this.setFullAssetManager(assetManagerAddress); // now cooling down
+
+        // Removal is the owner's instant lock-down lever: it takes effect immediately, no cool-down.
+        vm.prank(ownerAddress);
+        this.removeAssetManager();
+
+        deal(mainnet.WETH, address(this), 1 ether);
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(NotAssetManager.selector);
+        this.marketSell(
+            address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.5 ether, 1, encodeWethToUsdtSwap(0.5 ether, 1)
+        );
+    }
+
+    function test_AssetManagerGrant_InitSeededGrantIsInstant() public {
+        // Standard-level init seeds the owner as a restricted asset manager, active immediately (no cool-down).
+        this.initialize(
+            ownerAddress,
+            guardAddress,
+            mainnet.WETH,
+            vaultAssets,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols,
+            address(0),
+            RiskControlLevel.Standard
+        );
+
+        deal(mainnet.USDT, address(this), 5_000 * 1e6);
+        vm.prank(ownerAddress);
+        this.marketSell(
+            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 500 * 1e6, 1, encodeUsdtToWethSwap(500 * 1e6, 1)
         );
     }
 

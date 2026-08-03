@@ -89,11 +89,13 @@ library AssetManagerLogic {
         uint256 interval,
         uint256 maxStableCoinPerTrade,
         uint256 stableCoinInvestCap,
-        uint256 expiredAt
+        uint256 expiredAt,
+        uint64 activationDelay
     ) external onlyInitialized(logicStorage) {
         if (assetManager == address(0)) revert AddressZero();
         if (stableCoinInvestCap == 0) revert StableCoinInvestCapZero();
         logicStorage.assetManager = assetManager;
+        logicStorage.assetManagerActiveAt = uint64(block.timestamp) + activationDelay;
         TradeLimit storage limit = logicStorage.assetManagerLimit;
         limit.interval = uint64(interval);
         limit.maxStableCoinPerTrade = uint64(maxStableCoinPerTrade);
@@ -110,18 +112,20 @@ library AssetManagerLogic {
      * skipping the per-trade cap / invest cap / throttle / stablecoin-leg checks. For keys as trusted as
      * the owner. Replaces any previous asset manager.
      */
-    function setFullAssetManager(AssetManagerStorage storage logicStorage, address assetManager)
+    function setFullAssetManager(AssetManagerStorage storage logicStorage, address assetManager, uint64 activationDelay)
         external
         onlyInitialized(logicStorage)
     {
         if (assetManager == address(0)) revert AddressZero();
         logicStorage.assetManager = assetManager;
+        logicStorage.assetManagerActiveAt = uint64(block.timestamp) + activationDelay;
         delete logicStorage.assetManagerLimit;
         logicStorage.assetManagerLimit.fullAccess = true;
     }
 
     function removeAssetManager(AssetManagerStorage storage logicStorage) external onlyInitialized(logicStorage) {
         logicStorage.assetManager = address(0);
+        logicStorage.assetManagerActiveAt = 0;
         delete logicStorage.assetManagerLimit;
     }
 

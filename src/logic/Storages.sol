@@ -98,6 +98,13 @@ struct AssetManagerStorage {
     mapping(address => AutoYieldConfig) autoYieldConfigs;
 
     address autoYieldTrigger;
+
+    // Unix time at which the current asset manager's grant matures and may begin trading. Every
+    // (re)appointment via setAssetManager/setFullAssetManager defers activation by the vault's effective
+    // changeTimelock, so a compromised owner key cannot install a fresh (or full-access) trading key and
+    // drain in the same window — the real owner gets that delay to remove it (removal is instant) or
+    // renounce. 0 = active immediately (Zero-level vaults, and the grant seeded at initialize).
+    uint64 assetManagerActiveAt;
 }
 
 struct PendingSend {

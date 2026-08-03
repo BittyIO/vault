@@ -577,6 +577,11 @@ library VaultLogic {
         return _effective(vaultStorage.riskConfig.maxSendInterval);
     }
 
+    // The in-force loosening delay; also the cool-down applied to a newly (re)appointed asset manager.
+    function getChangeTimelock(VaultStorage storage vaultStorage) external view returns (uint64) {
+        return _effective(vaultStorage.riskConfig.changeTimelock);
+    }
+
     function setMaxScheduledValue(VaultStorage storage vaultStorage, uint256 value)
         external
         onlyInitialized(vaultStorage)
