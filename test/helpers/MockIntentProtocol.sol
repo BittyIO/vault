@@ -9,6 +9,8 @@ contract MockIntentRegistry {
     uint256 public cancelCount;
     bytes32 public lastRegistered;
     bytes32 public lastCancelled;
+    // Simulated settlement fill state so tests can drive orderFilled() (shared across clones).
+    mapping(bytes32 => bool) public filled;
 
     function register(bytes32 orderId) external {
         registerCount++;
@@ -18,6 +20,10 @@ contract MockIntentRegistry {
     function cancel(bytes32 orderId) external {
         cancelCount++;
         lastCancelled = orderId;
+    }
+
+    function setFilled(bytes32 orderId, bool value) external {
+        filled[orderId] = value;
     }
 }
 
@@ -40,6 +46,14 @@ contract MockIntentProtocol is IBittyV1IntentProtocol {
 
     function initialize(address newOwner) external override {
         owner = newOwner;
+    }
+
+    function name() external pure override returns (string memory) {
+        return "MockIntent";
+    }
+
+    function version() external pure override returns (string memory) {
+        return "1.0.0";
     }
 
     /// @dev Mark a hash as a valid signature for this clone (call on the clone address).
@@ -92,6 +106,10 @@ contract MockIntentProtocol is IBittyV1IntentProtocol {
         instr.cancelTarget = skipRegister ? address(0) : registry;
         instr.cancelCalldata = abi.encodeWithSignature("cancel(bytes32)", orderId);
         instr.approveTarget = skipApprove ? address(0) : registry;
+    }
+
+    function orderFilled(bytes32 orderId) external view override returns (bool) {
+        return MockIntentRegistry(registry).filled(orderId);
     }
 
     function isValidSignature(bytes32 hash, bytes memory) external view override returns (bytes4) {

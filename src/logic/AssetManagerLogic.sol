@@ -20,7 +20,7 @@ import {
     AlreadyInitialized,
     AddingProtocolsDisabled
 } from "../interfaces/IBittyV1Vault.sol";
-import {AssetManagerStorage, TradeLimit, AutoYieldConfig} from "./Storages.sol";
+import {AssetManagerStorage, AssetManagerSettings, AutoYieldConfig} from "./Storages.sol";
 import {AssetManagerShared} from "./AssetManagerShared.sol";
 
 /**
@@ -94,15 +94,15 @@ library AssetManagerLogic {
         if (assetManager == address(0)) revert AddressZero();
         if (stableCoinInvestCap == 0) revert StableCoinInvestCapZero();
         logicStorage.assetManager = assetManager;
-        TradeLimit storage limit = logicStorage.assetManagerLimit;
-        limit.interval = uint64(interval);
-        limit.maxStableCoinPerTrade = uint64(maxStableCoinPerTrade);
-        limit.stableCoinInvestCap = uint64(stableCoinInvestCap);
-        limit.expiredAt = uint96(expiredAt);
+        AssetManagerSettings storage settings = logicStorage.assetManagerSettings;
+        settings.interval = uint64(interval);
+        settings.maxStableCoinPerTrade = uint64(maxStableCoinPerTrade);
+        settings.stableCoinInvestCap = uint64(stableCoinInvestCap);
+        settings.expiredAt = uint96(expiredAt);
         // A restricted asset manager: reset the tracked portfolio and any prior full-access grant.
-        limit.stableCoinInvested = 0;
-        limit.lastTradeTimestamp = 0;
-        limit.fullAccess = false;
+        settings.stableCoinInvested = 0;
+        settings.lastTradeTimestamp = 0;
+        settings.fullAccess = false;
     }
 
     /**
@@ -116,13 +116,13 @@ library AssetManagerLogic {
     {
         if (assetManager == address(0)) revert AddressZero();
         logicStorage.assetManager = assetManager;
-        delete logicStorage.assetManagerLimit;
-        logicStorage.assetManagerLimit.fullAccess = true;
+        delete logicStorage.assetManagerSettings;
+        logicStorage.assetManagerSettings.fullAccess = true;
     }
 
     function removeAssetManager(AssetManagerStorage storage logicStorage) external onlyInitialized(logicStorage) {
         logicStorage.assetManager = address(0);
-        delete logicStorage.assetManagerLimit;
+        delete logicStorage.assetManagerSettings;
     }
 
     // ============ Lending ============

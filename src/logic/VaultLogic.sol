@@ -58,39 +58,16 @@ import {
 } from "../interfaces/IBittyV1Vault.sol";
 
 library VaultLogic {
-    /**
-     * The vault will be drained by one attack in a very short time if no this protection.
-     * @dev this is a protection for the vault.
-     */
-    uint256 constant SCHEDULED_PAYMENT_MINIMAL_INTERVAL = 7 days;
-
-    // Clamp bounds for the lock window of an approved immutable scheduled payment (see
-    // {_immutableLockDeadline}). Once the window passes the entry is permanent.
-    uint256 constant IMMUTABLE_LOCK_MIN_WINDOW = 1 days;
-    uint256 constant IMMUTABLE_LOCK_MAX_WINDOW = 7 days;
-
-    // Upper bound (~10 years) on the scheduled-payment protection window. A sanity cap so the owner can
-    // never set an absurd/effectively-infinite delay that permanently blocks the recurring-payment path.
-    // (Solidity has no `years` unit — leap years make it ambiguous — so this is expressed in days.)
+    // Upper bound (~10 years) a close fund cap 10 years lock)
     uint64 constant MAX_SCHEDULED_PAYMENT_PROTECTION = 3650 days;
 
-    // ---- Risk-control-level default parameters (payment controls) ----
-    // TODO(risk-params): fill in the Standard/High defaults. `Zero` is all-zero (no controls).
-    // Protection windows are seconds; the *_MAX_*_VALUE caps are stablecoin whole tokens
-    // (0 = unrestricted / no stablecoin lock); *_CHANGE_TIMELOCK is the loosening delay in seconds.
-    uint64 constant STANDARD_SCHEDULED_PAYMENT_PROTECTION = 1 days;
-    uint64 constant STANDARD_WHITELISTED_PROTECTION = 1 days;
-    uint64 constant STANDARD_MAX_SEND_VALUE = 10000;
-    uint64 constant STANDARD_MAX_SCHEDULED_VALUE = 10000;
-    uint64 constant STANDARD_MAX_WHITELISTED_VALUE = 10000;
-    uint64 constant STANDARD_CHANGE_TIMELOCK = 1 days;
+    // Standard risk control level
+    uint64 constant STANDARD_RISK_TIMELOCK = 3 days;
+    uint64 constant STANDARD_RISK_CAP = 10000;
 
-    uint64 constant HIGH_SCHEDULED_PAYMENT_PROTECTION = 3 days;
-    uint64 constant HIGH_WHITELISTED_PROTECTION = 3 days;
-    uint64 constant HIGH_MAX_SEND_VALUE = 1000;
-    uint64 constant HIGH_MAX_SCHEDULED_VALUE = 1000;
-    uint64 constant HIGH_MAX_WHITELISTED_VALUE = 1000;
-    uint64 constant HIGH_CHANGE_TIMELOCK = 3 days;
+    // High risk control level
+    uint64 constant HIGH_RISK_TIMELOCK = 7 days;
+    uint64 constant HIGH_RISK_CAP = 1000;
 
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
@@ -138,19 +115,21 @@ library VaultLogic {
      */
     function _defaultRisk(RiskControlLevel level) internal pure returns (RiskConfig memory c) {
         if (level == RiskControlLevel.Standard) {
-            c.scheduledPaymentProtection.value = STANDARD_SCHEDULED_PAYMENT_PROTECTION;
-            c.whitelistedProtection.value = STANDARD_WHITELISTED_PROTECTION;
-            c.maxSendValue.value = STANDARD_MAX_SEND_VALUE;
-            c.maxScheduledValue.value = STANDARD_MAX_SCHEDULED_VALUE;
-            c.maxWhitelistedValue.value = STANDARD_MAX_WHITELISTED_VALUE;
-            c.changeTimelock.value = STANDARD_CHANGE_TIMELOCK;
+            c.scheduledPaymentProtection.value = STANDARD_RISK_TIMELOCK;
+            c.whitelistedProtection.value = STANDARD_RISK_TIMELOCK;
+            c.maxSendValue.value = STANDARD_RISK_CAP;
+            c.maxScheduledValue.value = STANDARD_RISK_CAP;
+            c.maxWhitelistedValue.value = STANDARD_RISK_CAP;
+            c.changeTimelock.value = STANDARD_RISK_TIMELOCK;
+            c.maxSendInterval.value = STANDARD_RISK_TIMELOCK;
         } else if (level == RiskControlLevel.High) {
-            c.scheduledPaymentProtection.value = HIGH_SCHEDULED_PAYMENT_PROTECTION;
-            c.whitelistedProtection.value = HIGH_WHITELISTED_PROTECTION;
-            c.maxSendValue.value = HIGH_MAX_SEND_VALUE;
-            c.maxScheduledValue.value = HIGH_MAX_SCHEDULED_VALUE;
-            c.maxWhitelistedValue.value = HIGH_MAX_WHITELISTED_VALUE;
-            c.changeTimelock.value = HIGH_CHANGE_TIMELOCK;
+            c.scheduledPaymentProtection.value = HIGH_RISK_TIMELOCK;
+            c.whitelistedProtection.value = HIGH_RISK_TIMELOCK;
+            c.maxSendValue.value = HIGH_RISK_CAP;
+            c.maxScheduledValue.value = HIGH_RISK_CAP;
+            c.maxWhitelistedValue.value = HIGH_RISK_CAP;
+            c.changeTimelock.value = HIGH_RISK_TIMELOCK;
+            c.maxSendInterval.value = HIGH_RISK_TIMELOCK;
         }
     }
 
@@ -230,6 +209,30 @@ library VaultLogic {
         if (length == 0) revert EmptyArray();
         if (assets.length != length || amounts.length != length) revert ArrayLengthMismatch();
 
+        _validateSendBatch(
+            vaultStorage, recipients, assets, amounts, execute, payoutOperatorAddr, updatePeriodAccounting
+        );
+
+        if (!execute) return;
+
+        for (uint256 i = 0; i < length; i++) {
+            _payOut(vaultStorage, assets[i], amounts[i], recipients[i]);
+        }
+    }
+
+    /**
+     * @dev The validation pass of {_processSendBatch}, kept as its own frame so its locals do not share
+     * the stack with the payout loop (keeps the minimal-optimizer coverage build within the stack limit).
+     */
+    function _validateSendBatch(
+        VaultStorage storage vaultStorage,
+        address[] memory recipients,
+        address[] memory assets,
+        uint256[] memory amounts,
+        bool execute,
+        address payoutOperatorAddr,
+        bool updatePeriodAccounting
+    ) private {
         uint64 cap = _effective(vaultStorage.riskConfig.maxSendValue);
         PayoutOperatorLimit storage opLimit = vaultStorage.payoutOperatorLimits[payoutOperatorAddr];
         bool periodLimitActive = payoutOperatorAddr != address(0)
@@ -238,16 +241,13 @@ library VaultLogic {
         bool requireStable = cap != 0 || periodLimitActive;
 
         uint256 totalStableValue;
-        for (uint256 i = 0; i < length; i++) {
-            address recipient = recipients[i];
-            address asset = assets[i];
-            uint256 amount = amounts[i];
-            if (recipient == address(0)) revert AddressZero();
-            if (amount == 0) revert AmountIsZero();
+        for (uint256 i = 0; i < recipients.length; i++) {
+            if (recipients[i] == address(0)) revert AddressZero();
+            if (amounts[i] == 0) revert AmountIsZero();
             if (requireStable) {
-                if (!vaultStorage.stableCoins.contains(asset)) revert PaymentNotStableCoin();
-                uint256 scale = 10 ** IERC20Metadata(asset).decimals();
-                totalStableValue += Math.mulDiv(amount, 1e18, scale, Math.Rounding.Ceil);
+                if (!vaultStorage.stableCoins.contains(assets[i])) revert PaymentNotStableCoin();
+                uint256 scale = 10 ** IERC20Metadata(assets[i]).decimals();
+                totalStableValue += Math.mulDiv(amounts[i], 1e18, scale, Math.Rounding.Ceil);
                 if (cap != 0 && totalStableValue > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
             }
         }
@@ -256,11 +256,34 @@ library VaultLogic {
             _checkPayoutOperatorSendPeriod(opLimit, totalStableValue, updatePeriodAccounting);
         }
 
-        if (!execute) return;
-
-        for (uint256 i = 0; i < length; i++) {
-            _payOut(vaultStorage, assets[i], amounts[i], recipients[i]);
+        if (execute && payoutOperatorAddr == address(0)) {
+            _checkOwnerSendWindow(vaultStorage, totalStableValue, cap);
         }
+    }
+
+    /**
+     * @notice Enforce the owner's rolling one-off send quota (maxSendValue per maxSendInterval).
+     *         Resets the window when it elapses. Mirrors {_checkPayoutOperatorSendPeriod}.
+     */
+    function _checkOwnerSendWindow(VaultStorage storage vaultStorage, uint256 batchStableValue, uint64 cap) private {
+        if (cap == 0) return;
+        uint64 window = _effective(vaultStorage.riskConfig.maxSendInterval);
+        if (window == 0) return;
+
+        uint128 periodStart = vaultStorage.ownerSendPeriodStart;
+        uint256 sent = vaultStorage.ownerSentInPeriod;
+
+        if (periodStart == 0 || block.timestamp >= periodStart + window) {
+            periodStart = uint128(block.timestamp);
+            sent = 0;
+        }
+
+        if (sent + batchStableValue > uint256(cap) * 1e18) {
+            revert PaymentExceedsPeriodLimit();
+        }
+
+        vaultStorage.ownerSendPeriodStart = periodStart;
+        vaultStorage.ownerSentInPeriod = sent + batchStableValue;
     }
 
     /**
@@ -466,10 +489,7 @@ library VaultLogic {
         if (scheduledPayment.remainingPaymentCount == 0) {
             revert ScheduledPaymentPaymentCountZero();
         }
-        if (
-            scheduledPayment.remainingPaymentCount > 1
-                && scheduledPayment.paymentInterval < SCHEDULED_PAYMENT_MINIMAL_INTERVAL
-        ) {
+        if (scheduledPayment.remainingPaymentCount > 1 && scheduledPayment.paymentInterval < HIGH_RISK_TIMELOCK) {
             revert ScheduledPaymentIntervalTooShort();
         }
     }
@@ -533,6 +553,21 @@ library VaultLogic {
     function setMaxSendValue(VaultStorage storage vaultStorage, uint256 value) external onlyInitialized(vaultStorage) {
         _setCap(vaultStorage.riskConfig.maxSendValue, value, _effective(vaultStorage.riskConfig.changeTimelock));
         emit IBittyV1Owner.MaxSendValueSet(value);
+    }
+
+    /**
+     * @notice Set the rolling window over which {maxSendValue} caps the owner's cumulative one-off
+     * sends. Longer = safer (the same cap covers more time), so shortening/clearing it is a loosening
+     * and waits changeTimelock. 0 = per-transaction cap only (no rolling limit).
+     */
+    function setMaxSendInterval(VaultStorage storage vaultStorage, uint256 value)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        _setHigherSafer(
+            vaultStorage.riskConfig.maxSendInterval, value, _effective(vaultStorage.riskConfig.changeTimelock)
+        );
+        emit IBittyV1Owner.MaxSendIntervalSet(value);
     }
 
     function setMaxScheduledValue(VaultStorage storage vaultStorage, uint256 value)
@@ -627,7 +662,8 @@ library VaultLogic {
             uint64 maxSendValue,
             uint64 maxScheduledValue,
             uint64 maxWhitelistedValue,
-            uint64 changeTimelock
+            uint64 changeTimelock,
+            uint64 maxSendInterval
         )
     {
         RiskConfig storage r = vaultStorage.riskConfig;
@@ -637,7 +673,8 @@ library VaultLogic {
             _effective(r.maxSendValue),
             _effective(r.maxScheduledValue),
             _effective(r.maxWhitelistedValue),
-            _effective(r.changeTimelock)
+            _effective(r.changeTimelock),
+            _effective(r.maxSendInterval)
         );
     }
 
@@ -658,8 +695,8 @@ library VaultLogic {
      */
     function _immutableLockDeadline(VaultStorage storage vaultStorage) private view returns (uint256) {
         uint256 window = _effective(vaultStorage.riskConfig.scheduledPaymentProtection);
-        if (window < IMMUTABLE_LOCK_MIN_WINDOW) window = IMMUTABLE_LOCK_MIN_WINDOW;
-        if (window > IMMUTABLE_LOCK_MAX_WINDOW) window = IMMUTABLE_LOCK_MAX_WINDOW;
+        if (window < STANDARD_RISK_TIMELOCK) window = STANDARD_RISK_TIMELOCK;
+        if (window > HIGH_RISK_TIMELOCK) window = HIGH_RISK_TIMELOCK;
         return block.timestamp + window;
     }
 

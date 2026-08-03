@@ -36,29 +36,7 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         if (_msgSender() != _assetManager.assetManager) revert NotAssetManager();
     }
 
-    // ============ AMM ============
-
-    function marketSell(
-        address ammProtocol,
-        address from,
-        address to,
-        uint256 sellAmount,
-        uint256 buyAmountMin,
-        bytes memory data
-    ) external override onlyAssetManager {
-        _assetManager.marketSell(_vault, ammProtocol, from, to, sellAmount, buyAmountMin, data);
-    }
-
-    function marketBuy(
-        address ammProtocol,
-        address from,
-        address to,
-        uint256 buyAmount,
-        uint256 sellAmountMax,
-        bytes memory data
-    ) external override onlyAssetManager {
-        _assetManager.marketBuy(_vault, ammProtocol, from, to, buyAmount, sellAmountMax, data);
-    }
+    // ============ AMM liquidity ============
 
     function addLiquidity(
         address ammProtocol,

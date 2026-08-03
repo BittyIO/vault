@@ -22,6 +22,14 @@ contract MockStakingProtocol is IBittyV1StakingProtocol, Ownable, Initializable 
         _transferOwnership(newOwner);
     }
 
+    function name() external pure override returns (string memory) {
+        return "MockStaking";
+    }
+
+    function version() external pure override returns (string memory) {
+        return "1.0.0";
+    }
+
     function stake(address asset, uint256 amount) external payable override onlyOwner {
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
     }

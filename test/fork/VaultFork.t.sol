@@ -61,9 +61,7 @@ contract TestVaultFork is Test {
         lidoProtocol.initialize(address(this));
         guard.addStakingProtocols(_arr(address(lidoProtocol)));
 
-        uniswapV3Protocol = new UniswapV3Protocol(
-            mainnet.UNISWAP_V3_ROUTER, mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER, address(guard)
-        );
+        uniswapV3Protocol = new UniswapV3Protocol(mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
         uniswapV3Protocol.initialize(address(this));
         guard.addAMMProtocols(_arr(address(uniswapV3Protocol)));
         vm.stopPrank();
@@ -250,28 +248,6 @@ contract TestVaultFork is Test {
         );
     }
 
-    function test_RebalanceWETHToUSDT() public {
-        uint256 sellAmount = 0.01 ether;
-        deal(mainnet.WETH, address(vault), sellAmount);
-
-        address[] memory path = new address[](2);
-        path[0] = mainnet.WETH;
-        path[1] = mainnet.USDT;
-        uint24[] memory fees = new uint24[](1);
-        fees[0] = 3000;
-        bytes memory encodedPath = Path.encodePath(path, fees);
-
-        uint256 buyAmountMin = 1;
-        bytes memory swapData = abi.encode(mainnet.WETH, sellAmount, mainnet.USDT, buyAmountMin, encodedPath);
-
-        uint256 usdtBefore = IERC20(mainnet.USDT).balanceOf(address(vault));
-        IVaultFull(payable(address(vault)))
-            .marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
-        uint256 usdtAfter = IERC20(mainnet.USDT).balanceOf(address(vault));
-        assertGt(usdtAfter, usdtBefore);
-        assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
-    }
-
     function test_AddScheduledPaymentAndPayScheduledPayment() public {
         deal(mainnet.USDC, address(vault), 1000e6);
 
@@ -332,65 +308,6 @@ contract TestVaultFork is Test {
 
         uint256 remaining = IVaultFull(payable(address(vault))).getSuppliedBalance(address(aaveProtocol), mainnet.WETH);
         assertGe(remaining, supplyAmount - payAmount);
-    }
-
-    function test_MultiStep_rebalanceThenPayScheduledPaymentThenRebalance() public {
-        deal(mainnet.WETH, address(vault), 1 ether);
-
-        address[] memory path = new address[](2);
-        path[0] = mainnet.WETH;
-        path[1] = mainnet.USDT;
-        uint24[] memory fees = new uint24[](1);
-        fees[0] = 3000;
-        bytes memory encodedPath = Path.encodePath(path, fees);
-
-        // Step 1: rebalance 0.3 WETH → USDT
-        uint256 firstSell = 0.3 ether;
-        IVaultFull(payable(address(vault)))
-            .marketSell(
-                address(uniswapV3Protocol),
-                mainnet.WETH,
-                mainnet.USDT,
-                firstSell,
-                1,
-                abi.encode(mainnet.WETH, firstSell, mainnet.USDT, uint256(1), encodedPath)
-            );
-        assertGt(IERC20(mainnet.USDT).balanceOf(address(vault)), 0);
-        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(vault)), 0.7 ether, 10);
-
-        // Step 2: add WETH scheduledPayment and pay
-        address scheduledPaymentAddr = makeAddr("recipient");
-        IBittyV1Vault.ScheduledPayment memory scheduledPayment = IBittyV1Vault.ScheduledPayment({
-            scheduledPaymentAddress: scheduledPaymentAddr,
-            trigger: address(0),
-            assetAddress: mainnet.WETH,
-            amount: 0.5 ether,
-            remainingPaymentCount: 1,
-            startTimestamp: block.timestamp,
-            paymentInterval: 0,
-            isImmutable: false,
-            payWithInsufficientBalance: false
-        });
-        vm.prank(tx.origin);
-        uint256 recipientId = vault.addScheduledPayment(scheduledPayment);
-        vault.payScheduled(recipientId);
-        assertEq(IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr), 0.5 ether);
-
-        // Step 3: rebalance remaining WETH → USDT
-        uint256 remainingWeth = IERC20(mainnet.WETH).balanceOf(address(vault));
-        assertGt(remainingWeth, 0);
-        uint256 usdtBefore = IERC20(mainnet.USDT).balanceOf(address(vault));
-        IVaultFull(payable(address(vault)))
-            .marketSell(
-                address(uniswapV3Protocol),
-                mainnet.WETH,
-                mainnet.USDT,
-                remainingWeth,
-                1,
-                abi.encode(mainnet.WETH, remainingWeth, mainnet.USDT, uint256(1), encodedPath)
-            );
-        assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
-        assertGt(IERC20(mainnet.USDT).balanceOf(address(vault)), usdtBefore);
     }
 
     function test_ActivateVault_customOwner() public {

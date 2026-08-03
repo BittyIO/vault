@@ -114,6 +114,9 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         }
 
         _assetManager.initialize(guardAddress);
+
+        _assetManager.setFullAssetManager(owner);
+
         if (lendingProtocols.length > 0) {
             _assetManager.addLendingProtocols(lendingProtocols);
         }
@@ -270,6 +273,10 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         _vault.setMaxSendValue(value);
     }
 
+    function setMaxSendInterval(uint256 value) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.setMaxSendInterval(value);
+    }
+
     function setMaxScheduledValue(uint256 value) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.setMaxScheduledValue(value);
     }
@@ -291,7 +298,8 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
             uint64 maxSendValue,
             uint64 maxScheduledValue,
             uint64 maxWhitelistedValue,
-            uint64 changeTimelock
+            uint64 changeTimelock,
+            uint64 maxSendInterval
         )
     {
         return _vault.getRiskConfig();
@@ -422,7 +430,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         uint256 expiredAt
     ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _assetManager.setAssetManager(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
-        emit TradeLimitSet(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
+        emit AssetManagerSettingsSet(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
     }
 
     function setFullAssetManager(address assetManager) external override onlyRole(DEFAULT_ADMIN_ROLE) {

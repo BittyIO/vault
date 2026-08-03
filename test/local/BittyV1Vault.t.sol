@@ -257,6 +257,14 @@ contract BittyV1VaultTest is Test {
         assertEq(vault.getAssetManager(), assetManagerAddress);
     }
 
+    function test_Init_defaultsAssetManagerToOwner() public {
+        // Every level defaults the asset manager to the owner (Zero = full access, Standard/High =
+        // bounded with the level's trade throttle + invest cap).
+        assertEq(_initAtLevel(RiskControlLevel.Zero).getAssetManager(), ownerAddress);
+        assertEq(_initAtLevel(RiskControlLevel.Standard).getAssetManager(), ownerAddress);
+        assertEq(_initAtLevel(RiskControlLevel.High).getAssetManager(), ownerAddress);
+    }
+
     function test_OwnerMayBeAddedAsAssetManager() public {
         _initializeVault();
         vm.prank(ownerAddress);
@@ -602,7 +610,7 @@ contract BittyV1VaultTest is Test {
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL - 1,
+            VaultLogic.HIGH_RISK_TIMELOCK - 1,
             false
         );
         vm.prank(ownerAddress);
@@ -676,13 +684,13 @@ contract BittyV1VaultTest is Test {
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+            VaultLogic.HIGH_RISK_TIMELOCK,
             false
         );
         vm.prank(ownerAddress);
         uint256 aliceId = vault.addScheduledPayment(r);
 
-        r.paymentInterval = VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL - 1;
+        r.paymentInterval = VaultLogic.HIGH_RISK_TIMELOCK - 1;
         vm.prank(ownerAddress);
         vm.expectRevert(ScheduledPaymentIntervalTooShort.selector);
         vault.updateScheduledPayment(aliceId, r);
@@ -709,7 +717,7 @@ contract BittyV1VaultTest is Test {
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+            VaultLogic.HIGH_RISK_TIMELOCK,
             false
         );
         vm.prank(ownerAddress);
@@ -743,7 +751,7 @@ contract BittyV1VaultTest is Test {
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+            VaultLogic.HIGH_RISK_TIMELOCK,
             false
         );
         vm.startPrank(ownerAddress);
@@ -954,7 +962,7 @@ contract BittyV1VaultTest is Test {
             1 ether,
             2,
             block.timestamp,
-            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+            VaultLogic.HIGH_RISK_TIMELOCK,
             false
         );
         vm.prank(ownerAddress);
@@ -963,7 +971,7 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), 2 ether);
 
         vault.payScheduled(aliceId);
-        vm.warp(block.timestamp + VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+        vm.warp(block.timestamp + VaultLogic.HIGH_RISK_TIMELOCK);
         vault.payScheduled(aliceId);
 
         assertEq(weth.balanceOf(scheduledPaymentAddr), 2 ether, "scheduledPayment should have received 2 payments");
@@ -992,7 +1000,7 @@ contract BittyV1VaultTest is Test {
         vault.setScheduledPaymentProtection(2 days);
         vault.setScheduledPaymentProtection(5 days); // raising (tightening) applies immediately
         vm.stopPrank();
-        (uint64 nap,,,,,) = vault.getRiskConfig();
+        (uint64 nap,,,,,,) = vault.getRiskConfig();
         assertEq(nap, 5 days);
     }
 
@@ -1000,7 +1008,7 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         vm.startPrank(ownerAddress);
         vault.setScheduledPaymentProtection(3650 days); // at the cap is allowed
-        (uint64 sched,,,,,) = vault.getRiskConfig();
+        (uint64 sched,,,,,,) = vault.getRiskConfig();
         assertEq(sched, 3650 days);
         // Above the cap reverts, so the recurring-payment path can never be permanently locked out.
         vm.expectRevert(ScheduledPaymentProtectionTooLong.selector);
@@ -1010,66 +1018,66 @@ contract BittyV1VaultTest is Test {
 
     function test_Risk_LoweringScheduledPaymentProtection_DelayedByTimelock() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
-        (uint64 nap0,,,,, uint64 tl) = v.getRiskConfig();
+        (uint64 nap0,,,,, uint64 tl,) = v.getRiskConfig();
         vm.prank(ownerAddress);
         v.setScheduledPaymentProtection(1 hours); // loosening
-        (uint64 napNow,,,,,) = v.getRiskConfig();
+        (uint64 napNow,,,,,,) = v.getRiskConfig();
         assertEq(napNow, nap0); // unchanged until the timelock elapses
         vm.warp(block.timestamp + tl);
-        (uint64 napAfter,,,,,) = v.getRiskConfig();
+        (uint64 napAfter,,,,,,) = v.getRiskConfig();
         assertEq(napAfter, 1 hours);
     }
 
     function test_Risk_Cap_TighteningImmediate_LooseningDelayed() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
-        (,, uint64 send0,,, uint64 tl) = v.getRiskConfig();
+        (,, uint64 send0,,, uint64 tl,) = v.getRiskConfig();
         vm.prank(ownerAddress);
         v.setMaxSendValue(send0 - 1); // tighten (lower cap) -> immediate
-        (,, uint64 sendTight,,,) = v.getRiskConfig();
+        (,, uint64 sendTight,,,,) = v.getRiskConfig();
         assertEq(sendTight, send0 - 1);
 
         vm.prank(ownerAddress);
         v.setMaxSendValue(send0 + 1_000); // loosen (raise cap) -> delayed
-        (,, uint64 sendNow,,,) = v.getRiskConfig();
+        (,, uint64 sendNow,,,,) = v.getRiskConfig();
         assertEq(sendNow, send0 - 1);
         vm.warp(block.timestamp + tl);
-        (,, uint64 sendAfter,,,) = v.getRiskConfig();
+        (,, uint64 sendAfter,,,,) = v.getRiskConfig();
         assertEq(sendAfter, send0 + 1_000);
     }
 
     function test_Risk_Cap_ClearingToZeroIsLooseningDelayed() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
-        (,,,, uint64 wl0, uint64 tl) = v.getRiskConfig();
+        (,,,, uint64 wl0, uint64 tl,) = v.getRiskConfig();
         vm.prank(ownerAddress);
         v.setMaxWhitelistedValue(0); // removing the restriction = loosening
-        (,,,, uint64 wlNow,) = v.getRiskConfig();
+        (,,,, uint64 wlNow,,) = v.getRiskConfig();
         assertEq(wlNow, wl0); // still restricted until the timelock elapses
         vm.warp(block.timestamp + tl);
-        (,,,, uint64 wlAfter,) = v.getRiskConfig();
+        (,,,, uint64 wlAfter,,) = v.getRiskConfig();
         assertEq(wlAfter, 0);
     }
 
     function test_Risk_ChangeTimelock_LoweringDelayedByItself_RaisingImmediate() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.High);
-        (,,,,, uint64 tl0) = v.getRiskConfig();
+        (,,,,, uint64 tl0,) = v.getRiskConfig();
 
         vm.prank(ownerAddress);
         v.setChangeTimelock(tl0 + 10 days); // raising is immediate
-        (,,,,, uint64 tlRaised) = v.getRiskConfig();
+        (,,,,, uint64 tlRaised,) = v.getRiskConfig();
         assertEq(tlRaised, tl0 + 10 days);
 
         vm.prank(ownerAddress);
         v.setChangeTimelock(1 hours); // lowering waits the CURRENT (raised) timelock
-        (,,,,, uint64 tlNow) = v.getRiskConfig();
+        (,,,,, uint64 tlNow,) = v.getRiskConfig();
         assertEq(tlNow, tl0 + 10 days);
         vm.warp(block.timestamp + tl0 + 10 days);
-        (,,,,, uint64 tlAfter) = v.getRiskConfig();
+        (,,,,, uint64 tlAfter,) = v.getRiskConfig();
         assertEq(tlAfter, 1 hours);
     }
 
     function test_PayScheduledPayment_revertProtectionPeriodNotEnded() public {
         _initializeVault();
-        uint256 protection = 3 days;
+        uint256 protection = VaultLogic.STANDARD_RISK_TIMELOCK;
         vm.prank(ownerAddress);
         vault.setScheduledPaymentProtection(protection);
 
@@ -1088,7 +1096,7 @@ contract BittyV1VaultTest is Test {
 
     function test_PayScheduledPayment_successAfterScheduledPaymentProtectionEnds() public {
         _initializeVault();
-        uint256 protection = 3 days;
+        uint256 protection = VaultLogic.STANDARD_RISK_TIMELOCK;
         vm.prank(ownerAddress);
         vault.setScheduledPaymentProtection(protection);
 
@@ -1185,15 +1193,14 @@ contract BittyV1VaultTest is Test {
         vm.warp(1_000_000);
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
 
-        uint256 aliceId =
-            _addScheduledPayment(scheduledPaymentAddr, 1 ether, 2, VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+        uint256 aliceId = _addScheduledPayment(scheduledPaymentAddr, 1 ether, 2, VaultLogic.HIGH_RISK_TIMELOCK);
         deal(address(weth), address(vault), 3 ether);
         vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
 
         vm.prank(ownerAddress);
         vault.removeScheduledPayment(aliceId);
-        aliceId = _addScheduledPayment(scheduledPaymentAddr, 1 ether, 1, VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+        aliceId = _addScheduledPayment(scheduledPaymentAddr, 1 ether, 1, VaultLogic.HIGH_RISK_TIMELOCK);
 
         vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 2 ether, "re-added scheduledPayment must be payable immediately");
@@ -1445,7 +1452,7 @@ contract BittyV1VaultTest is Test {
             amount: 1 ether,
             remainingPaymentCount: 3,
             startTimestamp: start,
-            paymentInterval: VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+            paymentInterval: VaultLogic.HIGH_RISK_TIMELOCK,
             isImmutable: false,
             payWithInsufficientBalance: true
         });
@@ -1457,13 +1464,13 @@ contract BittyV1VaultTest is Test {
         vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1 ether);
 
-        vm.warp(start + VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL + 1);
+        vm.warp(start + VaultLogic.HIGH_RISK_TIMELOCK + 1);
         vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1.5 ether, "second payout sends remaining 0.5 ether");
 
         // Third attempt with a zero balance: rather than burn the last slot for a zero delivery, it is
         // skipped — the count and interval clock are NOT consumed, so the payment stays due.
-        vm.warp(start + 2 * (VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL + 1));
+        vm.warp(start + 2 * (VaultLogic.HIGH_RISK_TIMELOCK + 1));
         vault.payScheduled(aliceId);
         assertEq(weth.balanceOf(scheduledPaymentAddr), 1.5 ether, "zero-balance payout delivers nothing");
 
@@ -1508,7 +1515,7 @@ contract BittyV1VaultTest is Test {
             2 ether,
             2,
             block.timestamp,
-            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+            VaultLogic.HIGH_RISK_TIMELOCK,
             false
         );
 
@@ -1544,8 +1551,7 @@ contract BittyV1VaultTest is Test {
     function test_PayScheduledPayment_emitsScheduledPaymentPaidEvent() public {
         _initializeVault();
         address scheduledPaymentAddr = makeAddr("scheduledPayment");
-        uint256 aliceId =
-            _addScheduledPayment(scheduledPaymentAddr, 1 ether, 2, VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+        uint256 aliceId = _addScheduledPayment(scheduledPaymentAddr, 1 ether, 2, VaultLogic.HIGH_RISK_TIMELOCK);
         deal(address(weth), address(vault), 1 ether);
 
         vm.expectEmit(true, true, true, true, address(vault));
@@ -1597,7 +1603,7 @@ contract BittyV1VaultTest is Test {
     function testFuzz_AddScheduledPayment_validAmountAndCount(uint256 amount, uint8 remainingPaymentCount) public {
         vm.assume(amount > 0 && remainingPaymentCount > 0);
         _initializeVault();
-        uint256 interval = remainingPaymentCount > 1 ? VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL : 0;
+        uint256 interval = remainingPaymentCount > 1 ? VaultLogic.HIGH_RISK_TIMELOCK : 0;
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
             makeAddr("r"), address(0), address(weth), amount, remainingPaymentCount, block.timestamp, interval, false
         );
@@ -1610,7 +1616,7 @@ contract BittyV1VaultTest is Test {
         _initializeVault(); // Zero level: raising from 0 is a tightening -> immediate
         vm.prank(ownerAddress);
         vault.setScheduledPaymentProtection(protection);
-        (uint64 nap,,,,,) = vault.getRiskConfig();
+        (uint64 nap,,,,,,) = vault.getRiskConfig();
         assertEq(nap, uint64(protection));
     }
 
@@ -1664,7 +1670,7 @@ contract BittyV1VaultTest is Test {
             amount,
             remainingPaymentCount,
             start,
-            remainingPaymentCount > 1 ? VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL : 0,
+            remainingPaymentCount > 1 ? VaultLogic.HIGH_RISK_TIMELOCK : 0,
             false
         );
         vm.prank(ownerAddress);
@@ -1672,7 +1678,7 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), uint256(remainingPaymentCount) * amount);
         vault.payScheduled(rId);
         for (uint8 i = 1; i < remainingPaymentCount; i++) {
-            vm.warp(start + uint256(i) * VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+            vm.warp(start + uint256(i) * VaultLogic.HIGH_RISK_TIMELOCK);
             vault.payScheduled(rId);
         }
         assertEq(weth.balanceOf(scheduledPaymentAddr), uint256(remainingPaymentCount) * amount);
@@ -1716,7 +1722,7 @@ contract BittyV1VaultTest is Test {
             amount,
             remainingPaymentCount,
             start,
-            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
+            VaultLogic.HIGH_RISK_TIMELOCK,
             false
         );
         vm.prank(ownerAddress);
@@ -1724,7 +1730,7 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), uint256(remainingPaymentCount) * amount);
         vault.payScheduled(rId);
         for (uint8 i = 1; i < remainingPaymentCount; i++) {
-            vm.warp(start + uint256(i) * VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+            vm.warp(start + uint256(i) * VaultLogic.HIGH_RISK_TIMELOCK);
             vault.payScheduled(rId);
         }
         assertEq(weth.balanceOf(scheduledPaymentAddr), uint256(remainingPaymentCount) * amount);
@@ -1823,7 +1829,7 @@ contract BittyV1VaultTest is Test {
     }
 
     function test_Risk_LevelDefaults_NoneIsAllZero() public {
-        (uint64 nap,, uint64 sVal, uint64 scVal, uint64 wlVal, uint64 tl) =
+        (uint64 nap,, uint64 sVal, uint64 scVal, uint64 wlVal, uint64 tl,) =
             _initAtLevel(RiskControlLevel.Zero).getRiskConfig();
         assertEq(nap, 0);
         assertEq(sVal, 0);
@@ -1839,7 +1845,7 @@ contract BittyV1VaultTest is Test {
     }
 
     function test_Risk_LevelDefaults_StandardAndHighAreConfigured() public {
-        (uint64 stdNap,, uint64 stdSend, uint64 stdSched, uint64 stdWl, uint64 stdTl) =
+        (uint64 stdNap,, uint64 stdSend, uint64 stdSched, uint64 stdWl, uint64 stdTl,) =
             _initAtLevel(RiskControlLevel.Standard).getRiskConfig();
         assertGt(stdNap, 0);
         assertGt(stdSend, 0);
@@ -1847,7 +1853,7 @@ contract BittyV1VaultTest is Test {
         assertGt(stdWl, 0);
         assertGt(stdTl, 0);
 
-        (uint64 hiNap,, uint64 hiSend, uint64 hiSched, uint64 hiWl, uint64 hiTl) =
+        (uint64 hiNap,, uint64 hiSend, uint64 hiSched, uint64 hiWl, uint64 hiTl,) =
             _initAtLevel(RiskControlLevel.High).getRiskConfig();
         assertGt(hiNap, 0);
         assertGt(hiSend, 0);
@@ -1925,27 +1931,98 @@ contract BittyV1VaultTest is Test {
         _sendWl(id, address(usdc), 1_001 * 1e6);
     }
 
+    function test_MaxSendInterval_levelDefaults() public {
+        (,,,,,, uint64 zeroInterval) = _initAtLevel(RiskControlLevel.Zero).getRiskConfig();
+        assertEq(zeroInterval, 0);
+        (,,,,,, uint64 stdInterval) = _initAtLevel(RiskControlLevel.Standard).getRiskConfig();
+        assertEq(stdInterval, VaultLogic.STANDARD_RISK_TIMELOCK);
+        (,,,,,, uint64 highInterval) = _initAtLevel(RiskControlLevel.High).getRiskConfig();
+        assertEq(highInterval, VaultLogic.HIGH_RISK_TIMELOCK);
+    }
+
+    function test_MaxSendInterval_capsCumulativeOwnerSendsPerWindow() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        usdc.mint(address(vault), 10_000e6);
+        address payee = makeAddr("payee");
+
+        vm.prank(ownerAddress);
+        vault.setMaxSendValue(1_000);
+        vm.prank(ownerAddress);
+        vault.setMaxSendInterval(1 days);
+
+        // First batch up to the cap: ok.
+        vm.prank(ownerAddress);
+        _send(payee, address(usdc), 1_000e6);
+        assertEq(usdc.balanceOf(payee), 1_000e6);
+
+        // Any more within the same window exceeds the cumulative cap: blocked. This is the drain a
+        // leaked owner key would otherwise pull off cap-by-cap without pause.
+        vm.prank(ownerAddress);
+        vm.expectRevert(PaymentExceedsPeriodLimit.selector);
+        _send(payee, address(usdc), 1e6);
+
+        // Once the window elapses, the quota resets.
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(ownerAddress);
+        _send(payee, address(usdc), 1_000e6);
+        assertEq(usdc.balanceOf(payee), 2_000e6);
+    }
+
+    function test_MaxSendInterval_zeroKeepsPerBatchCap() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        usdc.mint(address(vault), 10_000e6);
+        address payee = makeAddr("payee");
+
+        // A cap with no rolling window (interval 0) stays per-transaction, so repeated capped batches
+        // are still allowed — the legacy behavior maxSendInterval is meant to close.
+        vm.prank(ownerAddress);
+        vault.setMaxSendValue(1_000);
+
+        vm.prank(ownerAddress);
+        _send(payee, address(usdc), 1_000e6);
+        vm.prank(ownerAddress);
+        _send(payee, address(usdc), 1_000e6);
+        assertEq(usdc.balanceOf(payee), 2_000e6);
+    }
+
     function test_Risk_Scheduled_CapAppliesToNewAdds() public {
         _initializeVault();
         MockERC20 usdc = _addStableCoin(6);
         vm.prank(ownerAddress);
         vault.setMaxScheduledValue(1_000);
 
-        IBittyV1Vault.ScheduledPayment memory nonStable =
-            _makeScheduledPayment(makeAddr("sp1"), address(0), address(weth), 1, 12, block.timestamp, 7 days, false);
+        IBittyV1Vault.ScheduledPayment memory nonStable = _makeScheduledPayment(
+            makeAddr("sp1"), address(0), address(weth), 1, 12, block.timestamp, VaultLogic.HIGH_RISK_TIMELOCK, false
+        );
         vm.prank(ownerAddress);
         vm.expectRevert(PaymentNotStableCoin.selector);
         vault.addScheduledPayment(nonStable);
 
         IBittyV1Vault.ScheduledPayment memory overCap = _makeScheduledPayment(
-            makeAddr("sp2"), address(0), address(usdc), 1_001 * 1e6, 12, block.timestamp, 7 days, false
+            makeAddr("sp2"),
+            address(0),
+            address(usdc),
+            1_001 * 1e6,
+            12,
+            block.timestamp,
+            VaultLogic.HIGH_RISK_TIMELOCK,
+            false
         );
         vm.prank(ownerAddress);
         vm.expectRevert(PaymentExceedsRiskCap.selector);
         vault.addScheduledPayment(overCap);
 
         IBittyV1Vault.ScheduledPayment memory okPayment = _makeScheduledPayment(
-            makeAddr("sp3"), address(0), address(usdc), 1_000 * 1e6, 12, block.timestamp, 7 days, false
+            makeAddr("sp3"),
+            address(0),
+            address(usdc),
+            1_000 * 1e6,
+            12,
+            block.timestamp,
+            VaultLogic.HIGH_RISK_TIMELOCK,
+            false
         );
         vm.prank(ownerAddress);
         assertGt(vault.addScheduledPayment(okPayment), 0);
@@ -1955,8 +2032,9 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         MockERC20 usdc = _addStableCoin(6);
         address payee = makeAddr("gp");
-        IBittyV1Vault.ScheduledPayment memory r =
-            _makeScheduledPayment(payee, address(0), address(usdc), 5_000 * 1e6, 12, block.timestamp, 7 days, false);
+        IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
+            payee, address(0), address(usdc), 5_000 * 1e6, 12, block.timestamp, VaultLogic.HIGH_RISK_TIMELOCK, false
+        );
         vm.prank(ownerAddress);
         uint256 id = vault.addScheduledPayment(r);
 
@@ -1976,7 +2054,7 @@ contract BittyV1VaultTest is Test {
         vault.setMaxSendValue(5_000); // raise (loosen) -> instant
         vault.setMaxSendValue(0); // clear (loosen) -> instant
         vm.stopPrank();
-        (,, uint64 sVal,,,) = vault.getRiskConfig();
+        (,, uint64 sVal,,,,) = vault.getRiskConfig();
         assertEq(sVal, 0);
     }
 
@@ -2087,7 +2165,7 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         uint256 id = _addPayment(makeAddr("payee"), 1, true);
 
-        // Protection is 0 here, but immutable entries always get at least a 1-day lock window.
+        // Protection is 0 here, but immutable entries always get at least a STANDARD_RISK_TIMELOCK lock window.
         vm.warp(block.timestamp + 1 days - 2);
         vm.prank(ownerAddress);
         vault.removeScheduledPayment(id);
@@ -2097,7 +2175,7 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         uint256 id = _addPayment(makeAddr("payee"), 1, true);
 
-        vm.warp(block.timestamp + 1 days + 1);
+        vm.warp(block.timestamp + VaultLogic.STANDARD_RISK_TIMELOCK + 1);
         vm.prank(ownerAddress);
         vm.expectRevert(ImmutableScheduledPaymentLocked.selector);
         vault.removeScheduledPayment(id);
@@ -2106,10 +2184,10 @@ contract BittyV1VaultTest is Test {
     function test_removeImmutableScheduledPayment_lockWindowFollowsProtection() public {
         _initializeVault();
         vm.prank(ownerAddress);
-        vault.setScheduledPaymentProtection(3 days);
+        vault.setScheduledPaymentProtection(VaultLogic.STANDARD_RISK_TIMELOCK + 1 days);
         uint256 id = _addPayment(makeAddr("payee"), 1, true);
 
-        vm.warp(block.timestamp + 3 days - 2);
+        vm.warp(block.timestamp + VaultLogic.STANDARD_RISK_TIMELOCK + 1 days - 2);
         vm.prank(ownerAddress);
         vault.removeScheduledPayment(id);
     }
@@ -2120,9 +2198,9 @@ contract BittyV1VaultTest is Test {
         vault.setScheduledPaymentProtection(30 days);
         uint256 id = _addPayment(makeAddr("payee"), 1, true);
 
-        // Even with a 30-day protection, the immutable lock window is capped at 7 days, so a
+        // Even with a 30-day protection, the immutable lock window is capped at HIGH_RISK_TIMELOCK, so a
         // compromised key cannot stretch the removable-pending state (and payout delay) for months.
-        vm.warp(block.timestamp + 7 days + 1);
+        vm.warp(block.timestamp + VaultLogic.HIGH_RISK_TIMELOCK + 1);
         vm.prank(ownerAddress);
         vm.expectRevert(ImmutableScheduledPaymentLocked.selector);
         vault.removeScheduledPayment(id);
@@ -2134,7 +2212,7 @@ contract BittyV1VaultTest is Test {
         weth.deposit{value: 1 ether}();
         weth.transfer(address(vault), 1 ether);
 
-        vm.warp(block.timestamp + 1 days + 1);
+        vm.warp(block.timestamp + VaultLogic.STANDARD_RISK_TIMELOCK + 1);
         vault.payScheduled(id);
 
         // The locked entry has no payments left, so removing the dead entry is allowed.
@@ -2168,22 +2246,40 @@ contract BittyV1VaultTest is Test {
         weth.deposit{value: 3 ether}();
         weth.transfer(address(vault), 3 ether);
 
-        // Day 1+: the escape payment is now permanently locked.
-        vm.warp(start + 1 days + 1);
+        // The escape payment is now permanently locked (Zero-level lock window = STANDARD_RISK_TIMELOCK).
+        vm.warp(start + VaultLogic.STANDARD_RISK_TIMELOCK + 1);
 
         // The key leaks. The hacker cannot redirect, remove, or replace the escape payment.
         vm.startPrank(ownerAddress);
         vm.expectRevert(ScheduledPaymentImmutable.selector);
         vault.updateScheduledPayment(
             escapeId,
-            _makeScheduledPayment(hackerWallet, address(0), address(weth), 1 ether, 255, start + 2 days, 30 days, true)
+            _makeScheduledPayment(
+                hackerWallet,
+                address(0),
+                address(weth),
+                1 ether,
+                255,
+                start + VaultLogic.STANDARD_RISK_TIMELOCK + 2 days,
+                30 days,
+                true
+            )
         );
         vm.expectRevert(ImmutableScheduledPaymentLocked.selector);
         vault.removeScheduledPayment(escapeId);
 
         // The hacker plants their own payment instead.
         uint256 maliciousId = vault.addScheduledPayment(
-            _makeScheduledPayment(hackerWallet, address(0), address(weth), 3 ether, 1, start + 2 days, 30 days, false)
+            _makeScheduledPayment(
+                hackerWallet,
+                address(0),
+                address(weth),
+                3 ether,
+                1,
+                start + VaultLogic.STANDARD_RISK_TIMELOCK + 2 days,
+                30 days,
+                false
+            )
         );
         vm.stopPrank();
 
@@ -2192,7 +2288,7 @@ contract BittyV1VaultTest is Test {
         vault.removeScheduledPayment(maliciousId);
         vault.beginDefaultAdminTransfer(address(0));
         vm.stopPrank();
-        vm.warp(start + 2 days + 2);
+        vm.warp(start + VaultLogic.STANDARD_RISK_TIMELOCK + 2 days);
         vm.prank(ownerAddress);
         vault.renounceRole(adminRole, ownerAddress);
         assertEq(vault.defaultAdmin(), address(0));
@@ -2207,7 +2303,7 @@ contract BittyV1VaultTest is Test {
         // The escape payments keep flowing to the cold wallet forever (unlimited count).
         vault.payScheduled(escapeId);
         assertEq(weth.balanceOf(coldWallet), 1 ether);
-        vm.warp(start + 32 days + 2);
+        vm.warp(start + VaultLogic.STANDARD_RISK_TIMELOCK + 32 days);
         vault.payScheduled(escapeId);
         assertEq(weth.balanceOf(coldWallet), 2 ether);
         assertEq(weth.balanceOf(hackerWallet), 0);
@@ -2368,14 +2464,7 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         uint256 id = vault.addScheduledPayment(
             _makeScheduledPayment(
-                payee,
-                address(0),
-                address(usdc),
-                payAmount,
-                3,
-                block.timestamp,
-                VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
-                false
+                payee, address(0), address(usdc), payAmount, 3, block.timestamp, VaultLogic.HIGH_RISK_TIMELOCK, false
             )
         );
 
@@ -2398,14 +2487,7 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         uint256 id = vault.addScheduledPayment(
             _makeScheduledPayment(
-                payee,
-                address(0),
-                address(usdc),
-                payAmount,
-                2,
-                block.timestamp,
-                VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
-                false
+                payee, address(0), address(usdc), payAmount, 2, block.timestamp, VaultLogic.HIGH_RISK_TIMELOCK, false
             )
         );
 
@@ -2472,14 +2554,7 @@ contract BittyV1VaultTest is Test {
         uint256 amount = 0.01 ether;
         uint256 start = block.timestamp;
         IBittyV1Vault.ScheduledPayment memory r = _makeScheduledPayment(
-            to,
-            address(0),
-            address(weth),
-            amount,
-            type(uint8).max,
-            start,
-            VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL,
-            false
+            to, address(0), address(weth), amount, type(uint8).max, start, VaultLogic.HIGH_RISK_TIMELOCK, false
         );
         vm.prank(ownerAddress);
         uint256 uId = vault.addScheduledPayment(r);
@@ -2489,7 +2564,7 @@ contract BittyV1VaultTest is Test {
         deal(address(weth), address(vault), payments * amount);
         vault.payScheduled(uId);
         for (uint256 i = 1; i < payments; i++) {
-            vm.warp(start + i * VaultLogic.SCHEDULED_PAYMENT_MINIMAL_INTERVAL);
+            vm.warp(start + i * VaultLogic.HIGH_RISK_TIMELOCK);
             vault.payScheduled(uId);
         }
         assertEq(weth.balanceOf(to), payments * amount);
@@ -2675,7 +2750,7 @@ contract BittyV1VaultTest is Test {
 
     function test_WhitelistedRecipient_protectionBlocksThenAllowsAfterWindow() public {
         _initializeVault();
-        uint256 protection = 3 days;
+        uint256 protection = VaultLogic.STANDARD_RISK_TIMELOCK;
         address to = makeAddr("wlr");
 
         vm.startPrank(ownerAddress);
@@ -2769,7 +2844,7 @@ contract BittyV1VaultTest is Test {
     // removing one never affects the other's protection.
     function test_Protection_perEntryIndependent() public {
         _initializeVault();
-        uint256 protection = 7 days;
+        uint256 protection = VaultLogic.HIGH_RISK_TIMELOCK;
         address payee = makeAddr("payee");
         deal(address(weth), address(vault), 1 ether);
 
@@ -2793,7 +2868,7 @@ contract BittyV1VaultTest is Test {
     function test_Protection_deleteDuringWindowRemovesEntry() public {
         _initializeVault();
         vm.startPrank(ownerAddress);
-        vault.setScheduledPaymentProtection(3 days);
+        vault.setScheduledPaymentProtection(VaultLogic.STANDARD_RISK_TIMELOCK);
         IBittyV1Vault.ScheduledPayment memory sp =
             _makeScheduledPayment(makeAddr("payee"), address(0), address(weth), 1 ether, 1, block.timestamp, 0, false);
         uint256 spId = vault.addScheduledPayment(sp);
