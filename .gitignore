@@ -9,6 +9,9 @@ out/
 broadcast/
 broadcasted/
 
+# Deployment address files (kept local, not tracked)
+deployments/
+
 # Docs
 docs/
 
