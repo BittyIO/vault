@@ -17,7 +17,6 @@ import {
     TradeInvestedTotalExceeded,
     StableCoinInvestCapZero,
     NotAssetManager,
-    AssetManagerNotActive,
     DisableRebalanceUntilTimestampTooEarly,
     DisableRebalanceUntilTimestampTooLong
 } from "../../src/interfaces/IBittyV1AssetManager.sol";
@@ -34,6 +33,7 @@ import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
 import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
 import {MockAMMProtocol} from "../helpers/MockAMMProtocol.sol";
+import {MockIntentProtocol, MockIntentRegistry} from "../helpers/MockIntentProtocol.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 
 contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
@@ -48,6 +48,13 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     address[] public intentProtocols;
     address public ownerAddress;
     address public assetManagerAddress;
+
+    MockIntentRegistry internal intentRegistry;
+    MockIntentProtocol internal mockIntent;
+
+    function _validTo() private view returns (uint32) {
+        return uint32(block.timestamp + 1 days);
+    }
 
     function setUp() public {
         ownerAddress = tx.origin;
@@ -68,6 +75,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         setupMainnetForkProtocols(guard);
 
+        intentRegistry = new MockIntentRegistry();
+        mockIntent = new MockIntentProtocol(address(intentRegistry), false, false);
+        vm.prank(tx.origin);
+        guard.addIntentProtocols(_single(address(mockIntent)));
+
         assets = _two(mainnet.WETH, WBTC);
         vaultAssets = new address[](4);
         vaultAssets[0] = mainnet.WETH;
@@ -77,7 +89,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         lendingProtocols = _single(address(aaveProtocol));
         stakingProtocols = _single(address(lidoProtocol));
         ammProtocols = _single(address(uniswapV3Protocol));
-        intentProtocols = new address[](0);
+        intentProtocols = _single(address(mockIntent));
     }
 
     function _two(address a, address b) private pure returns (address[] memory arr) {
@@ -95,16 +107,18 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         return _assetManager.clonedProtocols[protocol];
     }
 
-    function getTradeLimitInvestedBudget(address assetManager) external view returns (uint64) {
-        return _assetManager.assetManagerLimit.stableCoinInvestCap - _assetManager.assetManagerLimit.stableCoinInvested;
+    function getSettingsInvestedBudget(address assetManager) external view returns (uint64) {
+        return
+            _assetManager.assetManagerSettings.stableCoinInvestCap
+                - _assetManager.assetManagerSettings.stableCoinInvested;
     }
 
-    function getTradeLimitLastTradeTimestamp(address assetManager) external view returns (uint128) {
-        return _assetManager.assetManagerLimit.lastTradeTimestamp;
+    function getSettingsLastTradeTimestamp(address assetManager) external view returns (uint128) {
+        return _assetManager.assetManagerSettings.lastTradeTimestamp;
     }
 
-    function getTradeLimitInvested(address assetManager) external view returns (uint64) {
-        return _assetManager.assetManagerLimit.stableCoinInvested;
+    function getSettingsInvested(address assetManager) external view returns (uint64) {
+        return _assetManager.assetManagerSettings.stableCoinInvested;
     }
 
     function _setTradeLimit(
@@ -241,7 +255,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.withdraw(address(aaveProtocol), address(mainnet.WETH), 1 ether);
         vm.prank(stranger);
         vm.expectRevert(NotAssetManager.selector);
-        this.marketSell(address(uniswapV3Protocol), address(WBTC), address(mainnet.USDT), 1 ether, 1 ether, "");
+        this.limitSell(address(mockIntent), address(WBTC), address(mainnet.USDT), 1 ether, 1 ether, _validTo());
     }
 
     function test_SupplyRevertAddressZero() public {
@@ -450,56 +464,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         uint256 sellAmount = 1 ether;
         uint256 buyAmountMin = 100e6;
-        bytes memory swapData = abi.encode(address(stray), sellAmount, address(stable), buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.marketSell(address(mockAmm), address(stray), address(stable), sellAmount, buyAmountMin, swapData);
-
-        assertEq(stray.balanceOf(address(this)), 9 ether);
-        assertEq(stable.balanceOf(address(this)), buyAmountMin);
-    }
-
-    function test_MarketBuy_successWithMockAMM() public {
-        MockAMMProtocol mockAmm = new MockAMMProtocol();
-        MockERC20 stable = new MockERC20("Stable", "STB", 6);
-
-        vm.startPrank(tx.origin);
-        BittyV1Guard(guardAddress).addStableCoins(_single(address(stable)));
-        BittyV1Guard(guardAddress).addAMMProtocols(_single(address(mockAmm)));
-        vm.stopPrank();
-
-        address[] memory initAssets = new address[](5);
-        initAssets[0] = mainnet.WETH;
-        initAssets[1] = WBTC;
-        initAssets[2] = mainnet.USDT;
-        initAssets[3] = mainnet.USDC;
-        initAssets[4] = address(stable);
-
-        this.initialize(
-            ownerAddress,
-            guardAddress,
-            mainnet.WETH,
-            initAssets,
-            lendingProtocols,
-            stakingProtocols,
-            _single(address(mockAmm)),
-            intentProtocols,
-            address(0),
-            RiskControlLevel.Zero
-        );
-        _grantAssetManagerRole(assetManagerAddress);
-        _cloneProtocolForTest(address(mockAmm));
-
-        deal(mainnet.WETH, address(this), 10 ether);
-
-        uint256 buyAmount = 100e6;
-        uint256 sellAmountMax = 1 ether;
-        bytes memory data = abi.encode(mainnet.WETH, sellAmountMax, address(stable), buyAmount);
-
-        vm.prank(assetManagerAddress);
-        this.marketBuy(address(mockAmm), mainnet.WETH, address(stable), buyAmount, sellAmountMax, data);
-
-        assertEq(stable.balanceOf(address(this)), buyAmount);
+        bytes32 id =
+            this.limitSell(address(mockIntent), address(stray), address(stable), sellAmount, buyAmountMin, _validTo());
+        assertTrue(id != bytes32(0));
     }
 
     function test_RebalanceFromCheck_MinimalBalanceNotMet_WhenRemainingBelowMinimal() public {
@@ -513,15 +482,13 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 sellAmount = 950 ether;
 
         deal(address(mainnet.WETH), address(this), fromBalance);
-        IERC20(mainnet.WETH).approve(address(this), fromBalance);
 
         uint256 buyAmount = 10 * 1e6;
-        bytes memory swapData = abi.encode(address(mainnet.WETH), sellAmount, address(mainnet.USDT), buyAmount);
 
         vm.expectRevert(MinimalBalanceNotMet.selector);
         vm.prank(assetManagerAddress);
-        this.marketSell(
-            address(uniswapV3Protocol), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, swapData
+        this.limitSell(
+            address(mockIntent), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, _validTo()
         );
     }
 
@@ -538,14 +505,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         uint256 sellAmount = 1 ether;
         uint256 buyAmountMin = 1;
-        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         // Spot alone (2 → 1 after the sell) is below the 4-WETH floor, so spot-only accounting would
         // revert MinimalBalanceNotMet; counting the ~8 supplied lets the total clear the floor.
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
-
-        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), 1 ether, 10, "spot WETH after sell");
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, _validTo());
     }
 
     function test_RebalanceFromCheck_MinimalBalanceNotMet_WhenSellExceedsBalance() public {
@@ -559,15 +523,13 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 sellAmount = 100 ether;
 
         deal(address(mainnet.WETH), address(this), fromBalance);
-        IERC20(mainnet.WETH).approve(address(this), fromBalance);
 
         uint256 buyAmount = 10 * 1e6;
-        bytes memory swapData = abi.encode(address(mainnet.WETH), sellAmount, address(mainnet.USDT), buyAmount);
 
         vm.expectRevert(MinimalBalanceNotMet.selector);
         vm.prank(assetManagerAddress);
-        this.marketSell(
-            address(uniswapV3Protocol), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, swapData
+        this.limitSell(
+            address(mockIntent), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, _validTo()
         );
     }
 
@@ -583,12 +545,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         deal(mainnet.WETH, address(this), fromBalance);
         uint256 buyAmountMin = 1;
-        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
-
-        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), fromBalance - sellAmount, 10);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, _validTo());
     }
 
     function test_SetTradeLimit_RevertsForNonOwner() public {
@@ -626,12 +585,12 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         vm.prank(ownerAddress);
         this.setAssetManager(assetManager, 1 hours, 1000, 5_000, 0);
         assertEq(this.getAssetManager(), assetManager);
-        assertEq(this.getTradeLimitInvestedBudget(assetManager), 5_000);
+        assertEq(this.getSettingsInvestedBudget(assetManager), 5_000);
 
         vm.prank(ownerAddress);
         this.removeAssetManager();
         assertEq(this.getAssetManager(), address(0));
-        assertEq(this.getTradeLimitInvestedBudget(assetManager), 0);
+        assertEq(this.getSettingsInvestedBudget(assetManager), 0);
     }
 
     function test_TradeLimit_SizeCap_RevertsWhenStableLegExceeds() public {
@@ -644,11 +603,10 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         // USDT is the buy leg; the declared floor (1_001e6) exceeds the 1_000e6 cap.
         uint256 buyAmountMin = 1_001 * 1e6;
-        bytes memory swapData = encodeWethToUsdtSwap(1 ether, buyAmountMin);
 
         vm.expectRevert(TradeSizeExceeded.selector);
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 1 ether, buyAmountMin, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 1 ether, buyAmountMin, _validTo());
     }
 
     function test_TradeLimit_SizeCap_SucceedsWhenStableLegUnderCap() public {
@@ -660,10 +618,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         uint256 sellAmount = 0.01 ether;
         uint256 buyAmountMin = 1;
-        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, _validTo());
     }
 
     function test_TradeLimit_SizeCap_RevertsWhenNeitherLegStable() public {
@@ -675,7 +632,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         // WETH → WBTC: neither token is a stablecoin, so the size is not measurable in dollars.
         vm.expectRevert(TradeMustTouchStableCoin.selector);
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, WBTC, 1 ether, 1, "");
+        this.limitSell(address(mockIntent), mainnet.WETH, WBTC, 1 ether, 1, _validTo());
     }
 
     function test_TradeLimit_Interval_ThrottlesSecondTrade() public {
@@ -686,18 +643,17 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.setAssetManager(assetManagerAddress, 1 hours, 0, type(uint64).max, 0);
 
         uint256 sellAmount = 0.01 ether;
-        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, 1);
 
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, 1, _validTo());
 
         vm.expectRevert(TradeInInterval.selector);
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, 1, _validTo());
 
         vm.warp(block.timestamp + 1 hours);
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, 1, _validTo());
     }
 
     function test_SetAssetManager_ReplacesPreviousAssetManager() public {
@@ -709,10 +665,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.setAssetManager(makeAddr("otherAssetManager"), 1 hours, 1, type(uint64).max, 0);
 
         uint256 sellAmount = 0.01 ether;
-        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, 1);
         vm.prank(assetManagerAddress);
         vm.expectRevert(NotAssetManager.selector);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, 1, _validTo());
     }
 
     function test_TradeLimit_ExpiredAt_RevertsAfterExpiry() public {
@@ -722,14 +677,13 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 expiry = block.timestamp + 1 hours;
         _setTradeLimit(assetManagerAddress, 0, 0, type(uint64).max, expiry);
 
-        bytes memory swapData = encodeWethToUsdtSwap(0.01 ether, 1);
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, _validTo());
 
         vm.warp(expiry);
         vm.expectRevert(TradeLimitExpired.selector);
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, _validTo());
     }
 
     function test_TradeLimit_InvestedTotal_RevertsWhenBuyingWithStableExceedsBudget() public {
@@ -738,43 +692,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0);
 
-        bytes memory swapData = encodeUsdtToWethSwap(1_001 * 1e6, 1);
         vm.expectRevert(TradeInvestedTotalExceeded.selector);
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 1_001 * 1e6, 1, swapData);
-    }
-
-    function test_TradeLimit_InvestedTotal_TracksBudgetAcrossBuyAndSell() public {
-        this.doInitialize();
-        deal(mainnet.USDT, address(this), 2_000 * 1e6);
-        deal(mainnet.WETH, address(this), 10 ether);
-
-        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0);
-
-        vm.prank(assetManagerAddress);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 500 * 1e6, 1, encodeUsdtToWethSwap(500 * 1e6, 1)
-        );
-        assertEq(this.getTradeLimitInvestedBudget(assetManagerAddress), 500);
-
-        uint256 budgetBeforeSell = this.getTradeLimitInvestedBudget(assetManagerAddress);
-        uint256 restoreMin = 100 * 1e6;
-        vm.prank(assetManagerAddress);
-        this.marketSell(
-            address(uniswapV3Protocol),
-            mainnet.WETH,
-            mainnet.USDT,
-            0.1 ether,
-            restoreMin,
-            encodeWethToUsdtSwap(0.1 ether, restoreMin)
-        );
-        assertEq(this.getTradeLimitInvestedBudget(assetManagerAddress), budgetBeforeSell + 100);
-
-        vm.prank(assetManagerAddress);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 500 * 1e6, 1, encodeUsdtToWethSwap(500 * 1e6, 1)
-        );
-        assertEq(this.getTradeLimitInvestedBudget(assetManagerAddress), budgetBeforeSell + 100 - 500);
+        this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 1_001 * 1e6, 1, _validTo());
     }
 
     function test_TradeLimit_InvestedTotal_SubTokenTradeCountsAsWholeToken() public {
@@ -785,10 +705,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         // A sub-whole-token invest (0.5 USDT) must round UP to 1, not floor to 0 — otherwise a stream of
         // dust trades could deploy capital past the cap for free.
         vm.prank(assetManagerAddress);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 500_000, 1, encodeUsdtToWethSwap(500_000, 1)
-        );
-        assertEq(this.getTradeLimitInvestedBudget(assetManagerAddress), 1_000 - 1);
+        this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 500_000, 1, _validTo());
+        assertEq(this.getSettingsInvestedBudget(assetManagerAddress), 1_000 - 1);
     }
 
     function test_FullAccess_SkipsInvestCapAndTracking() public {
@@ -800,10 +718,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         deal(mainnet.USDT, address(this), 5_000 * 1e6);
         // Investing 2,000 USDT would exceed the 1,000 cap — full-access ignores it and does not track.
         vm.prank(assetManagerAddress);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 2_000 * 1e6, 1, encodeUsdtToWethSwap(2_000 * 1e6, 1)
-        );
-        assertEq(this.getTradeLimitInvested(assetManagerAddress), 0, "invested not tracked for full-access");
+        this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 2_000 * 1e6, 1, _validTo());
+        assertEq(this.getSettingsInvested(assetManagerAddress), 0, "invested not tracked for full-access");
     }
 
     function test_FullAccess_MinimalBalanceStillEnforced() public {
@@ -818,9 +734,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         // Selling below the minimal-balance floor reverts even for a full-access asset manager.
         vm.prank(assetManagerAddress);
         vm.expectRevert(MinimalBalanceNotMet.selector);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.6 ether, 1, encodeWethToUsdtSwap(0.6 ether, 1)
-        );
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 0.6 ether, 1, _validTo());
     }
 
     function test_SetTradeLimit_DemotesFullAccessToRestricted() public {
@@ -833,98 +747,49 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         // The cap is enforced again: investing 1,001 USDT reverts.
         vm.prank(assetManagerAddress);
         vm.expectRevert(TradeInvestedTotalExceeded.selector);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 1_001 * 1e6, 1, encodeUsdtToWethSwap(1_001 * 1e6, 1)
-        );
+        this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 1_001 * 1e6, 1, _validTo());
     }
 
-    function test_AssetManagerGrant_FullAccessCoolsDownByChangeTimelock() public {
+    function test_InvestCap_RefundedWhenUnfilledLimitOrderCancelled() public {
         this.doInitialize();
-        // Raise the loosening delay (tightening → instant); later AM (re)appointments now cool down by it.
-        vm.prank(ownerAddress);
-        this.setChangeTimelock(3 days);
-
-        vm.prank(ownerAddress);
-        this.setFullAssetManager(assetManagerAddress);
-
-        deal(mainnet.WETH, address(this), 1 ether);
-
-        // A compromised owner key that escalates to full-access cannot trade until the cool-down elapses.
-        vm.prank(assetManagerAddress);
-        vm.expectRevert(AssetManagerNotActive.selector);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.5 ether, 1, encodeWethToUsdtSwap(0.5 ether, 1)
-        );
-
-        vm.warp(block.timestamp + 3 days);
-        vm.prank(assetManagerAddress);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.5 ether, 1, encodeWethToUsdtSwap(0.5 ether, 1)
-        );
-    }
-
-    function test_AssetManagerGrant_RestrictedCoolsDownByChangeTimelock() public {
-        this.doInitialize();
-        vm.prank(ownerAddress);
-        this.setChangeTimelock(3 days);
-
-        // Re-appointing a restricted manager is deferred too — a fresh trading key serves the cool-down.
-        vm.prank(ownerAddress);
-        this.setAssetManager(assetManagerAddress, 0, 0, type(uint64).max, 0);
-
+        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0);
         deal(mainnet.USDT, address(this), 5_000 * 1e6);
-        vm.prank(assetManagerAddress);
-        vm.expectRevert(AssetManagerNotActive.selector);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 500 * 1e6, 1, encodeUsdtToWethSwap(500 * 1e6, 1)
-        );
 
-        vm.warp(block.timestamp + 3 days);
-        vm.prank(assetManagerAddress);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 500 * 1e6, 1, encodeUsdtToWethSwap(500 * 1e6, 1)
-        );
+        bytes32 id = this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 600 * 1e6, 1, _validTo());
+        assertEq(this.getSettingsInvested(assetManagerAddress), 600, "placement counts the invest");
+
+        // Never filled: cancelling reclaims the whole reserved budget (fill-or-kill → nothing deployed).
+        this.cancelLimitOrder(address(mockIntent), abi.encode(id));
+        assertEq(this.getSettingsInvested(assetManagerAddress), 0, "unfilled cancel refunds the invest budget");
     }
 
-    function test_AssetManagerGrant_RemovalIsInstant() public {
+    function test_InvestCap_NotRefundedWhenFilledOrderCancelled() public {
         this.doInitialize();
-        vm.prank(ownerAddress);
-        this.setChangeTimelock(3 days);
-        vm.prank(ownerAddress);
-        this.setFullAssetManager(assetManagerAddress); // now cooling down
+        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0);
+        deal(mainnet.USDT, address(this), 5_000 * 1e6);
 
-        // Removal is the owner's instant lock-down lever: it takes effect immediately, no cool-down.
-        vm.prank(ownerAddress);
-        this.removeAssetManager();
+        bytes32 id = this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 600 * 1e6, 1, _validTo());
+        intentRegistry.setFilled(id, true); // the order settled on-chain
 
-        deal(mainnet.WETH, address(this), 1 ether);
-        vm.prank(assetManagerAddress);
-        vm.expectRevert(NotAssetManager.selector);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.5 ether, 1, encodeWethToUsdtSwap(0.5 ether, 1)
-        );
+        // A filled order actually deployed the stablecoin, so its budget stays counted after cancel.
+        this.cancelLimitOrder(address(mockIntent), abi.encode(id));
+        assertEq(this.getSettingsInvested(assetManagerAddress), 600, "filled deployment stays counted");
     }
 
-    function test_AssetManagerGrant_InitSeededGrantIsInstant() public {
-        // Standard-level init seeds the owner as a restricted asset manager, active immediately (no cool-down).
-        this.initialize(
-            ownerAddress,
-            guardAddress,
-            mainnet.WETH,
-            vaultAssets,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols,
-            address(0),
-            RiskControlLevel.Standard
-        );
-
+    function test_InvestCap_RefundedOnExpiredCleanup() public {
+        this.doInitialize();
+        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0);
         deal(mainnet.USDT, address(this), 5_000 * 1e6);
-        vm.prank(ownerAddress);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.USDT, mainnet.WETH, 500 * 1e6, 1, encodeUsdtToWethSwap(500 * 1e6, 1)
-        );
+
+        uint32 vt = _validTo();
+        bytes32 id = this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 600 * 1e6, 1, vt);
+        assertEq(this.getSettingsInvested(assetManagerAddress), 600);
+
+        vm.warp(uint256(vt) + 1);
+        bytes32[] memory ids = new bytes32[](1);
+        ids[0] = id;
+        this.cleanExpiredLimitOrders(address(mockIntent), ids);
+        assertEq(this.getSettingsInvested(assetManagerAddress), 0, "expired-unfilled cleanup refunds too");
     }
 
     function test_TradeLimit_ZeroInterval_SkipsLastTradeTimestampWrite() public {
@@ -932,15 +797,14 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         deal(mainnet.WETH, address(this), 10 ether);
 
         _setTradeLimit(assetManagerAddress, 0, 0, type(uint64).max, 0);
-        assertEq(this.getTradeLimitLastTradeTimestamp(assetManagerAddress), 0);
+        assertEq(this.getSettingsLastTradeTimestamp(assetManagerAddress), 0);
 
-        bytes memory swapData = encodeWethToUsdtSwap(0.01 ether, 1);
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, _validTo());
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, _validTo());
 
-        assertEq(this.getTradeLimitLastTradeTimestamp(assetManagerAddress), 0);
+        assertEq(this.getSettingsLastTradeTimestamp(assetManagerAddress), 0);
     }
 
     function test_TradeLimit_NonZeroInterval_RecordsLastTradeTimestamp() public {
@@ -948,13 +812,12 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         deal(mainnet.WETH, address(this), 10 ether);
 
         _setTradeLimit(assetManagerAddress, 1 hours, 0, type(uint64).max, 0);
-        assertEq(this.getTradeLimitLastTradeTimestamp(assetManagerAddress), 0);
+        assertEq(this.getSettingsLastTradeTimestamp(assetManagerAddress), 0);
 
-        bytes memory swapData = encodeWethToUsdtSwap(0.01 ether, 1);
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, _validTo());
 
-        assertEq(this.getTradeLimitLastTradeTimestamp(assetManagerAddress), block.timestamp);
+        assertEq(this.getSettingsLastTradeTimestamp(assetManagerAddress), block.timestamp);
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_RevertsWhenBeforeTimestamp() public {
@@ -967,11 +830,10 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 sellAmount = 0.01 ether;
         deal(mainnet.WETH, address(this), sellAmount);
         uint256 buyAmountMin = 1;
-        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.expectRevert(RebalanceDisabled.selector);
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, _validTo());
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_SucceedsAfterTimestamp() public {
@@ -986,13 +848,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 sellAmount = 0.01 ether;
         deal(mainnet.WETH, address(this), sellAmount);
         uint256 buyAmountMin = 1;
-        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
-
-        // ~0: the AMM refunds a wei or two of dust ETH, which receive() wraps back into WETH.
-        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), 0, 100);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, _validTo());
     }
 
     function test_CheckRebalanceDisabledUntilTimestamp_SucceedsWhenNeverDisabled() public {
@@ -1001,13 +859,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 sellAmount = 0.01 ether;
         deal(mainnet.WETH, address(this), sellAmount);
         uint256 buyAmountMin = 1;
-        bytes memory swapData = encodeWethToUsdtSwap(sellAmount, buyAmountMin);
 
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, swapData);
-
-        // ~0: the AMM refunds a wei or two of dust ETH, which receive() wraps back into WETH.
-        assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(this)), 0, 100);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, _validTo());
     }
 
     function test_DisableRebalanceUntilTimestampTooEarly_RevertsWhenNewTimestampEarlier() public {
@@ -1309,24 +1163,6 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
     // ─── AMM: deprecated protocol and decreaseLiquidity ───────────────────────
 
-    function test_MarketSellRevertDeprecatedAMMProtocol() public {
-        this.doInitialize();
-        _deprecateVaultAMMProtocols();
-        vm.expectRevert(Deprecated.selector);
-        vm.prank(assetManagerAddress);
-        this.marketSell(
-            address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 1 ether, 1, encodeWethToUsdtSwap(1 ether, 1)
-        );
-    }
-
-    function test_MarketBuyRevertDeprecatedAMMProtocol() public {
-        this.doInitialize();
-        _deprecateVaultAMMProtocols();
-        vm.expectRevert(Deprecated.selector);
-        vm.prank(assetManagerAddress);
-        this.marketBuy(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, 1, 1 ether, "");
-    }
-
     function test_AddLiquidityRevertDeprecatedAMMProtocol() public {
         this.doInitialize();
         _deprecateVaultAMMProtocols();
@@ -1518,10 +1354,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         vm.prank(ownerAddress);
         this.setMinimalBalance(mainnet.WETH, minimalBalance);
         deal(mainnet.WETH, address(this), fromBalance);
-        bytes memory swapData = abi.encode(mainnet.WETH, sellAmount, mainnet.USDT, uint256(1));
         vm.expectRevert(MinimalBalanceNotMet.selector);
         vm.prank(assetManagerAddress);
-        this.marketSell(address(uniswapV3Protocol), mainnet.WETH, mainnet.USDT, sellAmount, 1, swapData);
+        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, 1, _validTo());
     }
 
     function testFuzz_DisableRebalanceUntilTimestamp_cannotMovePrevTimestampEarlier(uint256 offset, uint256 reduction)

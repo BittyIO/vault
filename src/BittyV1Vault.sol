@@ -115,18 +115,8 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
 
         _assetManager.initialize(guardAddress);
 
-        if (riskLevel == RiskControlLevel.Zero) {
-            _assetManager.setFullAssetManager(owner, 0);
-            emit FullAssetManagerAdded(owner);
-        } else if (riskLevel == RiskControlLevel.Standard) {
-            _assetManager.setAssetManager(
-                owner, VaultLogic.STANDARD_RISK_TIMELOCK, 0, VaultLogic.STANDARD_RISK_CAP, 0, 0
-            );
-            emit TradeLimitSet(owner, VaultLogic.STANDARD_RISK_TIMELOCK, 0, VaultLogic.STANDARD_RISK_CAP, 0);
-        } else {
-            _assetManager.setAssetManager(owner, VaultLogic.HIGH_RISK_TIMELOCK, 0, VaultLogic.HIGH_RISK_CAP, 0, 0);
-            emit TradeLimitSet(owner, VaultLogic.HIGH_RISK_TIMELOCK, 0, VaultLogic.HIGH_RISK_CAP, 0);
-        }
+        _assetManager.setFullAssetManager(owner);
+
         if (lendingProtocols.length > 0) {
             _assetManager.addLendingProtocols(lendingProtocols);
         }
@@ -287,10 +277,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         _vault.setMaxSendInterval(value);
     }
 
-    function getMaxSendInterval() external view returns (uint64) {
-        return _vault.getMaxSendInterval();
-    }
-
     function setMaxScheduledValue(uint256 value) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.setMaxScheduledValue(value);
     }
@@ -312,7 +298,8 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
             uint64 maxSendValue,
             uint64 maxScheduledValue,
             uint64 maxWhitelistedValue,
-            uint64 changeTimelock
+            uint64 changeTimelock,
+            uint64 maxSendInterval
         )
     {
         return _vault.getRiskConfig();
@@ -442,14 +429,12 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         uint256 stableCoinInvestCap,
         uint256 expiredAt
     ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.setAssetManager(
-            assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt, _vault.getChangeTimelock()
-        );
-        emit TradeLimitSet(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
+        _assetManager.setAssetManager(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
+        emit AssetManagerSettingsSet(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
     }
 
     function setFullAssetManager(address assetManager) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.setFullAssetManager(assetManager, _vault.getChangeTimelock());
+        _assetManager.setFullAssetManager(assetManager);
         emit FullAssetManagerAdded(assetManager);
     }
 

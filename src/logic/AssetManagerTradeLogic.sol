@@ -7,8 +7,6 @@ import {
     DisableRebalanceUntilTimestampTooEarly,
     DisableRebalanceUntilTimestampTooLong,
     RebalanceDisabled,
-    SellAmountMismatch,
-    BuyAmountNotEnough,
     MinimalBalanceNotMet,
     TradeSizeExceeded,
     TradeInInterval,
@@ -18,8 +16,7 @@ import {
     InvalidAMMProtocol,
     InvalidIntentProtocol,
     IntentProtocolMismatch,
-    InvalidValidTo,
-    InvalidSwapData
+    InvalidValidTo
 } from "../interfaces/IBittyV1AssetManager.sol";
 import {IBittyV1LendingProtocol} from "protocol-contracts/src/interfaces/IBittyV1LendingProtocol.sol";
 import {IBittyV1StakingProtocol} from "protocol-contracts/src/interfaces/IBittyV1StakingProtocol.sol";
@@ -29,15 +26,17 @@ import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/Safe
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
-import {AmountIsZero, InsufficientBalance, NotInitialized} from "../interfaces/IBittyV1Vault.sol";
-import {AssetManagerStorage, VaultStorage, IntentOrderRecord, TradeLimit} from "./Storages.sol";
+import {AmountIsZero, NotInitialized} from "../interfaces/IBittyV1Vault.sol";
+import {AssetManagerStorage, VaultStorage, IntentOrderRecord, AssetManagerSettings} from "./Storages.sol";
 import {VaultLogic} from "./VaultLogic.sol";
 import {AssetManagerShared} from "./AssetManagerShared.sol";
 
 /**
  * @title AssetManagerTradeLogic
- * @notice The asset manager's trading surface — market swaps, AMM liquidity, and intent (limit / TWAP)
- *         orders. Split out of {AssetManagerLogic} (which keeps yield + config + protocol registration)
+ * @notice The asset manager's trading surface — AMM liquidity, and intent (limit / TWAP) orders.
+ *         Trading is intent-only (no direct AMM market swaps): CoW-style batch settlement is MEV/
+ *         sandwich-resistant, so a compromised key cannot atomically sandwich its own swap to drain the
+ *         vault. Split out of {AssetManagerLogic} (which keeps yield + config + protocol registration)
  *         so each deployed library stays under the EIP-170 24,576-byte limit. Shares
  *         {AssetManagerShared} for clone + balance helpers; operates on the same {AssetManagerStorage}.
  */
@@ -120,20 +119,24 @@ library AssetManagerTradeLogic {
      * stablecoin whole tokens, so when it is set the trade must have a stablecoin as either leg; the
      * stablecoin leg's amount is measured against the cap.
      * `stableCoinInvested` (the asset manager's deployed portfolio) rises by the stablecoin spent on
-     * stable→asset trades and falls when assets are sold back, and may never exceed `stableCoinInvestCap`.
-     * `expiredAt` blocks all trades once reached (0 = no expiry). Every caller here holds
-     * ASSET_MANAGER_ROLE and is always enforced, so an unconfigured cap of 0 blocks stable→asset
-     * investing rather than allowing it.
+     * stable→asset trades and may never exceed `stableCoinInvestCap`. Trading is intent-only (CoW-style
+     * limit/TWAP), which settles asynchronously with no fill hook, so a divest (asset→stable) cannot
+     * safely credit the invested total back (a placed-then-cancelled buy-stablecoin order would otherwise
+     * free the cap for free). The invest cap is therefore a lifetime ceiling on restricted deployment;
+     * raise it via {setAssetManager} (or use a full-access manager) to redeploy. `expiredAt` blocks all
+     * trades once reached (0 = no expiry). An unconfigured cap of 0 blocks stable→asset investing.
      */
+    /// @return investedDelta the whole-token stablecoin this trade added to `stableCoinInvested` (0 unless
+    ///         it was a restricted stable→asset/stable→stable invest); stored on the order record so an
+    ///         unfilled cancel/expiry can refund it.
     function _validateTrade(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
         address from,
         address to,
         uint256 sellAmount,
-        uint256 toAmount,
-        bool creditReturn
-    ) private {
+        uint256 toAmount
+    ) private returns (uint64 investedDelta) {
         VaultLogic.checkAsset(vaultStorage, to);
         _checkRebalanceDisabledUntilTimestamp(logicStorage);
 
@@ -147,23 +150,23 @@ library AssetManagerTradeLogic {
             if (available < sellAmount || available - sellAmount < minBal) revert MinimalBalanceNotMet();
         }
 
-        TradeLimit storage limit = logicStorage.assetManagerLimit;
+        AssetManagerSettings storage settings = logicStorage.assetManagerSettings;
 
         // Full-access asset managers are bounded only by the minimal-balance floor above; skip the entire trade
         // limit — including the stablecoin-leg requirement — so they may trade any asset (even asset ->
         // asset) freely and without the per-trade cap/invest/throttle accounting.
-        if (limit.fullAccess) return;
+        if (settings.fullAccess) return 0;
 
         // Restricted asset managers must touch a stablecoin (the caps are denominated in stablecoin whole tokens).
         if (!vaultStorage.stableCoins.contains(from) && !vaultStorage.stableCoins.contains(to)) {
             revert TradeMustTouchStableCoin();
         }
 
-        if (limit.expiredAt != 0 && block.timestamp >= limit.expiredAt) {
+        if (settings.expiredAt != 0 && block.timestamp >= settings.expiredAt) {
             revert TradeLimitExpired();
         }
 
-        uint256 maxWholeTokens = limit.maxStableCoinPerTrade;
+        uint256 maxWholeTokens = settings.maxStableCoinPerTrade;
         if (maxWholeTokens != 0) {
             address stableCoin;
             uint256 stableAmount;
@@ -178,7 +181,7 @@ library AssetManagerTradeLogic {
             if (stableAmount > maxUnits) revert TradeSizeExceeded();
         }
 
-        uint256 cap = limit.stableCoinInvestCap;
+        uint256 cap = settings.stableCoinInvestCap;
         if (vaultStorage.stableCoins.contains(from)) {
             // Stablecoin leaving the vault. Count it (whole tokens, rounded UP so a stream of
             // sub-whole-token trades cannot dodge the cap). For a stablecoin-for-stablecoin trade count
@@ -192,24 +195,16 @@ library AssetManagerTradeLogic {
                 uint256 toWhole = (toAmount + toUnit - 1) / toUnit;
                 if (toWhole > wholeSpent) wholeSpent = toWhole;
             }
-            uint256 invested = uint256(limit.stableCoinInvested) + wholeSpent;
+            uint256 invested = uint256(settings.stableCoinInvested) + wholeSpent;
             if (invested > cap) revert TradeInvestedTotalExceeded();
-            limit.stableCoinInvested = uint64(invested);
-        } else if (vaultStorage.stableCoins.contains(to) && creditReturn) {
-            // Divesting (asset -> stable) via a SYNCHRONOUS market trade: credit the stablecoin coming
-            // back (floored, conservative). Async intent orders do not credit here — there is no fill
-            // hook, so a placed-then-cancelled buy-stablecoin order must not be able to reduce the
-            // invested total. Freeing the cap therefore requires an actually-settled (market) divest.
-            uint256 unit = 10 ** IERC20Metadata(to).decimals();
-            uint256 wholeReceived = toAmount / unit;
-            uint256 invested = limit.stableCoinInvested;
-            limit.stableCoinInvested = uint64(invested > wholeReceived ? invested - wholeReceived : 0);
+            settings.stableCoinInvested = uint64(invested);
+            investedDelta = uint64(wholeSpent);
         }
 
-        if (limit.interval != 0) {
-            uint256 last = limit.lastTradeTimestamp;
-            if (last != 0 && block.timestamp - last < limit.interval) revert TradeInInterval();
-            limit.lastTradeTimestamp = uint128(block.timestamp);
+        if (settings.interval != 0) {
+            uint256 last = settings.lastTradeTimestamp;
+            if (last != 0 && block.timestamp - last < settings.interval) revert TradeInInterval();
+            settings.lastTradeTimestamp = uint128(block.timestamp);
         }
     }
 
@@ -283,125 +278,6 @@ library AssetManagerTradeLogic {
         return IBittyV1AMMProtocol(clone).getLiquidity(data);
     }
 
-    // ============ Market swaps ============
-
-    /**
-     * @notice Asset manager rebalance: sell exactly `sellAmount` of `from` for ≥ `buyAmountMin` of
-     * `to`, back into the vault. Subject to the rebalance guards (rebalance-disabled + minimal balance).
-     */
-    function marketSell(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address ammProtocol,
-        address from,
-        address to,
-        uint256 sellAmount,
-        uint256 buyAmountMin,
-        bytes memory data
-    ) external onlyInitialized(logicStorage) {
-        _checkAMMProtocol(logicStorage, ammProtocol);
-        if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
-        _validateTrade(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin, true);
-        _swapExactIn(logicStorage, ammProtocol, from, sellAmount, to, buyAmountMin, address(this), data);
-    }
-
-    /**
-     * @notice Asset manager rebalance: buy exactly `buyAmount` of `to` for ≤ `sellAmountMax` of `from`,
-     * back into the vault. Subject to the rebalance guards (rebalance-disabled + minimal balance).
-     */
-    function marketBuy(
-        AssetManagerStorage storage logicStorage,
-        VaultStorage storage vaultStorage,
-        address ammProtocol,
-        address from,
-        address to,
-        uint256 buyAmount,
-        uint256 sellAmountMax,
-        bytes memory data
-    ) external onlyInitialized(logicStorage) {
-        _checkAMMProtocol(logicStorage, ammProtocol);
-        if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
-        _validateTrade(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount, true);
-        _swapExactOut(logicStorage, ammProtocol, from, sellAmountMax, to, buyAmount, address(this), data);
-    }
-
-    function _swapExactIn(
-        AssetManagerStorage storage logicStorage,
-        address ammProtocol,
-        address sellAssetAddress,
-        uint256 sellAmount,
-        address toAssetAddress,
-        uint256 buyAmountMin,
-        address recipient,
-        bytes memory data
-    ) private {
-        if (sellAmount == 0 || buyAmountMin == 0) revert AmountIsZero();
-        (address sellToken_, uint256 sellAmount_, address buyToken_, uint256 buyAmountMin_) =
-            abi.decode(data, (address, uint256, address, uint256));
-        if (
-            sellToken_ != sellAssetAddress || sellAmount_ != sellAmount || buyToken_ != toAssetAddress
-                || buyAmountMin_ != buyAmountMin
-        ) revert InvalidSwapData();
-
-        uint256 sellAssetBalanceBefore = AssetManagerShared.addressBalance(sellAssetAddress);
-        if (sellAssetBalanceBefore < sellAmount) revert InsufficientBalance();
-
-        uint256 recipientBuyBalanceBefore = IERC20(toAssetAddress).balanceOf(recipient);
-
-        ammProtocol = AssetManagerShared.cloneProtocol(logicStorage, ammProtocol);
-        if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmount) {
-            IERC20(sellAssetAddress).forceApprove(ammProtocol, type(uint256).max);
-        }
-        IBittyV1AMMProtocol(ammProtocol).swap(data, recipient);
-
-        // Guard against the AMM pulling more than the authorized sellAmount. A slightly-higher
-        // ending balance is fine and expected: protocols can refund dust ETH to the vault, which
-        // receive() wraps into WETH (matches _swapExactOut's over-spend check below).
-        if (sellAssetBalanceBefore - AssetManagerShared.addressBalance(sellAssetAddress) > sellAmount) {
-            revert SellAmountMismatch();
-        }
-        if (IERC20(toAssetAddress).balanceOf(recipient) - recipientBuyBalanceBefore < buyAmountMin) {
-            revert BuyAmountNotEnough();
-        }
-    }
-
-    function _swapExactOut(
-        AssetManagerStorage storage logicStorage,
-        address ammProtocol,
-        address sellAssetAddress,
-        uint256 sellAmountMax,
-        address toAssetAddress,
-        uint256 buyAmount,
-        address recipient,
-        bytes memory data
-    ) private {
-        if (buyAmount == 0 || sellAmountMax == 0) revert AmountIsZero();
-        (address sellToken_, uint256 sellAmountMax_, address buyToken_, uint256 buyAmount_) =
-            abi.decode(data, (address, uint256, address, uint256));
-        if (
-            sellToken_ != sellAssetAddress || sellAmountMax_ != sellAmountMax || buyToken_ != toAssetAddress
-                || buyAmount_ != buyAmount
-        ) revert InvalidSwapData();
-
-        uint256 sellAssetBalanceBefore = AssetManagerShared.addressBalance(sellAssetAddress);
-        if (sellAssetBalanceBefore < sellAmountMax) revert InsufficientBalance();
-
-        uint256 recipientBuyBalanceBefore = IERC20(toAssetAddress).balanceOf(recipient);
-
-        ammProtocol = AssetManagerShared.cloneProtocol(logicStorage, ammProtocol);
-        if (IERC20(sellAssetAddress).allowance(address(this), ammProtocol) < sellAmountMax) {
-            IERC20(sellAssetAddress).forceApprove(ammProtocol, type(uint256).max);
-        }
-        IBittyV1AMMProtocol(ammProtocol).swapExactOut(data, recipient);
-
-        if (sellAssetBalanceBefore - AssetManagerShared.addressBalance(sellAssetAddress) > sellAmountMax) {
-            revert SellAmountMismatch();
-        }
-        if (IERC20(toAssetAddress).balanceOf(recipient) - recipientBuyBalanceBefore < buyAmount) {
-            revert BuyAmountNotEnough();
-        }
-    }
-
     function disableRebalanceUntilTimestamp(AssetManagerStorage storage logicStorage, uint256 timestamp)
         external
         onlyInitialized(logicStorage)
@@ -430,6 +306,17 @@ library AssetManagerTradeLogic {
         IntentOrderRecord memory record = logicStorage.intentOrderRecords[orderId];
         if (record.owningProtocol != intentProtocol) revert IntentProtocolMismatch();
         address clone = logicStorage.clonedProtocols[intentProtocol];
+
+        // Refund the invest-cap budget for an order that never filled — read BEFORE invalidating, which
+        // overwrites the settlement's filledAmount with a sentinel. Fill-or-kill orders are all-or-nothing,
+        // so an unfilled order deployed nothing; a filled one stays counted. Only restricted stable-invest
+        // limit orders carry a non-zero investedCounted (divests, full-access, and TWAPs carry 0).
+        if (record.investedCounted > 0 && !IBittyV1IntentProtocol(clone).orderFilled(orderId)) {
+            AssetManagerSettings storage settings = logicStorage.assetManagerSettings;
+            uint64 inv = settings.stableCoinInvested;
+            settings.stableCoinInvested = inv > record.investedCounted ? inv - record.investedCounted : 0;
+        }
+
         IBittyV1IntentProtocol.CancelInstructions memory instr =
             IBittyV1IntentProtocol(clone).buildCancelInstructions(orderId);
         if (instr.cancelTarget != address(0)) {
@@ -453,8 +340,9 @@ library AssetManagerTradeLogic {
         uint32 validTo
     ) external onlyInitialized(logicStorage) returns (bytes32 orderId) {
         _checkIntentProtocol(logicStorage, intentProtocol);
-        _validateTrade(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin, false);
-        orderId = _intentTrade(logicStorage, intentProtocol, from, sellAmount, to, buyAmountMin, validTo, true);
+        uint64 invested = _validateTrade(logicStorage, vaultStorage, from, to, sellAmount, buyAmountMin);
+        orderId =
+            _intentTrade(logicStorage, intentProtocol, from, sellAmount, to, buyAmountMin, validTo, true, invested);
     }
 
     function limitBuy(
@@ -468,8 +356,9 @@ library AssetManagerTradeLogic {
         uint32 validTo
     ) external onlyInitialized(logicStorage) returns (bytes32 orderId) {
         _checkIntentProtocol(logicStorage, intentProtocol);
-        _validateTrade(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount, false);
-        orderId = _intentTrade(logicStorage, intentProtocol, from, sellAmountMax, to, buyAmount, validTo, false);
+        uint64 invested = _validateTrade(logicStorage, vaultStorage, from, to, sellAmountMax, buyAmount);
+        orderId =
+            _intentTrade(logicStorage, intentProtocol, from, sellAmountMax, to, buyAmount, validTo, false, invested);
     }
 
     function _intentTrade(
@@ -480,7 +369,8 @@ library AssetManagerTradeLogic {
         address toAssetAddress,
         uint256 buyAmountMin,
         uint32 validTo,
-        bool isSellOrder
+        bool isSellOrder,
+        uint64 investedCounted
     ) private returns (bytes32 orderId) {
         if (sellAmount == 0 || buyAmountMin == 0) revert AmountIsZero();
         if (validTo <= block.timestamp) revert InvalidValidTo();
@@ -507,6 +397,7 @@ library AssetManagerTradeLogic {
             sellToken: instr.sellToken,
             expiresAt: uint96(validTo),
             owningProtocol: intentProtocol,
+            investedCounted: investedCounted,
             reservedSell: sellAmount
         });
         logicStorage.committedIntentSell[instr.sellToken] += sellAmount;
@@ -566,7 +457,7 @@ library AssetManagerTradeLogic {
     ) external onlyInitialized(logicStorage) returns (bytes32 twapId) {
         _checkIntentProtocol(logicStorage, intentProtocol);
         if (totalSellAmount == 0 || minPartLimit == 0 || n == 0 || partDuration == 0) revert AmountIsZero();
-        _validateTrade(logicStorage, vaultStorage, from, to, totalSellAmount, minPartLimit * n, false);
+        _validateTrade(logicStorage, vaultStorage, from, to, totalSellAmount, minPartLimit * n);
 
         address clone = AssetManagerShared.cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
@@ -590,6 +481,7 @@ library AssetManagerTradeLogic {
             sellToken: instr.sellToken,
             expiresAt: uint96(expiresAt_),
             owningProtocol: intentProtocol,
+            investedCounted: 0,
             reservedSell: totalSellAmount
         });
         logicStorage.committedIntentSell[instr.sellToken] += totalSellAmount;
@@ -614,7 +506,7 @@ library AssetManagerTradeLogic {
         uint256 minPartLimit = totalBuyAmount / n;
         if (minPartLimit == 0) revert AmountIsZero();
         uint256 totalSellAmount = sellAmountPerPart * n;
-        _validateTrade(logicStorage, vaultStorage, from, to, totalSellAmount, totalBuyAmount, false);
+        _validateTrade(logicStorage, vaultStorage, from, to, totalSellAmount, totalBuyAmount);
 
         address clone = AssetManagerShared.cloneProtocol(logicStorage, intentProtocol);
         bytes memory data = abi.encode(from, totalSellAmount, to, minPartLimit, n, partDuration, span);
@@ -638,6 +530,7 @@ library AssetManagerTradeLogic {
             sellToken: instr.sellToken,
             expiresAt: uint96(expiresAt_),
             owningProtocol: intentProtocol,
+            investedCounted: 0,
             reservedSell: totalSellAmount
         });
         logicStorage.committedIntentSell[instr.sellToken] += totalSellAmount;

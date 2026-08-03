@@ -27,7 +27,7 @@ interface IBittyV1Owner {
     event IntentProtocolsRemoved(address[] protocols);
     event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
     event AutoYieldTriggerSet(address indexed trigger);
-    event TradeLimitSet(
+    event AssetManagerSettingsSet(
         address indexed assetManager,
         uint256 interval,
         uint256 maxStableCoinPerTrade,

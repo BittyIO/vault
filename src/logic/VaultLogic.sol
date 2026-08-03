@@ -256,9 +256,6 @@ library VaultLogic {
             _checkPayoutOperatorSendPeriod(opLimit, totalStableValue, updatePeriodAccounting);
         }
 
-        // Owner direct sends (payoutOperatorAddr == 0): when a rolling window is configured, the cap
-        // applies to CUMULATIVE sends across that window — not per batch — so a leaked owner key can
-        // drain at most maxSendValue stablecoins per window instead of cap-by-cap without pause.
         if (execute && payoutOperatorAddr == address(0)) {
             _checkOwnerSendWindow(vaultStorage, totalStableValue, cap);
         }
@@ -573,15 +570,6 @@ library VaultLogic {
         emit IBittyV1Owner.MaxSendIntervalSet(value);
     }
 
-    function getMaxSendInterval(VaultStorage storage vaultStorage) external view returns (uint64) {
-        return _effective(vaultStorage.riskConfig.maxSendInterval);
-    }
-
-    // The in-force loosening delay; also the cool-down applied to a newly (re)appointed asset manager.
-    function getChangeTimelock(VaultStorage storage vaultStorage) external view returns (uint64) {
-        return _effective(vaultStorage.riskConfig.changeTimelock);
-    }
-
     function setMaxScheduledValue(VaultStorage storage vaultStorage, uint256 value)
         external
         onlyInitialized(vaultStorage)
@@ -674,7 +662,8 @@ library VaultLogic {
             uint64 maxSendValue,
             uint64 maxScheduledValue,
             uint64 maxWhitelistedValue,
-            uint64 changeTimelock
+            uint64 changeTimelock,
+            uint64 maxSendInterval
         )
     {
         RiskConfig storage r = vaultStorage.riskConfig;
@@ -684,7 +673,8 @@ library VaultLogic {
             _effective(r.maxSendValue),
             _effective(r.maxScheduledValue),
             _effective(r.maxWhitelistedValue),
-            _effective(r.changeTimelock)
+            _effective(r.changeTimelock),
+            _effective(r.maxSendInterval)
         );
     }
 

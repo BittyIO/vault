@@ -2,7 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
-import {IBittyV1AssetManager, NotAssetManager, AssetManagerNotActive} from "./interfaces/IBittyV1AssetManager.sol";
+import {IBittyV1AssetManager, NotAssetManager} from "./interfaces/IBittyV1AssetManager.sol";
 import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
@@ -34,34 +34,9 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
 
     function _checkAssetManager() internal view {
         if (_msgSender() != _assetManager.assetManager) revert NotAssetManager();
-        // A freshly (re)appointed manager must serve its changeTimelock cool-down before trading, so a
-        // compromised owner key cannot install a new (or full-access) trading key and drain immediately.
-        if (block.timestamp < _assetManager.assetManagerActiveAt) revert AssetManagerNotActive();
     }
 
-    // ============ AMM ============
-
-    function marketSell(
-        address ammProtocol,
-        address from,
-        address to,
-        uint256 sellAmount,
-        uint256 buyAmountMin,
-        bytes memory data
-    ) external override onlyAssetManager {
-        _assetManager.marketSell(_vault, ammProtocol, from, to, sellAmount, buyAmountMin, data);
-    }
-
-    function marketBuy(
-        address ammProtocol,
-        address from,
-        address to,
-        uint256 buyAmount,
-        uint256 sellAmountMax,
-        bytes memory data
-    ) external override onlyAssetManager {
-        _assetManager.marketBuy(_vault, ammProtocol, from, to, buyAmount, sellAmountMax, data);
-    }
+    // ============ AMM liquidity ============
 
     function addLiquidity(
         address ammProtocol,

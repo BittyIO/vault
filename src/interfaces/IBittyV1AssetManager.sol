@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-error SellAmountMismatch();
-error BuyAmountNotEnough();
 error MinimalBalanceNotMet();
 error TradeSizeExceeded();
 error TradeInInterval();
@@ -11,16 +9,12 @@ error TradeLimitExpired();
 error TradeInvestedTotalExceeded();
 error StableCoinInvestCapZero();
 error NotAssetManager();
-// The asset manager's grant has not matured yet: a newly (re)appointed manager is deferred by the
-// vault's changeTimelock cool-down before it may trade.
-error AssetManagerNotActive();
 error InvalidLendingProtocol();
 error InvalidStakingProtocol();
 error InvalidAMMProtocol();
 error InvalidIntentProtocol();
 error IntentProtocolMismatch();
 error InvalidValidTo();
-error InvalidSwapData();
 error DisableRebalanceUntilTimestampTooEarly();
 error DisableRebalanceUntilTimestampTooLong();
 error RebalanceDisabled();
@@ -49,33 +43,7 @@ interface IBittyV1AssetManager {
 
     function claimUnstaked(address stakingProtocol, uint256[] memory requestIds) external;
 
-    // ============ AMM ============
-
-    /**
-     * @notice Exact-input market swap: sell exactly `sellAmount` of `from`, receive ≥ `buyAmountMin` of `to`.
-     * @dev data = abi.encode(from, sellAmount, to, buyAmountMin, path)
-     */
-    function marketSell(
-        address ammProtocol,
-        address from,
-        address to,
-        uint256 sellAmount,
-        uint256 buyAmountMin,
-        bytes memory data
-    ) external;
-
-    /**
-     * @notice Exact-output market swap: receive exactly `buyAmount` of `to`, spend ≤ `sellAmountMax` of `from`.
-     * @dev data = abi.encode(from, sellAmountMax, to, buyAmount, reversedPath)
-     */
-    function marketBuy(
-        address ammProtocol,
-        address from,
-        address to,
-        uint256 buyAmount,
-        uint256 sellAmountMax,
-        bytes memory data
-    ) external;
+    // ============ AMM liquidity ============
 
     function addLiquidity(
         address ammProtocol,

@@ -160,8 +160,10 @@ interface IBittyV1Vault {
      * @notice The vault's currently in-force payment risk controls (all zero = no controls). Caps are in
      *         stablecoin whole tokens; a non-zero cap makes that payment path stablecoin-only.
      *         `changeTimelock` is the delay a loosening of any control must wait. A queued loosening is
-     *         reflected here only once its delay has elapsed. Payout operator send quotas are configured via
-     *         {setPayoutOperator} / {updatePayoutOperator}, not here.
+     *         reflected here only once its delay has elapsed. `maxSendInterval` is the rolling window
+     *         (seconds) over which `maxSendValue` caps the owner's CUMULATIVE one-off sends (0 = per-
+     *         transaction cap only). Payout operator send quotas are configured via {setPayoutOperator} /
+     *         {updatePayoutOperator}, not here.
      */
     function getRiskConfig()
         external
@@ -172,14 +174,9 @@ interface IBittyV1Vault {
             uint64 maxSendValue,
             uint64 maxScheduledValue,
             uint64 maxWhitelistedValue,
-            uint64 changeTimelock
+            uint64 changeTimelock,
+            uint64 maxSendInterval
         );
-
-    /**
-     * @notice The rolling window (seconds) over which {getRiskConfig}'s `maxSendValue` caps the owner's
-     *         cumulative one-off sends. 0 = per-transaction cap only.
-     */
-    function getMaxSendInterval() external view returns (uint64);
 
     function getLendingProtocols() external view returns (address[] memory);
     function getStakingProtocols() external view returns (address[] memory);

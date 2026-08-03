@@ -10,6 +10,10 @@ struct IntentOrderRecord {
     uint96 expiresAt; // packs with sellToken into one slot; timestamp fits easily
     // Intent protocol this order was placed through; a cancel must pass the same protocol.
     address owningProtocol;
+    // Whole-token stablecoin this order counted against stableCoinInvestCap at placement (0 = none: a
+    // divest, a full-access manager, or a TWAP). Refunded to stableCoinInvested on cancel/expiry if the
+    // order never filled (fill-or-kill, so an unfilled order deployed nothing). Packs with owningProtocol.
+    uint64 investedCounted;
     // Amount of sellToken this open order reserves; released from committedIntentSell on cancel/expiry.
     uint256 reservedSell;
 }
@@ -23,35 +27,30 @@ struct TimelockedValue {
     uint64 pendingAt; // unix time when `pending` becomes effective (0 = none)
 }
 
-// Payment risk controls (payments only; trading limits live in TradeLimit). Not tighten-only: the
+// Payment risk controls (payments only; trading limits live in AssetManagerSettings). Not tighten-only: the
 // owner may set any value, but loosening is delayed by `changeTimelock` (see TimelockedValue).
 struct RiskConfig {
-    // Time-lock (seconds) applied to a newly added payee before its first payout; higher = safer.
-    // Split per payment path: one for scheduled-payment addresses, one for whitelisted recipients.
+
+
     TimelockedValue scheduledPaymentProtection;
     TimelockedValue whitelistedProtection;
-    // Per-payment caps in stablecoin whole tokens; 0 = unrestricted (any asset, no cap). A non-zero cap
-    // makes that path stablecoin-only AND requires amount <= cap * 10**decimals. Lower (non-zero) = safer.
-    TimelockedValue maxSendValue; // one-off sends
-    TimelockedValue maxScheduledValue; // scheduled payments (checked when added)
-    TimelockedValue maxWhitelistedValue; // whitelisted-recipient payouts (checked at payout)
-    // Delay (seconds) a loosening of any of the above (or of this value) must wait; 0 = changes instant.
+
+    TimelockedValue maxSendValue;
+    TimelockedValue maxScheduledValue;
+    TimelockedValue maxWhitelistedValue;
+
     TimelockedValue changeTimelock;
-    // Rolling window (seconds) over which maxSendValue caps the OWNER's *cumulative* one-off sends, not
-    // just each batch. Higher = safer. 0 = per-transaction only (a leaked owner key could then drain
-    // stablecoins cap-by-cap with no pause). Loosening (shortening/clearing) waits changeTimelock.
+
     TimelockedValue maxSendInterval;
 }
 
-struct TradeLimit {
+struct AssetManagerSettings {
     uint64 interval; // 0 = no limit
     uint64 maxStableCoinPerTrade; // 0 = no cap
     uint64 stableCoinInvestCap; // guardrail: max whole-token stablecoin the assetManager may have invested at once; owner-set, 0 = no trade limit configured
     uint64 stableCoinInvested; // portfolio: whole-token stablecoin currently deployed into assets; +on stable→asset, -on asset→stable
     uint96 expiredAt; // 0 = not expired
     uint128 lastTradeTimestamp;
-    // true = a full-access asset manager: bounded only by minimalBalance, skips the cap/throttle accounting
-    // (and the stablecoin-leg requirement). Packs into the trailing slot with expiredAt/lastTradeTimestamp.
     bool fullAccess;
 }
 
@@ -80,7 +79,7 @@ struct AssetManagerStorage {
 
     // The vault's single asset manager (address(0) = none) and its trade guardrail. Only this address may trade.
     address assetManager;
-    TradeLimit assetManagerLimit;
+    AssetManagerSettings assetManagerSettings;
 
     EnumerableSet.AddressSet lendingProtocols;
     EnumerableSet.AddressSet stakingProtocols;
@@ -98,13 +97,6 @@ struct AssetManagerStorage {
     mapping(address => AutoYieldConfig) autoYieldConfigs;
 
     address autoYieldTrigger;
-
-    // Unix time at which the current asset manager's grant matures and may begin trading. Every
-    // (re)appointment via setAssetManager/setFullAssetManager defers activation by the vault's effective
-    // changeTimelock, so a compromised owner key cannot install a fresh (or full-access) trading key and
-    // drain in the same window — the real owner gets that delay to remove it (removal is instant) or
-    // renounce. 0 = active immediately (Zero-level vaults, and the grant seeded at initialize).
-    uint64 assetManagerActiveAt;
 }
 
 struct PendingSend {

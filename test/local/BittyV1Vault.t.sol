@@ -1000,7 +1000,7 @@ contract BittyV1VaultTest is Test {
         vault.setScheduledPaymentProtection(2 days);
         vault.setScheduledPaymentProtection(5 days); // raising (tightening) applies immediately
         vm.stopPrank();
-        (uint64 nap,,,,,) = vault.getRiskConfig();
+        (uint64 nap,,,,,,) = vault.getRiskConfig();
         assertEq(nap, 5 days);
     }
 
@@ -1008,7 +1008,7 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         vm.startPrank(ownerAddress);
         vault.setScheduledPaymentProtection(3650 days); // at the cap is allowed
-        (uint64 sched,,,,,) = vault.getRiskConfig();
+        (uint64 sched,,,,,,) = vault.getRiskConfig();
         assertEq(sched, 3650 days);
         // Above the cap reverts, so the recurring-payment path can never be permanently locked out.
         vm.expectRevert(ScheduledPaymentProtectionTooLong.selector);
@@ -1018,60 +1018,60 @@ contract BittyV1VaultTest is Test {
 
     function test_Risk_LoweringScheduledPaymentProtection_DelayedByTimelock() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
-        (uint64 nap0,,,,, uint64 tl) = v.getRiskConfig();
+        (uint64 nap0,,,,, uint64 tl,) = v.getRiskConfig();
         vm.prank(ownerAddress);
         v.setScheduledPaymentProtection(1 hours); // loosening
-        (uint64 napNow,,,,,) = v.getRiskConfig();
+        (uint64 napNow,,,,,,) = v.getRiskConfig();
         assertEq(napNow, nap0); // unchanged until the timelock elapses
         vm.warp(block.timestamp + tl);
-        (uint64 napAfter,,,,,) = v.getRiskConfig();
+        (uint64 napAfter,,,,,,) = v.getRiskConfig();
         assertEq(napAfter, 1 hours);
     }
 
     function test_Risk_Cap_TighteningImmediate_LooseningDelayed() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
-        (,, uint64 send0,,, uint64 tl) = v.getRiskConfig();
+        (,, uint64 send0,,, uint64 tl,) = v.getRiskConfig();
         vm.prank(ownerAddress);
         v.setMaxSendValue(send0 - 1); // tighten (lower cap) -> immediate
-        (,, uint64 sendTight,,,) = v.getRiskConfig();
+        (,, uint64 sendTight,,,,) = v.getRiskConfig();
         assertEq(sendTight, send0 - 1);
 
         vm.prank(ownerAddress);
         v.setMaxSendValue(send0 + 1_000); // loosen (raise cap) -> delayed
-        (,, uint64 sendNow,,,) = v.getRiskConfig();
+        (,, uint64 sendNow,,,,) = v.getRiskConfig();
         assertEq(sendNow, send0 - 1);
         vm.warp(block.timestamp + tl);
-        (,, uint64 sendAfter,,,) = v.getRiskConfig();
+        (,, uint64 sendAfter,,,,) = v.getRiskConfig();
         assertEq(sendAfter, send0 + 1_000);
     }
 
     function test_Risk_Cap_ClearingToZeroIsLooseningDelayed() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.Standard);
-        (,,,, uint64 wl0, uint64 tl) = v.getRiskConfig();
+        (,,,, uint64 wl0, uint64 tl,) = v.getRiskConfig();
         vm.prank(ownerAddress);
         v.setMaxWhitelistedValue(0); // removing the restriction = loosening
-        (,,,, uint64 wlNow,) = v.getRiskConfig();
+        (,,,, uint64 wlNow,,) = v.getRiskConfig();
         assertEq(wlNow, wl0); // still restricted until the timelock elapses
         vm.warp(block.timestamp + tl);
-        (,,,, uint64 wlAfter,) = v.getRiskConfig();
+        (,,,, uint64 wlAfter,,) = v.getRiskConfig();
         assertEq(wlAfter, 0);
     }
 
     function test_Risk_ChangeTimelock_LoweringDelayedByItself_RaisingImmediate() public {
         BittyV1Vault v = _initAtLevel(RiskControlLevel.High);
-        (,,,,, uint64 tl0) = v.getRiskConfig();
+        (,,,,, uint64 tl0,) = v.getRiskConfig();
 
         vm.prank(ownerAddress);
         v.setChangeTimelock(tl0 + 10 days); // raising is immediate
-        (,,,,, uint64 tlRaised) = v.getRiskConfig();
+        (,,,,, uint64 tlRaised,) = v.getRiskConfig();
         assertEq(tlRaised, tl0 + 10 days);
 
         vm.prank(ownerAddress);
         v.setChangeTimelock(1 hours); // lowering waits the CURRENT (raised) timelock
-        (,,,,, uint64 tlNow) = v.getRiskConfig();
+        (,,,,, uint64 tlNow,) = v.getRiskConfig();
         assertEq(tlNow, tl0 + 10 days);
         vm.warp(block.timestamp + tl0 + 10 days);
-        (,,,,, uint64 tlAfter) = v.getRiskConfig();
+        (,,,,, uint64 tlAfter,) = v.getRiskConfig();
         assertEq(tlAfter, 1 hours);
     }
 
@@ -1616,7 +1616,7 @@ contract BittyV1VaultTest is Test {
         _initializeVault(); // Zero level: raising from 0 is a tightening -> immediate
         vm.prank(ownerAddress);
         vault.setScheduledPaymentProtection(protection);
-        (uint64 nap,,,,,) = vault.getRiskConfig();
+        (uint64 nap,,,,,,) = vault.getRiskConfig();
         assertEq(nap, uint64(protection));
     }
 
@@ -1829,7 +1829,7 @@ contract BittyV1VaultTest is Test {
     }
 
     function test_Risk_LevelDefaults_NoneIsAllZero() public {
-        (uint64 nap,, uint64 sVal, uint64 scVal, uint64 wlVal, uint64 tl) =
+        (uint64 nap,, uint64 sVal, uint64 scVal, uint64 wlVal, uint64 tl,) =
             _initAtLevel(RiskControlLevel.Zero).getRiskConfig();
         assertEq(nap, 0);
         assertEq(sVal, 0);
@@ -1845,7 +1845,7 @@ contract BittyV1VaultTest is Test {
     }
 
     function test_Risk_LevelDefaults_StandardAndHighAreConfigured() public {
-        (uint64 stdNap,, uint64 stdSend, uint64 stdSched, uint64 stdWl, uint64 stdTl) =
+        (uint64 stdNap,, uint64 stdSend, uint64 stdSched, uint64 stdWl, uint64 stdTl,) =
             _initAtLevel(RiskControlLevel.Standard).getRiskConfig();
         assertGt(stdNap, 0);
         assertGt(stdSend, 0);
@@ -1853,7 +1853,7 @@ contract BittyV1VaultTest is Test {
         assertGt(stdWl, 0);
         assertGt(stdTl, 0);
 
-        (uint64 hiNap,, uint64 hiSend, uint64 hiSched, uint64 hiWl, uint64 hiTl) =
+        (uint64 hiNap,, uint64 hiSend, uint64 hiSched, uint64 hiWl, uint64 hiTl,) =
             _initAtLevel(RiskControlLevel.High).getRiskConfig();
         assertGt(hiNap, 0);
         assertGt(hiSend, 0);
@@ -1932,9 +1932,12 @@ contract BittyV1VaultTest is Test {
     }
 
     function test_MaxSendInterval_levelDefaults() public {
-        assertEq(_initAtLevel(RiskControlLevel.Zero).getMaxSendInterval(), 0);
-        assertEq(_initAtLevel(RiskControlLevel.Standard).getMaxSendInterval(), VaultLogic.STANDARD_RISK_TIMELOCK);
-        assertEq(_initAtLevel(RiskControlLevel.High).getMaxSendInterval(), VaultLogic.HIGH_RISK_TIMELOCK);
+        (,,,,,, uint64 zeroInterval) = _initAtLevel(RiskControlLevel.Zero).getRiskConfig();
+        assertEq(zeroInterval, 0);
+        (,,,,,, uint64 stdInterval) = _initAtLevel(RiskControlLevel.Standard).getRiskConfig();
+        assertEq(stdInterval, VaultLogic.STANDARD_RISK_TIMELOCK);
+        (,,,,,, uint64 highInterval) = _initAtLevel(RiskControlLevel.High).getRiskConfig();
+        assertEq(highInterval, VaultLogic.HIGH_RISK_TIMELOCK);
     }
 
     function test_MaxSendInterval_capsCumulativeOwnerSendsPerWindow() public {
@@ -2051,7 +2054,7 @@ contract BittyV1VaultTest is Test {
         vault.setMaxSendValue(5_000); // raise (loosen) -> instant
         vault.setMaxSendValue(0); // clear (loosen) -> instant
         vm.stopPrank();
-        (,, uint64 sVal,,,) = vault.getRiskConfig();
+        (,, uint64 sVal,,,,) = vault.getRiskConfig();
         assertEq(sVal, 0);
     }
 
