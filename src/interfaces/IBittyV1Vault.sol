@@ -175,6 +175,12 @@ interface IBittyV1Vault {
             uint64 changeTimelock
         );
 
+    /**
+     * @notice The rolling window (seconds) over which {getRiskConfig}'s `maxSendValue` caps the owner's
+     *         cumulative one-off sends. 0 = per-transaction cap only.
+     */
+    function getMaxSendInterval() external view returns (uint64);
+
     function getLendingProtocols() external view returns (address[] memory);
     function getStakingProtocols() external view returns (address[] memory);
     function getAMMProtocols() external view returns (address[] memory);

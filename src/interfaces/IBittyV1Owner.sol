@@ -41,6 +41,7 @@ interface IBittyV1Owner {
     event ScheduledPaymentProtectionSet(uint256 protectionDuration);
     event WhitelistedProtectionSet(uint256 protectionDuration);
     event MaxSendValueSet(uint256 value);
+    event MaxSendIntervalSet(uint256 value);
     event MaxScheduledValueSet(uint256 value);
     event MaxWhitelistedValueSet(uint256 value);
     event ChangeTimelockSet(uint256 value);
@@ -146,6 +147,7 @@ interface IBittyV1Owner {
     function setScheduledPaymentProtection(uint256 protection) external;
     function setWhitelistedProtection(uint256 protection) external;
     function setMaxSendValue(uint256 value) external;
+    function setMaxSendInterval(uint256 value) external;
     function setMaxScheduledValue(uint256 value) external;
     function setMaxWhitelistedValue(uint256 value) external;
     function setChangeTimelock(uint256 value) external;

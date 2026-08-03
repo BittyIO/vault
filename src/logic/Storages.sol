@@ -37,6 +37,10 @@ struct RiskConfig {
     TimelockedValue maxWhitelistedValue; // whitelisted-recipient payouts (checked at payout)
     // Delay (seconds) a loosening of any of the above (or of this value) must wait; 0 = changes instant.
     TimelockedValue changeTimelock;
+    // Rolling window (seconds) over which maxSendValue caps the OWNER's *cumulative* one-off sends, not
+    // just each batch. Higher = safer. 0 = per-transaction only (a leaked owner key could then drain
+    // stablecoins cap-by-cap with no pause). Loosening (shortening/clearing) waits changeTimelock.
+    TimelockedValue maxSendInterval;
 }
 
 struct TradeLimit {
@@ -91,12 +95,8 @@ struct AssetManagerStorage {
 
     mapping(address => uint256) committedIntentSell;
 
-    // Owner-set default yield route per asset (see AutoYieldConfig).
     mapping(address => AutoYieldConfig) autoYieldConfigs;
 
-    // Owner-set address allowed to trigger {autoYield} on demand (besides the vault itself, which
-    // triggers it from receive()). address(0) = only the vault (deposits) may trigger it. A trusted
-    // keeper — never permissionless, so a griefer can't strand the asset manager's swap liquidity.
     address autoYieldTrigger;
 }
 
@@ -142,4 +142,7 @@ struct VaultStorage {
 
     uint256 nextScheduledPaymentId;
     uint256 nextWhitelistedRecipientId;
+
+    uint128 ownerSendPeriodStart;
+    uint256 ownerSentInPeriod;
 }

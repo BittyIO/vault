@@ -114,6 +114,17 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         }
 
         _assetManager.initialize(guardAddress);
+
+        if (riskLevel == RiskControlLevel.Zero) {
+            _assetManager.setFullAssetManager(owner);
+            emit FullAssetManagerAdded(owner);
+        } else if (riskLevel == RiskControlLevel.Standard) {
+            _assetManager.setAssetManager(owner, VaultLogic.STANDARD_RISK_TIMELOCK, 0, VaultLogic.STANDARD_RISK_CAP, 0);
+            emit TradeLimitSet(owner, VaultLogic.STANDARD_RISK_TIMELOCK, 0, VaultLogic.STANDARD_RISK_CAP, 0);
+        } else {
+            _assetManager.setAssetManager(owner, VaultLogic.HIGH_RISK_TIMELOCK, 0, VaultLogic.HIGH_RISK_CAP, 0);
+            emit TradeLimitSet(owner, VaultLogic.HIGH_RISK_TIMELOCK, 0, VaultLogic.HIGH_RISK_CAP, 0);
+        }
         if (lendingProtocols.length > 0) {
             _assetManager.addLendingProtocols(lendingProtocols);
         }
@@ -268,6 +279,14 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
 
     function setMaxSendValue(uint256 value) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.setMaxSendValue(value);
+    }
+
+    function setMaxSendInterval(uint256 value) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.setMaxSendInterval(value);
+    }
+
+    function getMaxSendInterval() external view returns (uint64) {
+        return _vault.getMaxSendInterval();
     }
 
     function setMaxScheduledValue(uint256 value) external override onlyRole(DEFAULT_ADMIN_ROLE) {
