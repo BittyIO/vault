@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {AmountIsZero, AddressZero, NotInitialized} from "../../src/interfaces/IBittyV1Vault.sol";
-import {RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
+import {
+    AmountIsZero,
+    AddressZero,
+    NotInitialized,
+    InsufficientBalance,
+    ArrayLengthMismatch
+} from "../../src/interfaces/IBittyV1Vault.sol";
+import {RiskControlLevel, AutoYieldRoute} from "../../src/interfaces/IBittyV1Vault.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {
     InvalidLendingProtocol,
     InvalidStakingProtocol,
     InvalidAMMProtocol,
+    InvalidIntentProtocol,
     RebalanceDisabled,
     MinimalBalanceNotMet,
-    TradeSizeExceeded,
-    TradeInInterval,
-    TradeMustTouchStableCoin,
-    TradeLimitExpired,
-    TradeInvestedTotalExceeded,
-    StableCoinInvestCapZero,
     NotAssetManager,
     DisableRebalanceUntilTimestampTooEarly,
     DisableRebalanceUntilTimestampTooLong
@@ -33,7 +34,7 @@ import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
 import {ProtocolTestSetup} from "../helpers/ProtocolTestSetup.sol";
 import {MockAMMProtocol} from "../helpers/MockAMMProtocol.sol";
-import {MockIntentProtocol, MockIntentRegistry} from "../helpers/MockIntentProtocol.sol";
+import {MockIntentProtocol} from "../helpers/MockIntentProtocol.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 
 contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
@@ -48,13 +49,6 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     address[] public intentProtocols;
     address public ownerAddress;
     address public assetManagerAddress;
-
-    MockIntentRegistry internal intentRegistry;
-    MockIntentProtocol internal mockIntent;
-
-    function _validTo() private view returns (uint32) {
-        return uint32(block.timestamp + 1 days);
-    }
 
     function setUp() public {
         ownerAddress = tx.origin;
@@ -75,11 +69,6 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         setupMainnetForkProtocols(guard);
 
-        intentRegistry = new MockIntentRegistry();
-        mockIntent = new MockIntentProtocol(address(intentRegistry), false, false);
-        vm.prank(tx.origin);
-        guard.addIntentProtocols(_single(address(mockIntent)));
-
         assets = _two(mainnet.WETH, WBTC);
         vaultAssets = new address[](4);
         vaultAssets[0] = mainnet.WETH;
@@ -89,7 +78,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         lendingProtocols = _single(address(aaveProtocol));
         stakingProtocols = _single(address(lidoProtocol));
         ammProtocols = _single(address(uniswapV3Protocol));
-        intentProtocols = _single(address(mockIntent));
+        intentProtocols = new address[](0);
+    }
+
+    function _validTo() private view returns (uint32) {
+        return uint32(block.timestamp + 1 days);
     }
 
     function _two(address a, address b) private pure returns (address[] memory arr) {
@@ -100,36 +93,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
     function _grantAssetManagerRole(address assetManager) internal {
         vm.prank(ownerAddress);
-        this.setAssetManager(assetManager, 0, 0, type(uint64).max, 0);
+        this.setAssetManager(assetManager);
     }
 
     function getClonedProvider(address protocol) external view returns (address) {
         return _assetManager.clonedProtocols[protocol];
-    }
-
-    function getSettingsInvestedBudget(address assetManager) external view returns (uint64) {
-        return
-            _assetManager.assetManagerSettings.stableCoinInvestCap
-                - _assetManager.assetManagerSettings.stableCoinInvested;
-    }
-
-    function getSettingsLastTradeTimestamp(address assetManager) external view returns (uint128) {
-        return _assetManager.assetManagerSettings.lastTradeTimestamp;
-    }
-
-    function getSettingsInvested(address assetManager) external view returns (uint64) {
-        return _assetManager.assetManagerSettings.stableCoinInvested;
-    }
-
-    function _setTradeLimit(
-        address assetManager,
-        uint256 interval,
-        uint256 maxStableCoinPerTrade,
-        uint256 stableCoinInvestCap,
-        uint256 expiredAt
-    ) internal {
-        vm.prank(ownerAddress);
-        this.setAssetManager(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
     }
 
     function _cloneProtocolForTest(address protocol) private returns (address clonedProtocol) {
@@ -157,7 +125,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             _single(address(mockAmm)),
             intentProtocols,
             address(0),
-            RiskControlLevel.Zero
+            RiskControlLevel.Zero,
+            new AutoYieldRoute[](0),
+            address(0)
         );
         _grantAssetManagerRole(assetManagerAddress);
         _cloneProtocolForTest(address(mockAmm));
@@ -183,7 +153,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             ammProtocols,
             intentProtocols,
             address(0),
-            RiskControlLevel.Zero
+            RiskControlLevel.Zero,
+            new AutoYieldRoute[](0),
+            address(0)
         );
         _grantAssetManagerRole(assetManagerAddress);
     }
@@ -232,30 +204,10 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.addIntentProtocols(_single(intentProto));
     }
 
-    function test_CleanExpiredLimitOrders_revertNotInitialized() public {
-        vm.expectRevert(NotInitialized.selector);
-        this.cleanExpiredLimitOrders(makeAddr("intent"), new bytes32[](0));
-    }
-
     function test_SetMinimalBalance() public {
         this.doInitialize();
         vm.prank(ownerAddress);
         this.setMinimalBalance(mainnet.WETH, 100 * 1e6);
-    }
-
-    function test_RevertOnlyAssetManager() public {
-        this.doInitialize();
-        address stranger = makeAddr("subscribedStranger");
-
-        vm.prank(stranger);
-        vm.expectRevert(NotAssetManager.selector);
-        this.supply(address(aaveProtocol), address(mainnet.WETH), 1 ether);
-        vm.prank(stranger);
-        vm.expectRevert(NotAssetManager.selector);
-        this.withdraw(address(aaveProtocol), address(mainnet.WETH), 1 ether);
-        vm.prank(stranger);
-        vm.expectRevert(NotAssetManager.selector);
-        this.limitSell(address(mockIntent), address(WBTC), address(mainnet.USDT), 1 ether, 1 ether, _validTo());
     }
 
     function test_SupplyRevertAddressZero() public {
@@ -286,8 +238,10 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.withdraw(address(aaveProtocol), address(0), 1 ether);
     }
 
-    /// @dev A plain ETH send (empty calldata, matching a wallet "Send ETH") is auto-wrapped to WETH
-    ///      by BittyV1Vault.receive(), leaving the vault holding WETH and no native ETH.
+    /**
+     * @dev A plain ETH send (empty calldata, matching a wallet "Send ETH") is auto-wrapped to WETH
+     *      by BittyV1Vault.receive(), leaving the vault holding WETH and no native ETH.
+     */
     function test_ethDeposit_viaReceive_autoWrapsToWETH() public {
         this.doInitialize();
 
@@ -428,440 +382,19 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(balance, 0);
     }
 
-    function test_RebalanceFromCheck_AllowsNonVaultAssetWhenVaultHoldsBalance() public {
-        MockAMMProtocol mockAmm = new MockAMMProtocol();
-        MockERC20 stray = new MockERC20("Stray", "STR", 18);
-        MockERC20 stable = new MockERC20("Stable", "STB", 6);
-
-        vm.startPrank(tx.origin);
-        BittyV1Guard(guardAddress).addStableCoins(_single(address(stable)));
-        BittyV1Guard(guardAddress).addAMMProtocols(_single(address(mockAmm)));
-        vm.stopPrank();
-
-        address[] memory initAssets = new address[](5);
-        initAssets[0] = mainnet.WETH;
-        initAssets[1] = WBTC;
-        initAssets[2] = mainnet.USDT;
-        initAssets[3] = mainnet.USDC;
-        initAssets[4] = address(stable);
-
-        this.initialize(
-            ownerAddress,
-            guardAddress,
-            mainnet.WETH,
-            initAssets,
-            lendingProtocols,
-            stakingProtocols,
-            _single(address(mockAmm)),
-            intentProtocols,
-            address(0),
-            RiskControlLevel.Zero
-        );
-        _grantAssetManagerRole(assetManagerAddress);
-        _cloneProtocolForTest(address(mockAmm));
-
-        stray.mint(address(this), 10 ether);
-
-        uint256 sellAmount = 1 ether;
-        uint256 buyAmountMin = 100e6;
-
-        vm.prank(assetManagerAddress);
-        bytes32 id =
-            this.limitSell(address(mockIntent), address(stray), address(stable), sellAmount, buyAmountMin, _validTo());
-        assertTrue(id != bytes32(0));
-    }
-
-    function test_RebalanceFromCheck_MinimalBalanceNotMet_WhenRemainingBelowMinimal() public {
-        this.doInitialize();
-
-        uint256 minimalBalance = 100 ether;
-        vm.prank(ownerAddress);
-        this.setMinimalBalance(mainnet.WETH, minimalBalance);
-
-        uint256 fromBalance = 1000 ether;
-        uint256 sellAmount = 950 ether;
-
-        deal(address(mainnet.WETH), address(this), fromBalance);
-
-        uint256 buyAmount = 10 * 1e6;
-
-        vm.expectRevert(MinimalBalanceNotMet.selector);
-        vm.prank(assetManagerAddress);
-        this.limitSell(
-            address(mockIntent), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, _validTo()
-        );
-    }
-
-    function test_MinimalBalance_CountsSuppliedPosition() public {
-        this.doInitialize();
-        deal(mainnet.WETH, address(this), 10 ether);
-
-        // Supply 8 WETH to Aave → spot 2, supplied ~8, total ~10.
-        vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), mainnet.WETH, 8 ether);
-
-        vm.prank(ownerAddress);
-        this.setMinimalBalance(mainnet.WETH, 4 ether);
-
-        uint256 sellAmount = 1 ether;
-        uint256 buyAmountMin = 1;
-
-        // Spot alone (2 → 1 after the sell) is below the 4-WETH floor, so spot-only accounting would
-        // revert MinimalBalanceNotMet; counting the ~8 supplied lets the total clear the floor.
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, _validTo());
-    }
-
-    function test_RebalanceFromCheck_MinimalBalanceNotMet_WhenSellExceedsBalance() public {
-        this.doInitialize();
-
-        uint256 minimalBalance = 100 ether;
-        vm.prank(ownerAddress);
-        this.setMinimalBalance(mainnet.WETH, minimalBalance);
-
-        uint256 fromBalance = 50 ether;
-        uint256 sellAmount = 100 ether;
-
-        deal(address(mainnet.WETH), address(this), fromBalance);
-
-        uint256 buyAmount = 10 * 1e6;
-
-        vm.expectRevert(MinimalBalanceNotMet.selector);
-        vm.prank(assetManagerAddress);
-        this.limitSell(
-            address(mockIntent), address(mainnet.WETH), address(mainnet.USDT), sellAmount, buyAmount, _validTo()
-        );
-    }
-
-    function test_RebalanceFromCheck_MinimalBalance_SucceedsWhenRemainingAtLeastMinimal() public {
-        this.doInitialize();
-
-        uint256 minimalBalance = 4 ether;
-        vm.prank(ownerAddress);
-        this.setMinimalBalance(mainnet.WETH, minimalBalance);
-
-        uint256 fromBalance = 10 ether;
-        uint256 sellAmount = 5 ether;
-
-        deal(mainnet.WETH, address(this), fromBalance);
-        uint256 buyAmountMin = 1;
-
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, _validTo());
-    }
-
     function test_SetTradeLimit_RevertsForNonOwner() public {
         this.doInitialize();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
-        this.setAssetManager(assetManagerAddress, 1 hours, 1000, 0, 0);
+        this.setAssetManager(assetManagerAddress);
     }
 
     function test_SetTradeLimit_RevertsAddressZero() public {
         this.doInitialize();
         vm.prank(ownerAddress);
         vm.expectRevert(AddressZero.selector);
-        this.setAssetManager(address(0), 1 hours, 1000, 0, 0);
-    }
-
-    function test_SetTradeLimit_RevertsWhenCapZero() public {
-        this.doInitialize();
-        vm.prank(ownerAddress);
-        vm.expectRevert(StableCoinInvestCapZero.selector);
-        this.setAssetManager(assetManagerAddress, 0, 0, 0, 0);
-    }
-
-    function test_AddAssetManager_RevertsWhenCapZero() public {
-        this.doInitialize();
-        vm.prank(ownerAddress);
-        vm.expectRevert(StableCoinInvestCapZero.selector);
-        this.setAssetManager(makeAddr("newAssetManager"), 0, 0, 0, 0);
-    }
-
-    function test_SetAssetManager_ReplacesAndRemoveClears() public {
-        this.doInitialize();
-        address assetManager = makeAddr("removableAssetManager");
-        vm.prank(ownerAddress);
-        this.setAssetManager(assetManager, 1 hours, 1000, 5_000, 0);
-        assertEq(this.getAssetManager(), assetManager);
-        assertEq(this.getSettingsInvestedBudget(assetManager), 5_000);
-
-        vm.prank(ownerAddress);
-        this.removeAssetManager();
-        assertEq(this.getAssetManager(), address(0));
-        assertEq(this.getSettingsInvestedBudget(assetManager), 0);
-    }
-
-    function test_TradeLimit_SizeCap_RevertsWhenStableLegExceeds() public {
-        this.doInitialize();
-        deal(mainnet.WETH, address(this), 10 ether);
-
-        // Cap the stablecoin leg to 1,000 whole USDT (6 decimals → 1_000e6 raw units).
-        vm.prank(ownerAddress);
-        this.setAssetManager(assetManagerAddress, 0, 1000, type(uint64).max, 0);
-
-        // USDT is the buy leg; the declared floor (1_001e6) exceeds the 1_000e6 cap.
-        uint256 buyAmountMin = 1_001 * 1e6;
-
-        vm.expectRevert(TradeSizeExceeded.selector);
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 1 ether, buyAmountMin, _validTo());
-    }
-
-    function test_TradeLimit_SizeCap_SucceedsWhenStableLegUnderCap() public {
-        this.doInitialize();
-        deal(mainnet.WETH, address(this), 10 ether);
-
-        vm.prank(ownerAddress);
-        this.setAssetManager(assetManagerAddress, 0, 1000, type(uint64).max, 0);
-
-        uint256 sellAmount = 0.01 ether;
-        uint256 buyAmountMin = 1;
-
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, _validTo());
-    }
-
-    function test_TradeLimit_SizeCap_RevertsWhenNeitherLegStable() public {
-        this.doInitialize();
-
-        vm.prank(ownerAddress);
-        this.setAssetManager(assetManagerAddress, 0, 1000, type(uint64).max, 0);
-
-        // WETH → WBTC: neither token is a stablecoin, so the size is not measurable in dollars.
-        vm.expectRevert(TradeMustTouchStableCoin.selector);
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, WBTC, 1 ether, 1, _validTo());
-    }
-
-    function test_TradeLimit_Interval_ThrottlesSecondTrade() public {
-        this.doInitialize();
-        deal(mainnet.WETH, address(this), 10 ether);
-
-        vm.prank(ownerAddress);
-        this.setAssetManager(assetManagerAddress, 1 hours, 0, type(uint64).max, 0);
-
-        uint256 sellAmount = 0.01 ether;
-
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, 1, _validTo());
-
-        vm.expectRevert(TradeInInterval.selector);
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, 1, _validTo());
-
-        vm.warp(block.timestamp + 1 hours);
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, 1, _validTo());
-    }
-
-    function test_SetAssetManager_ReplacesPreviousAssetManager() public {
-        this.doInitialize();
-        deal(mainnet.WETH, address(this), 10 ether);
-
-        // Setting a new asset manager replaces the previous one — the old one can no longer trade.
-        vm.prank(ownerAddress);
-        this.setAssetManager(makeAddr("otherAssetManager"), 1 hours, 1, type(uint64).max, 0);
-
-        uint256 sellAmount = 0.01 ether;
-        vm.prank(assetManagerAddress);
-        vm.expectRevert(NotAssetManager.selector);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, 1, _validTo());
-    }
-
-    function test_TradeLimit_ExpiredAt_RevertsAfterExpiry() public {
-        this.doInitialize();
-        deal(mainnet.WETH, address(this), 1 ether);
-
-        uint256 expiry = block.timestamp + 1 hours;
-        _setTradeLimit(assetManagerAddress, 0, 0, type(uint64).max, expiry);
-
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, _validTo());
-
-        vm.warp(expiry);
-        vm.expectRevert(TradeLimitExpired.selector);
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, _validTo());
-    }
-
-    function test_TradeLimit_InvestedTotal_RevertsWhenBuyingWithStableExceedsBudget() public {
-        this.doInitialize();
-        deal(mainnet.USDT, address(this), 2_000 * 1e6);
-
-        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0);
-
-        vm.expectRevert(TradeInvestedTotalExceeded.selector);
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 1_001 * 1e6, 1, _validTo());
-    }
-
-    function test_TradeLimit_InvestedTotal_SubTokenTradeCountsAsWholeToken() public {
-        this.doInitialize();
-        deal(mainnet.USDT, address(this), 2_000 * 1e6);
-        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0);
-
-        // A sub-whole-token invest (0.5 USDT) must round UP to 1, not floor to 0 — otherwise a stream of
-        // dust trades could deploy capital past the cap for free.
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 500_000, 1, _validTo());
-        assertEq(this.getSettingsInvestedBudget(assetManagerAddress), 1_000 - 1);
-    }
-
-    function test_FullAccess_SkipsInvestCapAndTracking() public {
-        this.doInitialize();
-        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0); // start restricted with a small cap
-        vm.prank(ownerAddress);
-        this.setFullAssetManager(assetManagerAddress); // upgrade to full-access
-
-        deal(mainnet.USDT, address(this), 5_000 * 1e6);
-        // Investing 2,000 USDT would exceed the 1,000 cap — full-access ignores it and does not track.
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 2_000 * 1e6, 1, _validTo());
-        assertEq(this.getSettingsInvested(assetManagerAddress), 0, "invested not tracked for full-access");
-    }
-
-    function test_FullAccess_MinimalBalanceStillEnforced() public {
-        this.doInitialize();
-        vm.prank(ownerAddress);
-        this.setFullAssetManager(assetManagerAddress);
-
-        deal(mainnet.WETH, address(this), 1 ether);
-        vm.prank(ownerAddress);
-        this.setMinimalBalance(mainnet.WETH, 0.5 ether);
-
-        // Selling below the minimal-balance floor reverts even for a full-access asset manager.
-        vm.prank(assetManagerAddress);
-        vm.expectRevert(MinimalBalanceNotMet.selector);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 0.6 ether, 1, _validTo());
-    }
-
-    function test_SetTradeLimit_DemotesFullAccessToRestricted() public {
-        this.doInitialize();
-        vm.prank(ownerAddress);
-        this.setFullAssetManager(assetManagerAddress);
-        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0); // restrict again
-
-        deal(mainnet.USDT, address(this), 5_000 * 1e6);
-        // The cap is enforced again: investing 1,001 USDT reverts.
-        vm.prank(assetManagerAddress);
-        vm.expectRevert(TradeInvestedTotalExceeded.selector);
-        this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 1_001 * 1e6, 1, _validTo());
-    }
-
-    function test_InvestCap_RefundedWhenUnfilledLimitOrderCancelled() public {
-        this.doInitialize();
-        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0);
-        deal(mainnet.USDT, address(this), 5_000 * 1e6);
-
-        bytes32 id = this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 600 * 1e6, 1, _validTo());
-        assertEq(this.getSettingsInvested(assetManagerAddress), 600, "placement counts the invest");
-
-        // Never filled: cancelling reclaims the whole reserved budget (fill-or-kill → nothing deployed).
-        this.cancelLimitOrder(address(mockIntent), abi.encode(id));
-        assertEq(this.getSettingsInvested(assetManagerAddress), 0, "unfilled cancel refunds the invest budget");
-    }
-
-    function test_InvestCap_NotRefundedWhenFilledOrderCancelled() public {
-        this.doInitialize();
-        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0);
-        deal(mainnet.USDT, address(this), 5_000 * 1e6);
-
-        bytes32 id = this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 600 * 1e6, 1, _validTo());
-        intentRegistry.setFilled(id, true); // the order settled on-chain
-
-        // A filled order actually deployed the stablecoin, so its budget stays counted after cancel.
-        this.cancelLimitOrder(address(mockIntent), abi.encode(id));
-        assertEq(this.getSettingsInvested(assetManagerAddress), 600, "filled deployment stays counted");
-    }
-
-    function test_InvestCap_RefundedOnExpiredCleanup() public {
-        this.doInitialize();
-        _setTradeLimit(assetManagerAddress, 0, 0, 1_000, 0);
-        deal(mainnet.USDT, address(this), 5_000 * 1e6);
-
-        uint32 vt = _validTo();
-        bytes32 id = this.limitSell(address(mockIntent), mainnet.USDT, mainnet.WETH, 600 * 1e6, 1, vt);
-        assertEq(this.getSettingsInvested(assetManagerAddress), 600);
-
-        vm.warp(uint256(vt) + 1);
-        bytes32[] memory ids = new bytes32[](1);
-        ids[0] = id;
-        this.cleanExpiredLimitOrders(address(mockIntent), ids);
-        assertEq(this.getSettingsInvested(assetManagerAddress), 0, "expired-unfilled cleanup refunds too");
-    }
-
-    function test_TradeLimit_ZeroInterval_SkipsLastTradeTimestampWrite() public {
-        this.doInitialize();
-        deal(mainnet.WETH, address(this), 10 ether);
-
-        _setTradeLimit(assetManagerAddress, 0, 0, type(uint64).max, 0);
-        assertEq(this.getSettingsLastTradeTimestamp(assetManagerAddress), 0);
-
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, _validTo());
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, _validTo());
-
-        assertEq(this.getSettingsLastTradeTimestamp(assetManagerAddress), 0);
-    }
-
-    function test_TradeLimit_NonZeroInterval_RecordsLastTradeTimestamp() public {
-        this.doInitialize();
-        deal(mainnet.WETH, address(this), 10 ether);
-
-        _setTradeLimit(assetManagerAddress, 1 hours, 0, type(uint64).max, 0);
-        assertEq(this.getSettingsLastTradeTimestamp(assetManagerAddress), 0);
-
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, 0.01 ether, 1, _validTo());
-
-        assertEq(this.getSettingsLastTradeTimestamp(assetManagerAddress), block.timestamp);
-    }
-
-    function test_CheckRebalanceDisabledUntilTimestamp_RevertsWhenBeforeTimestamp() public {
-        this.doInitialize();
-
-        uint256 disabledUntil = block.timestamp + 100;
-        vm.prank(assetManagerAddress);
-        this.disableRebalanceUntilTimestamp(disabledUntil);
-
-        uint256 sellAmount = 0.01 ether;
-        deal(mainnet.WETH, address(this), sellAmount);
-        uint256 buyAmountMin = 1;
-
-        vm.expectRevert(RebalanceDisabled.selector);
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, _validTo());
-    }
-
-    function test_CheckRebalanceDisabledUntilTimestamp_SucceedsAfterTimestamp() public {
-        this.doInitialize();
-
-        uint256 disabledUntil = block.timestamp + 100;
-        vm.prank(assetManagerAddress);
-        this.disableRebalanceUntilTimestamp(disabledUntil);
-
-        vm.warp(disabledUntil + 1);
-
-        uint256 sellAmount = 0.01 ether;
-        deal(mainnet.WETH, address(this), sellAmount);
-        uint256 buyAmountMin = 1;
-
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, _validTo());
-    }
-
-    function test_CheckRebalanceDisabledUntilTimestamp_SucceedsWhenNeverDisabled() public {
-        this.doInitialize();
-
-        uint256 sellAmount = 0.01 ether;
-        deal(mainnet.WETH, address(this), sellAmount);
-        uint256 buyAmountMin = 1;
-
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, buyAmountMin, _validTo());
+        this.setAssetManager(address(0));
     }
 
     function test_DisableRebalanceUntilTimestampTooEarly_RevertsWhenNewTimestampEarlier() public {
@@ -911,7 +444,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             ammProtocols,
             intentProtocols,
             address(0),
-            RiskControlLevel.Zero
+            RiskControlLevel.Zero,
+            new AutoYieldRoute[](0),
+            address(0)
         );
         _grantAssetManagerRole(assetManagerAddress);
 
@@ -1231,7 +766,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             _single(address(mockAmm)),
             intentProtocols,
             address(0),
-            RiskControlLevel.Zero
+            RiskControlLevel.Zero,
+            new AutoYieldRoute[](0),
+            address(0)
         );
         _grantAssetManagerRole(assetManagerAddress);
     }
@@ -1340,23 +877,6 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         vm.prank(ownerAddress);
         this.setMinimalBalance(mainnet.WETH, minimalBalance);
-    }
-
-    function testFuzz_RebalanceMinimalBalance_revertsWhenRemainingBelowMin(
-        uint256 minimalBalance,
-        uint256 fromBalance,
-        uint256 sellAmount
-    ) public {
-        minimalBalance = bound(minimalBalance, 1 ether, 100 ether);
-        fromBalance = bound(fromBalance, minimalBalance, minimalBalance + 100 ether);
-        sellAmount = bound(sellAmount, fromBalance - minimalBalance + 1, fromBalance);
-        this.doInitialize();
-        vm.prank(ownerAddress);
-        this.setMinimalBalance(mainnet.WETH, minimalBalance);
-        deal(mainnet.WETH, address(this), fromBalance);
-        vm.expectRevert(MinimalBalanceNotMet.selector);
-        vm.prank(assetManagerAddress);
-        this.limitSell(address(mockIntent), mainnet.WETH, mainnet.USDT, sellAmount, 1, _validTo());
     }
 
     function testFuzz_DisableRebalanceUntilTimestamp_cannotMovePrevTimestampEarlier(uint256 offset, uint256 reduction)
@@ -1564,5 +1084,364 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         _depositEth(1 ether);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 1 ether);
+    }
+
+    // ============ Off-chain order authorization (isOffchainManager) ============
+
+    function test_IsOffchainManager_TrueForAssetManager() public {
+        this.doInitialize();
+        assertTrue(this.isOffchainManager(assetManagerAddress));
+    }
+
+    function test_IsOffchainManager_FalseForZeroSigner() public {
+        this.doInitialize();
+        assertFalse(this.isOffchainManager(address(0)));
+    }
+
+    function test_IsOffchainManager_FalseForStranger() public {
+        this.doInitialize();
+        assertFalse(this.isOffchainManager(makeAddr("stranger")));
+    }
+
+    // ============ Off-chain order authorization (isOffchainOrderAuthorized) ============
+
+    function test_IsOffchainOrderAuthorized_SucceedsForRegisteredAsset() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+        assertTrue(this.isOffchainOrderAuthorized(assetManagerAddress, mainnet.WETH, WBTC, 0.5 ether));
+    }
+
+    function test_IsOffchainOrderAuthorized_SucceedsForStableCoinBuyLeg() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+        assertTrue(this.isOffchainOrderAuthorized(assetManagerAddress, mainnet.WETH, mainnet.USDC, 0.5 ether));
+    }
+
+    function test_IsOffchainOrderAuthorized_FalseForZeroSigner() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+        assertFalse(this.isOffchainOrderAuthorized(address(0), mainnet.WETH, WBTC, 0.5 ether));
+    }
+
+    function test_IsOffchainOrderAuthorized_FalseForNonManager() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+        assertFalse(this.isOffchainOrderAuthorized(makeAddr("stranger"), mainnet.WETH, WBTC, 0.5 ether));
+    }
+
+    function test_IsOffchainOrderAuthorized_FalseWhenTradingPaused() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+        vm.prank(assetManagerAddress);
+        this.disableRebalanceUntilTimestamp(block.timestamp + 1 days);
+        assertFalse(this.isOffchainOrderAuthorized(assetManagerAddress, mainnet.WETH, WBTC, 0.5 ether));
+    }
+
+    function test_IsOffchainOrderAuthorized_FalseForUnregisteredBuyToken() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+        assertFalse(
+            this.isOffchainOrderAuthorized(assetManagerAddress, mainnet.WETH, makeAddr("randomToken"), 0.5 ether)
+        );
+    }
+
+    function test_IsOffchainOrderAuthorized_FalseForInsufficientBalance() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+        assertFalse(this.isOffchainOrderAuthorized(assetManagerAddress, mainnet.WETH, WBTC, 2 ether));
+    }
+
+    function test_IsOffchainOrderAuthorized_FalseBelowMinimalBalance() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+        vm.prank(ownerAddress);
+        this.setMinimalBalance(mainnet.WETH, 1 ether);
+        assertFalse(this.isOffchainOrderAuthorized(assetManagerAddress, mainnet.WETH, WBTC, 0.5 ether));
+    }
+
+    // ============ EIP-1271 signature validation (isValidSignature) ============
+
+    function test_IsValidSignature_NoProtocolsReturnsFailure() public {
+        this.doInitialize();
+        assertTrue(this.isValidSignature(keccak256("order"), hex"1234") == bytes4(0xffffffff));
+    }
+
+    function test_IsValidSignature_MatchViaIntentClone() public {
+        MockIntentProtocol intent = new MockIntentProtocol();
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addIntentProtocols(_single(address(intent)));
+
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.addIntentProtocols(_single(address(intent)));
+
+        assertTrue(this.isValidSignature(keccak256("order"), hex"abcd") == bytes4(0x1626ba7e));
+    }
+
+    // ============ AssetManagerLogic revert / branch coverage ============
+
+    function test_SetMinimalBalanceRevertAddressZero() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddressZero.selector);
+        this.setMinimalBalance(address(0), 1);
+    }
+
+    function test_WithdrawRevertInsufficientBalance() public {
+        this.doInitialize();
+        uint256 supplyAmount = 1 ether;
+        deal(mainnet.WETH, address(this), supplyAmount);
+        vm.prank(assetManagerAddress);
+        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
+
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(InsufficientBalance.selector);
+        this.withdraw(address(aaveProtocol), mainnet.WETH, supplyAmount * 2);
+    }
+
+    function test_StakeRevertAddressZero() public {
+        this.doInitialize();
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(AddressZero.selector);
+        this.stake(address(lidoProtocol), address(0), 1 ether);
+    }
+
+    function test_UnstakeRevertAddressZero() public {
+        this.doInitialize();
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(AddressZero.selector);
+        this.unstake(address(lidoProtocol), address(0), 1 ether);
+    }
+
+    function test_UnstakeRevertInsufficientBalance() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+        vm.prank(assetManagerAddress);
+        this.stake(address(lidoProtocol), mainnet.WETH, 1 ether);
+
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(InsufficientBalance.selector);
+        this.unstake(address(lidoProtocol), mainnet.WETH, 100 ether);
+    }
+
+    function test_GetStakedBalanceRevertAddressZero() public {
+        this.doInitialize();
+        vm.expectRevert(AddressZero.selector);
+        this.getStakedBalance(address(lidoProtocol), address(0));
+    }
+
+    function test_ClaimUnstakedRevertInvalidStakingProtocol() public {
+        this.doInitialize();
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = 1;
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(InvalidStakingProtocol.selector);
+        this.claimUnstaked(address(lidoProtocol), ids);
+    }
+
+    function test_AddStakingProtocolsRevertNotRegistered() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotRegistered.selector);
+        this.addStakingProtocols(_single(makeAddr("unregisteredStaking")));
+    }
+
+    function test_AddLiquidityRevertInvalidAMMProtocol() public {
+        this.doInitialize();
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        this.addLiquidity(makeAddr("unregisteredAMM"), mainnet.WETH, 0, mainnet.USDT, 0, "");
+    }
+
+    function test_DisableRebalanceUntilTimestampZeroIsNoop() public {
+        this.doInitialize();
+        vm.prank(assetManagerAddress);
+        this.disableRebalanceUntilTimestamp(0);
+    }
+
+    function test_ApproveIntentRelayerRevertInvalidIntentProtocol() public {
+        this.doInitialize();
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(InvalidIntentProtocol.selector);
+        this.approveIntentRelayer(makeAddr("unregisteredIntent"), mainnet.WETH);
+    }
+
+    function test_ApproveIntentRelayerRevertDeprecated() public {
+        MockIntentProtocol intent = new MockIntentProtocol();
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addIntentProtocols(_single(address(intent)));
+
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.addIntentProtocols(_single(address(intent)));
+
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).deprecateIntentProtocols(_single(address(intent)));
+
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(Deprecated.selector);
+        this.approveIntentRelayer(address(intent), mainnet.WETH);
+    }
+
+    function test_ClaimAMMFeesSuccess() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initializeWithMockAMM(mockAmm);
+        vm.prank(assetManagerAddress);
+        this.claimAMMFees(address(mockAmm), abi.encode(uint256(1)));
+    }
+
+    function test_RemoveLiquiditySuccess() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initializeWithMockAMM(mockAmm);
+        address clone = this.getClonedProvider(address(mockAmm));
+        bytes memory data = abi.encode(uint256(3));
+        vm.prank(assetManagerAddress);
+        this.removeLiquidity(address(mockAmm), data);
+        assertEq(MockAMMProtocol(clone).removeLiquidityCallCount(), 1);
+    }
+
+    function test_AddLiquidityApprovesBothTokens() public {
+        MockAMMProtocol mockAmm = new MockAMMProtocol();
+        _initializeWithMockAMM(mockAmm);
+        deal(mainnet.WETH, address(this), 10 ether);
+        deal(mainnet.USDT, address(this), 10_000 * 1e6);
+        vm.prank(assetManagerAddress);
+        this.addLiquidity(address(mockAmm), mainnet.WETH, 5 ether, mainnet.USDT, 5_000 * 1e6, "");
+    }
+
+    // ============ DeFi facet view getters ============
+
+    function test_Facet_ViewGetters() public {
+        this.doInitialize();
+        assertEq(address(this.guard()), guardAddress);
+        assertEq(this.getLendingProtocols().length, 1);
+        assertEq(this.getStakingProtocols().length, 1);
+        assertEq(this.getAMMProtocols().length, 1);
+        assertEq(this.getIntentProtocols().length, 0);
+        vm.prank(ownerAddress);
+        this.setMinimalBalance(WBTC, 42);
+        assertEq(this.minimalBalance(WBTC), 42);
+    }
+
+    // ============ Vault owner surface (BittyV1Vault + logic passthroughs) ============
+
+    function test_WethAddress() public {
+        this.doInitialize();
+        assertEq(this.wethAddress(), mainnet.WETH);
+    }
+
+    function test_IsAddingAssetsDisabled_DefaultFalse() public {
+        this.doInitialize();
+        assertFalse(this.isAddingAssetsDisabled());
+    }
+
+    function test_RemoveAssetManager() public {
+        this.doInitialize();
+        assertEq(this.getAssetManager(), assetManagerAddress);
+        vm.prank(ownerAddress);
+        this.removeAssetManager();
+        assertEq(this.getAssetManager(), address(0));
+    }
+
+    function test_AddAMMProtocolsEmitsAndKeepsRegistered() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.addAMMProtocols(_single(address(uniswapV3Protocol)));
+        assertEq(this.getAMMProtocols().length, 1);
+    }
+
+    function test_RemoveIntentProtocols() public {
+        MockIntentProtocol intent = new MockIntentProtocol();
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addIntentProtocols(_single(address(intent)));
+
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.addIntentProtocols(_single(address(intent)));
+        assertEq(this.getIntentProtocols().length, 1);
+
+        vm.prank(ownerAddress);
+        this.removeIntentProtocols(_single(address(intent)));
+        assertEq(this.getIntentProtocols().length, 0);
+    }
+
+    function test_ApproveIntentRelayerSuccess() public {
+        MockIntentProtocol intent = new MockIntentProtocol();
+        address relayer = makeAddr("relayer");
+        intent.setEndpoints(makeAddr("settlement"), relayer);
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addIntentProtocols(_single(address(intent)));
+
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.addIntentProtocols(_single(address(intent)));
+
+        vm.prank(assetManagerAddress);
+        this.approveIntentRelayer(address(intent), mainnet.WETH);
+        assertEq(IERC20(mainnet.WETH).allowance(address(this), relayer), type(uint256).max);
+    }
+
+    function test_SendRevertArrayLengthMismatch() public {
+        this.doInitialize();
+        address[] memory recipients = _single(makeAddr("recipient"));
+        address[] memory sendAssets = _single(mainnet.WETH);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 1 ether;
+        address[] memory stakingProtos = _single(address(lidoProtocol));
+        uint256[] memory stakingAmounts = new uint256[](0); // wrong length -> mismatch
+        address[] memory emptyAddrs = new address[](0);
+        uint256[] memory emptyAmounts = new uint256[](0);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(ArrayLengthMismatch.selector);
+        this.send(recipients, sendAssets, amounts, stakingProtos, stakingAmounts, emptyAddrs, emptyAmounts);
+    }
+
+    // addLiquidity to an AMM whose clone exposes positionAssetManager() (Uniswap
+    // V3-style NFT positions) sets the NFT operator approval once, then skips it.
+    function test_AddLiquidity_ApprovesPositionNFTOnce() public {
+        MockPositionNFT nft = new MockPositionNFT();
+        MockAMMWithNFT mockAmm = new MockAMMWithNFT(address(nft));
+        _initializeWithMockAMM(MockAMMProtocol(address(mockAmm)));
+        address clone = this.getClonedProvider(address(mockAmm));
+        deal(mainnet.WETH, address(this), 10 ether);
+
+        assertFalse(nft.isApprovedForAll(address(this), clone));
+        vm.prank(assetManagerAddress);
+        this.addLiquidity(address(mockAmm), mainnet.WETH, 1 ether, mainnet.USDT, 0, "");
+        assertTrue(nft.isApprovedForAll(address(this), clone), "operator approval granted");
+
+        // Second add: already approved, so the setApprovalForAll branch is skipped.
+        vm.prank(assetManagerAddress);
+        this.addLiquidity(address(mockAmm), mainnet.WETH, 1 ether, mainnet.USDT, 0, "");
+    }
+}
+
+// A minimal ERC-721-style operator-approval registry, enough to exercise the
+// vault's _approveNFTIfNeeded (isApprovedForAll / setApprovalForAll).
+contract MockPositionNFT {
+    mapping(address => mapping(address => bool)) private _approvals;
+
+    function isApprovedForAll(address owner, address operator) external view returns (bool) {
+        return _approvals[owner][operator];
+    }
+
+    function setApprovalForAll(address operator, bool approved) external {
+        _approvals[msg.sender][operator] = approved;
+    }
+}
+
+// AMM protocol whose clones report a position NFT (like Uniswap V3), so
+// addLiquidity triggers the NFT operator-approval path. `nft` is immutable so it
+// survives the EIP-1167 clone delegatecall.
+contract MockAMMWithNFT is MockAMMProtocol {
+    address public immutable nft;
+
+    constructor(address nft_) {
+        nft = nft_;
+    }
+
+    function positionAssetManager() external view returns (address) {
+        return nft;
     }
 }

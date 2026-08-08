@@ -11,7 +11,8 @@ import {
     ArrayLengthMismatch,
     OwnerAndPayoutOperatorMustDiffer,
     NotPayoutOperator,
-    RiskControlLevel
+    RiskControlLevel,
+    AutoYieldRoute
 } from "./interfaces/IBittyV1Vault.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
@@ -50,10 +51,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
 
     /**
      * @notice Sweep the vault's spendable balance of `assetAddress` into its configured yield route.
-     *         Callable only by the vault itself (from {receive}, on deposit) or the owner-set auto-yield
-     *         trigger (see {setAutoYieldTrigger}) — never permissionless, so a griefer can't strand the
-     *         asset manager's swap liquidity by routing it on demand. A no-op when no route is configured
-     *         or nothing is spendable.
+     * @dev Never permissionless — a griefer could strand swap liquidity by routing on demand.
      */
     function autoYield(address assetAddress) external {
         if (msg.sender != address(this) && msg.sender != _assetManager.autoYieldTrigger) {
@@ -64,12 +62,11 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
 
     /**
      * @notice Wrap any native ETH the vault is holding into WETH.
-     * @dev receive() auto-wraps incoming ETH, but ETH that arrived before the
-     *      vault was deployed (e.g. a deposit sent to the counterfactual address
-     *      ahead of activation) sits as raw native ETH that the vault's
-     *      WETH-denominated ETH accounting can't spend. This converts that balance
-     *      to WETH. Permissionless — it only moves the vault's own ETH into its own
-     *      WETH, so there's nothing to gate.
+     * @dev receive() auto-wraps incoming ETH, but ETH can still land as raw native ETH — a deposit to
+     *      the counterfactual address before the vault had code, a protocol paying out with a 2300-gas
+     *      stipend (too little for receive() to wrap), a force-send, or ETH sent with calldata. The
+     *      vault's WETH-denominated accounting can't spend raw ETH, so this converts it. Permissionless —
+     *      it only moves the vault's own ETH into its own WETH.
      */
     function ETHToWETH() external {
         address weth = _vault.weth;
@@ -101,7 +98,9 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         address[] memory ammProtocols,
         address[] memory intentProtocols,
         address defiFacet,
-        RiskControlLevel riskLevel
+        RiskControlLevel riskLevel,
+        AutoYieldRoute[] memory autoYieldRoutes,
+        address autoYieldTrigger
     ) public initializer {
         _defiFacet = defiFacet;
         _vault.weth = weth;
@@ -115,7 +114,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
 
         _assetManager.initialize(guardAddress);
 
-        _assetManager.setFullAssetManager(owner);
+        _assetManager.setAssetManager(owner);
 
         if (lendingProtocols.length > 0) {
             _assetManager.addLendingProtocols(lendingProtocols);
@@ -128,6 +127,21 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         }
         if (intentProtocols.length > 0) {
             _assetManager.addIntentProtocols(intentProtocols);
+        }
+
+        _assetManager.autoYieldTrigger = autoYieldTrigger;
+        for (uint256 i = 0; i < autoYieldRoutes.length; i++) {
+            _assetManager.registerAutoYieldRoute(_vault, autoYieldRoutes[i]);
+        }
+
+        uint256 ethBalance = address(this).balance;
+        if (ethBalance > 0 && weth != address(0)) {
+            WETH(payable(weth)).deposit{value: ethBalance}();
+        }
+
+        // Route deposited (and just-wrapped) balances into their configured yield routes atomically.
+        for (uint256 i = 0; i < autoYieldRoutes.length; i++) {
+            _assetManager.autoYield(autoYieldRoutes[i].asset);
         }
     }
 
@@ -178,8 +192,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
 
     /**
      * @dev Unstake / withdraw each row's `assets[i]` from its position into the vault before a send.
-     *      No-op when all position arrays are empty (plain send); otherwise all four must equal
-     *      `assets.length`. Delivered to the vault (address(this)); the send then pays from balance.
+     *      No-op when all position arrays are empty; otherwise all four must equal `assets.length`.
      */
     function _pullFromPositions(
         address[] calldata assets,
@@ -209,8 +222,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
     }
 
     /**
-     * @dev Unstake / withdraw a single asset from its position into the vault before a send.
-     *      `address(0)` protocol or `0` amount skips that leg. Delivered to the vault (address(this)).
+     * @dev `address(0)` protocol or `0` amount skips that leg.
      */
     function _pullOneFromPositions(
         address assetAddress,
@@ -318,12 +330,8 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
     }
 
     /**
-     * @notice Pay a scheduledPayment its full scheduled amount straight out of a staked position: the
-     *         reserve keeps earning yield until payment time, and the unstaked asset is delivered
-     *         directly to the configured payee in one step. The recipient is hard-sourced from the
-     *         scheduledPayment config (never a parameter), so funds can only reach a configured payee.
-     *         Authorization mirrors {payScheduled}. Only works for protocols whose unstake settles
-     *         synchronously to a recipient (e.g. Sky); queued withdrawals (e.g. Lido) revert.
+     * @notice Pay a scheduled payment straight out of a staked position; recipient is sourced from config.
+     * @dev Only works for protocols whose unstake settles synchronously to a recipient.
      */
     function payScheduledFromStaking(uint256 id, address stakingProtocol) external {
         (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
@@ -332,8 +340,8 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
     }
 
     /**
-     * @notice Pay a scheduledPayment its full scheduled amount straight out of a supplied (lending)
-     *         position. See {payScheduledFromStaking} for the recipient-safety guarantees.
+     * @notice Pay a scheduled payment straight out of a supplied (lending) position.
+     * @dev See {payScheduledFromStaking} for recipient-safety guarantees.
      */
     function payScheduledFromLending(uint256 id, address lendingProtocol) external {
         (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
@@ -341,7 +349,9 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         _assetManager.withdraw(lendingProtocol, _payoutAsset(assetAddress), payAmount, scheduledPaymentAddress);
     }
 
-    // An ETH (address(0)) scheduled payment is delivered as WETH out of the yield-position paths.
+    /**
+     * @dev ETH (address(0)) scheduled payments use WETH on yield-position payout paths.
+     */
     function _payoutAsset(address assetAddress) private view returns (address) {
         return assetAddress == address(0) ? _vault.weth : assetAddress;
     }
@@ -422,20 +432,9 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         return _assetManager.autoYieldTrigger;
     }
 
-    function setAssetManager(
-        address assetManager,
-        uint256 interval,
-        uint256 maxStableCoinPerTrade,
-        uint256 stableCoinInvestCap,
-        uint256 expiredAt
-    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.setAssetManager(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
-        emit AssetManagerSettingsSet(assetManager, interval, maxStableCoinPerTrade, stableCoinInvestCap, expiredAt);
-    }
-
-    function setFullAssetManager(address assetManager) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.setFullAssetManager(assetManager);
-        emit FullAssetManagerAdded(assetManager);
+    function setAssetManager(address assetManager) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetManager.setAssetManager(assetManager);
+        emit AssetManagerSet(assetManager);
     }
 
     function removeAssetManager() external override onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -447,21 +446,9 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         return _assetManager.assetManager;
     }
 
-    function setPayoutOperator(address payoutOperator, uint256 interval, uint256 maxStableCoinPerPeriod)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function addPayoutOperator(address payoutOperator) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         if (hasRole(DEFAULT_ADMIN_ROLE, payoutOperator)) revert OwnerAndPayoutOperatorMustDiffer();
-        _vault.setPayoutOperator(payoutOperator, interval, maxStableCoinPerPeriod);
-    }
-
-    function updatePayoutOperator(address payoutOperator, uint256 interval, uint256 maxStableCoinPerPeriod)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _vault.updatePayoutOperator(payoutOperator, interval, maxStableCoinPerPeriod);
+        _vault.addPayoutOperator(payoutOperator);
     }
 
     function removePayoutOperator(address payoutOperator) external override onlyRole(DEFAULT_ADMIN_ROLE) {

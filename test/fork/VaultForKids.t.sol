@@ -6,12 +6,20 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
-import {IBittyV1Vault, ScheduledPaymentNotStartYet, RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
+import {
+    IBittyV1Vault,
+    ScheduledPaymentNotStartYet,
+    RiskControlLevel,
+    AutoYieldRoute
+} from "../../src/interfaces/IBittyV1Vault.sol";
+import {IBittyV1VaultFactory} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 
-/// @notice Mainnet fork: parents deploy a WBTC/WETH kids vault via the factory,
-/// schedule gifts at age 18, renounce admin, and kids claim through gift wallets.
+/**
+ * @notice Mainnet fork: parents deploy a WBTC/WETH kids vault via the factory,
+ * schedule gifts at age 18, renounce admin, and kids claim through gift wallets.
+ */
 contract VaultForKidsForkTest is Test {
     address internal constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
 
@@ -28,6 +36,8 @@ contract VaultForKidsForkTest is Test {
     BittyV1Guard public guard;
 
     address[] internal assetAddresses;
+    IBittyV1VaultFactory.AssetInput[] internal noDeposits;
+    AutoYieldRoute[] internal noYield;
 
     address public parentOwner;
 
@@ -60,12 +70,15 @@ contract VaultForKidsForkTest is Test {
     function _deployKidsVaultViaFactory() internal {
         address expected = factory.vaultAddress(parentOwner);
         factory.activateVault(
-            RiskControlLevel.Zero,
+            noYield,
+            address(0),
+            noDeposits,
             assetAddresses,
             new address[](0),
             new address[](0),
             new address[](0),
-            new address[](0)
+            new address[](0),
+            RiskControlLevel.Zero
         );
         address vaultAddr = factory.vaultAddress(parentOwner);
 
@@ -92,11 +105,13 @@ contract VaultForKidsForkTest is Test {
         });
     }
 
-    /// @dev Steps from file comments:
-    /// 1. Vault limited to WBTC and WETH (deployed through BittyV1VaultFactory on mainnet fork).
-    /// 2. Two scheduledPayments pay kids at their 18th birthday.
-    /// 3. Parent renounces admin (no on-chain owner).
-    /// 4. After the 18th birthday, kids redirect payouts to a new address.
+    /**
+     * @dev Steps from file comments:
+     * 1. Vault limited to WBTC and WETH (deployed through BittyV1VaultFactory on mainnet fork).
+     * 2. Two scheduledPayments pay kids at their 18th birthday.
+     * 3. Parent renounces admin (no on-chain owner).
+     * 4. After the 18th birthday, kids redirect payouts to a new address.
+     */
     function test_vaultForKids_fullLifecycle() public {
         // Step 1: factory deploys a vault with only WBTC and WETH
         _deployKidsVaultViaFactory();

@@ -7,9 +7,11 @@ import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/Safe
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 
-/// @dev Minimal cloneable staking mock used by the local vault tests. It holds the staked
-/// asset 1:1 and records the recipient of the last on-behalf unstake so tests can assert
-/// funds are delivered only to the configured scheduledPayment.
+/**
+ * @dev Minimal cloneable staking mock used by the local vault tests. It holds the staked
+ * asset 1:1 and records the recipient of the last on-behalf unstake so tests can assert
+ * funds are delivered only to the configured scheduledPayment.
+ */
 contract MockStakingProtocol is IBittyV1StakingProtocol, Ownable, Initializable {
     using SafeERC20 for IERC20;
 
@@ -58,7 +60,9 @@ contract MockStakingProtocol is IBittyV1StakingProtocol, Ownable, Initializable 
 
     function claimUnstaked(uint256[] memory) external override onlyOwner {}
 
-    /// @dev No separate receipt token — tells the vault's approval helper there is nothing to approve.
+    /**
+     * @dev No separate receipt token — tells the vault's approval helper there is nothing to approve.
+     */
     function receiptTokenOf(address) external pure returns (address) {
         return address(0);
     }

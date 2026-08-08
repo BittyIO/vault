@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {RiskControlLevel} from "./IBittyV1Vault.sol";
+import {RiskControlLevel, AutoYieldRoute} from "./IBittyV1Vault.sol";
 
 error VaultAlreadyActivated();
 error NotDeployer();
@@ -36,49 +36,41 @@ interface IBittyV1VaultFactory {
         external;
 
     /**
-     * @notice Activate a vault owned by the caller (msg.sender) at a chosen risk level, which seeds its
-     *         payment risk controls (new-address protection + per-path stablecoin value caps).
-     * @param riskLevel The risk posture (None/Standard/Strict) whose hardcoded defaults seed the vault.
-     * @param assetAddresses The addresses of the assets.
-     * @param lendingProtocols The addresses of the lending protocols.
-     * @param stakingProtocols The addresses of the staking protocols.
+     * @notice Activate the caller's vault, fund it, and configure auto-yielding in one transaction: each
+     *         deposit is pulled from the caller into the (pre-deploy) vault address — consuming a signed
+     *         EIP-2612 permit first when `usePermit` is set, otherwise relying on a prior approval for
+     *         tokens that do not support permit — then any attached ETH (msg.value) is forwarded. The
+     *         vault, on initialize, wraps native ETH into WETH and sweeps each route's spendable balance
+     *         into its configured yield route atomically.
+     * @dev Deposits and ETH land at the counterfactual vault address before CREATE2 deploys over it, so
+     *      initialize sees the funds. Each `autoYieldRoutes` entry registers its asset (as a vault asset)
+     *      and protocol (into the matching lending/staking set) if not already present, so those need not
+     *      also appear in the explicit arrays; the vault's add functions guard-check them.
+     * @param autoYieldRoutes The default yield routes to configure (and route the initial deposit into).
+     *        Each route's asset and protocol are auto-registered, so they need not be repeated in
+     *        `assetAddresses` / `lendingProtocols` / `stakingProtocols`.
+     * @param autoYieldTrigger The address (besides the vault) allowed to trigger auto-yield (0 = none).
+     * @param deposits The assets to pull into the vault (via permit or prior approval).
+     * @param assetAddresses Extra guard-registered assets/stable coins to configure. Assets already named
+     *        in `autoYieldRoutes` are registered automatically, so list here ONLY assets with no route.
+     * @param lendingProtocols Extra lending protocols. A protocol used by a supplying route is registered
+     *        automatically, so list here ONLY lending protocols not referenced in `autoYieldRoutes`.
+     * @param stakingProtocols Extra staking protocols. A protocol used by a staking route is registered
+     *        automatically, so list here ONLY staking protocols not referenced in `autoYieldRoutes`.
      * @param ammProtocols The addresses of the amm protocols.
      * @param intentProtocols The addresses of the intent protocols.
+     * @param riskLevel The risk posture (None/Standard/Strict) whose hardcoded defaults seed the vault.
      */
     function activateVault(
-        RiskControlLevel riskLevel,
-        address[] memory assetAddresses,
-        address[] memory lendingProtocols,
-        address[] memory stakingProtocols,
-        address[] memory ammProtocols,
-        address[] memory intentProtocols
-    ) external;
-
-    /**
-     * @notice Activate the caller's vault and fund it in one transaction: for each deposit, pull
-     *         `amount` of `asset` from the caller into the vault — consuming a signed EIP-2612 permit
-     *         first when `usePermit` is set, otherwise relying on a prior approval for tokens that do
-     *         not support permit — then forward any attached ETH (msg.value) which the vault
-     *         auto-wraps to WETH.
-     * @dev `assetAddresses` is the vault's asset configuration (guard-checked). Include WETH there
-     *      when depositing ETH so the vault tracks the wrapped balance. Deposited assets need not
-     *      appear in `assetAddresses`, but only configured assets are tracked/tradeable by the vault.
-     * @param riskLevel The risk posture (None/Standard/Strict) whose hardcoded defaults seed the vault.
-     * @param assetAddresses The guard-registered assets/stable coins to configure on the vault.
-     * @param deposits The assets to pull into the vault (via permit or prior approval).
-     * @param lendingProtocols The addresses of the lending protocols.
-     * @param stakingProtocols The addresses of the staking protocols.
-     * @param ammProtocols The addresses of the amm protocols.
-     * @param intentProtocols The addresses of the intent protocols.
-     */
-    function activateVaultWithAssets(
-        RiskControlLevel riskLevel,
-        address[] memory assetAddresses,
+        AutoYieldRoute[] memory autoYieldRoutes,
+        address autoYieldTrigger,
         AssetInput[] memory deposits,
+        address[] memory assetAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
         address[] memory ammProtocols,
-        address[] memory intentProtocols
+        address[] memory intentProtocols,
+        RiskControlLevel riskLevel
     ) external payable;
 
     /**

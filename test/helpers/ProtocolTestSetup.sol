@@ -9,7 +9,9 @@ import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 
-/// @dev Mainnet fork setup with real Aave, Lido, and Uniswap V3 provider templates.
+/**
+ *  @dev Mainnet fork setup with real Aave, Lido, and Uniswap V3 provider templates.
+ */
 abstract contract ProtocolTestSetup is Test {
     using Path for bytes;
 

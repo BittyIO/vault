@@ -2,12 +2,6 @@
 pragma solidity ^0.8.34;
 
 error MinimalBalanceNotMet();
-error TradeSizeExceeded();
-error TradeInInterval();
-error TradeMustTouchStableCoin();
-error TradeLimitExpired();
-error TradeInvestedTotalExceeded();
-error StableCoinInvestCapZero();
 error NotAssetManager();
 error InvalidLendingProtocol();
 error InvalidStakingProtocol();
@@ -67,69 +61,21 @@ interface IBittyV1AssetManager {
      */
     function disableRebalanceUntilTimestamp(uint256 timestamp) external;
 
-    // ============ Intent (limit / TWAP) ============
+    // ============ Intent (gasless off-chain signing) ============
 
     /**
-     * @notice Place a sell limit order: sell exactly `sellAmount` of `from`, receive ≥ `buyAmountMin` of `to`.
-     * @return orderId use to cancel via cancelLimitOrder
+     * @notice Pre-approve the intent protocol's settlement relayer for `token` (max), so gasless
+     *         off-chain-signed orders can be pulled at settlement. Order placement is entirely off-chain
+     *         (sign + post to the orderbook); the vault only custodies tokens, validates via
+     *         isValidSignature, and grants this allowance. One approval per sell token.
      */
-    function limitSell(
-        address intentProtocol,
-        address from,
-        address to,
-        uint256 sellAmount,
-        uint256 buyAmountMin,
-        uint32 validTo
-    ) external returns (bytes32 orderId);
+    function approveIntentRelayer(address intentProtocol, address token) external;
 
     /**
-     * @notice Place a buy limit order: receive exactly `buyAmount` of `to`, spend ≤ `sellAmountMax` of `from`.
-     * @return orderId use to cancel via cancelLimitOrder
+     * @notice Cancel one or more gasless off-chain orders by invalidating them on the intent protocol's
+     *         settlement contract (owner-only). CoW's API can't soft-cancel a vault eip1271 order, so this
+     *         on-chain invalidation is how the vault cancels; afterwards no solver can settle them. Batched
+     *         so a TWAP's open parts are cancelled in one tx.
      */
-    function limitBuy(
-        address intentProtocol,
-        address from,
-        address to,
-        uint256 buyAmount,
-        uint256 sellAmountMax,
-        uint32 validTo
-    ) external returns (bytes32 orderId);
-
-    function cancelLimitOrder(address intentProtocol, bytes memory data) external;
-
-    /**
-     * @notice Create a TWAP sell order: split totalSellAmount into n equal parts executed every partDuration seconds.
-     * @return twapId use to cancel via cancelTwapOrder
-     */
-    function twapSell(
-        address intentProtocol,
-        address from,
-        address to,
-        uint256 totalSellAmount,
-        uint256 minPartLimit,
-        uint256 n,
-        uint256 partDuration,
-        uint256 span
-    ) external returns (bytes32 twapId);
-
-    /**
-     * @notice Cancel an active TWAP and return unfilled sell tokens to the vault.
-     */
-    function cancelTwapOrder(address intentProtocol, bytes32 twapId) external;
-
-    /**
-     * @notice Create a TWAP buy order: spend sellAmountPerPart of `from` every partDuration seconds across n parts,
-     *         receiving at least totalBuyAmount/n of `to` per part.
-     * @return twapId use to cancel via cancelTwapOrder
-     */
-    function twapBuy(
-        address intentProtocol,
-        address from,
-        address to,
-        uint256 totalBuyAmount,
-        uint256 sellAmountPerPart,
-        uint256 n,
-        uint256 partDuration,
-        uint256 span
-    ) external returns (bytes32 twapId);
+    function cancelIntentOrders(address intentProtocol, bytes[] calldata orderUids) external;
 }
