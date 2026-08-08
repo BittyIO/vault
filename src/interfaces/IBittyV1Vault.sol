@@ -23,27 +23,19 @@ error ScheduledPaymentInInterval();
 error ScheduledPaymentIntervalTooShort();
 error AssetAddressNotContract();
 error ProtectionPeriodNotEnded();
-// Scheduled-payment protection is capped (~10 years) so it can never be set to an absurd/effectively
-// infinite delay that permanently blocks the vault's recurring-payment path.
 error ScheduledPaymentProtectionTooLong();
 error PayMoreThanScheduledPaymentAmount();
 error PayScheduledPaymentAmountTriggerEmpty();
 
+// adding assets and protocols errors
 error AddingAssetsDisabled();
 error AddingProtocolsDisabled();
 error OwnerAndPayoutOperatorMustDiffer();
-// Vault ownership is permanent: the owner may renounce (leaving the vault ownerless) but can never
-// hand the admin role to another account.
+
 error OwnershipNotTransferable();
-// An approved immutable scheduled payment becomes permanent once its lock window passes: not even the
-// owner can remove it (it was never editable). This makes a seasoned immutable payment a safe payout
-// route that survives an owner-key compromise — and the vault's renounce path.
 error ImmutableScheduledPaymentLocked();
-// The 1-day admin delay is the guaranteed renounce review window and can never be changed.
 error DefaultAdminDelayImmutable();
 
-error PayoutOperatorSendCapZero();
-error PayoutOperatorIntervalZero();
 error NotPayoutOperator();
 error PayoutOperatorNotFound();
 error PayoutOperatorAlreadyRegistered();
@@ -69,6 +61,12 @@ enum RiskControlLevel {
     Zero,
     Standard,
     High
+}
+
+struct AutoYieldRoute {
+    address asset;
+    address protocol;
+    bool isSupplying;
 }
 
 /**
@@ -142,8 +140,7 @@ interface IBittyV1Vault {
     function getAutoYieldTrigger() external view returns (address);
 
     /**
-     * @notice Registered payout operators. Each may propose payments (pending owner approval) subject to its
-     *         own limit from {setPayoutOperator} / {updatePayoutOperator}.
+     * @notice Registered payout operators. Each may propose payments pending owner approval.
      */
     function getPayoutOperators() external view returns (address[] memory);
 
@@ -162,8 +159,7 @@ interface IBittyV1Vault {
      *         `changeTimelock` is the delay a loosening of any control must wait. A queued loosening is
      *         reflected here only once its delay has elapsed. `maxSendInterval` is the rolling window
      *         (seconds) over which `maxSendValue` caps the owner's CUMULATIVE one-off sends (0 = per-
-     *         transaction cap only). Payout operator send quotas are configured via {setPayoutOperator} /
-     *         {updatePayoutOperator}, not here.
+     *         transaction cap only).
      */
     function getRiskConfig()
         external
@@ -223,11 +219,6 @@ interface IBittyV1Vault {
      * configured payee). Trigger-gated like {payScheduled}.
      */
     function payScheduledFromLending(uint256 id, address lendingProtocol) external;
-
-    /**
-     * @notice Permissionless cleanup of expired limit orders (does not affect TWAP orders).
-     */
-    function cleanExpiredLimitOrders(address intentProtocol, bytes32[] calldata orderDigests) external;
 
     /**
      * @notice Wrap any native ETH the vault holds into WETH. receive() auto-wraps incoming ETH, but ETH

@@ -6,8 +6,9 @@ import {IBittyV1AssetManager, NotAssetManager} from "./interfaces/IBittyV1AssetM
 import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
-import {AssetManagerTradeLogic} from "./logic/AssetManagerTradeLogic.sol";
 import {AssetManagerStorage} from "./logic/Storages.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
 /**
  * @title BittyV1VaultDeFiFacet
@@ -20,12 +21,11 @@ import {AssetManagerStorage} from "./logic/Storages.sol";
  */
 contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
     using AssetManagerLogic for AssetManagerStorage;
-    using AssetManagerTradeLogic for AssetManagerStorage;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     /**
      * @dev Passes only for the vault's single asset manager. The owner has no implicit trading access —
-     *      to trade, the owner must set itself (or an AI key) as the asset manager via {setAssetManager} /
-     *      {setFullAssetManager}.
+     *      to trade, the owner must set itself (or an AI key) as the asset manager via {setAssetManager}.
      */
     modifier onlyAssetManager() {
         _checkAssetManager();
@@ -65,70 +65,26 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         return _assetManager.getLiquidity(ammProtocol, data);
     }
 
-    // ============ Intent ============
+    // ============ Intent (gasless off-chain signing) ============
 
-    function limitSell(
-        address intentProtocol,
-        address from,
-        address to,
-        uint256 sellAmount,
-        uint256 buyAmountMin,
-        uint32 validTo
-    ) external override onlyAssetManager returns (bytes32 orderId) {
-        return _assetManager.limitSell(_vault, intentProtocol, from, to, sellAmount, buyAmountMin, validTo);
+    /**
+     * @notice Pre-approve the intent protocol's settlement relayer for `token` (max), so gasless
+     *         off-chain-signed orders can be pulled at settlement. One amortized approval per sell token.
+     *         Placement is entirely off-chain (sign + post to the orderbook); the vault only custodies
+     *         tokens, validates via {isValidSignature}, and grants this allowance.
+     */
+    function approveIntentRelayer(address intentProtocol, address token) external override onlyAssetManager {
+        _assetManager.approveIntentRelayer(intentProtocol, token);
     }
 
-    function limitBuy(
-        address intentProtocol,
-        address from,
-        address to,
-        uint256 buyAmount,
-        uint256 sellAmountMax,
-        uint32 validTo
-    ) external override onlyAssetManager returns (bytes32 orderId) {
-        return _assetManager.limitBuy(_vault, intentProtocol, from, to, buyAmount, sellAmountMax, validTo);
-    }
-
-    function cancelLimitOrder(address intentProtocol, bytes memory data) external override onlyAssetManager {
-        _assetManager.cancelLimitOrder(intentProtocol, data);
-    }
-
-    function cleanExpiredLimitOrders(address intentProtocol, bytes32[] calldata orderDigests) external {
-        _assetManager.cleanExpiredLimitOrders(intentProtocol, orderDigests);
-    }
-
-    function twapSell(
-        address intentProtocol,
-        address from,
-        address to,
-        uint256 totalSellAmount,
-        uint256 minPartLimit,
-        uint256 n,
-        uint256 partDuration,
-        uint256 span
-    ) external override onlyAssetManager returns (bytes32 twapId) {
-        return _assetManager.twapSell(
-            _vault, intentProtocol, from, to, totalSellAmount, minPartLimit, n, partDuration, span
-        );
-    }
-
-    function cancelTwapOrder(address intentProtocol, bytes32 twapId) external override onlyAssetManager {
-        _assetManager.cancelTwapOrder(intentProtocol, twapId);
-    }
-
-    function twapBuy(
-        address intentProtocol,
-        address from,
-        address to,
-        uint256 totalBuyAmount,
-        uint256 sellAmountPerPart,
-        uint256 n,
-        uint256 partDuration,
-        uint256 span
-    ) external override onlyAssetManager returns (bytes32 twapId) {
-        return _assetManager.twapBuy(
-            _vault, intentProtocol, from, to, totalBuyAmount, sellAmountPerPart, n, partDuration, span
-        );
+    /**
+     * @notice Cancel one or more gasless off-chain orders on-chain by invalidating them on the intent
+     *         protocol's settlement contract. CoW's API can't soft-cancel a vault (eip1271) order, so
+     *         cancellation is this owner-only on-chain invalidation; afterwards no solver can settle them.
+     *         Batched so a TWAP's open parts are cancelled in one tx.
+     */
+    function cancelIntentOrders(address intentProtocol, bytes[] calldata orderUids) external override onlyAssetManager {
+        _assetManager.cancelIntentOrders(intentProtocol, orderUids);
     }
 
     function getIntentProtocols() external view returns (address[] memory) {
@@ -226,5 +182,43 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
             } catch {}
         }
         return 0xffffffff;
+    }
+
+    // ============ Gasless off-chain order authorization ============
+
+    /**
+     * @notice Authorize a gasless, off-chain-signed intent order against live vault state. Called
+     *         (view/staticcall) by an intent protocol clone from its isValidSignature after it has
+     *         verified the order's shape and recovered `signer`. Implements the callback declared by
+     *         protocol-contracts' IBittyVaultOffchainAuth.
+     * @dev The asset manager has full trading access, so authorization is just: the recovered signer is
+     *      the manager, the buy leg is allow-listed, and the sell leg is backed by real balance staying
+     *      at/above its minimal-balance floor. Because this is a pure view there is no reservation — an
+     *      over-signed order simply fails the balance check here once its backing is gone, so nothing
+     *      leaks and nothing needs cleanup.
+     */
+    function isOffchainOrderAuthorized(address signer, address sellToken, address buyToken, uint256 sellAmount)
+        external
+        view
+        returns (bool)
+    {
+        if (signer == address(0) || signer != _assetManager.assetManager) return false;
+        // Honour an owner "pause trading" window (disableRebalanceUntilTimestamp).
+        uint256 disabledUntil = _assetManager.rebalanceDisabledUntilTimestamp;
+        if (disabledUntil > 0 && block.timestamp < disabledUntil) return false;
+        if (!_vault.assets.contains(buyToken) && !_vault.stableCoins.contains(buyToken)) return false;
+        uint256 bal = IERC20(sellToken).balanceOf(address(this));
+        if (bal < sellAmount) return false;
+        if (bal - sellAmount < _assetManager.minimalBalances[sellToken]) return false;
+        return true;
+    }
+
+    /**
+     * @notice Authorize an off-chain order CANCELLATION: just that `signer` is the asset manager.
+     *         Cancelling moves no funds and is allowed even while trading is paused. Implements
+     *         protocol-contracts' IBittyVaultOffchainAuth.isOffchainManager.
+     */
+    function isOffchainManager(address signer) external view returns (bool) {
+        return signer != address(0) && signer == _assetManager.assetManager;
     }
 }

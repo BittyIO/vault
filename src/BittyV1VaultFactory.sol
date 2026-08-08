@@ -6,7 +6,7 @@ import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {AddressZero, RiskControlLevel} from "./interfaces/IBittyV1Vault.sol";
+import {AddressZero, RiskControlLevel, AutoYieldRoute} from "./interfaces/IBittyV1Vault.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {BittyV1Vault} from "./BittyV1Vault.sol";
 import {
@@ -58,34 +58,24 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
      * @inheritdoc IBittyV1VaultFactory
      */
     function activateVault(
-        RiskControlLevel riskLevel,
-        address[] memory assetAddresses,
-        address[] memory lendingProtocols,
-        address[] memory stakingProtocols,
-        address[] memory ammProtocols,
-        address[] memory intentProtocols
-    ) external override {
-        _checkGuard(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
-        _activate(riskLevel, assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
-    }
-
-    /**
-     * @inheritdoc IBittyV1VaultFactory
-     */
-    function activateVaultWithAssets(
-        RiskControlLevel riskLevel,
-        address[] memory assetAddresses,
+        AutoYieldRoute[] memory autoYieldRoutes,
+        address autoYieldTrigger,
         AssetInput[] memory deposits,
+        address[] memory assetAddresses,
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
         address[] memory ammProtocols,
-        address[] memory intentProtocols
+        address[] memory intentProtocols,
+        RiskControlLevel riskLevel
     ) external payable override {
-        _checkGuard(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        _checkGuard(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols, autoYieldRoutes);
 
-        address vault =
-            _activate(riskLevel, assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols);
+        bytes32 salt = keccak256(abi.encodePacked(msg.sender));
+        address vault = Clones.predictDeterministicAddress(vaultImplementation, salt, address(this));
+        if (vault.code.length > 0) revert VaultAlreadyActivated();
 
+        // Deposit BEFORE deploy so initialize can wrap + route the funds atomically. ERC-20 transfers and
+        // ETH sends to the code-less predicted address are fine; CREATE2 then deploys over the funded address.
         for (uint256 i = 0; i < deposits.length; i++) {
             AssetInput memory d = deposits[i];
             if (d.usePermit) {
@@ -94,27 +84,12 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
             }
             IERC20(d.asset).safeTransferFrom(msg.sender, vault, d.amount);
         }
-
         if (msg.value > 0) {
             (bool ok,) = payable(vault).call{value: msg.value}("");
             if (!ok) revert EthTransferFailed();
         }
-    }
 
-    function _activate(
-        RiskControlLevel riskLevel,
-        address[] memory assetAddresses,
-        address[] memory lendingProtocols,
-        address[] memory stakingProtocols,
-        address[] memory ammProtocols,
-        address[] memory intentProtocols
-    ) internal returns (address vault) {
-        bytes32 salt = keccak256(abi.encodePacked(msg.sender));
-        if (Clones.predictDeterministicAddress(vaultImplementation, salt, address(this)).code.length > 0) {
-            revert VaultAlreadyActivated();
-        }
-
-        vault = Clones.cloneDeterministic(vaultImplementation, salt);
+        Clones.cloneDeterministic(vaultImplementation, salt);
         BittyV1Vault(payable(vault))
             .initialize(
                 msg.sender,
@@ -126,9 +101,10 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
                 ammProtocols,
                 intentProtocols,
                 defiFacetAddress,
-                riskLevel
+                riskLevel,
+                autoYieldRoutes,
+                autoYieldTrigger
             );
-
         emit VaultActivated(msg.sender);
     }
 
@@ -142,7 +118,8 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
         address[] memory lendingProtocols,
         address[] memory stakingProtocols,
         address[] memory ammProtocols,
-        address[] memory intentProtocols
+        address[] memory intentProtocols,
+        AutoYieldRoute[] memory autoYieldRoutes
     ) internal view {
         IBittyV1Guard guard = IBittyV1Guard(guardAddress);
         for (uint256 i = 0; i < assetAddresses.length; i++) {
@@ -162,6 +139,18 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
         }
         for (uint256 i = 0; i < intentProtocols.length; i++) {
             if (!guard.isIntentProtocolRegistered(intentProtocols[i])) revert NotRegistered();
+        }
+
+        for (uint256 i = 0; i < autoYieldRoutes.length; i++) {
+            AutoYieldRoute memory r = autoYieldRoutes[i];
+            if (r.protocol == address(0)) revert AddressZero();
+            if (!guard.isAssetRegistered(r.asset) && !guard.isStableCoinRegistered(r.asset)) {
+                revert NotRegistered();
+            }
+            bool ok = r.isSupplying
+                ? guard.isLendingProtocolRegistered(r.protocol)
+                : guard.isStakingProtocolRegistered(r.protocol);
+            if (!ok) revert NotRegistered();
         }
     }
 }

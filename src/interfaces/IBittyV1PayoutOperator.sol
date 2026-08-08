@@ -7,7 +7,7 @@ import {IBittyV1Vault} from "./IBittyV1Vault.sol";
  * @title IBittyV1PayoutOperator
  * @notice The payment-creation surface: scheduled payments, whitelisted recipients and one-off sends.
  *         Callable by the owner (DEFAULT_ADMIN_ROLE) — takes effect immediately — or the vault's
- *         payout operator (set via {IBittyV1Owner.setPayoutOperator}) — stored pending until the owner approves it
+ *         payout operator (set via {IBittyV1Owner.addPayoutOperator}) — stored pending until the owner approves it
  *         (the approve* / approveSend functions on {IBittyV1Owner}). Implemented by {BittyV1Vault}.
  */
 interface IBittyV1PayoutOperator {

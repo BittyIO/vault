@@ -6,26 +6,25 @@ import {Create2Deployer} from "./Create2Deployer.sol";
 import {BittyV1Vault as BittyV1VaultImplementation} from "../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../src/BittyV1VaultDeFiFacet.sol";
 
-/// @notice Step 2 — deploy the BittyV1Vault implementation via CREATE2 (salt = 0).
-///
-/// BittyV1Vault + the DeFi facet link against the logic libraries. The facet uses the trading
-/// library too, so pass all three CREATE2 addresses (from step 1 / `deployments/<chain>.toml`)
-/// when compiling this script:
-///
-///   --libraries src/logic/VaultLogic.sol:VaultLogic:{VAULT_LOGIC}}
-///   --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{MANAGER_LOGIC}}
-///   --libraries src/logic/AssetManagerTradeLogic.sol:AssetManagerTradeLogic:{MANAGER_TRADE_LOGIC}}
-///
-/// Usage:
-///   source .env
-///   forge script script/BittyV1Vault.s.sol:BittyV1Vault \
-///     --rpc-url sepolia \
-///     --broadcast \
-///     --private-key $SEPOLIA_PRIVATE_KEY \
-///     --libraries src/logic/VaultLogic.sol:VaultLogic:{VAULT_LOGIC} \
-///     --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{MANAGER_LOGIC} \
-///     --libraries src/logic/AssetManagerTradeLogic.sol:AssetManagerTradeLogic:{MANAGER_TRADE_LOGIC} \
-///     -vvvv
+/**
+ * @notice Step 2 — deploy the BittyV1Vault implementation via CREATE2 (salt = 0).
+ *
+ * BittyV1Vault + the DeFi facet link against the logic libraries. Pass both CREATE2 addresses
+ * (from step 1 / `deployments/<chain>.toml`) when compiling this script:
+ *
+ *   --libraries src/logic/VaultLogic.sol:VaultLogic:{VAULT_LOGIC}}
+ *   --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{MANAGER_LOGIC}}
+ *
+ * Usage:
+ *   source .env
+ *   forge script script/BittyV1Vault.s.sol:BittyV1Vault \
+ *     --rpc-url sepolia \
+ *     --broadcast \
+ *     --private-key $SEPOLIA_PRIVATE_KEY \
+ *     --libraries src/logic/VaultLogic.sol:VaultLogic:{VAULT_LOGIC} \
+ *     --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{MANAGER_LOGIC} \
+ *     -vvvv
+ */
 contract BittyV1Vault is DeployScript, Create2Deployer {
     function deploy() public override {
         address vaultImpl = _deployCreate2("BittyV1Vault", type(BittyV1VaultImplementation).creationCode);

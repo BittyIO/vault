@@ -6,18 +6,20 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {IVaultFull} from "../helpers/IVaultFull.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
-import {VaultAlreadyActivated} from "../../src/interfaces/IBittyV1VaultFactory.sol";
+import {IBittyV1VaultFactory, VaultAlreadyActivated} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IBittyV1Vault, RiskControlLevel} from "../../src/interfaces/IBittyV1Vault.sol";
+import {IBittyV1Vault, RiskControlLevel, AutoYieldRoute} from "../../src/interfaces/IBittyV1Vault.sol";
 import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Protocol.sol";
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
 
-/// @notice Mainnet fork integration tests for BittyV1Vault with real Aave and Lido providers.
+/**
+ * @notice Mainnet fork integration tests for BittyV1Vault with real Aave and Lido providers.
+ */
 contract TestVaultFork is Test {
     using SafeERC20 for IERC20;
     using Path for bytes;
@@ -39,6 +41,8 @@ contract TestVaultFork is Test {
     address[] public stakingProtocols;
     address[] public ammProtocols;
     address[] public intentProtocols;
+    IBittyV1VaultFactory.AssetInput[] internal noDeposits;
+    AutoYieldRoute[] internal noYield;
 
     function setUp() public {
         vm.createSelectFork("mainnet");
@@ -86,10 +90,18 @@ contract TestVaultFork is Test {
         assetManager = address(this);
         vm.startPrank(tx.origin);
         factory.activateVault(
-            RiskControlLevel.Zero, vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+            noYield,
+            address(0),
+            noDeposits,
+            vaultAssets,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols,
+            RiskControlLevel.Zero
         );
         address vaultAddr = factory.vaultAddress(tx.origin);
-        BittyV1Vault(payable(vaultAddr)).setAssetManager(assetManager, 0, 0, type(uint64).max, 0);
+        BittyV1Vault(payable(vaultAddr)).setAssetManager(assetManager);
         vm.stopPrank();
         vault = BittyV1Vault(payable(vaultAddr));
     }
@@ -212,8 +224,10 @@ contract TestVaultFork is Test {
         assertEq(IVaultFull(payable(address(vault))).getSuppliedBalance(address(aaveProtocol), mainnet.WETH), 0);
     }
 
-    /// @dev A plain ETH send (empty calldata, matching a wallet "Send ETH") is auto-wrapped to WETH
-    ///      by BittyV1Vault.receive(), leaving the vault holding WETH and no native ETH.
+    /**
+     * @dev A plain ETH send (empty calldata, matching a wallet "Send ETH") is auto-wrapped to WETH
+     *      by BittyV1Vault.receive(), leaving the vault holding WETH and no native ETH.
+     */
     function test_Receive_autoWrapsPlainEthTransferToWETH() public {
         uint256 amount = 0.1 ether;
         address depositor = makeAddr("ethDepositor");
@@ -244,7 +258,15 @@ contract TestVaultFork is Test {
         vm.expectRevert(VaultAlreadyActivated.selector);
         vm.prank(tx.origin);
         factory.activateVault(
-            RiskControlLevel.Zero, vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+            noYield,
+            address(0),
+            noDeposits,
+            vaultAssets,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols,
+            RiskControlLevel.Zero
         );
     }
 
@@ -315,10 +337,18 @@ contract TestVaultFork is Test {
         address customAssetManager = makeAddr("customAssetManager");
         vm.startPrank(customOwner);
         factory.activateVault(
-            RiskControlLevel.Zero, vaultAssets, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols
+            noYield,
+            address(0),
+            noDeposits,
+            vaultAssets,
+            lendingProtocols,
+            stakingProtocols,
+            ammProtocols,
+            intentProtocols,
+            RiskControlLevel.Zero
         );
         address vaultAddr = factory.vaultAddress(customOwner);
-        BittyV1Vault(payable(vaultAddr)).setAssetManager(customAssetManager, 0, 0, type(uint64).max, 0);
+        BittyV1Vault(payable(vaultAddr)).setAssetManager(customAssetManager);
         vm.stopPrank();
 
         BittyV1Vault customVault = BittyV1Vault(payable(vaultAddr));

@@ -67,13 +67,10 @@ Deployment scripts read chain-specific addresses from `deployments/<chain>.toml`
 
 ### Step 1 — Deploy logic libraries
 
-Deploy the three logic libraries via the canonical CREATE2 deployer (`0x4e59b44847b379578588920cA78FbF26c0B4956C`, salt `0x0`). All live in `script/LogicLibraries.s.sol` and must be broadcast separately:
+Deploy the two logic libraries via the canonical CREATE2 deployer (`0x4e59b44847b379578588920cA78FbF26c0B4956C`, salt `0x0`). Both live in `script/LogicLibraries.s.sol` and must be broadcast separately:
 
 - **`VaultLogic`** — custody + payments (scheduled payments, whitelisted recipients, sends). Standalone.
-- **`AssetManagerLogic`** — yield (lending / staking / auto-yield), asset-manager config, and protocol registration. Standalone.
-- **`AssetManagerTradeLogic`** — the asset manager's trading surface (market swaps, AMM liquidity, intent limit/TWAP orders). Links against `VaultLogic`.
-
-`AssetManagerLogic` and `AssetManagerTradeLogic` were split so each deployed library stays under the EIP-170 24,576-byte limit; they share the internal-only `AssetManagerShared` helpers, which inline into each and need no separate deployment.
+- **`AssetManagerLogic`** — the asset manager's full surface: yield (lending / staking / auto-yield), trading (AMM liquidity, intent limit/TWAP orders), config, and protocol registration. Links against `VaultLogic`.
 
 **1a — Deploy VaultLogic** (no `--libraries` flag):
 
@@ -86,20 +83,10 @@ forge script script/LogicLibraries.s.sol:VaultLogic \
   -vvvv
 ```
 
-**1b — Deploy AssetManagerLogic** (standalone, no `--libraries` flag):
+**1b — Deploy AssetManagerLogic** (links against VaultLogic from step 1a):
 
 ```shell
 forge script script/LogicLibraries.s.sol:AssetManagerLogic \
-  --rpc-url sepolia \
-  --broadcast \
-  --private-key $SEPOLIA_PRIVATE_KEY \
-  -vvvv
-```
-
-**1c — Deploy AssetManagerTradeLogic** (links against VaultLogic from step 1a):
-
-```shell
-forge script script/LogicLibraries.s.sol:AssetManagerTradeLogic \
   --rpc-url sepolia \
   --broadcast \
   --private-key $SEPOLIA_PRIVATE_KEY \
@@ -107,11 +94,11 @@ forge script script/LogicLibraries.s.sol:AssetManagerTradeLogic \
   -vvvv
 ```
 
-Writes `VAULT_LOGIC`, `ASSET_MANAGER_LOGIC`, and `ASSET_MANAGER_TRADE_LOGIC` to `deployments/<chain>.toml`.
+Writes `VAULT_LOGIC` and `ASSET_MANAGER_LOGIC` to `deployments/<chain>.toml`.
 
 ### Step 2 — Deploy Bitty Vault implementation
 
-Deploy `BittyV1Vault` and its `BittyV1VaultDeFiFacet` via CREATE2. The facet links against all three libraries, so pass every address from step 1:
+Deploy `BittyV1Vault` and its `BittyV1VaultDeFiFacet` via CREATE2. Both link against the two libraries from step 1:
 
 ```shell
 forge script script/BittyV1Vault.s.sol:BittyV1Vault \
@@ -120,11 +107,10 @@ forge script script/BittyV1Vault.s.sol:BittyV1Vault \
   --private-key $SEPOLIA_PRIVATE_KEY \
   --libraries src/logic/VaultLogic.sol:VaultLogic:{vaultLogicAddress} \
   --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{assetManagerLogicAddress} \
-  --libraries src/logic/AssetManagerTradeLogic.sol:AssetManagerTradeLogic:{assetManagerTradeLogicAddress} \
   -vvvv
 ```
 
-Writes `VAULT_IMPLEMENTATION` and `DEFI_FACET` to `deployments/<chain>.toml`. (`BittyV1Vault` itself only links `VaultLogic` + `AssetManagerLogic`; the facet adds `AssetManagerTradeLogic`.)
+Writes `VAULT_IMPLEMENTATION` and `DEFI_FACET` to `deployments/<chain>.toml`.
 
 ### Step 3 — Deploy Bitty Vault Factory
 
@@ -146,7 +132,7 @@ Each script is idempotent — contracts already present at their expected addres
 
 ### Verify logic libraries
 
-`VaultLogic` and `AssetManagerLogic` are standalone; `AssetManagerTradeLogic` links against `VaultLogic`, so pass its deployed address via `--libraries`:
+`VaultLogic` is standalone; `AssetManagerLogic` links against `VaultLogic`, so pass its deployed address via `--libraries`:
 
 ```shell
 forge verify-contract \
@@ -159,19 +145,13 @@ forge verify-contract \
   --chain sepolia \
   {assetManagerLogicAddress} \
   src/logic/AssetManagerLogic.sol:AssetManagerLogic \
-  --etherscan-api-key $ETHERSCAN_API_KEY
-
-forge verify-contract \
-  --chain sepolia \
-  {assetManagerTradeLogicAddress} \
-  src/logic/AssetManagerTradeLogic.sol:AssetManagerTradeLogic \
   --libraries src/logic/VaultLogic.sol:VaultLogic:{vaultLogicAddress} \
   --etherscan-api-key $ETHERSCAN_API_KEY
 ```
 
 ### Verify Bitty Vault implementation and DeFi facet
 
-`BittyV1Vault` links against `VaultLogic` + `AssetManagerLogic`; the `BittyV1VaultDeFiFacet` additionally links `AssetManagerTradeLogic`. Pass the deployed addresses via `--libraries`:
+`BittyV1Vault` and `BittyV1VaultDeFiFacet` both link against `VaultLogic` + `AssetManagerLogic`. Pass the deployed addresses via `--libraries`:
 
 ```shell
 forge verify-contract \
@@ -188,7 +168,6 @@ forge verify-contract \
   src/BittyV1VaultDeFiFacet.sol:BittyV1VaultDeFiFacet \
   --libraries src/logic/VaultLogic.sol:VaultLogic:{vaultLogicAddress} \
   --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{assetManagerLogicAddress} \
-  --libraries src/logic/AssetManagerTradeLogic.sol:AssetManagerTradeLogic:{assetManagerTradeLogicAddress} \
   --etherscan-api-key $ETHERSCAN_API_KEY
 ```
 

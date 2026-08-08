@@ -10,21 +10,23 @@ interface ImmutableCreate2Factory {
     function findCreate2Address(bytes32 salt, bytes calldata initCode) external view returns (address deploymentAddress);
 }
 
-/// @notice Step 3 — deploy and initialize BittyV1VaultFactory via ImmutableCreate2Factory.
-///
-/// Requires `VAULT_IMPLEMENTATION`, `BITTY_GUARD`, and `WETH` in `deployments/<chain>.toml`.
-///
-/// Usage:
-///   source .env
-///   forge script script/BittyV1VaultFactory.s.sol:BittyV1VaultFactory \
-///     --rpc-url sepolia \
-///     --broadcast \
-///     --private-key $SEPOLIA_PRIVATE_KEY \
-///     -vvvv
+/**
+ * @notice Step 3 — deploy and initialize BittyV1VaultFactory via ImmutableCreate2Factory.
+ *
+ * Requires `VAULT_IMPLEMENTATION`, `BITTY_GUARD`, and `WETH` in `deployments/<chain>.toml`.
+ *
+ * Usage:
+ *   source .env
+ *   forge script script/BittyV1VaultFactory.s.sol:BittyV1VaultFactory \
+ *     --rpc-url sepolia \
+ *     --broadcast \
+ *     --private-key $SEPOLIA_PRIVATE_KEY \
+ *     -vvvv
+ */
 contract BittyV1VaultFactory is DeployScript {
     ImmutableCreate2Factory constant IMMUTABLE_CREATE2 =
         ImmutableCreate2Factory(0x0000000000FFe8B47B3e2130213B802212439497);
-    bytes32 constant FACTORY_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab9823f34413485aa1d0003f72aeff;
+    bytes32 constant FACTORY_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab982325232bea8e3340000c62f8bd;
 
     function deploy() public override {
         address vaultImpl = getAddress("VAULT_IMPLEMENTATION");

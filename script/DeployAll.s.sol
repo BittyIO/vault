@@ -12,23 +12,25 @@ interface ImmutableCreate2Factory {
     function findCreate2Address(bytes32 salt, bytes calldata initCode) external view returns (address);
 }
 
-/// @notice One-shot deploy of the whole vault stack. forge deploys and links the logic libraries
-///         (VaultLogic, AssetManagerLogic, AssetManagerTradeLogic) automatically as part of the broadcast,
-///         so this script only deploys the implementation, the DeFi facet, and the factory — then wires the
-///         factory to them. `--libraries` is NOT needed to deploy; pass it only when verifying on Etherscan.
-///
-///   source .env
-///   forge script script/DeployAll.s.sol:DeployAll \
-///     --rpc-url sepolia --broadcast --private-key $SEPOLIA_PRIVATE_KEY -vvvv
-///
-/// Prerequisites in deployments/<chain>.toml: BITTY_GUARD and WETH. The broadcasting key MUST be the
-/// factory's baked-in DEPLOYER (0x12EE2de7BF086388B1D560eb95e7191Edfab9823) — factory.initialize gates on
-/// tx.origin. Re-running is safe: the factory is only deployed/initialized if it isn't already.
+/**
+ * @notice One-shot deploy of the whole vault stack. forge deploys and links the logic libraries
+ *         (VaultLogic, AssetManagerLogic) automatically as part of the broadcast,
+ *         so this script only deploys the implementation, the DeFi facet, and the factory — then wires the
+ *         factory to them. `--libraries` is NOT needed to deploy; pass it only when verifying on Etherscan.
+ *
+ *   source .env
+ *   forge script script/DeployAll.s.sol:DeployAll \
+ *     --rpc-url sepolia --broadcast --private-key $SEPOLIA_PRIVATE_KEY -vvvv
+ *
+ * Prerequisites in deployments/<chain>.toml: BITTY_GUARD and WETH. The broadcasting key MUST be the
+ * factory's baked-in DEPLOYER (0x12EE2de7BF086388B1D560eb95e7191Edfab9823) — factory.initialize gates on
+ * tx.origin. Re-running is safe: the factory is only deployed/initialized if it isn't already.
+ */
 contract DeployAll is DeployScript {
     // Keyless CREATE2 factory (same address on every chain) — gives the factory a deterministic address.
     ImmutableCreate2Factory constant IMMUTABLE_CREATE2 =
         ImmutableCreate2Factory(0x0000000000FFe8B47B3e2130213B802212439497);
-    bytes32 constant FACTORY_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab9823f34413485aa1d0003f72aeff;
+    bytes32 constant FACTORY_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab982325232bea8e3340000c62f8bd;
 
     function deploy() public override {
         // Implementation + DeFi facet. The logic libraries they depend on are auto-deployed + linked by

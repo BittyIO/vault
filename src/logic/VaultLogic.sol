@@ -21,7 +21,7 @@ import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/exten
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
-import {VaultStorage, PendingSend, RiskConfig, TimelockedValue, PayoutOperatorLimit} from "./Storages.sol";
+import {VaultStorage, PendingSend, RiskConfig, TimelockedValue} from "./Storages.sol";
 import {
     IBittyV1Vault,
     ScheduledPaymentNotFound,
@@ -50,22 +50,18 @@ import {
     PaymentExceedsRiskCap,
     PaymentExceedsPeriodLimit,
     PaymentNotStableCoin,
-    PayoutOperatorSendCapZero,
-    PayoutOperatorIntervalZero,
     PayoutOperatorNotFound,
     PayoutOperatorAlreadyRegistered,
     RiskControlLevel
 } from "../interfaces/IBittyV1Vault.sol";
 
 library VaultLogic {
-    // Upper bound (~10 years) a close fund cap 10 years lock)
+    // Upper to (~10 years) a close fund cap 10 years lock)
     uint64 constant MAX_SCHEDULED_PAYMENT_PROTECTION = 3650 days;
 
-    // Standard risk control level
     uint64 constant STANDARD_RISK_TIMELOCK = 3 days;
     uint64 constant STANDARD_RISK_CAP = 10000;
 
-    // High risk control level
     uint64 constant HIGH_RISK_TIMELOCK = 7 days;
     uint64 constant HIGH_RISK_CAP = 1000;
 
@@ -110,8 +106,8 @@ library VaultLogic {
 
     /**
      * @notice Hardcoded payment-risk defaults per level. `Zero` is all-zero (no controls, and a zero
-     * changeTimelock so any later change is instant); Standard and High seed the guardrails plus a
-     * loosening delay. Every value the owner may later change freely, but loosening waits changeTimelock.
+     *         changeTimelock so any later change is instant); Standard and High seed the guardrails plus a
+     *         loosening delay. Every value the owner may later change freely, but loosening waits changeTimelock.
      */
     function _defaultRisk(RiskControlLevel level) internal pure returns (RiskConfig memory c) {
         if (level == RiskControlLevel.Standard) {
@@ -135,7 +131,7 @@ library VaultLogic {
 
     /**
      * @notice Enforce a per-path payment risk cap. When `cap` is non-zero the payment must be a
-     * stablecoin whose amount is within `cap` whole tokens; `cap == 0` disables the check.
+     *         stablecoin whose amount is within `cap` whole tokens; `cap == 0` disables the check.
      */
     function _checkPaymentRiskCap(VaultStorage storage vaultStorage, uint64 cap, address asset, uint256 amount)
         private
@@ -146,13 +142,11 @@ library VaultLogic {
         if (amount > uint256(cap) * (10 ** IERC20Metadata(asset).decimals())) revert PaymentExceedsRiskCap();
     }
 
-    // The currently in-force value of a timelocked control (a queued loosening applies once its delay elapses).
     function _effective(TimelockedValue storage tv) private view returns (uint64) {
         if (tv.pendingAt != 0 && block.timestamp >= tv.pendingAt) return tv.pending;
         return tv.value;
     }
 
-    // Promote an elapsed pending change into the live value so the next comparison uses the current baseline.
     function _settle(TimelockedValue storage tv) private {
         if (tv.pendingAt != 0 && block.timestamp >= tv.pendingAt) {
             tv.value = tv.pending;
@@ -161,8 +155,9 @@ library VaultLogic {
         }
     }
 
-    // Store `next`: a tightening (or equal) change is immediate; a loosening one only applies after
-    // `timelock` seconds. `loosen` is decided by the caller against the settled current value.
+    /**
+     * @dev Loosening waits `timelock`; tightening is immediate.
+     */
     function _apply(TimelockedValue storage tv, uint64 next, bool loosen, uint64 timelock) private {
         if (!loosen || timelock == 0) {
             tv.value = next;
@@ -174,14 +169,18 @@ library VaultLogic {
         }
     }
 
-    // For scheduled/whitelisted protection & changeTimelock: higher = safer, so lowering is a loosening.
+    /**
+     * @dev Higher = safer for protection/timelock fields, so lowering is a loosening.
+     */
     function _setHigherSafer(TimelockedValue storage tv, uint256 next, uint64 timelock) private {
         _settle(tv);
         uint64 n = uint64(next);
         _apply(tv, n, n < tv.value, timelock);
     }
 
-    // For caps: 0 = unrestricted (least safe), else lower = safer. Raising, or clearing to 0, is a loosening.
+    /**
+     * @dev For caps, 0 = unrestricted; raising or clearing to 0 is a loosening.
+     */
     function _setCap(TimelockedValue storage tv, uint256 next, uint64 timelock) private {
         _settle(tv);
         uint64 n = uint64(next);
@@ -190,11 +189,8 @@ library VaultLogic {
     }
 
     /**
-     * @dev Validates a batch (array lengths, non-zero recipients/amounts, stablecoin-only when a cap
-     * or payout operator period quota is active, and the aggregate risk cap) in a single pass. When `execute` is
-     * true each transfer is performed only after all checks pass. `payoutOperatorAddr` must be the vault's
-     * payout operator for period-quota enforcement; the owner direct-send path passes address(0). When
-     * `updatePeriodAccounting` is true the payout operator's period tally is incremented (approval execution only).
+     * @dev Validates a batch in a single pass. Owner direct sends pass `enforceOwnerSendWindow` so the rolling
+     *      maxSendValue / maxSendInterval quota applies; payout-operator proposals and approvals do not.
      */
     function _processSendBatch(
         VaultStorage storage vaultStorage,
@@ -202,16 +198,13 @@ library VaultLogic {
         address[] memory assets,
         uint256[] memory amounts,
         bool execute,
-        address payoutOperatorAddr,
-        bool updatePeriodAccounting
+        bool enforceOwnerSendWindow
     ) private {
         uint256 length = recipients.length;
         if (length == 0) revert EmptyArray();
         if (assets.length != length || amounts.length != length) revert ArrayLengthMismatch();
 
-        _validateSendBatch(
-            vaultStorage, recipients, assets, amounts, execute, payoutOperatorAddr, updatePeriodAccounting
-        );
+        _validateSendBatch(vaultStorage, recipients, assets, amounts, execute, enforceOwnerSendWindow);
 
         if (!execute) return;
 
@@ -221,8 +214,7 @@ library VaultLogic {
     }
 
     /**
-     * @dev The validation pass of {_processSendBatch}, kept as its own frame so its locals do not share
-     * the stack with the payout loop (keeps the minimal-optimizer coverage build within the stack limit).
+     * @dev Split frame so locals don't share the stack with the payout loop (coverage build stack limit).
      */
     function _validateSendBatch(
         VaultStorage storage vaultStorage,
@@ -230,15 +222,10 @@ library VaultLogic {
         address[] memory assets,
         uint256[] memory amounts,
         bool execute,
-        address payoutOperatorAddr,
-        bool updatePeriodAccounting
+        bool enforceOwnerSendWindow
     ) private {
         uint64 cap = _effective(vaultStorage.riskConfig.maxSendValue);
-        PayoutOperatorLimit storage opLimit = vaultStorage.payoutOperatorLimits[payoutOperatorAddr];
-        bool periodLimitActive = payoutOperatorAddr != address(0)
-            && vaultStorage.payoutOperators.contains(payoutOperatorAddr) && opLimit.interval != 0
-            && opLimit.maxStableCoinPerPeriod != 0;
-        bool requireStable = cap != 0 || periodLimitActive;
+        bool requireStable = cap != 0;
 
         uint256 totalStableValue;
         for (uint256 i = 0; i < recipients.length; i++) {
@@ -252,18 +239,14 @@ library VaultLogic {
             }
         }
 
-        if (periodLimitActive) {
-            _checkPayoutOperatorSendPeriod(opLimit, totalStableValue, updatePeriodAccounting);
-        }
-
-        if (execute && payoutOperatorAddr == address(0)) {
+        if (execute && enforceOwnerSendWindow) {
             _checkOwnerSendWindow(vaultStorage, totalStableValue, cap);
         }
     }
 
     /**
      * @notice Enforce the owner's rolling one-off send quota (maxSendValue per maxSendInterval).
-     *         Resets the window when it elapses. Mirrors {_checkPayoutOperatorSendPeriod}.
+     *         Resets the window when it elapses.
      */
     function _checkOwnerSendWindow(VaultStorage storage vaultStorage, uint256 batchStableValue, uint64 cap) private {
         if (cap == 0) return;
@@ -286,44 +269,18 @@ library VaultLogic {
         vaultStorage.ownerSentInPeriod = sent + batchStableValue;
     }
 
-    /**
-     * @notice Enforce the payout operator's rolling one-off send quota. Resets the window when elapsed.
-     */
-    function _checkPayoutOperatorSendPeriod(
-        PayoutOperatorLimit storage limit,
-        uint256 batchStableValue,
-        bool updateAccounting
-    ) private {
-        uint128 periodStart = limit.periodStartTimestamp;
-        uint256 sent = limit.sentInPeriod;
-
-        if (periodStart == 0 || block.timestamp >= periodStart + limit.interval) {
-            periodStart = uint128(block.timestamp);
-            sent = 0;
-        }
-
-        if (sent + batchStableValue > uint256(limit.maxStableCoinPerPeriod) * 1e18) {
-            revert PaymentExceedsPeriodLimit();
-        }
-
-        if (updateAccounting) {
-            limit.periodStartTimestamp = periodStart;
-            limit.sentInPeriod = sent + batchStableValue;
-        }
-    }
-
     function send(
         VaultStorage storage vaultStorage,
         address[] memory recipients,
         address[] memory assets,
         uint256[] memory amounts
     ) external onlyInitialized(vaultStorage) {
-        _processSendBatch(vaultStorage, recipients, assets, amounts, true, address(0), false);
+        _processSendBatch(vaultStorage, recipients, assets, amounts, true, true);
     }
 
     /**
-     * @notice Queue a payment-asset manager-proposed one-off send for owner approval. Access control
-     * (payment-asset manager) is enforced by the facade.
+     * @notice Queue a payout-operator-proposed one-off send for owner approval. Access control
+     *         (payout operator) is enforced by the facade.
      */
     function proposeSend(
         VaultStorage storage vaultStorage,
@@ -331,7 +288,7 @@ library VaultLogic {
         address[] memory assets,
         uint256[] memory amounts
     ) external onlyInitialized(vaultStorage) returns (uint256 id) {
-        _processSendBatch(vaultStorage, recipients, assets, amounts, false, msg.sender, false);
+        _processSendBatch(vaultStorage, recipients, assets, amounts, false, false);
         id = vaultStorage.nextPendingSendId++;
         PendingSend storage ps = vaultStorage.pendingSends[id];
         ps.proposer = msg.sender;
@@ -342,8 +299,7 @@ library VaultLogic {
     }
 
     /**
-     * @notice Owner: execute a queued one-off send. Access control (owner-only) is enforced by the
-     * facade.
+     * @notice Owner: execute a queued one-off send. Access control (owner-only) is enforced by the facade.
      */
     function approveSend(VaultStorage storage vaultStorage, uint256 id) external onlyInitialized(vaultStorage) {
         PendingSend memory ps = vaultStorage.pendingSends[id];
@@ -353,13 +309,13 @@ library VaultLogic {
         delete vaultStorage.pendingSends[id];
         // Re-check against the controls in force at approval time, so a tightening also binds an
         // already-queued batch.
-        _processSendBatch(vaultStorage, ps.recipients, ps.assets, ps.amounts, true, ps.proposer, true);
+        _processSendBatch(vaultStorage, ps.recipients, ps.assets, ps.amounts, true, false);
         emit IBittyV1Owner.SendApproved(id, ps.recipients, ps.assets, ps.amounts);
     }
 
     /**
-     * @notice Cancel a queued one-off send. The owner may cancel any; a payment asset manager may cancel
-     * only its own. Access control (owner-or-proposer) is enforced by the facade + the check below.
+     * @notice Cancel a queued one-off send. The owner may cancel any; a payout operator may cancel only its own.
+     *         Access control (owner-or-proposer) is enforced by the facade + the check below.
      */
     function cancelSend(VaultStorage storage vaultStorage, uint256 id, bool byOwner)
         external
@@ -425,7 +381,6 @@ library VaultLogic {
             // An owner edit vets the entry, so it approves any pending proposal.
             delete vaultStorage.scheduledPaymentPendingProposer[id];
         } else if (vaultStorage.scheduledPaymentPendingProposer[id] != msg.sender) {
-            // A payment asset manager may only edit its own still-pending proposal, never an approved entry.
             revert NotProposalOwner();
         }
         _checkScheduledPayment(scheduledPayment);
@@ -447,10 +402,9 @@ library VaultLogic {
     }
 
     /**
-     * @notice Owner approval of a payment-asset manager-proposed scheduled payment. Access control
-     * (owner-only) is enforced by the facade. The owner binds the approval to the exact content they
-     * reviewed via `expectedHash`; if the proposer edited the entry after review, the stored hash no
-     * longer matches and the call reverts, so an approval can never confirm swapped content.
+     * @notice Owner approval of a payout-operator-proposed scheduled payment. Access control (owner-only) is
+     *         enforced by the facade. The owner binds the approval to the exact content they reviewed via
+     *         `expectedHash`; if the proposer edited the entry after review, the call reverts.
      */
     function approveScheduledPayment(VaultStorage storage vaultStorage, uint256 id, bytes32 expectedHash)
         external
@@ -498,7 +452,6 @@ library VaultLogic {
         external
         onlyInitialized(vaultStorage)
     {
-        // A payment asset manager may only cancel its own still-pending proposal; the owner can remove any.
         if (!byOwner && vaultStorage.scheduledPaymentPendingProposer[id] != msg.sender) {
             revert NotProposalOwner();
         }
@@ -556,9 +509,9 @@ library VaultLogic {
     }
 
     /**
-     * @notice Set the rolling window over which {maxSendValue} caps the owner's cumulative one-off
-     * sends. Longer = safer (the same cap covers more time), so shortening/clearing it is a loosening
-     * and waits changeTimelock. 0 = per-transaction cap only (no rolling limit).
+     * @notice Set the rolling window over which {maxSendValue} caps the owner's cumulative one-off sends.
+     *         Longer = safer, so shortening/clearing it is a loosening and waits changeTimelock.
+     *         0 = per-transaction cap only (no rolling limit).
      */
     function setMaxSendInterval(VaultStorage storage vaultStorage, uint256 value)
         external
@@ -586,39 +539,14 @@ library VaultLogic {
         emit IBittyV1Owner.MaxWhitelistedValueSet(value);
     }
 
-    function setPayoutOperator(
-        VaultStorage storage vaultStorage,
-        address payoutOperator,
-        uint256 interval,
-        uint256 maxStableCoinPerPeriod
-    ) external onlyInitialized(vaultStorage) {
+    function addPayoutOperator(VaultStorage storage vaultStorage, address payoutOperator)
+        external
+        onlyInitialized(vaultStorage)
+    {
         if (payoutOperator == address(0)) revert AddressZero();
-        if (interval == 0) revert PayoutOperatorIntervalZero();
-        if (maxStableCoinPerPeriod == 0) revert PayoutOperatorSendCapZero();
         if (vaultStorage.payoutOperators.contains(payoutOperator)) revert PayoutOperatorAlreadyRegistered();
         vaultStorage.payoutOperators.add(payoutOperator);
-        PayoutOperatorLimit storage limit = vaultStorage.payoutOperatorLimits[payoutOperator];
-        limit.interval = uint64(interval);
-        limit.maxStableCoinPerPeriod = uint64(maxStableCoinPerPeriod);
-        limit.periodStartTimestamp = 0;
-        limit.sentInPeriod = 0;
-        emit IBittyV1Owner.PayoutOperatorSendLimitSet(payoutOperator, interval, maxStableCoinPerPeriod);
-    }
-
-    function updatePayoutOperator(
-        VaultStorage storage vaultStorage,
-        address payoutOperator,
-        uint256 interval,
-        uint256 maxStableCoinPerPeriod
-    ) external onlyInitialized(vaultStorage) {
-        if (payoutOperator == address(0)) revert AddressZero();
-        if (interval == 0) revert PayoutOperatorIntervalZero();
-        if (maxStableCoinPerPeriod == 0) revert PayoutOperatorSendCapZero();
-        if (!vaultStorage.payoutOperators.contains(payoutOperator)) revert PayoutOperatorNotFound();
-        PayoutOperatorLimit storage limit = vaultStorage.payoutOperatorLimits[payoutOperator];
-        limit.interval = uint64(interval);
-        limit.maxStableCoinPerPeriod = uint64(maxStableCoinPerPeriod);
-        emit IBittyV1Owner.PayoutOperatorSendLimitSet(payoutOperator, interval, maxStableCoinPerPeriod);
+        emit IBittyV1Owner.PayoutOperatorAdded(payoutOperator);
     }
 
     function removePayoutOperator(VaultStorage storage vaultStorage, address payoutOperator)
@@ -626,7 +554,6 @@ library VaultLogic {
         onlyInitialized(vaultStorage)
     {
         if (!vaultStorage.payoutOperators.remove(payoutOperator)) revert PayoutOperatorNotFound();
-        delete vaultStorage.payoutOperatorLimits[payoutOperator];
         emit IBittyV1Owner.PayoutOperatorRemoved(payoutOperator);
     }
 
@@ -639,9 +566,9 @@ library VaultLogic {
     }
 
     /**
-     * @notice Change the loosening delay itself. Lowering it is a loosening, so it waits the CURRENT
-     * timelock; raising it takes effect immediately. Prevents a compromised key from zeroing the delay
-     * and then loosening everything instantly.
+     * @notice Change the loosening delay itself. Lowering it is a loosening, so it waits the current
+     *         timelock; raising it takes effect immediately. Prevents a compromised key from zeroing the delay
+     *         and then loosening everything instantly.
      */
     function setChangeTimelock(VaultStorage storage vaultStorage, uint256 value)
         external
@@ -679,19 +606,16 @@ library VaultLogic {
     }
 
     /**
-     * @notice Deadline (unix time) for a newly added/edited entry given its protection window; 0 when the
-     * window is disabled (payable immediately). The entry is not payable until block.timestamp reaches it.
+     * @notice Deadline for a newly added/edited entry given its protection window; 0 when disabled.
      */
     function _protectionDeadline(uint256 protection) private view returns (uint256) {
         return protection == 0 ? 0 : block.timestamp + protection;
     }
 
     /**
-     * @dev The deadline after which an approved immutable scheduled payment is permanently locked
-     * (irremovable; it was never editable) and before which it cannot pay. Follows the vault's
-     * scheduledPaymentProtection, clamped: a floor so a zero-protection vault still gets a review
-     * window before an entry becomes irreversible, and a cap so a compromised owner key cannot raise
-     * the protection and plant an entry whose review window (and payout delay) stretches for years.
+     * @notice Deadline after which an approved immutable scheduled payment is permanently locked.
+     * @dev Floor/cap the protection window so zero-protection vaults still get a review period before
+     *      irreversibility, and a compromised owner cannot plant a multi-year delay.
      */
     function _immutableLockDeadline(VaultStorage storage vaultStorage) private view returns (uint256) {
         uint256 window = _effective(vaultStorage.riskConfig.scheduledPaymentProtection);
@@ -735,7 +659,7 @@ library VaultLogic {
 
     /**
      * @notice Update an existing whitelisted recipient. Reverts if `id` does not exist.
-     * @dev Access control (owner-or-payment-asset manager) is enforced by the facade.
+     * @dev Access control (owner-or-payout-operator) is enforced by the facade.
      */
     function updateWhitelistedRecipient(
         VaultStorage storage vaultStorage,
@@ -763,8 +687,8 @@ library VaultLogic {
     }
 
     /**
-     * @notice Owner approval of a payment-asset manager-proposed whitelisted recipient. Access control
-     * (owner-only) is enforced by the facade.
+     * @notice Owner approval of a payout-operator-proposed whitelisted recipient.
+     * @dev Access control (owner-only) is enforced by the facade.
      */
     function approveWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id, bytes32 expectedHash)
         external
@@ -809,10 +733,9 @@ library VaultLogic {
 
     /**
      * @notice Pay a whitelisted recipient a discretionary amount from the vault's balance.
-     * @dev Access control (owner-only) is enforced by the facade. The asset must match the entry's
-     * allowedAsset unless that is address(0) (any asset). Not rate-limited — recipients are vetted
-     * by the owner at set time — but a newly added recipient is time-locked by whitelistedProtection
-     * until its window elapses. Paid from the vault's idle balance.
+     * @dev Access control (owner-only) is enforced by the facade. Not rate-limited — recipients are vetted
+     *      at set time — but a newly added recipient is time-locked by whitelistedProtection until its
+     *      window elapses.
      */
     function sendToWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id, address asset, uint256 amount)
         external
@@ -872,12 +795,9 @@ library VaultLogic {
     }
 
     /**
-     * @notice Run every {payScheduled} eligibility check and apply its state effects (advance the
-     * interval clock, clear the new-payee time-lock, consume a payment slot) WITHOUT transferring —
-     * returning the payee, asset and amount so the caller can deliver the funds straight from a yield
-     * position (see {BittyV1Vault.payScheduledFromLending}/{payScheduledFromStaking}). The recipient is
-     * hard-sourced from the scheduledPayment config, so funds can only ever reach a configured payee.
-     * Authorization mirrors {payScheduled}: the scheduledPayment's trigger, or anyone if unset.
+     * @notice Run every {payScheduled} eligibility check and apply its state effects without transferring —
+     *         returning the payee, asset and amount so the caller can deliver funds from a yield position.
+     *         The recipient is hard-sourced from the scheduled payment config.
      */
     function accrueScheduledPaymentOnBehalf(VaultStorage storage vaultStorage, uint256 id)
         external
@@ -906,7 +826,6 @@ library VaultLogic {
         uint256 payAmount
     ) internal {
         if (_accrueScheduledPayment(vaultStorage, scheduledPayment, id, false)) {
-            // Nothing to pay right now; the slot and interval were not consumed, so the payment stays due.
             return;
         }
         uint256 paidAmount = _transferMoney(
@@ -926,17 +845,8 @@ library VaultLogic {
     }
 
     /**
-     * @dev Runs every eligibility check for a scheduled scheduledPayment payment and applies its
-     * state effects (advance the interval clock, clear the new-scheduledPayment time-lock, and
-     * consume one payment) — but performs no token transfer. Shared by the normal
-     * pay-from-vault-balance path and the on-behalf pay-from-yield path so both honour
-     * identical rules and checks-effects-interactions ordering.
-     */
-    /**
-     * @dev Runs the validity checks (which revert), then either consumes a payment slot + advances the
-     * interval clock, or — when the payment tolerates an insufficient balance and there is nothing to
-     * pay — returns `true` to signal the caller to skip the transfer WITHOUT consuming a slot, so the
-     * payment stays due and can be made once the vault is funded.
+     * @dev Shared accrual for pay-from-vault and pay-from-yield paths. Returns true when a
+     *      pay-with-insufficient-balance entry has zero vault balance — skip transfer without consuming a slot.
      */
     function _accrueScheduledPayment(
         VaultStorage storage vaultStorage,
@@ -991,7 +901,6 @@ library VaultLogic {
         address scheduledPaymentAddress,
         bool payWithInsufficientBalance
     ) internal returns (uint256 paidAmount) {
-        // address(0) asset = pay in ETH; the vault holds it as WETH, so measure the balance in WETH.
         address balanceToken = erc20Address == address(0) ? vaultStorage.weth : erc20Address;
         uint256 balance = IERC20(balanceToken).balanceOf(address(this));
         if (!payWithInsufficientBalance && balance < amount) {
@@ -1003,7 +912,7 @@ library VaultLogic {
 
     /**
      * @dev `asset == address(0)` pays native ETH by unwrapping WETH — the only payout that .call's an
-     * arbitrary recipient, hence the reentrancy guard.
+     *      arbitrary recipient, hence the reentrancy guard.
      */
     function _payOut(VaultStorage storage vaultStorage, address asset, uint256 amount, address to) internal {
         if (amount == 0) {
@@ -1025,6 +934,13 @@ library VaultLogic {
         }
     }
 
+    function addAsset(VaultStorage storage vaultStorage, address assetAddress) external onlyInitialized(vaultStorage) {
+        if (vaultStorage.addingAssetsDisabled) {
+            revert AddingAssetsDisabled();
+        }
+        _addAsset(vaultStorage, assetAddress);
+    }
+
     function addAssets(VaultStorage storage vaultStorage, address[] memory assetAddresses)
         external
         onlyInitialized(vaultStorage)
@@ -1033,13 +949,17 @@ library VaultLogic {
             revert AddingAssetsDisabled();
         }
         for (uint256 i = 0; i < assetAddresses.length; i++) {
-            if (vaultStorage.guard.isAssetRegistered(assetAddresses[i])) {
-                vaultStorage.assets.add(assetAddresses[i]);
-            } else if (vaultStorage.guard.isStableCoinRegistered(assetAddresses[i])) {
-                vaultStorage.stableCoins.add(assetAddresses[i]);
-            } else {
-                revert NotRegistered();
-            }
+            _addAsset(vaultStorage, assetAddresses[i]);
+        }
+    }
+
+    function _addAsset(VaultStorage storage vaultStorage, address assetAddress) private {
+        if (vaultStorage.guard.isAssetRegistered(assetAddress)) {
+            vaultStorage.assets.add(assetAddress);
+        } else if (vaultStorage.guard.isStableCoinRegistered(assetAddress)) {
+            vaultStorage.stableCoins.add(assetAddress);
+        } else {
+            revert NotRegistered();
         }
     }
 

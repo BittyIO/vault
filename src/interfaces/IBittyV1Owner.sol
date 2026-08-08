@@ -27,16 +27,9 @@ interface IBittyV1Owner {
     event IntentProtocolsRemoved(address[] protocols);
     event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
     event AutoYieldTriggerSet(address indexed trigger);
-    event AssetManagerSettingsSet(
-        address indexed assetManager,
-        uint256 interval,
-        uint256 maxStableCoinPerTrade,
-        uint256 stableCoinInvestCap,
-        uint256 expiredAt
-    );
-    event FullAssetManagerAdded(address indexed assetManager);
+    event AssetManagerSet(address indexed assetManager);
     event AssetManagerRemoved();
-    event PayoutOperatorSendLimitSet(address indexed payoutOperator, uint256 interval, uint256 maxStableCoinPerPeriod);
+    event PayoutOperatorAdded(address indexed payoutOperator);
     event PayoutOperatorRemoved(address indexed payoutOperator);
     event ScheduledPaymentProtectionSet(uint256 protectionDuration);
     event WhitelistedProtectionSet(uint256 protectionDuration);
@@ -93,41 +86,21 @@ interface IBittyV1Owner {
     function setAutoYieldTrigger(address trigger) external;
 
     /**
-     * @notice Set the vault's single (restricted) asset manager and its trade guardrail, replacing any previous
-     *         asset manager. Only this address may trade, subject to the caps. The owner may set itself. Reverts
-     *         if `stableCoinInvestCap == 0`.
+     * @notice Set the vault's single asset manager, replacing any previous one. Only this address may trade;
+     *         it has full trading access, bounded only by the token allowlist and per-asset minimal-balance
+     *         floors. The owner may set itself.
      */
-    function setAssetManager(
-        address assetManager,
-        uint256 interval,
-        uint256 maxStableCoinPerTrade,
-        uint256 stableCoinInvestCap,
-        uint256 expiredAt
-    ) external;
-
-    /**
-     * @notice Set the vault's single asset manager as full-access — bounded only by minimal balances, with no
-     *         invest cap, per-trade cap, throttle, expiry, or stablecoin-leg requirement. Replaces any
-     *         previous asset manager. For keys as trusted as the owner; use {setAssetManager} for a delegated key.
-     */
-    function setFullAssetManager(address assetManager) external;
+    function setAssetManager(address assetManager) external;
 
     function removeAssetManager() external;
 
-    // ============ Payout operator guardrails (owner-set) ============
+    // ============ Payout operators (owner-set) ============
 
     /**
-     * @notice Register a new payout operator and its rolling one-off send quota. Does not remove other payout operators.
-     *         The owner may not be an payout operator. Reverts if already registered or if
-     *         `maxStableCoinPerPeriod == 0`.
+     * @notice Register a new payout operator. Does not remove other payout operators. The owner may not be
+     *         a payout operator. Reverts if already registered.
      */
-    function setPayoutOperator(address payoutOperator, uint256 interval, uint256 maxStableCoinPerPeriod) external;
-
-    /**
-     * @notice Update an existing payout operator's rolling one-off send quota. Preserves the current period
-     *         usage. Reverts if not registered or if `maxStableCoinPerPeriod == 0`.
-     */
-    function updatePayoutOperator(address payoutOperator, uint256 interval, uint256 maxStableCoinPerPeriod) external;
+    function addPayoutOperator(address payoutOperator) external;
 
     function removePayoutOperator(address payoutOperator) external;
 
@@ -137,11 +110,15 @@ interface IBittyV1Owner {
 
     // ============ Payout operator approvals ============
 
-    /// @param expectedHash keccak256(abi.encode(the ScheduledPayment the owner reviewed)); the call
-    /// reverts if the stored entry no longer matches, so a proposer cannot swap content before approval.
+    /**
+     * @param expectedHash keccak256(abi.encode(the ScheduledPayment the owner reviewed)); the call
+     * reverts if the stored entry no longer matches, so a proposer cannot swap content before approval.
+     */
     function approveScheduledPayment(uint256 id, bytes32 expectedHash) external;
-    /// @param expectedHash keccak256(abi.encode(the WhitelistedRecipient the owner reviewed)); the call
-    /// reverts if the stored entry no longer matches, so a proposer cannot swap content before approval.
+    /**
+     * @param expectedHash keccak256(abi.encode(the WhitelistedRecipient the owner reviewed)); the call
+     * reverts if the stored entry no longer matches, so a proposer cannot swap content before approval.
+     */
     function approveWhitelistedRecipient(uint256 id, bytes32 expectedHash) external;
 
     function setScheduledPaymentProtection(uint256 protection) external;
