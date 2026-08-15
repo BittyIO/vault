@@ -145,14 +145,14 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         }
     }
 
-    function addAssets(address[] memory assetAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.addAssets(assetAddresses);
-        emit AssetsAdded(assetAddresses);
-    }
-
-    function removeAssets(address[] memory assetAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.removeAssets(assetAddresses);
-        emit AssetsRemoved(assetAddresses);
+    function updateAssets(address[] memory addAssets, address[] memory removeAssets)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _vault.addAssets(addAssets);
+        _vault.removeAssets(removeAssets);
+        emit AssetsUpdated(addAssets, removeAssets);
     }
 
     function disableAddingAssets() external override onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -463,68 +463,44 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         return _vault.isPayoutOperator(account);
     }
 
-    function addLendingProtocols(address[] memory lendingProtocolAddresses)
+    function updateLendingProtocols(address[] memory addLendingProtocols, address[] memory removeLendingProtocols)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _assetManager.addLendingProtocols(lendingProtocolAddresses);
-        emit LendingProtocolsAdded(lendingProtocolAddresses);
+        _assetManager.addLendingProtocols(addLendingProtocols);
+        _assetManager.removeLendingProtocols(removeLendingProtocols);
+        emit LendingProtocolsUpdated(addLendingProtocols, removeLendingProtocols);
     }
 
-    function removeLendingProtocols(address[] memory lendingProtocolAddresses)
+    function updateStakingProtocols(address[] memory addStakingProtocols, address[] memory removeStakingProtocols)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _assetManager.removeLendingProtocols(lendingProtocolAddresses);
-        emit LendingProtocolsRemoved(lendingProtocolAddresses);
+        _assetManager.addStakingProtocols(addStakingProtocols);
+        _assetManager.removeStakingProtocols(removeStakingProtocols);
+        emit StakingProtocolsUpdated(addStakingProtocols, removeStakingProtocols);
     }
 
-    function addStakingProtocols(address[] memory stakingProtocolAddresses)
+    function updateAMMProtocols(address[] memory addAMMProtocols, address[] memory removeAMMProtocols)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _assetManager.addStakingProtocols(stakingProtocolAddresses);
-        emit StakingProtocolsAdded(stakingProtocolAddresses);
+        _assetManager.addAMMProtocols(addAMMProtocols);
+        _assetManager.removeAMMProtocols(removeAMMProtocols);
+        emit AMMProtocolsUpdated(addAMMProtocols, removeAMMProtocols);
     }
 
-    function removeStakingProtocols(address[] memory stakingProtocolAddresses)
+    function updateIntentProtocols(address[] memory addIntentProtocols, address[] memory removeIntentProtocols)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _assetManager.removeStakingProtocols(stakingProtocolAddresses);
-        emit StakingProtocolsRemoved(stakingProtocolAddresses);
-    }
-
-    function addAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.addAMMProtocols(ammProtocolAddresses);
-        emit AMMProtocolsAdded(ammProtocolAddresses);
-    }
-
-    function removeAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.removeAMMProtocols(ammProtocolAddresses);
-        emit AMMProtocolsRemoved(ammProtocolAddresses);
-    }
-
-    function addIntentProtocols(address[] memory intentProtocolAddresses)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.addIntentProtocols(intentProtocolAddresses);
-        emit IntentProtocolsAdded(intentProtocolAddresses);
-    }
-
-    function removeIntentProtocols(address[] memory intentProtocolAddresses)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.removeIntentProtocols(intentProtocolAddresses);
-        emit IntentProtocolsRemoved(intentProtocolAddresses);
+        _assetManager.addIntentProtocols(addIntentProtocols);
+        _assetManager.removeIntentProtocols(removeIntentProtocols);
+        emit IntentProtocolsUpdated(addIntentProtocols, removeIntentProtocols);
     }
 
     function wethAddress() external view returns (address) {

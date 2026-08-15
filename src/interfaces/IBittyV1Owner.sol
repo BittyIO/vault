@@ -13,18 +13,13 @@ import {IBittyV1Vault} from "./IBittyV1Vault.sol";
  */
 interface IBittyV1Owner {
     // ============ Events ============
-    event AssetsAdded(address[] assets);
-    event AssetsRemoved(address[] assets);
+    event AssetsUpdated(address[] addAssets, address[] removeAssets);
     event AssetsLocked();
     event ProtocolsLocked();
-    event LendingProtocolsAdded(address[] protocols);
-    event LendingProtocolsRemoved(address[] protocols);
-    event StakingProtocolsAdded(address[] protocols);
-    event StakingProtocolsRemoved(address[] protocols);
-    event AMMProtocolsAdded(address[] protocols);
-    event AMMProtocolsRemoved(address[] protocols);
-    event IntentProtocolsAdded(address[] protocols);
-    event IntentProtocolsRemoved(address[] protocols);
+    event LendingProtocolsUpdated(address[] addLendingProtocols, address[] removeLendingProtocols);
+    event StakingProtocolsUpdated(address[] addStakingProtocols, address[] removeStakingProtocols);
+    event AMMProtocolsUpdated(address[] addAMMProtocols, address[] removeAMMProtocols);
+    event IntentProtocolsUpdated(address[] addIntentProtocols, address[] removeIntentProtocols);
     event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
     event AutoYieldTriggerSet(address indexed trigger);
     event AssetManagerSet(address indexed assetManager);
@@ -45,25 +40,19 @@ interface IBittyV1Owner {
     event SendApproved(uint256 indexed id, address[] recipients, address[] assets, uint256[] amounts);
 
     // ============ Vault config ============
-
-    function addAssets(address[] memory assetAddresses) external;
-    function removeAssets(address[] memory assetAddresses) external;
+    function updateAssets(address[] memory addAssets, address[] memory removeAssets) external;
     function disableAddingAssets() external;
     function disableAddingProtocols() external;
 
     // ============ Protocol management ============
-
-    function addLendingProtocols(address[] memory lendingProtocolAddresses) external;
-    function removeLendingProtocols(address[] memory lendingProtocolAddresses) external;
-    function addStakingProtocols(address[] memory stakingProtocolAddresses) external;
-    function removeStakingProtocols(address[] memory stakingProtocolAddresses) external;
-    function addAMMProtocols(address[] memory ammProtocolAddresses) external;
-    function removeAMMProtocols(address[] memory ammProtocolAddresses) external;
-    function addIntentProtocols(address[] memory intentProtocolAddresses) external;
-    function removeIntentProtocols(address[] memory intentProtocolAddresses) external;
+    function updateLendingProtocols(address[] memory addLendingProtocols, address[] memory removeLendingProtocols)
+        external;
+    function updateStakingProtocols(address[] memory addStakingProtocols, address[] memory removeStakingProtocols)
+        external;
+    function updateAMMProtocols(address[] memory addAMMProtocols, address[] memory removeAMMProtocols) external;
+    function updateIntentProtocols(address[] memory addIntentProtocols, address[] memory removeIntentProtocols) external;
 
     // ============ Asset manager guardrails (owner-set) ============
-
     function setMinimalBalance(address assetAddress, uint256 minimalBalance) external;
 
     /**
