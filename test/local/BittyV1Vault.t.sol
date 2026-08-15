@@ -1877,7 +1877,7 @@ contract BittyV1VaultTest is Test {
         vm.prank(tx.origin);
         BittyV1Guard(guardAddress).addStableCoins(toAdd);
         vm.prank(ownerAddress);
-        vault.addAssets(toAdd);
+        vault.updateAssets(toAdd, new address[](0));
     }
 
     function _initAtLevel(RiskControlLevel level) internal returns (BittyV1Vault v) {
@@ -2381,7 +2381,7 @@ contract BittyV1VaultTest is Test {
         assertEq(weth.balanceOf(hackerWallet), 0);
     }
 
-    // ─── Unified addAssets / removeAssets ─────────────────────────────────────
+    // ─── Unified updateAssets (add + remove) ───────────────────────────────────
 
     function test_AddAssets_addsRegisteredStableCoinToStableCoinsSet() public {
         _initializeVault();
@@ -2393,7 +2393,7 @@ contract BittyV1VaultTest is Test {
         BittyV1Guard(guardAddress).addStableCoins(toAdd);
 
         vm.prank(ownerAddress);
-        vault.addAssets(toAdd);
+        vault.updateAssets(toAdd, new address[](0));
 
         address[] memory stableCoins = vault.getStableCoins();
         assertEq(stableCoins.length, 1);
@@ -2411,7 +2411,7 @@ contract BittyV1VaultTest is Test {
         BittyV1Guard(guardAddress).addAssets(toAdd);
 
         vm.prank(ownerAddress);
-        vault.addAssets(toAdd);
+        vault.updateAssets(toAdd, new address[](0));
 
         address[] memory assets = vault.getAssets();
         assertEq(assets.length, 1);
@@ -2428,10 +2428,10 @@ contract BittyV1VaultTest is Test {
         vm.prank(tx.origin);
         BittyV1Guard(guardAddress).addStableCoins(toAdd);
         vm.prank(ownerAddress);
-        vault.addAssets(toAdd);
+        vault.updateAssets(toAdd, new address[](0));
 
         vm.prank(ownerAddress);
-        vault.removeAssets(toAdd);
+        vault.updateAssets(new address[](0), toAdd);
 
         assertEq(vault.getStableCoins().length, 0);
     }
@@ -2445,10 +2445,10 @@ contract BittyV1VaultTest is Test {
         vm.prank(tx.origin);
         BittyV1Guard(guardAddress).addAssets(toAdd);
         vm.prank(ownerAddress);
-        vault.addAssets(toAdd);
+        vault.updateAssets(toAdd, new address[](0));
 
         vm.prank(ownerAddress);
-        vault.removeAssets(toAdd);
+        vault.updateAssets(new address[](0), toAdd);
 
         assertEq(vault.getAssets().length, 0);
     }
@@ -2461,7 +2461,7 @@ contract BittyV1VaultTest is Test {
 
         vm.prank(ownerAddress);
         vm.expectRevert(NotRegistered.selector);
-        vault.addAssets(toAdd);
+        vault.updateAssets(toAdd, new address[](0));
     }
 
     function test_RemoveAssets_revertsWhenNotInVault() public {
@@ -2472,7 +2472,7 @@ contract BittyV1VaultTest is Test {
 
         vm.prank(ownerAddress);
         vm.expectRevert(NotRegistered.selector);
-        vault.removeAssets(toRemove);
+        vault.updateAssets(new address[](0), toRemove);
     }
 
     // ============ Pay scheduledPayment directly from yield (on-behalf) ============
@@ -2508,7 +2508,7 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         BittyV1Guard(guardAddress).addStakingProtocols(_arr(address(impl)));
         vm.prank(ownerAddress);
-        IVaultFull(payable(address(vault))).addStakingProtocols(_arr(address(impl)));
+        IVaultFull(payable(address(vault))).updateStakingProtocols(_arr(address(impl)), new address[](0));
 
         usdc.mint(address(vault), stakeAmount);
         vm.prank(assetManagerAddress);
@@ -2522,7 +2522,7 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         BittyV1Guard(guardAddress).addLendingProtocols(_arr(address(impl)));
         vm.prank(ownerAddress);
-        IVaultFull(payable(address(vault))).addLendingProtocols(_arr(address(impl)));
+        IVaultFull(payable(address(vault))).updateLendingProtocols(_arr(address(impl)), new address[](0));
 
         usdc.mint(address(vault), supplyAmount);
         vm.prank(assetManagerAddress);
