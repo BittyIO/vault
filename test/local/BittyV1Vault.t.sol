@@ -48,7 +48,8 @@ import {
     PayoutOperatorNotFound,
     OwnershipNotTransferable,
     ImmutableScheduledPaymentLocked,
-    DefaultAdminDelayImmutable
+    NoRescueTarget,
+    OnlyImmutablePayableAfterRenounce
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {RiskControlLevel, AutoYieldRoute} from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
@@ -59,9 +60,6 @@ import {MockAMMProtocol} from "../helpers/MockAMMProtocol.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
-import {
-    IAccessControlDefaultAdminRules
-} from "openzeppelin-contracts/contracts/access/extensions/IAccessControlDefaultAdminRules.sol";
 import {Initializable} from "openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /**
@@ -382,7 +380,7 @@ contract BittyV1VaultTest is Test {
         _grantAssetManager(assetMgr);
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
         vm.prank(ownerAddress);
-        vm.expectRevert(IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminRules.selector);
+        vm.expectRevert(OwnershipNotTransferable.selector);
         vault.grantRole(adminRole, assetMgr);
     }
 
@@ -2135,14 +2133,13 @@ contract BittyV1VaultTest is Test {
         vault.setMaxSendValue(1_000);
     }
 
-    function test_defaultAdminDelay_isOneDayConstant() public {
-        assertEq(vault.OWNER_TRANSFER_DELAY(), 1 days);
+    function test_ownerGetter_resolvesToTheOwner() public {
         _initializeVault();
-        assertEq(vault.defaultAdminDelay(), 1 days);
-        assertEq(vault.defaultAdmin(), ownerAddress);
+        assertEq(vault.owner(), ownerAddress);
+        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
     }
 
-    function test_defaultAdmin_ownerCanActInstantly() public {
+    function test_owner_ownerCanActInstantly() public {
         _initializeVault();
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
 
@@ -2152,73 +2149,33 @@ contract BittyV1VaultTest is Test {
         assertEq(vault.getAssetManager(), newAssetManager);
     }
 
-    function test_beginDefaultAdminTransfer_revertsForAnyNewOwner() public {
-        _initializeVault();
-
-        vm.prank(ownerAddress);
-        vm.expectRevert(OwnershipNotTransferable.selector);
-        vault.beginDefaultAdminTransfer(makeAddr("newAdmin"));
-
-        vm.prank(ownerAddress);
-        vm.expectRevert(OwnershipNotTransferable.selector);
-        vault.beginDefaultAdminTransfer(assetManagerAddress);
-
-        (address pendingAdmin,) = vault.pendingDefaultAdmin();
-        assertEq(pendingAdmin, address(0));
-        assertEq(vault.defaultAdmin(), ownerAddress);
-    }
-
-    function test_beginDefaultAdminTransfer_onlyOwner() public {
-        _initializeVault();
-        vm.prank(makeAddr("stranger"));
-        vm.expectRevert();
-        vault.beginDefaultAdminTransfer(address(0));
-    }
-
-    function test_acceptDefaultAdminTransfer_neverSucceeds() public {
-        _initializeVault();
-        address newAdmin = makeAddr("newAdmin");
-
-        // No pending transfer can ever name a new owner, so accept always reverts.
-        vm.warp(block.timestamp + 1 days + 1);
-        vm.prank(newAdmin);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControlDefaultAdminRules.AccessControlInvalidDefaultAdmin.selector, newAdmin)
-        );
-        vault.acceptDefaultAdminTransfer();
-        assertEq(vault.defaultAdmin(), ownerAddress);
-    }
-
-    function test_renounceDefaultAdmin_requiresTransferToZeroAndDelay() public {
+    function test_ownershipNotTransferable_grantAndRevokeBlocked() public {
         _initializeVault();
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
 
+        // No second admin can be granted, and the role can't be revoked — a vault
+        // has exactly one, non-transferable owner.
         vm.prank(ownerAddress);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminDelay.selector, 0)
-        );
-        vault.renounceRole(adminRole, ownerAddress);
+        vm.expectRevert(OwnershipNotTransferable.selector);
+        vault.grantRole(adminRole, makeAddr("newAdmin"));
 
         vm.prank(ownerAddress);
-        vault.beginDefaultAdminTransfer(address(0));
+        vm.expectRevert(OwnershipNotTransferable.selector);
+        vault.revokeRole(adminRole, ownerAddress);
 
-        vm.warp(block.timestamp + 1 days + 1);
-        vm.prank(ownerAddress);
-        vault.renounceRole(adminRole, ownerAddress);
-
-        assertEq(vault.defaultAdmin(), address(0));
-        assertFalse(vault.hasRole(adminRole, ownerAddress));
+        assertEq(vault.owner(), ownerAddress);
+        assertEq(vault.owner(), ownerAddress);
     }
 
-    function test_changeDefaultAdminDelay_alwaysReverts() public {
+    function test_renounceRoleBlocked_useRenounceOwnership() public {
         _initializeVault();
-        vm.prank(ownerAddress);
-        vm.expectRevert(DefaultAdminDelayImmutable.selector);
-        vault.changeDefaultAdminDelay(0);
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
 
+        // renounceRole is disabled — dropping ownership only via renounceVaultOwnership().
         vm.prank(ownerAddress);
-        vm.expectRevert(DefaultAdminDelayImmutable.selector);
-        vault.rollbackDefaultAdminDelay();
+        vm.expectRevert(OwnershipNotTransferable.selector);
+        vault.renounceRole(adminRole, ownerAddress);
+        assertEq(vault.owner(), ownerAddress);
     }
 
     // ─── Immutable scheduled payment lock ─────────────────────────────────────
@@ -2308,7 +2265,6 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         address coldWallet = makeAddr("coldWallet");
         address hackerWallet = makeAddr("hackerWallet");
-        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
         // Absolute checkpoints: under via-ir the optimizer may cache block.timestamp across vm.warp,
         // so warp targets must not be re-derived from block.timestamp mid-test.
         uint256 start = block.timestamp;
@@ -2355,15 +2311,18 @@ contract BittyV1VaultTest is Test {
         );
         vm.stopPrank();
 
-        // The real owner detects the compromise: deletes the hacker's entry (instant) and renounces.
-        vm.startPrank(ownerAddress);
-        vault.removeScheduledPayment(maliciousId);
-        vault.beginDefaultAdminTransfer(address(0));
-        vm.stopPrank();
-        vm.warp(start + VaultLogic.STANDARD_RISK_TIMELOCK + 2 days);
+        // The real owner detects the compromise: one atomic renounceVaultOwnership()
+        // naming the immutable rescue drops ownership instantly. The hacker's
+        // mutable entry isn't cleared but becomes un-payable (ownerless vault
+        // pays only locked immutable), so it can never drain.
         vm.prank(ownerAddress);
-        vault.renounceRole(adminRole, ownerAddress);
-        assertEq(vault.defaultAdmin(), address(0));
+        vault.renounceVaultOwnership(escapeId);
+        assertEq(vault.owner(), address(0));
+
+        // The hacker's mutable payment is now inert.
+        vm.warp(start + VaultLogic.STANDARD_RISK_TIMELOCK + 3 days);
+        vm.expectRevert(OnlyImmutablePayableAfterRenounce.selector);
+        vault.payScheduled(maliciousId);
 
         // The leaked key is now worthless: no owner powers remain.
         vm.prank(ownerAddress);
@@ -2379,6 +2338,145 @@ contract BittyV1VaultTest is Test {
         vault.payScheduled(escapeId);
         assertEq(weth.balanceOf(coldWallet), 2 ether);
         assertEq(weth.balanceOf(hackerWallet), 0);
+    }
+
+    // ─── renounceVaultOwnership ────────────────────────────────────────────────────
+
+    function test_renounceVaultOwnership_neutralizesInjectedRenouncesInstantlyAndPaysOut() public {
+        _initializeVault();
+        address coldWallet = makeAddr("coldWallet");
+        address hackerWallet = makeAddr("hackerWallet");
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        uint256 start = block.timestamp;
+
+        // Day 0: the pre-compromise immutable rescue payment to the cold wallet.
+        uint256 escapeId = _addPayment(coldWallet, type(uint8).max, true);
+        weth.deposit{value: 3 ether}();
+        weth.transfer(address(vault), 3 ether);
+        // Its lock window passes — now permanent.
+        vm.warp(start + VaultLogic.STANDARD_RISK_TIMELOCK + 1);
+
+        // Key leaks: the hacker queues their own scheduled payment (pending).
+        vm.prank(ownerAddress);
+        uint256 maliciousId = vault.addScheduledPayment(
+            _makeScheduledPayment(
+                hackerWallet,
+                address(0),
+                address(weth),
+                3 ether,
+                1,
+                start + VaultLogic.STANDARD_RISK_TIMELOCK + 2 days,
+                30 days,
+                false
+            )
+        );
+
+        // One atomic call naming the immutable rescue renounces instantly.
+        vm.prank(ownerAddress);
+        vm.expectEmit(true, false, false, false);
+        emit IBittyV1Owner.OwnershipRenounced(ownerAddress);
+        vault.renounceVaultOwnership(escapeId);
+
+        // Instantly ownerless — no 1-day delay.
+        assertEq(vault.owner(), address(0));
+        // The hacker's mutable entry isn't deleted but is inert: un-payable.
+        vm.warp(start + VaultLogic.STANDARD_RISK_TIMELOCK + 3 days);
+        vm.expectRevert(OnlyImmutablePayableAfterRenounce.selector);
+        vault.payScheduled(maliciousId);
+        // The leaked key is worthless.
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotPayoutOperator.selector);
+        vault.addScheduledPayment(
+            _makeScheduledPayment(hackerWallet, address(0), address(weth), 3 ether, 1, start + 30 days, 30 days, false)
+        );
+
+        // The rescue payment still flows to the cold wallet.
+        vault.payScheduled(escapeId);
+        assertEq(weth.balanceOf(coldWallet), 1 ether);
+        assertEq(weth.balanceOf(hackerWallet), 0);
+    }
+
+    function test_renounceVaultOwnership_revertsWithoutRescueTarget() public {
+        _initializeVault();
+        // No locked immutable scheduled payment exists — any id fails the check.
+        vm.prank(ownerAddress);
+        vm.expectRevert(NoRescueTarget.selector);
+        vault.renounceVaultOwnership(1);
+        // Ownership is untouched.
+        assertEq(vault.owner(), ownerAddress);
+    }
+
+    function test_renounceVaultOwnership_whitelistedRecipientAloneIsNotRescue() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
+        address[] memory toAdd = new address[](1);
+        toAdd[0] = address(usdc);
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        vm.prank(ownerAddress);
+        vault.updateAssets(toAdd, new address[](0));
+
+        // A whitelisted recipient can't pay out in an ownerless vault (no role to
+        // trigger it), so it is NOT a valid rescue — emergency renounce reverts.
+        _addWhitelistedRecipient(makeAddr("coldWallet"), address(usdc));
+        vm.prank(ownerAddress);
+        vm.expectRevert(NoRescueTarget.selector);
+        vault.renounceVaultOwnership(1);
+        assertEq(vault.owner(), ownerAddress);
+    }
+
+    function test_renounceVaultOwnership_leavesWhitelistedRecipientsIntact() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USDC", "USDC", 6);
+        address[] memory toAdd = new address[](1);
+        toAdd[0] = address(usdc);
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        vm.prank(ownerAddress);
+        vault.updateAssets(toAdd, new address[](0));
+        address wl = makeAddr("wl");
+        uint256 wlId = _addWhitelistedRecipient(wl, address(usdc));
+
+        // With a locked immutable payment as the rescue, renounce succeeds. The
+        // whitelisted recipient is left as-is — it's inert in an ownerless vault
+        // (sendToWhitelistedRecipient is owner-only), so clearing it is wasted gas.
+        uint256 rescueId = _addPayment(makeAddr("cold"), type(uint8).max, true);
+        vm.warp(block.timestamp + VaultLogic.STANDARD_RISK_TIMELOCK + 1);
+        vm.prank(ownerAddress);
+        vault.renounceVaultOwnership(rescueId);
+        assertEq(vault.owner(), address(0));
+        (address recip,) = vault.getWhitelistedRecipient(wlId);
+        assertEq(recip, wl);
+    }
+
+    function test_renounceVaultOwnership_onlyOwner() public {
+        _initializeVault();
+        uint256 rescueId = _addPayment(makeAddr("cold"), type(uint8).max, true);
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert();
+        vault.renounceVaultOwnership(rescueId);
+    }
+
+    function test_renounceVaultOwnership_notGriefableByManyPayments() public {
+        _initializeVault();
+        // The pre-committed immutable rescue.
+        uint256 rescueId = _addPayment(makeAddr("cold"), type(uint8).max, true);
+        vm.warp(block.timestamp + VaultLogic.STANDARD_RISK_TIMELOCK + 1);
+
+        // Attacker (same key) inflates the scheduled-payment id space to try to
+        // brick the renounce. Renounce is O(1) — names one id, loops over nothing
+        // — so it still completes in a single call regardless of the count.
+        vm.startPrank(ownerAddress);
+        for (uint256 i = 0; i < 200; i++) {
+            vault.addScheduledPayment(
+                _makeScheduledPayment(
+                    makeAddr("hacker"), address(0), address(weth), 1, 1, block.timestamp + 1 days, 30 days, false
+                )
+            );
+        }
+        vault.renounceVaultOwnership(rescueId);
+        vm.stopPrank();
+        assertEq(vault.owner(), address(0));
     }
 
     // ─── Unified updateAssets (add + remove) ───────────────────────────────────

@@ -11,7 +11,9 @@ import {
     TransferFailed,
     ReentrantCall,
     ArrayLengthMismatch,
-    EmptyArray
+    EmptyArray,
+    NoRescueTarget,
+    OnlyImmutablePayableAfterRenounce
 } from "../interfaces/IBittyV1Vault.sol";
 import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
 import {IBittyV1PayoutOperator} from "../interfaces/IBittyV1PayoutOperator.sol";
@@ -458,12 +460,7 @@ library VaultLogic {
         // An approved immutable entry with payments remaining is permanent once its lock window has
         // passed — not even the owner can remove it, so it survives an owner-key compromise and the
         // vault's renounce. (Exhausted entries may be cleaned up; pending proposals were never approved.)
-        IBittyV1Vault.ScheduledPayment storage existing = vaultStorage.scheduledPayments[id];
-        if (
-            existing.isImmutable && existing.remainingPaymentCount > 0
-                && vaultStorage.scheduledPaymentPendingProposer[id] == address(0)
-                && block.timestamp >= vaultStorage.scheduledPaymentEffectiveAt[id]
-        ) {
+        if (_isLockedImmutable(vaultStorage, id)) {
             revert ImmutableScheduledPaymentLocked();
         }
         delete vaultStorage.scheduledPayments[id];
@@ -474,6 +471,42 @@ library VaultLogic {
         // away with the entry (no shared-address exploit).
         delete vaultStorage.scheduledPaymentEffectiveAt[id];
         emit IBittyV1PayoutOperator.ScheduledPaymentRemoved(id);
+    }
+
+    /**
+     * @notice Verify the owner's pre-committed rescue and mark the vault renounced.
+     *         `rescueScheduledPaymentId` must be a LOCKED IMMUTABLE scheduled payment
+     *         (immutable, approved, past its lock deadline, payments remaining) — the
+     *         only entry an attacker with the same key can neither forge nor remove,
+     *         and the only one that keeps paying (permissionlessly, via payScheduled)
+     *         once the vault is ownerless. Reverts {NoRescueTarget} otherwise, so
+     *         renouncing can never strand the funds.
+     *
+     *         O(1): it names one payment and clears nothing. After the flag is set,
+     *         payScheduled refuses every non-locked-immutable payment, so an
+     *         attacker's injected mutable payments go inert with no loop — meaning an
+     *         attacker CANNOT grief the renounce by inflating the payment count.
+     */
+    function prepareRenounce(VaultStorage storage vaultStorage, uint256 rescueScheduledPaymentId)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        if (!_isLockedImmutable(vaultStorage, rescueScheduledPaymentId)) {
+            revert NoRescueTarget();
+        }
+        vaultStorage.renounced = true;
+    }
+
+    /**
+     * @dev A scheduled payment that is permanent and still active: immutable, approved
+     *      (not a pending proposal), past its lock deadline, and with payments left.
+     *      The sole survivor of renounce and the only thing an ownerless vault pays.
+     */
+    function _isLockedImmutable(VaultStorage storage vaultStorage, uint256 id) internal view returns (bool) {
+        IBittyV1Vault.ScheduledPayment storage p = vaultStorage.scheduledPayments[id];
+        return p.isImmutable && p.remainingPaymentCount > 0
+            && vaultStorage.scheduledPaymentPendingProposer[id] == address(0)
+            && block.timestamp >= vaultStorage.scheduledPaymentEffectiveAt[id];
     }
 
     function setScheduledPaymentProtection(VaultStorage storage vaultStorage, uint256 protection)
@@ -856,6 +889,12 @@ library VaultLogic {
     ) internal returns (bool skipped) {
         if (scheduledPayment.amount == 0) {
             revert ScheduledPaymentNotFound();
+        }
+        // Ownerless vault: only the pre-committed locked immutable payments pay
+        // out; everything else (including anything an attacker injected before
+        // renounce) is inert. No clearing loop was needed at renounce.
+        if (vaultStorage.renounced && !_isLockedImmutable(vaultStorage, id)) {
+            revert OnlyImmutablePayableAfterRenounce();
         }
         if (vaultStorage.scheduledPaymentPendingProposer[id] != address(0)) {
             revert PaymentNotApproved();

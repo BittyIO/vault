@@ -23,6 +23,10 @@ interface IBittyV1Owner {
     event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
     event AutoYieldTriggerSet(address indexed trigger);
     event AssetManagerSet(address indexed assetManager);
+    // Ownership renounced: pending payouts cleared and the admin role instantly
+    // dropped, leaving the vault ownerless. This is the ONLY renounce path
+    // (there is no delayed default-admin transfer).
+    event OwnershipRenounced(address indexed formerOwner);
     event AssetManagerRemoved();
     event PayoutOperatorAdded(address indexed payoutOperator);
     event PayoutOperatorRemoved(address indexed payoutOperator);
@@ -44,6 +48,48 @@ interface IBittyV1Owner {
     function disableAddingAssets() external;
     function disableAddingProtocols() external;
 
+    /**
+     * @notice The single renounce path. Instantly drops the admin role after
+     *         verifying the caller's pre-committed rescue, leaving the vault
+     *         permanently ownerless. No transfer delay, no cancel window. It
+     *         clears nothing and loops over nothing, so an attacker holding the
+     *         same key cannot grief it by inflating the scheduled-payment count.
+     *         After renounce, payScheduled pays ONLY locked immutable payments,
+     *         so every other entry (an attacker's injected mutable payment, or a
+     *         whitelisted recipient — inert anyway, since sendToWhitelistedRecipient
+     *         is owner-only) can never move funds.
+     *
+     * @param rescueScheduledPaymentId A locked immutable scheduled payment
+     *        (immutable, approved, past its lock deadline, payments remaining) —
+     *        the owner's pre-committed rescue that keeps paying its safe address
+     *        in the ownerless vault. Reverts NoRescueTarget if it isn't one, so
+     *        funds are never stranded.
+     *
+     *        It is passed in — rather than discovered on-chain — because the
+     *        contract cannot cheaply find one itself, and this is the crux of the
+     *        DoS-resistance:
+     *        - Searching all payments for a locked immutable one is O(n) over an
+     *          ever-growing id space (nextScheduledPaymentId only increments, even
+     *          as entries are removed). That search is exactly the gas-griefing
+     *          vector this design avoids: an attacker could add thousands of
+     *          payments so the scan exceeds the block gas limit and bricks the
+     *          renounce.
+     *        - A cached counter can't replace the search either, because "locked"
+     *          depends on block.timestamp >= effectiveAt, and crossing that
+     *          deadline happens with the passage of time, not via any transaction —
+     *          there is no moment at which to maintain the count. Counting merely
+     *          immutable (not-yet-effective) payments would be unsafe: an
+     *          attacker's immutable payment still inside its lock window would pass
+     *          the check, then mature and drain to the attacker after renounce.
+     *        So the owner names one witness and the contract verifies it in O(1).
+     *
+     *        It is only PROOF that a valid rescue exists — NOT a selector. After
+     *        renounce, payScheduled pays EVERY locked immutable payment, not just
+     *        this one, so a single id is sufficient regardless of how many the
+     *        owner set up.
+     */
+    function renounceVaultOwnership(uint256 rescueScheduledPaymentId) external;
+
     // ============ Protocol management ============
     function updateLendingProtocols(address[] memory addLendingProtocols, address[] memory removeLendingProtocols)
         external;
@@ -52,7 +98,7 @@ interface IBittyV1Owner {
     function updateAMMProtocols(address[] memory addAMMProtocols, address[] memory removeAMMProtocols) external;
     function updateIntentProtocols(address[] memory addIntentProtocols, address[] memory removeIntentProtocols) external;
 
-    // ============ Asset manager guardrails (owner-set) ============
+    
     function setMinimalBalance(address assetAddress, uint256 minimalBalance) external;
 
     /**

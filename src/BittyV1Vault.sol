@@ -41,6 +41,13 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         return hasRole(DEFAULT_ADMIN_ROLE, _msgSender());
     }
 
+    function renounceVaultOwnership(uint256 rescueScheduledPaymentId) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.prepareRenounce(rescueScheduledPaymentId);
+        address formerOwner = _msgSender();
+        _renounceOwner();
+        emit OwnershipRenounced(formerOwner);
+    }
+
     receive() external payable {
         address weth = _vault.weth;
         if (msg.value > 0 && weth != address(0) && msg.sender != weth) {
@@ -105,7 +112,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         _defiFacet = defiFacet;
         _vault.weth = weth;
         __AccessControl_init();
-        __AccessControlDefaultAdminRules_init(OWNER_TRANSFER_DELAY, owner);
+        _initOwner(owner);
 
         _vault.initialize(guardAddress, riskLevel);
         if (assetAddresses.length > 0) {

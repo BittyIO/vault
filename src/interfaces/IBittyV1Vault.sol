@@ -33,8 +33,15 @@ error AddingProtocolsDisabled();
 error OwnerAndPayoutOperatorMustDiffer();
 
 error OwnershipNotTransferable();
+// Emergency renounce needs a surviving, trustworthy rescue path — a locked
+// immutable scheduled payment (the only entry an attacker with the same key
+// cannot forge/remove, and the only one that still pays out permissionlessly in
+// an ownerless vault). Without one, renouncing would strand the funds, so the
+// call reverts.
+error NoRescueTarget();
+// After renounce, only locked immutable scheduled payments are payable.
+error OnlyImmutablePayableAfterRenounce();
 error ImmutableScheduledPaymentLocked();
-error DefaultAdminDelayImmutable();
 
 error NotPayoutOperator();
 error PayoutOperatorNotFound();

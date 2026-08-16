@@ -100,7 +100,7 @@ contract VaultForKidsForkTest is Test {
             remainingPaymentCount: type(uint8).max,
             startTimestamp: startTimestamp_,
             paymentInterval: PAY_INTERVAL,
-            isImmutable: false,
+            isImmutable: true,
             payWithInsufficientBalance: true
         });
     }
@@ -134,13 +134,12 @@ contract VaultForKidsForkTest is Test {
         vm.expectRevert(ScheduledPaymentNotStartYet.selector);
         vault.payScheduled(wbtcId);
 
-        // Step 3: parent gives up vault admin — no account holds DEFAULT_ADMIN_ROLE afterward
-        vm.startPrank(parentOwner);
-        vault.beginDefaultAdminTransfer(address(0));
-        vm.stopPrank();
-        vm.warp(block.timestamp + 1 days + 1);
+        // Step 3: parent gives up vault admin in one atomic renounceVaultOwnership().
+        // The immutable gifts must be locked (past their lock window, capped at
+        // 7 days) to survive as the rescue path, so let that window pass first.
+        vm.warp(block.timestamp + 7 days + 1);
         vm.prank(parentOwner);
-        vault.renounceRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner);
+        vault.renounceVaultOwnership(wbtcId);
         assertFalse(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner));
 
         vm.expectRevert();

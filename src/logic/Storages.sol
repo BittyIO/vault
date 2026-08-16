@@ -71,6 +71,12 @@ struct VaultStorage {
 
     // Reentrancy lock: native-ETH payouts are the only path that .call's an arbitrary recipient.
     bool payingEth;
+
+    // Set once by renounceVaultOwnership: an ownerless vault pays out only its
+    // locked immutable scheduled payments (the owner's pre-committed rescue);
+    // every other payment becomes inert. Avoids a clear-everything loop at
+    // renounce, so an attacker can't grief it by inflating the payment count.
+    bool renounced;
     RiskConfig riskConfig;
 
     RiskControlLevel riskControlLevel;
