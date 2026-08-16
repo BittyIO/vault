@@ -70,7 +70,7 @@ enum RiskControlLevel {
     High
 }
 
-struct AutoYieldRoute {
+struct AutoYield {
     address asset;
     address protocol;
     bool isSupplying;
@@ -89,12 +89,14 @@ struct AutoYieldRoute {
  * 3. Let the owner only ever lower the vault's risk.
  */
 interface IBittyV1Vault {
-    event ScheduledPaymentPaid(
-        uint256 indexed id,
-        address indexed scheduledPaymentAddress,
-        address indexed assetAddress,
-        uint256 amount,
-        uint8 remainingPaymentCount
+    // Batched: {payScheduled} emits one event carrying every payment it actually paid this call (skipped
+    // zero-balance entries are excluded). Single-payment paths emit a one-element array. No indexed fields.
+    event ScheduledPaymentsPaid(
+        uint256[] ids,
+        address[] scheduledPaymentAddresses,
+        address[] assetAddresses,
+        uint256[] amounts,
+        uint8[] remainingPaymentCounts
     );
 
     struct ScheduledPayment {
@@ -135,10 +137,13 @@ interface IBittyV1Vault {
     function getAssetManager() external view returns (address);
 
     /**
-     * @notice The asset's default yield route (see {IBittyV1Owner.setAutoYielding}). protocol =
-     *         address(0) means no route is configured; isSupplying is meaningless in that case.
+     * @notice Each asset's default yield route (see {IBittyV1Owner.setAutoYieldings}). For row `i`,
+     *         protocols[i] == address(0) means no route is configured and isSupplyings[i] is meaningless.
      */
-    function getAutoYielding(address assetAddress) external view returns (address protocol, bool isSupplying);
+    function getAutoYieldings(address[] calldata assetAddresses)
+        external
+        view
+        returns (address[] memory protocols, bool[] memory isSupplyings);
 
     /**
      * @notice The address (besides the vault itself) allowed to trigger {autoYield}. address(0) = only
@@ -186,29 +191,56 @@ interface IBittyV1Vault {
     function getAMMProtocols() external view returns (address[] memory);
     function getIntentProtocols() external view returns (address[] memory);
 
-    function getSuppliedBalance(address lendingProtocol, address assetAddress) external view returns (uint256);
-    function getStakedBalance(address stakingProtocol, address asset) external view returns (uint256);
-    function getUnstakeRequestIds(address stakingProtocol) external view returns (uint256[] memory);
-    function getLiquidity(address ammProtocol, bytes memory data) external view returns (uint256);
+    /**
+     * @notice Supplied (lending) balances for each (lendingProtocols[i], assetAddresses[i]) pair. Arrays
+     *         must be equal length.
+     */
+    function getSuppliedBalances(address[] calldata lendingProtocols, address[] calldata assetAddresses)
+        external
+        view
+        returns (uint256[] memory balances);
 
     /**
-     * @notice Get a whitelisted recipient entry (recipient == address(0) if not set).
+     * @notice Staked balances for each (stakingProtocols[i], assets[i]) pair. Arrays must be equal length.
      */
-    function getWhitelistedRecipient(uint256 id) external view returns (address recipient, address allowedAsset);
+    function getStakedBalances(address[] calldata stakingProtocols, address[] calldata assets)
+        external
+        view
+        returns (uint256[] memory balances);
+
+    function getUnstakeRequestIds(address stakingProtocol) external view returns (uint256[] memory);
+
+    /**
+     * @notice AMM liquidity for each (ammProtocols[i], data[i]) pair. Arrays must be equal length.
+     */
+    function getLiquidities(address[] calldata ammProtocols, bytes[] calldata data)
+        external
+        view
+        returns (uint256[] memory liquidities);
+
+    /**
+     * @notice Get whitelisted recipient entries by id (recipients[i] == address(0) if not set).
+     */
+    function getWhitelistedRecipients(uint256[] calldata ids)
+        external
+        view
+        returns (address[] memory recipients, address[] memory allowedAssets);
 
     // ============ Permissionless (trigger-gated / keeper) ============
 
     /**
-     * @notice Sweep the vault's spendable balance of `assetAddress` into its configured yield route.
-     *         Trigger-gated: callable by the vault itself (on deposit) or the owner-set auto-yield
-     *         trigger (see {IBittyV1Owner.setAutoYieldTrigger}). No-op when unconfigured / nothing spendable.
+     * @notice Sweep the vault's spendable balance of each `assetAddresses[i]` into its configured yield
+     *         route. Trigger-gated: callable by the vault itself (on deposit) or the owner-set auto-yield
+     *         trigger (see {IBittyV1Owner.setAutoYieldTrigger}). Each entry is a no-op when unconfigured /
+     *         nothing spendable.
      */
-    function autoYield(address assetAddress) external;
+    function autoYield(address[] calldata assetAddresses) external;
 
     /**
-     * @notice Pay a scheduled payment its full scheduled amount. Trigger-gated if a trigger is set.
+     * @notice Pay each scheduled payment `ids[i]` its full scheduled amount. Trigger-gated per entry if a
+     *         trigger is set on it.
      */
-    function payScheduled(uint256 id) external;
+    function payScheduled(uint256[] calldata ids) external;
 
     /**
      * @notice Pay a partial amount of a scheduled payment (requires a trigger to be set).

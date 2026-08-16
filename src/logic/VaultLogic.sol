@@ -67,6 +67,9 @@ library VaultLogic {
     uint64 constant HIGH_RISK_TIMELOCK = 7 days;
     uint64 constant HIGH_RISK_CAP = 1000;
 
+    // Sentinel in {updatePaymentRisk}: a field set to this is left unchanged (no storage access).
+    uint256 constant UNCHANGED = type(uint256).max;
+
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
 
@@ -301,28 +304,55 @@ library VaultLogic {
     }
 
     /**
-     * @notice Owner: execute a queued one-off send. Access control (owner-only) is enforced by the facade.
+     * @notice Owner: approve and/or cancel queued one-off sends in a single delegatecall (approves first).
+     *         The initialized check runs once for the whole batch. Access control (owner-only) is enforced
+     *         by the facade, so every cancel here is a privileged owner cancel.
      */
-    function approveSend(VaultStorage storage vaultStorage, uint256 id) external onlyInitialized(vaultStorage) {
+    function reviewSends(VaultStorage storage vaultStorage, uint256[] calldata approveIds, uint256[] calldata cancelIds)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        for (uint256 i; i < approveIds.length; ++i) {
+            _approveSend(vaultStorage, approveIds[i]);
+        }
+        for (uint256 i; i < cancelIds.length; ++i) {
+            _cancelSend(vaultStorage, cancelIds[i], true);
+        }
+        // One event per batch instead of one per id.
+        if (approveIds.length > 0) emit IBittyV1Owner.SendsApproved(approveIds);
+        if (cancelIds.length > 0) emit IBittyV1PayoutOperator.SendsCancelled(cancelIds);
+    }
+
+    /**
+     * @notice Cancel queued one-off sends. The owner may cancel any; a payout operator only its own.
+     *         The initialized check runs once. Access control (owner-or-proposer) is enforced by the facade
+     *         plus the per-item check.
+     */
+    function cancelSends(VaultStorage storage vaultStorage, uint256[] calldata ids, bool byOwner)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        for (uint256 i; i < ids.length; ++i) {
+            _cancelSend(vaultStorage, ids[i], byOwner);
+        }
+        if (ids.length > 0) emit IBittyV1PayoutOperator.SendsCancelled(ids);
+    }
+
+    /**
+     * @dev Execute one queued send. Re-checks against the controls in force at approval time, so a
+     *      tightening also binds an already-queued batch. The batched {SendsApproved} event is emitted by
+     *      the caller.
+     */
+    function _approveSend(VaultStorage storage vaultStorage, uint256 id) private {
         PendingSend memory ps = vaultStorage.pendingSends[id];
         if (ps.proposer == address(0)) {
             revert PendingSendNotFound();
         }
         delete vaultStorage.pendingSends[id];
-        // Re-check against the controls in force at approval time, so a tightening also binds an
-        // already-queued batch.
         _processSendBatch(vaultStorage, ps.recipients, ps.assets, ps.amounts, true, false);
-        emit IBittyV1Owner.SendApproved(id, ps.recipients, ps.assets, ps.amounts);
     }
 
-    /**
-     * @notice Cancel a queued one-off send. The owner may cancel any; a payout operator may cancel only its own.
-     *         Access control (owner-or-proposer) is enforced by the facade + the check below.
-     */
-    function cancelSend(VaultStorage storage vaultStorage, uint256 id, bool byOwner)
-        external
-        onlyInitialized(vaultStorage)
-    {
+    function _cancelSend(VaultStorage storage vaultStorage, uint256 id, bool byOwner) private {
         PendingSend memory ps = vaultStorage.pendingSends[id];
         if (ps.proposer == address(0)) {
             revert PendingSendNotFound();
@@ -331,44 +361,91 @@ library VaultLogic {
             revert NotProposalOwner();
         }
         delete vaultStorage.pendingSends[id];
-        emit IBittyV1PayoutOperator.SendCancelled(id);
     }
 
-    function addScheduledPayment(
+    /**
+     * @notice Add one or more scheduled payments. The initialized check, the risk cap, and both
+     *         protection-window deadlines are read once for the whole batch, then applied per item.
+     *         Access control (owner-or-payout-operator) is enforced by the facade.
+     */
+    function addScheduledPayments(
         VaultStorage storage vaultStorage,
-        IBittyV1Vault.ScheduledPayment memory scheduledPayment,
+        IBittyV1Vault.ScheduledPayment[] calldata scheduledPayments,
         bool byOwner
-    ) external onlyInitialized(vaultStorage) returns (uint256 id) {
+    ) external onlyInitialized(vaultStorage) returns (uint256[] memory ids) {
+        uint64 cap = _effective(vaultStorage.riskConfig.maxScheduledValue);
+        uint64 protection = _effective(vaultStorage.riskConfig.scheduledPaymentProtection);
+        uint256 protectionDeadline = _protectionDeadline(protection);
+        uint256 immutableDeadline = _immutableLockDeadlineFromWindow(protection);
+        ids = new uint256[](scheduledPayments.length);
+        for (uint256 i; i < scheduledPayments.length; ++i) {
+            ids[i] = _addScheduledPayment(
+                vaultStorage, scheduledPayments[i], byOwner, cap, protectionDeadline, immutableDeadline
+            );
+        }
+        if (ids.length > 0) emit IBittyV1PayoutOperator.ScheduledPaymentsAdded(ids, scheduledPayments);
+    }
+
+    function _addScheduledPayment(
+        VaultStorage storage vaultStorage,
+        IBittyV1Vault.ScheduledPayment calldata scheduledPayment,
+        bool byOwner,
+        uint64 cap,
+        uint256 protectionDeadline,
+        uint256 immutableDeadline
+    ) private returns (uint256 id) {
         if (scheduledPayment.startTimestamp < block.timestamp) {
             revert ScheduledPaymentStartTimestampInPast();
         }
         _checkScheduledPayment(scheduledPayment);
-        _checkPaymentRiskCap(
-            vaultStorage,
-            _effective(vaultStorage.riskConfig.maxScheduledValue),
-            scheduledPayment.assetAddress,
-            scheduledPayment.amount
-        );
+        _checkPaymentRiskCap(vaultStorage, cap, scheduledPayment.assetAddress, scheduledPayment.amount);
         id = ++vaultStorage.nextScheduledPaymentId;
         vaultStorage.scheduledPayments[id] = scheduledPayment;
-        uint256 effectiveAt = _protectionDeadline(_effective(vaultStorage.riskConfig.scheduledPaymentProtection));
+        uint256 effectiveAt = protectionDeadline;
         // msg.sender (the proposing payment asset manager) survives the delegatecall from the facade.
         if (!byOwner) {
             vaultStorage.scheduledPaymentPendingProposer[id] = msg.sender;
         } else if (scheduledPayment.isImmutable) {
             // An owner-added immutable entry starts its permanent-lock window immediately.
-            effectiveAt = _immutableLockDeadline(vaultStorage);
+            effectiveAt = immutableDeadline;
         }
         vaultStorage.scheduledPaymentEffectiveAt[id] = effectiveAt;
-        emit IBittyV1PayoutOperator.ScheduledPaymentAdded(id, scheduledPayment);
+        // The batched {ScheduledPaymentsAdded} event is emitted by the caller.
     }
 
-    function updateScheduledPayment(
+    /**
+     * @notice Update one or more scheduled payments (ids[i] ← scheduledPayments[i]). The initialized check,
+     *         risk cap, and protection-window deadlines are read once for the whole batch. Arrays must be
+     *         equal length. Access control (owner-or-payout-operator) is enforced by the facade.
+     */
+    function updateScheduledPayments(
         VaultStorage storage vaultStorage,
-        uint256 id,
-        IBittyV1Vault.ScheduledPayment memory scheduledPayment,
+        uint256[] calldata ids,
+        IBittyV1Vault.ScheduledPayment[] calldata scheduledPayments,
         bool byOwner
     ) external onlyInitialized(vaultStorage) {
+        if (ids.length != scheduledPayments.length) revert ArrayLengthMismatch();
+        uint64 cap = _effective(vaultStorage.riskConfig.maxScheduledValue);
+        uint64 protection = _effective(vaultStorage.riskConfig.scheduledPaymentProtection);
+        uint256 protectionDeadline = _protectionDeadline(protection);
+        uint256 immutableDeadline = _immutableLockDeadlineFromWindow(protection);
+        for (uint256 i; i < ids.length; ++i) {
+            _updateScheduledPayment(
+                vaultStorage, ids[i], scheduledPayments[i], byOwner, cap, protectionDeadline, immutableDeadline
+            );
+        }
+        if (ids.length > 0) emit IBittyV1PayoutOperator.ScheduledPaymentsUpdated(ids, scheduledPayments);
+    }
+
+    function _updateScheduledPayment(
+        VaultStorage storage vaultStorage,
+        uint256 id,
+        IBittyV1Vault.ScheduledPayment calldata scheduledPayment,
+        bool byOwner,
+        uint64 cap,
+        uint256 protectionDeadline,
+        uint256 immutableDeadline
+    ) private {
         if (scheduledPayment.startTimestamp < block.timestamp) {
             revert ScheduledPaymentStartTimestampInPast();
         }
@@ -386,32 +463,50 @@ library VaultLogic {
             revert NotProposalOwner();
         }
         _checkScheduledPayment(scheduledPayment);
-        _checkPaymentRiskCap(
-            vaultStorage,
-            _effective(vaultStorage.riskConfig.maxScheduledValue),
-            scheduledPayment.assetAddress,
-            scheduledPayment.amount
-        );
+        _checkPaymentRiskCap(vaultStorage, cap, scheduledPayment.assetAddress, scheduledPayment.amount);
         vaultStorage.scheduledPayments[id] = scheduledPayment;
-        uint256 effectiveAt = _protectionDeadline(_effective(vaultStorage.riskConfig.scheduledPaymentProtection));
+        uint256 effectiveAt = protectionDeadline;
         if (byOwner && scheduledPayment.isImmutable) {
             // An owner edit that makes a (necessarily still-mutable) entry immutable starts its
             // permanent-lock window fresh, so the irreversible change gets a full review period.
-            effectiveAt = _immutableLockDeadline(vaultStorage);
+            effectiveAt = immutableDeadline;
         }
         vaultStorage.scheduledPaymentEffectiveAt[id] = effectiveAt;
-        emit IBittyV1PayoutOperator.ScheduledPaymentUpdated(id, scheduledPayment);
+        // The batched {ScheduledPaymentsUpdated} event is emitted by the caller.
     }
 
     /**
-     * @notice Owner approval of a payout-operator-proposed scheduled payment. Access control (owner-only) is
-     *         enforced by the facade. The owner binds the approval to the exact content they reviewed via
-     *         `expectedHash`; if the proposer edited the entry after review, the call reverts.
+     * @notice Owner review of payout-operator-proposed scheduled payments in one call: approve some (bound
+     *         to the exact content reviewed via expectedHashes[i]; a proposer edit after review reverts the
+     *         whole call) and reject others by removing them (cancelIds). Approves run before cancels. The
+     *         initialized check and immutable-lock deadline are computed once; approveIds/expectedHashes must
+     *         be equal length. Access control (owner-only) is enforced by the facade, so all cancels are
+     *         privileged owner removals.
      */
-    function approveScheduledPayment(VaultStorage storage vaultStorage, uint256 id, bytes32 expectedHash)
-        external
-        onlyInitialized(vaultStorage)
-    {
+    function reviewScheduledPayments(
+        VaultStorage storage vaultStorage,
+        uint256[] calldata approveIds,
+        bytes32[] calldata expectedHashes,
+        uint256[] calldata cancelIds
+    ) external onlyInitialized(vaultStorage) {
+        if (approveIds.length != expectedHashes.length) revert ArrayLengthMismatch();
+        uint256 immutableDeadline = _immutableLockDeadline(vaultStorage);
+        for (uint256 i; i < approveIds.length; ++i) {
+            _approveScheduledPayment(vaultStorage, approveIds[i], expectedHashes[i], immutableDeadline);
+        }
+        for (uint256 i; i < cancelIds.length; ++i) {
+            _removeScheduledPayment(vaultStorage, cancelIds[i], true);
+        }
+        if (approveIds.length > 0) emit IBittyV1Owner.ScheduledPaymentsApproved(approveIds);
+        if (cancelIds.length > 0) emit IBittyV1PayoutOperator.ScheduledPaymentsRemoved(cancelIds);
+    }
+
+    function _approveScheduledPayment(
+        VaultStorage storage vaultStorage,
+        uint256 id,
+        bytes32 expectedHash,
+        uint256 immutableDeadline
+    ) private {
         IBittyV1Vault.ScheduledPayment memory scheduledPayment = vaultStorage.scheduledPayments[id];
         if (scheduledPayment.amount == 0) {
             revert ScheduledPaymentNotFound();
@@ -426,12 +521,12 @@ library VaultLogic {
         if (scheduledPayment.isImmutable) {
             // Approving an immutable proposal is when it becomes permanent-track, so its lock window
             // (re)starts here — the proposal's age must not shorten the owner's review period.
-            vaultStorage.scheduledPaymentEffectiveAt[id] = _immutableLockDeadline(vaultStorage);
+            vaultStorage.scheduledPaymentEffectiveAt[id] = immutableDeadline;
         }
-        emit IBittyV1Owner.ScheduledPaymentApproved(id);
+        // The batched {ScheduledPaymentsApproved} event is emitted by the caller.
     }
 
-    function _checkScheduledPayment(IBittyV1Vault.ScheduledPayment memory scheduledPayment) internal view {
+    function _checkScheduledPayment(IBittyV1Vault.ScheduledPayment calldata scheduledPayment) internal view {
         if (scheduledPayment.scheduledPaymentAddress == address(0)) {
             revert AddressZero();
         }
@@ -450,10 +545,21 @@ library VaultLogic {
         }
     }
 
-    function removeScheduledPayment(VaultStorage storage vaultStorage, uint256 id, bool byOwner)
+    /**
+     * @notice Remove one or more scheduled payments. The initialized check runs once for the batch.
+     *         Access control (owner-or-pending-proposer) is enforced by the facade + the per-item check.
+     */
+    function removeScheduledPayments(VaultStorage storage vaultStorage, uint256[] calldata ids, bool byOwner)
         external
         onlyInitialized(vaultStorage)
     {
+        for (uint256 i; i < ids.length; ++i) {
+            _removeScheduledPayment(vaultStorage, ids[i], byOwner);
+        }
+        if (ids.length > 0) emit IBittyV1PayoutOperator.ScheduledPaymentsRemoved(ids);
+    }
+
+    function _removeScheduledPayment(VaultStorage storage vaultStorage, uint256 id, bool byOwner) private {
         if (!byOwner && vaultStorage.scheduledPaymentPendingProposer[id] != msg.sender) {
             revert NotProposalOwner();
         }
@@ -470,7 +576,7 @@ library VaultLogic {
         // malicious entry can be caught and deleted before it can ever pay. The timer is per-id, so it goes
         // away with the entry (no shared-address exploit).
         delete vaultStorage.scheduledPaymentEffectiveAt[id];
-        emit IBittyV1PayoutOperator.ScheduledPaymentRemoved(id);
+        // The batched {ScheduledPaymentsRemoved} event is emitted by the caller.
     }
 
     /**
@@ -509,85 +615,66 @@ library VaultLogic {
             && block.timestamp >= vaultStorage.scheduledPaymentEffectiveAt[id];
     }
 
-    function setScheduledPaymentProtection(VaultStorage storage vaultStorage, uint256 protection)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        if (protection > MAX_SCHEDULED_PAYMENT_PROTECTION) {
-            revert ScheduledPaymentProtectionTooLong();
-        }
-        _setHigherSafer(
-            vaultStorage.riskConfig.scheduledPaymentProtection,
-            protection,
-            _effective(vaultStorage.riskConfig.changeTimelock)
-        );
-        emit IBittyV1Owner.ScheduledPaymentProtectionSet(protection);
-    }
-
-    function setWhitelistedProtection(VaultStorage storage vaultStorage, uint256 protection)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        _setHigherSafer(
-            vaultStorage.riskConfig.whitelistedProtection,
-            protection,
-            _effective(vaultStorage.riskConfig.changeTimelock)
-        );
-        emit IBittyV1Owner.WhitelistedProtectionSet(protection);
-    }
-
-    function setMaxSendValue(VaultStorage storage vaultStorage, uint256 value) external onlyInitialized(vaultStorage) {
-        _setCap(vaultStorage.riskConfig.maxSendValue, value, _effective(vaultStorage.riskConfig.changeTimelock));
-        emit IBittyV1Owner.MaxSendValueSet(value);
-    }
-
     /**
-     * @notice Set the rolling window over which {maxSendValue} caps the owner's cumulative one-off sends.
-     *         Longer = safer, so shortening/clearing it is a loosening and waits changeTimelock.
-     *         0 = per-transaction cap only (no rolling limit).
+     * @notice Owner: update any subset of the payment-risk controls in one call. A field left at the
+     *         {UNCHANGED} sentinel (type(uint256).max) is skipped entirely — no SLOAD, no SSTORE — so only
+     *         the fields actually changing cost storage gas. Every applied field still passes through the
+     *         loosen-waits-changeTimelock guard (loosening is delayed, tightening is immediate), so this is
+     *         not a blind struct copy. The effective changeTimelock is read once up front and used as the
+     *         delay for every field including changeTimelock itself, so a same-call reduction of the delay
+     *         cannot speed up the other loosenings.
      */
-    function setMaxSendInterval(VaultStorage storage vaultStorage, uint256 value)
+    function updatePaymentRisk(VaultStorage storage vaultStorage, IBittyV1Owner.PaymentRisk calldata u)
         external
         onlyInitialized(vaultStorage)
     {
-        _setHigherSafer(
-            vaultStorage.riskConfig.maxSendInterval, value, _effective(vaultStorage.riskConfig.changeTimelock)
-        );
-        emit IBittyV1Owner.MaxSendIntervalSet(value);
+        uint64 timelock = _effective(vaultStorage.riskConfig.changeTimelock);
+        if (u.scheduledPaymentProtection != UNCHANGED) {
+            if (u.scheduledPaymentProtection > MAX_SCHEDULED_PAYMENT_PROTECTION) {
+                revert ScheduledPaymentProtectionTooLong();
+            }
+            _setHigherSafer(vaultStorage.riskConfig.scheduledPaymentProtection, u.scheduledPaymentProtection, timelock);
+        }
+        if (u.whitelistedProtection != UNCHANGED) {
+            _setHigherSafer(vaultStorage.riskConfig.whitelistedProtection, u.whitelistedProtection, timelock);
+        }
+        if (u.maxSendValue != UNCHANGED) {
+            _setCap(vaultStorage.riskConfig.maxSendValue, u.maxSendValue, timelock);
+        }
+        // maxSendInterval: the rolling window over which maxSendValue caps cumulative one-off sends. Longer =
+        // safer, so shortening/clearing it is a loosening; 0 = per-transaction cap only.
+        if (u.maxSendInterval != UNCHANGED) {
+            _setHigherSafer(vaultStorage.riskConfig.maxSendInterval, u.maxSendInterval, timelock);
+        }
+        if (u.maxScheduledValue != UNCHANGED) {
+            _setCap(vaultStorage.riskConfig.maxScheduledValue, u.maxScheduledValue, timelock);
+        }
+        if (u.maxWhitelistedValue != UNCHANGED) {
+            _setCap(vaultStorage.riskConfig.maxWhitelistedValue, u.maxWhitelistedValue, timelock);
+        }
+        // changeTimelock: lowering it is a loosening (waits the current delay); raising is immediate. Keeps a
+        // compromised key from zeroing the delay and then loosening everything instantly.
+        if (u.changeTimelock != UNCHANGED) {
+            _setHigherSafer(vaultStorage.riskConfig.changeTimelock, u.changeTimelock, timelock);
+        }
+        emit IBittyV1Owner.PaymentRiskUpdated(u);
     }
 
-    function setMaxScheduledValue(VaultStorage storage vaultStorage, uint256 value)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        _setCap(vaultStorage.riskConfig.maxScheduledValue, value, _effective(vaultStorage.riskConfig.changeTimelock));
-        emit IBittyV1Owner.MaxScheduledValueSet(value);
-    }
-
-    function setMaxWhitelistedValue(VaultStorage storage vaultStorage, uint256 value)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        _setCap(vaultStorage.riskConfig.maxWhitelistedValue, value, _effective(vaultStorage.riskConfig.changeTimelock));
-        emit IBittyV1Owner.MaxWhitelistedValueSet(value);
-    }
-
-    function addPayoutOperator(VaultStorage storage vaultStorage, address payoutOperator)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        if (payoutOperator == address(0)) revert AddressZero();
-        if (vaultStorage.payoutOperators.contains(payoutOperator)) revert PayoutOperatorAlreadyRegistered();
-        vaultStorage.payoutOperators.add(payoutOperator);
-        emit IBittyV1Owner.PayoutOperatorAdded(payoutOperator);
-    }
-
-    function removePayoutOperator(VaultStorage storage vaultStorage, address payoutOperator)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        if (!vaultStorage.payoutOperators.remove(payoutOperator)) revert PayoutOperatorNotFound();
-        emit IBittyV1Owner.PayoutOperatorRemoved(payoutOperator);
+    function updatePayoutOperators(
+        VaultStorage storage vaultStorage,
+        address[] calldata addPayoutOperators,
+        address[] calldata removePayoutOperators
+    ) external onlyInitialized(vaultStorage) {
+        for (uint256 i; i < addPayoutOperators.length; ++i) {
+            if (addPayoutOperators[i] == address(0)) revert AddressZero();
+            if (vaultStorage.payoutOperators.contains(addPayoutOperators[i])) {
+                revert PayoutOperatorAlreadyRegistered();
+            }
+            vaultStorage.payoutOperators.add(addPayoutOperators[i]);
+        }
+        for (uint256 i; i < removePayoutOperators.length; ++i) {
+            if (!vaultStorage.payoutOperators.remove(removePayoutOperators[i])) revert PayoutOperatorNotFound();
+        }
     }
 
     function getPayoutOperators(VaultStorage storage vaultStorage) external view returns (address[] memory) {
@@ -596,21 +683,6 @@ library VaultLogic {
 
     function isPayoutOperator(VaultStorage storage vaultStorage, address account) external view returns (bool) {
         return vaultStorage.payoutOperators.contains(account);
-    }
-
-    /**
-     * @notice Change the loosening delay itself. Lowering it is a loosening, so it waits the current
-     *         timelock; raising it takes effect immediately. Prevents a compromised key from zeroing the delay
-     *         and then loosening everything instantly.
-     */
-    function setChangeTimelock(VaultStorage storage vaultStorage, uint256 value)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        _setHigherSafer(
-            vaultStorage.riskConfig.changeTimelock, value, _effective(vaultStorage.riskConfig.changeTimelock)
-        );
-        emit IBittyV1Owner.ChangeTimelockSet(value);
     }
 
     function getRiskConfig(VaultStorage storage vaultStorage)
@@ -651,10 +723,18 @@ library VaultLogic {
      *      irreversibility, and a compromised owner cannot plant a multi-year delay.
      */
     function _immutableLockDeadline(VaultStorage storage vaultStorage) private view returns (uint256) {
-        uint256 window = _effective(vaultStorage.riskConfig.scheduledPaymentProtection);
-        if (window < STANDARD_RISK_TIMELOCK) window = STANDARD_RISK_TIMELOCK;
-        if (window > HIGH_RISK_TIMELOCK) window = HIGH_RISK_TIMELOCK;
-        return block.timestamp + window;
+        return _immutableLockDeadlineFromWindow(_effective(vaultStorage.riskConfig.scheduledPaymentProtection));
+    }
+
+    /**
+     * @dev Same as {_immutableLockDeadline} but takes an already-read protection window, so a batch can read
+     *      the timelocked value once and reuse it across every item.
+     */
+    function _immutableLockDeadlineFromWindow(uint64 window) private view returns (uint256) {
+        uint256 w = window;
+        if (w < STANDARD_RISK_TIMELOCK) w = STANDARD_RISK_TIMELOCK;
+        if (w > HIGH_RISK_TIMELOCK) w = HIGH_RISK_TIMELOCK;
+        return block.timestamp + w;
     }
 
     /**
@@ -667,15 +747,33 @@ library VaultLogic {
     }
 
     /**
-     * @notice Add a whitelisted recipient under a fresh auto-increment id.
-     * @dev Access control (owner-only) is enforced by the facade.
+     * @notice Add one or more whitelisted recipients under fresh auto-increment ids. The initialized check
+     *         and the protection-window deadline are read once for the whole batch; arrays must be equal
+     *         length. Access control (owner-or-payout-operator) is enforced by the facade.
      */
-    function addWhitelistedRecipient(
+    function addWhitelistedRecipients(
+        VaultStorage storage vaultStorage,
+        address[] calldata recipients,
+        address[] calldata allowedAssets,
+        bool byOwner
+    ) external onlyInitialized(vaultStorage) returns (uint256[] memory ids) {
+        if (recipients.length != allowedAssets.length) revert ArrayLengthMismatch();
+        uint256 protectionDeadline = _protectionDeadline(_effective(vaultStorage.riskConfig.whitelistedProtection));
+        ids = new uint256[](recipients.length);
+        for (uint256 i; i < recipients.length; ++i) {
+            ids[i] =
+                _addWhitelistedRecipient(vaultStorage, recipients[i], allowedAssets[i], byOwner, protectionDeadline);
+        }
+        if (ids.length > 0) emit IBittyV1PayoutOperator.WhitelistedRecipientsSet(ids, recipients, allowedAssets);
+    }
+
+    function _addWhitelistedRecipient(
         VaultStorage storage vaultStorage,
         address recipient,
         address allowedAsset,
-        bool byOwner
-    ) external onlyInitialized(vaultStorage) returns (uint256 id) {
+        bool byOwner,
+        uint256 protectionDeadline
+    ) private returns (uint256 id) {
         if (recipient == address(0)) {
             revert AddressZero();
         }
@@ -685,22 +783,42 @@ library VaultLogic {
         if (!byOwner) {
             vaultStorage.whitelistedRecipientPendingProposer[id] = msg.sender;
         }
-        vaultStorage.whitelistedRecipientEffectiveAt[id] =
-            _protectionDeadline(_effective(vaultStorage.riskConfig.whitelistedProtection));
-        emit IBittyV1PayoutOperator.WhitelistedRecipientSet(id, recipient, allowedAsset);
+        vaultStorage.whitelistedRecipientEffectiveAt[id] = protectionDeadline;
+        // The batched {WhitelistedRecipientsSet} event is emitted by the caller.
     }
 
     /**
-     * @notice Update an existing whitelisted recipient. Reverts if `id` does not exist.
-     * @dev Access control (owner-or-payout-operator) is enforced by the facade.
+     * @notice Update one or more existing whitelisted recipients. The initialized check and protection-window
+     *         deadline are read once for the whole batch; arrays must be equal length. Reverts if any `id`
+     *         does not exist. Access control (owner-or-payout-operator) is enforced by the facade.
      */
-    function updateWhitelistedRecipient(
+    function updateWhitelistedRecipients(
+        VaultStorage storage vaultStorage,
+        uint256[] calldata ids,
+        address[] calldata recipients,
+        address[] calldata allowedAssets,
+        bool byOwner
+    ) external onlyInitialized(vaultStorage) {
+        if (ids.length != recipients.length || recipients.length != allowedAssets.length) {
+            revert ArrayLengthMismatch();
+        }
+        uint256 protectionDeadline = _protectionDeadline(_effective(vaultStorage.riskConfig.whitelistedProtection));
+        for (uint256 i; i < ids.length; ++i) {
+            _updateWhitelistedRecipient(
+                vaultStorage, ids[i], recipients[i], allowedAssets[i], byOwner, protectionDeadline
+            );
+        }
+        if (ids.length > 0) emit IBittyV1PayoutOperator.WhitelistedRecipientsSet(ids, recipients, allowedAssets);
+    }
+
+    function _updateWhitelistedRecipient(
         VaultStorage storage vaultStorage,
         uint256 id,
         address recipient,
         address allowedAsset,
-        bool byOwner
-    ) external onlyInitialized(vaultStorage) {
+        bool byOwner,
+        uint256 protectionDeadline
+    ) private {
         if (recipient == address(0)) {
             revert AddressZero();
         }
@@ -714,19 +832,35 @@ library VaultLogic {
         }
         vaultStorage.whitelistedRecipients[id] =
             IBittyV1Vault.WhitelistedRecipient({recipient: recipient, allowedAsset: allowedAsset});
-        vaultStorage.whitelistedRecipientEffectiveAt[id] =
-            _protectionDeadline(_effective(vaultStorage.riskConfig.whitelistedProtection));
-        emit IBittyV1PayoutOperator.WhitelistedRecipientSet(id, recipient, allowedAsset);
+        vaultStorage.whitelistedRecipientEffectiveAt[id] = protectionDeadline;
+        // The batched {WhitelistedRecipientsSet} event is emitted by the caller.
     }
 
     /**
-     * @notice Owner approval of a payout-operator-proposed whitelisted recipient.
-     * @dev Access control (owner-only) is enforced by the facade.
+     * @notice Owner review of payout-operator-proposed whitelisted recipients in one call: approve some
+     *         (bound to the exact content reviewed via expectedHashes[i]) and reject others by removing them
+     *         (cancelIds). Approves run before cancels. The initialized check runs once;
+     *         approveIds/expectedHashes must be equal length. Access control (owner-only) is enforced by the
+     *         facade, so all cancels are privileged owner removals.
      */
-    function approveWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id, bytes32 expectedHash)
-        external
-        onlyInitialized(vaultStorage)
-    {
+    function reviewWhitelistedRecipients(
+        VaultStorage storage vaultStorage,
+        uint256[] calldata approveIds,
+        bytes32[] calldata expectedHashes,
+        uint256[] calldata cancelIds
+    ) external onlyInitialized(vaultStorage) {
+        if (approveIds.length != expectedHashes.length) revert ArrayLengthMismatch();
+        for (uint256 i; i < approveIds.length; ++i) {
+            _approveWhitelistedRecipient(vaultStorage, approveIds[i], expectedHashes[i]);
+        }
+        for (uint256 i; i < cancelIds.length; ++i) {
+            _removeWhitelistedRecipient(vaultStorage, cancelIds[i], true);
+        }
+        if (approveIds.length > 0) emit IBittyV1Owner.WhitelistedRecipientsApproved(approveIds);
+        if (cancelIds.length > 0) emit IBittyV1PayoutOperator.WhitelistedRecipientsRemoved(cancelIds);
+    }
+
+    function _approveWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id, bytes32 expectedHash) private {
         IBittyV1Vault.WhitelistedRecipient memory recipient = vaultStorage.whitelistedRecipients[id];
         if (recipient.recipient == address(0)) {
             revert WhitelistedRecipientNotFound();
@@ -738,17 +872,25 @@ library VaultLogic {
             revert WhitelistedRecipientContentMismatch();
         }
         delete vaultStorage.whitelistedRecipientPendingProposer[id];
-        emit IBittyV1Owner.WhitelistedRecipientApproved(id);
+        // The batched {WhitelistedRecipientsApproved} event is emitted by the caller.
     }
 
     /**
-     * @notice Remove a whitelisted recipient. Reverts if `id` does not exist.
-     * @dev Access control (owner-or-pending-proposer) is enforced by the facade + the check below.
+     * @notice Remove one or more whitelisted recipients. The initialized check runs once for the batch.
+     *         Reverts if any `id` does not exist. Access control (owner-or-pending-proposer) is enforced by
+     *         the facade + the per-item check.
      */
-    function removeWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id, bool byOwner)
+    function removeWhitelistedRecipients(VaultStorage storage vaultStorage, uint256[] calldata ids, bool byOwner)
         external
         onlyInitialized(vaultStorage)
     {
+        for (uint256 i; i < ids.length; ++i) {
+            _removeWhitelistedRecipient(vaultStorage, ids[i], byOwner);
+        }
+        if (ids.length > 0) emit IBittyV1PayoutOperator.WhitelistedRecipientsRemoved(ids);
+    }
+
+    function _removeWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id, bool byOwner) private {
         address recipient = vaultStorage.whitelistedRecipients[id].recipient;
         if (recipient == address(0)) {
             revert WhitelistedRecipientNotFound();
@@ -761,7 +903,7 @@ library VaultLogic {
         // Removable at any time, including mid-protection-window — that is how a malicious recipient gets
         // caught and dropped before it can pay. The per-id timer is cleared with the entry.
         delete vaultStorage.whitelistedRecipientEffectiveAt[id];
-        emit IBittyV1PayoutOperator.WhitelistedRecipientRemoved(id);
+        // The batched {WhitelistedRecipientsRemoved} event is emitted by the caller.
     }
 
     /**
@@ -770,10 +912,39 @@ library VaultLogic {
      *      at set time — but a newly added recipient is time-locked by whitelistedProtection until its
      *      window elapses.
      */
-    function sendToWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id, address asset, uint256 amount)
-        external
-        onlyInitialized(vaultStorage)
-    {
+    /**
+     * @notice Pay one or more whitelisted recipients a discretionary amount from the vault's balance
+     *         (row `i` = ids[i]/assets[i]/amounts[i]). The initialized check and the risk cap are read once
+     *         for the whole batch; arrays must be equal length. Access control (owner-only) and any yield-
+     *         position sourcing are handled by the facade before this runs.
+     * @dev Not rate-limited — recipients are vetted at set time — but a newly added recipient is time-locked
+     *      by whitelistedProtection until its window elapses.
+     */
+    function sendToWhitelistedRecipients(
+        VaultStorage storage vaultStorage,
+        uint256[] calldata ids,
+        address[] calldata assets,
+        uint256[] calldata amounts
+    ) external onlyInitialized(vaultStorage) {
+        if (ids.length != assets.length || assets.length != amounts.length) {
+            revert ArrayLengthMismatch();
+        }
+        uint64 cap = _effective(vaultStorage.riskConfig.maxWhitelistedValue);
+        address[] memory recipients = new address[](ids.length);
+        for (uint256 i; i < ids.length; ++i) {
+            recipients[i] = _sendToWhitelistedRecipient(vaultStorage, ids[i], assets[i], amounts[i], cap);
+        }
+        // One event per batch; amounts equal the amounts paid (full amount per row).
+        if (ids.length > 0) emit IBittyV1Owner.WhitelistedRecipientsPaid(ids, recipients, assets, amounts);
+    }
+
+    function _sendToWhitelistedRecipient(
+        VaultStorage storage vaultStorage,
+        uint256 id,
+        address asset,
+        uint256 amount,
+        uint64 cap
+    ) private returns (address recipient) {
         if (amount == 0) {
             revert AmountIsZero();
         }
@@ -787,27 +958,83 @@ library VaultLogic {
         if (entry.allowedAsset != address(0) && asset != entry.allowedAsset) {
             revert WhitelistedRecipientAssetNotAllowed();
         }
-        _checkPaymentRiskCap(vaultStorage, _effective(vaultStorage.riskConfig.maxWhitelistedValue), asset, amount);
+        _checkPaymentRiskCap(vaultStorage, cap, asset, amount);
         _requireProtectionElapsed(vaultStorage.whitelistedRecipientEffectiveAt[id]);
         _payOut(vaultStorage, asset, amount, entry.recipient);
-        emit IBittyV1Owner.WhitelistedRecipientPaid(id, entry.recipient, asset, amount);
+        recipient = entry.recipient;
+        // The batched {WhitelistedRecipientsPaid} event is emitted by the caller.
     }
 
-    function getWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id)
+    function getWhitelistedRecipients(VaultStorage storage vaultStorage, uint256[] calldata ids)
         external
         view
-        returns (address recipient, address allowedAsset)
+        returns (address[] memory recipients, address[] memory allowedAssets)
     {
-        IBittyV1Vault.WhitelistedRecipient memory entry = vaultStorage.whitelistedRecipients[id];
-        return (entry.recipient, entry.allowedAsset);
+        recipients = new address[](ids.length);
+        allowedAssets = new address[](ids.length);
+        for (uint256 i; i < ids.length; ++i) {
+            IBittyV1Vault.WhitelistedRecipient memory entry = vaultStorage.whitelistedRecipients[ids[i]];
+            recipients[i] = entry.recipient;
+            allowedAssets[i] = entry.allowedAsset;
+        }
     }
 
-    function payScheduled(VaultStorage storage vaultStorage, uint256 id) external onlyInitialized(vaultStorage) {
+    /**
+     * @notice Pay each scheduled payment `ids[i]` its full scheduled amount. The initialized check runs
+     *         once for the whole batch; each entry is still individually trigger-gated.
+     */
+    function payScheduled(VaultStorage storage vaultStorage, uint256[] calldata ids)
+        external
+        onlyInitialized(vaultStorage)
+    {
+        uint256 n = ids.length;
+        uint256[] memory paidIds = new uint256[](n);
+        address[] memory addrs = new address[](n);
+        address[] memory assetsOut = new address[](n);
+        uint256[] memory amountsOut = new uint256[](n);
+        uint8[] memory counts = new uint8[](n);
+        uint256 paid;
+        for (uint256 i; i < n; ++i) {
+            (bool skipped, address addr, address asset, uint256 amount, uint8 count) =
+                _payScheduledById(vaultStorage, ids[i]);
+            // A pay-with-insufficient-balance entry with zero balance is skipped (no transfer, no slot
+            // consumed) — exclude it from the batch event.
+            if (skipped) continue;
+            paidIds[paid] = ids[i];
+            addrs[paid] = addr;
+            assetsOut[paid] = asset;
+            amountsOut[paid] = amount;
+            counts[paid] = count;
+            ++paid;
+        }
+        // Trim the over-allocated arrays down to the number actually paid.
+        assembly {
+            mstore(paidIds, paid)
+            mstore(addrs, paid)
+            mstore(assetsOut, paid)
+            mstore(amountsOut, paid)
+            mstore(counts, paid)
+        }
+        if (paid > 0) {
+            emit IBittyV1Vault.ScheduledPaymentsPaid(paidIds, addrs, assetsOut, amountsOut, counts);
+        }
+    }
+
+    function _payScheduledById(VaultStorage storage vaultStorage, uint256 id)
+        private
+        returns (
+            bool skipped,
+            address scheduledPaymentAddress,
+            address assetAddress,
+            uint256 paidAmount,
+            uint8 remainingPaymentCount
+        )
+    {
         IBittyV1Vault.ScheduledPayment storage scheduledPayment = vaultStorage.scheduledPayments[id];
         if (scheduledPayment.trigger != address(0) && msg.sender != scheduledPayment.trigger) {
             revert ScheduledPaymentTriggerError();
         }
-        _payScheduled(vaultStorage, scheduledPayment, id, scheduledPayment.amount);
+        return _payScheduled(vaultStorage, scheduledPayment, id, scheduledPayment.amount);
     }
 
     function payScheduledAmount(VaultStorage storage vaultStorage, uint256 id, uint256 amount)
@@ -824,7 +1051,27 @@ library VaultLogic {
         if (msg.sender != scheduledPayment.trigger) {
             revert ScheduledPaymentTriggerError();
         }
-        _payScheduled(vaultStorage, scheduledPayment, id, amount);
+        (bool skipped, address addr, address asset, uint256 paid, uint8 count) =
+            _payScheduled(vaultStorage, scheduledPayment, id, amount);
+        if (!skipped) _emitOnePaid(id, addr, asset, paid, count);
+    }
+
+    /**
+     * @dev Emit the batched {ScheduledPaymentsPaid} for a single payment (a one-element array), so the
+     *      single-payment paths share the batch event shape.
+     */
+    function _emitOnePaid(uint256 id, address addr, address asset, uint256 amount, uint8 count) private {
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = id;
+        address[] memory addrs = new address[](1);
+        addrs[0] = addr;
+        address[] memory assets = new address[](1);
+        assets[0] = asset;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
+        uint8[] memory counts = new uint8[](1);
+        counts[0] = count;
+        emit IBittyV1Vault.ScheduledPaymentsPaid(ids, addrs, assets, amounts, counts);
     }
 
     /**
@@ -847,34 +1094,42 @@ library VaultLogic {
         _accrueScheduledPayment(vaultStorage, scheduledPayment, id, true);
         scheduledPaymentAddress = scheduledPayment.scheduledPaymentAddress;
         assetAddress = scheduledPayment.assetAddress;
-        emit IBittyV1Vault.ScheduledPaymentPaid(
-            id, scheduledPaymentAddress, assetAddress, payAmount, scheduledPayment.remainingPaymentCount
-        );
+        _emitOnePaid(id, scheduledPaymentAddress, assetAddress, payAmount, scheduledPayment.remainingPaymentCount);
     }
 
+    /**
+     * @dev Returns skipped=true (with zeroed payload) when a pay-with-insufficient-balance entry has zero
+     *      vault balance; otherwise the payment details. The {ScheduledPaymentsPaid} event is emitted by the
+     *      caller so batch and single paths can share one event shape.
+     */
     function _payScheduled(
         VaultStorage storage vaultStorage,
         IBittyV1Vault.ScheduledPayment storage scheduledPayment,
         uint256 id,
         uint256 payAmount
-    ) internal {
+    )
+        internal
+        returns (
+            bool skipped,
+            address scheduledPaymentAddress,
+            address assetAddress,
+            uint256 paidAmount,
+            uint8 remainingPaymentCount
+        )
+    {
         if (_accrueScheduledPayment(vaultStorage, scheduledPayment, id, false)) {
-            return;
+            return (true, address(0), address(0), 0, 0);
         }
-        uint256 paidAmount = _transferMoney(
+        paidAmount = _transferMoney(
             vaultStorage,
             scheduledPayment.assetAddress,
             payAmount,
             scheduledPayment.scheduledPaymentAddress,
             scheduledPayment.payWithInsufficientBalance
         );
-        emit IBittyV1Vault.ScheduledPaymentPaid(
-            id,
-            scheduledPayment.scheduledPaymentAddress,
-            scheduledPayment.assetAddress,
-            paidAmount,
-            scheduledPayment.remainingPaymentCount
-        );
+        scheduledPaymentAddress = scheduledPayment.scheduledPaymentAddress;
+        assetAddress = scheduledPayment.assetAddress;
+        remainingPaymentCount = scheduledPayment.remainingPaymentCount;
     }
 
     /**

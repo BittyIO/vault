@@ -15,7 +15,7 @@ import {
     OwnershipNotTransferable,
     NoRescueTarget,
     RiskControlLevel,
-    AutoYieldRoute
+    AutoYield
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {
@@ -49,7 +49,7 @@ contract BittyV1VaultFactoryTest is Test {
     address[] public ammProtocols;
     address[] public intentProtocols;
     IBittyV1VaultFactory.AssetInput[] internal noDeposits;
-    AutoYieldRoute[] internal noYield;
+    AutoYield[] internal noYield;
     address public guardAddress;
     address public assetManagerAddress;
 
@@ -168,8 +168,8 @@ contract BittyV1VaultFactoryTest is Test {
         vm.prank(tx.origin);
         IBittyV1Guard(guardAddress).addLendingProtocols(_oneAddr(aaveV3Address));
 
-        AutoYieldRoute[] memory routes = new AutoYieldRoute[](1);
-        routes[0] = AutoYieldRoute({asset: makeAddr("unregisteredAsset"), protocol: aaveV3Address, isSupplying: true});
+        AutoYield[] memory routes = new AutoYield[](1);
+        routes[0] = AutoYield({asset: makeAddr("unregisteredAsset"), protocol: aaveV3Address, isSupplying: true});
 
         vm.prank(owner1);
         vm.expectRevert(NotRegistered.selector);
@@ -188,8 +188,8 @@ contract BittyV1VaultFactoryTest is Test {
 
     function test_ActivateRevertRouteProtocolNotRegistered() public {
         _initFactory();
-        AutoYieldRoute[] memory routes = new AutoYieldRoute[](1);
-        routes[0] = AutoYieldRoute({
+        AutoYield[] memory routes = new AutoYield[](1);
+        routes[0] = AutoYield({
             asset: wethAddress, // registered
             protocol: makeAddr("unregisteredLending"),
             isSupplying: true
@@ -1104,7 +1104,7 @@ contract ActivateVaultWithAssetsTest is Test {
 
     address[] internal noProtocols;
     IBittyV1VaultFactory.AssetInput[] internal noDeposits;
-    AutoYieldRoute[] internal noYield;
+    AutoYield[] internal noYield;
 
     function setUp() public {
         weth = new WETH();
@@ -1480,18 +1480,14 @@ contract ActivateVaultWithAssetsTest is Test {
         );
     }
 
-    function _route(address asset, address protocol, bool isSupplying)
-        internal
-        pure
-        returns (AutoYieldRoute[] memory arr)
-    {
-        arr = new AutoYieldRoute[](1);
-        arr[0] = AutoYieldRoute({asset: asset, protocol: protocol, isSupplying: isSupplying});
+    function _route(address asset, address protocol, bool isSupplying) internal pure returns (AutoYield[] memory arr) {
+        arr = new AutoYield[](1);
+        arr[0] = AutoYield({asset: asset, protocol: protocol, isSupplying: isSupplying});
     }
 
     function test_autoYieldRouteDrivesRegistration() public {
         // The route's asset and protocol are NOT in the explicit arrays; activation must register them.
-        AutoYieldRoute[] memory routes = _route(address(wbtc), address(lending), true);
+        AutoYield[] memory routes = _route(address(wbtc), address(lending), true);
 
         vm.prank(user);
         factory.activateVault(
@@ -1516,13 +1512,13 @@ contract ActivateVaultWithAssetsTest is Test {
         assertEq(lendingProtocols.length, 1, "route protocol registered");
         assertEq(lendingProtocols[0], address(lending));
 
-        (address protocol, bool isSupplying) = vault.getAutoYielding(address(wbtc));
-        assertEq(protocol, address(lending));
-        assertTrue(isSupplying);
+        (address[] memory protocols, bool[] memory isSupplyings) = vault.getAutoYieldings(_single(address(wbtc)));
+        assertEq(protocols[0], address(lending));
+        assertTrue(isSupplyings[0]);
     }
 
-    function test_zeroProtocolAutoYieldRouteReverts() public {
-        AutoYieldRoute[] memory routes = _route(address(wbtc), address(0), true);
+    function test_zeroProtocolAutoYieldReverts() public {
+        AutoYield[] memory routes = _route(address(wbtc), address(0), true);
 
         vm.prank(user);
         vm.expectRevert(AddressZero.selector);
@@ -1561,7 +1557,7 @@ contract ActivateVaultWithAssetsTest is Test {
         assertEq(vault.balance, 0, "no raw native ETH left in vault");
     }
 
-    function test_autoYieldRoutesInitialDeposit() public {
+    function test_autoYieldsInitialDeposit() public {
         uint256 amount = 5e8;
         wbtc.mint(user, amount);
         vm.prank(user);
@@ -1569,7 +1565,7 @@ contract ActivateVaultWithAssetsTest is Test {
 
         address vault = factory.vaultAddress(user);
         IBittyV1VaultFactory.AssetInput[] memory deposits = _deposits(_approved(wbtc, amount));
-        AutoYieldRoute[] memory routes = _route(address(wbtc), address(lending), true);
+        AutoYield[] memory routes = _route(address(wbtc), address(lending), true);
 
         vm.prank(user);
         factory.activateVault(
@@ -1585,7 +1581,7 @@ contract ActivateVaultWithAssetsTest is Test {
         );
 
         assertEq(
-            IVaultFull(payable(vault)).getSuppliedBalance(address(lending), address(wbtc)),
+            IVaultFull(payable(vault)).getSuppliedBalances(_single(address(lending)), _single(address(wbtc)))[0],
             amount,
             "initial deposit routed into the lending protocol"
         );

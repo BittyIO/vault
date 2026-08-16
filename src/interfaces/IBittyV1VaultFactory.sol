@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {RiskControlLevel, AutoYieldRoute} from "./IBittyV1Vault.sol";
+import {RiskControlLevel, AutoYield} from "./IBittyV1Vault.sol";
 
 error VaultAlreadyActivated();
 error NotDeployer();
@@ -43,26 +43,26 @@ interface IBittyV1VaultFactory {
      *         vault, on initialize, wraps native ETH into WETH and sweeps each route's spendable balance
      *         into its configured yield route atomically.
      * @dev Deposits and ETH land at the counterfactual vault address before CREATE2 deploys over it, so
-     *      initialize sees the funds. Each `autoYieldRoutes` entry registers its asset (as a vault asset)
+     *      initialize sees the funds. Each `autoYields` entry registers its asset (as a vault asset)
      *      and protocol (into the matching lending/staking set) if not already present, so those need not
      *      also appear in the explicit arrays; the vault's add functions guard-check them.
-     * @param autoYieldRoutes The default yield routes to configure (and route the initial deposit into).
+     * @param autoYields The default yield routes to configure (and route the initial deposit into).
      *        Each route's asset and protocol are auto-registered, so they need not be repeated in
      *        `assetAddresses` / `lendingProtocols` / `stakingProtocols`.
      * @param autoYieldTrigger The address (besides the vault) allowed to trigger auto-yield (0 = none).
      * @param deposits The assets to pull into the vault (via permit or prior approval).
      * @param assetAddresses Extra guard-registered assets/stable coins to configure. Assets already named
-     *        in `autoYieldRoutes` are registered automatically, so list here ONLY assets with no route.
+     *        in `autoYields` are registered automatically, so list here ONLY assets with no route.
      * @param lendingProtocols Extra lending protocols. A protocol used by a supplying route is registered
-     *        automatically, so list here ONLY lending protocols not referenced in `autoYieldRoutes`.
+     *        automatically, so list here ONLY lending protocols not referenced in `autoYields`.
      * @param stakingProtocols Extra staking protocols. A protocol used by a staking route is registered
-     *        automatically, so list here ONLY staking protocols not referenced in `autoYieldRoutes`.
+     *        automatically, so list here ONLY staking protocols not referenced in `autoYields`.
      * @param ammProtocols The addresses of the amm protocols.
      * @param intentProtocols The addresses of the intent protocols.
      * @param riskLevel The risk posture (None/Standard/Strict) whose hardcoded defaults seed the vault.
      */
     function activateVault(
-        AutoYieldRoute[] memory autoYieldRoutes,
+        AutoYield[] memory autoYields,
         address autoYieldTrigger,
         AssetInput[] memory deposits,
         address[] memory assetAddresses,

@@ -26,7 +26,8 @@ import {
     NotInitialized,
     AlreadyInitialized,
     AddingProtocolsDisabled,
-    AutoYieldRoute
+    ArrayLengthMismatch,
+    AutoYield
 } from "../interfaces/IBittyV1Vault.sol";
 import {AssetManagerStorage, AutoYieldConfig, VaultStorage} from "./Storages.sol";
 import {VaultLogic} from "./VaultLogic.sol";
@@ -101,28 +102,29 @@ library AssetManagerLogic {
         return logicStorage.clonedProtocols[protocol];
     }
 
-    function setMinimalBalance(AssetManagerStorage storage logicStorage, address assetAddress, uint256 minimalBalance)
-        external
-        onlyInitialized(logicStorage)
-    {
-        if (assetAddress == address(0)) revert AddressZero();
-        logicStorage.minimalBalances[assetAddress] = minimalBalance;
+    function setMinimalBalances(
+        AssetManagerStorage storage logicStorage,
+        address[] calldata assetAddresses,
+        uint256[] calldata minimalBalances
+    ) external onlyInitialized(logicStorage) {
+        uint256 n = assetAddresses.length;
+        if (n != minimalBalances.length) revert ArrayLengthMismatch();
+        for (uint256 i; i < n; ++i) {
+            if (assetAddresses[i] == address(0)) revert AddressZero();
+            logicStorage.minimalBalances[assetAddresses[i]] = minimalBalances[i];
+        }
     }
 
     /**
      * @notice Set the vault's single asset manager, replacing any previous one. The manager has full
      * trading access, bounded only by the token allowlist and per-asset minimal-balance floors.
      */
+    /// @dev address(0) clears the manager (the former {removeAssetManager}).
     function setAssetManager(AssetManagerStorage storage logicStorage, address assetManager)
         external
         onlyInitialized(logicStorage)
     {
-        if (assetManager == address(0)) revert AddressZero();
         logicStorage.assetManager = assetManager;
-    }
-
-    function removeAssetManager(AssetManagerStorage storage logicStorage) external onlyInitialized(logicStorage) {
-        logicStorage.assetManager = address(0);
     }
 
     // ============ Lending ============
@@ -197,12 +199,27 @@ library AssetManagerLogic {
         return IBittyV1LendingProtocol(lendingProtocol).withdraw(assetAddress, amount, recipient);
     }
 
-    function getSuppliedBalance(AssetManagerStorage storage logicStorage, address lendingProtocol, address assetAddress)
-        external
-        view
-        onlyInitialized(logicStorage)
-        returns (uint256)
-    {
+    /**
+     * @notice Supplied (lending) balances for each (lendingProtocols[i], assetAddresses[i]) pair. The
+     *         initialized check runs once for the whole batch; arrays must be equal length.
+     */
+    function getSuppliedBalances(
+        AssetManagerStorage storage logicStorage,
+        address[] calldata lendingProtocols,
+        address[] calldata assetAddresses
+    ) external view onlyInitialized(logicStorage) returns (uint256[] memory balances) {
+        if (lendingProtocols.length != assetAddresses.length) revert ArrayLengthMismatch();
+        balances = new uint256[](lendingProtocols.length);
+        for (uint256 i; i < lendingProtocols.length; ++i) {
+            balances[i] = _getSuppliedBalance(logicStorage, lendingProtocols[i], assetAddresses[i]);
+        }
+    }
+
+    function _getSuppliedBalance(
+        AssetManagerStorage storage logicStorage,
+        address lendingProtocol,
+        address assetAddress
+    ) private view returns (uint256) {
         address _clonedProtocol = logicStorage.clonedProtocols[lendingProtocol];
         if (_clonedProtocol == address(0)) {
             return 0;
@@ -283,10 +300,25 @@ library AssetManagerLogic {
         return IBittyV1StakingProtocol(stakingProtocol).unstake(assetAddress, amount, recipient);
     }
 
-    function getStakedBalance(AssetManagerStorage storage logicStorage, address stakingProtocol, address assetAddress)
-        external
+    /**
+     * @notice Staked balances for each (stakingProtocols[i], assets[i]) pair. The initialized check runs
+     *         once for the whole batch; arrays must be equal length.
+     */
+    function getStakedBalances(
+        AssetManagerStorage storage logicStorage,
+        address[] calldata stakingProtocols,
+        address[] calldata assetAddresses
+    ) external view onlyInitialized(logicStorage) returns (uint256[] memory balances) {
+        if (stakingProtocols.length != assetAddresses.length) revert ArrayLengthMismatch();
+        balances = new uint256[](stakingProtocols.length);
+        for (uint256 i; i < stakingProtocols.length; ++i) {
+            balances[i] = _getStakedBalance(logicStorage, stakingProtocols[i], assetAddresses[i]);
+        }
+    }
+
+    function _getStakedBalance(AssetManagerStorage storage logicStorage, address stakingProtocol, address assetAddress)
+        private
         view
-        onlyInitialized(logicStorage)
         returns (uint256)
     {
         if (assetAddress == address(0)) {
@@ -335,23 +367,23 @@ library AssetManagerLogic {
      * never route funds anywhere the owner hasn't enabled. Re-validated again at execution time, so a
      * later protocol removal or deprecation disables the route rather than bypassing the check.
      */
-    function setAutoYielding(
-        AssetManagerStorage storage logicStorage,
-        address assetAddress,
-        address protocol,
-        bool isSupplying
-    ) external onlyInitialized(logicStorage) {
-        _setAutoYielding(logicStorage, assetAddress, protocol, isSupplying);
+    function setAutoYieldings(AssetManagerStorage storage logicStorage, AutoYield[] calldata routes)
+        external
+        onlyInitialized(logicStorage)
+    {
+        for (uint256 i; i < routes.length; ++i) {
+            _setAutoYielding(logicStorage, routes[i].asset, routes[i].protocol, routes[i].isSupplying);
+        }
     }
 
     /**
      * @dev Register an asset and yield protocol on the vault and set its default route. Used at
      *      initialization when routes may declare assets/protocols beyond the activation arrays.
      */
-    function registerAutoYieldRoute(
+    function registerAutoYield(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
-        AutoYieldRoute memory route
+        AutoYield memory route
     ) external onlyInitialized(logicStorage) {
         if (route.protocol == address(0)) revert AddressZero();
         VaultLogic.addAsset(vaultStorage, route.asset);
@@ -384,29 +416,47 @@ library AssetManagerLogic {
         logicStorage.autoYieldConfigs[assetAddress] = AutoYieldConfig({protocol: protocol, isSupplying: isSupplying});
     }
 
-    function getAutoYielding(AssetManagerStorage storage logicStorage, address assetAddress)
+    /**
+     * @notice Each asset's configured default yield route. protocols[i] == address(0) means no route.
+     */
+    function getAutoYieldings(AssetManagerStorage storage logicStorage, address[] calldata assetAddresses)
         external
         view
-        returns (address protocol, bool isSupplying)
+        returns (address[] memory protocols, bool[] memory isSupplyings)
     {
-        AutoYieldConfig storage cfg = logicStorage.autoYieldConfigs[assetAddress];
-        return (cfg.protocol, cfg.isSupplying);
+        protocols = new address[](assetAddresses.length);
+        isSupplyings = new bool[](assetAddresses.length);
+        for (uint256 i; i < assetAddresses.length; ++i) {
+            AutoYieldConfig storage cfg = logicStorage.autoYieldConfigs[assetAddresses[i]];
+            protocols[i] = cfg.protocol;
+            isSupplyings[i] = cfg.isSupplying;
+        }
     }
 
     /**
-     * @notice Sweep the vault's spendable wallet balance of `assetAddress` into its configured
-     * default yield route (supply or stake). Best-effort: a no-op (returns 0) when no route is
-     * configured or nothing is spendable, so the vault's {receive} can call it on every deposit
-     * without ever reverting. Not exposed as a standalone entry point — routing funds on demand must
-     * not be triggerable by third parties (a griefer could otherwise strand the asset manager's
-     * swap liquidity in a protocol).
-     * @dev Spendable excludes tokens reserved by open intent orders (they must stay liquid to settle)
-     * and the asset's minimalBalance, which doubles as the owner's liquid buffer for payments.
-     * @return amount The amount supplied/staked.
+     * @notice Sweep the vault's spendable wallet balance of each `assetAddresses[i]` into its configured
+     * default yield route (supply or stake). The initialized check runs once for the whole batch; each
+     * entry is best-effort — a no-op when no route is configured or nothing is spendable — so the vault's
+     * {receive} can call it on every deposit without ever reverting. Not exposed permissionlessly (the
+     * facade gates it), because routing funds on demand must not be triggerable by third parties (a griefer
+     * could otherwise strand the asset manager's swap liquidity in a protocol).
      */
-    function autoYield(AssetManagerStorage storage logicStorage, address assetAddress)
+    function autoYield(AssetManagerStorage storage logicStorage, address[] calldata assetAddresses)
         external
         onlyInitialized(logicStorage)
+    {
+        for (uint256 i; i < assetAddresses.length; ++i) {
+            _autoYield(logicStorage, assetAddresses[i]);
+        }
+    }
+
+    /**
+     * @dev Route one asset's spendable balance into its yield route. Spendable excludes tokens reserved by
+     *      open intent orders (they must stay liquid to settle) and the asset's minimalBalance (the owner's
+     *      liquid buffer for payments). Returns the amount supplied/staked.
+     */
+    function _autoYield(AssetManagerStorage storage logicStorage, address assetAddress)
+        private
         returns (uint256 amount)
     {
         AutoYieldConfig memory cfg = logicStorage.autoYieldConfigs[assetAddress];
@@ -486,8 +536,23 @@ library AssetManagerLogic {
         IBittyV1AMMProtocol(clone).claimAMMFees(data);
     }
 
-    function getLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes memory data)
-        external
+    /**
+     * @notice AMM liquidity for each (ammProtocols[i], data[i]) pair. Arrays must be equal length.
+     */
+    function getLiquidities(
+        AssetManagerStorage storage logicStorage,
+        address[] calldata ammProtocols,
+        bytes[] calldata data
+    ) external view returns (uint256[] memory liquidities) {
+        if (ammProtocols.length != data.length) revert ArrayLengthMismatch();
+        liquidities = new uint256[](ammProtocols.length);
+        for (uint256 i; i < ammProtocols.length; ++i) {
+            liquidities[i] = _getLiquidity(logicStorage, ammProtocols[i], data[i]);
+        }
+    }
+
+    function _getLiquidity(AssetManagerStorage storage logicStorage, address ammProtocol, bytes calldata data)
+        private
         view
         returns (uint256)
     {

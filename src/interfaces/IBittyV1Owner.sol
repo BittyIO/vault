@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {IBittyV1Vault} from "./IBittyV1Vault.sol";
+import {IBittyV1Vault, AutoYield} from "./IBittyV1Vault.sol";
 
 /**
  * @title IBittyV1Owner
@@ -12,6 +12,21 @@ import {IBittyV1Vault} from "./IBittyV1Vault.sol";
  *         {IBittyV1AssetManager}.
  */
 interface IBittyV1Owner {
+    /**
+     * @notice Input to {updatePaymentRisk}: the seven payment-risk controls. Set a field to
+     *         type(uint256).max ("UNCHANGED") to leave it as-is — those fields cost no storage access.
+     *         Any other value is applied through the loosen-waits-changeTimelock guard.
+     */
+    struct PaymentRisk {
+        uint256 scheduledPaymentProtection;
+        uint256 whitelistedProtection;
+        uint256 maxSendValue;
+        uint256 maxSendInterval;
+        uint256 maxScheduledValue;
+        uint256 maxWhitelistedValue;
+        uint256 changeTimelock;
+    }
+
     // ============ Events ============
     event AssetsUpdated(address[] addAssets, address[] removeAssets);
     event AssetsLocked();
@@ -20,28 +35,23 @@ interface IBittyV1Owner {
     event StakingProtocolsUpdated(address[] addStakingProtocols, address[] removeStakingProtocols);
     event AMMProtocolsUpdated(address[] addAMMProtocols, address[] removeAMMProtocols);
     event IntentProtocolsUpdated(address[] addIntentProtocols, address[] removeIntentProtocols);
-    event MinimalBalanceSet(address indexed asset, uint256 minimalBalance);
+    event MinimalBalancesSet(address[] assets, uint256[] minimalBalances);
     event AutoYieldTriggerSet(address indexed trigger);
     event AssetManagerSet(address indexed assetManager);
     // Ownership renounced: pending payouts cleared and the admin role instantly
     // dropped, leaving the vault ownerless. This is the ONLY renounce path
     // (there is no delayed default-admin transfer).
     event OwnershipRenounced(address indexed formerOwner);
-    event AssetManagerRemoved();
-    event PayoutOperatorAdded(address indexed payoutOperator);
-    event PayoutOperatorRemoved(address indexed payoutOperator);
-    event ScheduledPaymentProtectionSet(uint256 protectionDuration);
-    event WhitelistedProtectionSet(uint256 protectionDuration);
-    event MaxSendValueSet(uint256 value);
-    event MaxSendIntervalSet(uint256 value);
-    event MaxScheduledValueSet(uint256 value);
-    event MaxWhitelistedValueSet(uint256 value);
-    event ChangeTimelockSet(uint256 value);
-    event WhitelistedRecipientPaid(uint256 indexed id, address indexed recipient, address asset, uint256 amount);
-    // Owner approval of payout operator proposals (creation events live on {IBittyV1PayoutOperator}).
-    event ScheduledPaymentApproved(uint256 indexed id);
-    event WhitelistedRecipientApproved(uint256 indexed id);
-    event SendApproved(uint256 indexed id, address[] recipients, address[] assets, uint256[] amounts);
+    event PayoutOperatorsUpdated(address[] addPayoutOperators, address[] removePayoutOperators);
+    // One event for a whole {updatePaymentRisk} call; echoes the input (UNCHANGED fields carry the sentinel).
+    event PaymentRiskUpdated(PaymentRisk update);
+    // Batched: one event per batch call. No indexed fields; consumers decode the arrays.
+    event WhitelistedRecipientsPaid(uint256[] ids, address[] recipients, address[] assets, uint256[] amounts);
+    // Owner review of payout operator proposals (creation events live on {IBittyV1PayoutOperator}).
+    event ScheduledPaymentsApproved(uint256[] ids);
+    event WhitelistedRecipientsApproved(uint256[] ids);
+    // Approved send ids only; recipients/assets/amounts are recoverable from the matching {SendProposed}.
+    event SendsApproved(uint256[] ids);
 
     // ============ Vault config ============
     function updateAssets(address[] memory addAssets, address[] memory removeAssets) external;
@@ -90,28 +100,38 @@ interface IBittyV1Owner {
      */
     function renounceVaultOwnership(uint256 rescueScheduledPaymentId) external;
 
-    // ============ Protocol management ============
+    /**
+     * @notice Batch-set the lending protocols. Adds are applied before removes.
+     */
     function updateLendingProtocols(address[] memory addLendingProtocols, address[] memory removeLendingProtocols)
         external;
-    function updateStakingProtocols(address[] memory addStakingProtocols, address[] memory removeStakingProtocols)
-        external;
-    function updateAMMProtocols(address[] memory addAMMProtocols, address[] memory removeAMMProtocols) external;
-    function updateIntentProtocols(address[] memory addIntentProtocols, address[] memory removeIntentProtocols) external;
-
-    
-    function setMinimalBalance(address assetAddress, uint256 minimalBalance) external;
 
     /**
-     * @notice Set (or clear, protocol = address(0)) the asset's default yield route. Once set, the
-     *         vault auto-routes spendable balance of `assetAddress` into `protocol` on deposit — the
-     *         vault's {receive} sweeps freshly-wrapped ETH into the WETH route, so ETH deposits earn
-     *         by default. Routing is never a standalone entry point (that would let a griefer strand
-     *         the asset manager's swap liquidity). `isSupplying` picks the kind: true = lending supply,
-     *         false = staking stake; the protocol must already be registered on the vault for that
-     *         kind. The asset's minimalBalance is kept liquid (never auto-yielded), as are tokens
-     *         reserved by open intent orders.
+     * @notice Batch-set the staking protocols. Adds are applied before removes.
      */
-    function setAutoYielding(address assetAddress, address protocol, bool isSupplying) external;
+    function updateStakingProtocols(address[] memory addStakingProtocols, address[] memory removeStakingProtocols)
+        external;
+
+    /**
+     * @notice Batch-set the AMM protocols. Adds are applied before removes.
+     */
+    function updateAMMProtocols(address[] memory addAMMProtocols, address[] memory removeAMMProtocols) external;
+
+    /**
+     * @notice Batch-set the intent protocols. Adds are applied before removes.
+     */
+    function updateIntentProtocols(address[] memory addIntentProtocols, address[] memory removeIntentProtocols) external;
+
+    /**
+     * @notice Batch-set the per-asset minimal balance (the liquid buffer kept out of
+     *         auto-yield). One call for many assets; arrays must be equal length.
+     */
+    function setMinimalBalances(address[] calldata assetAddresses, uint256[] calldata minimalBalances) external;
+
+    /**
+     * @notice Batch-set the per-asset default yield route. One call for many assets; protocol = address(0) in a route clears that asset's route.
+     */
+    function setAutoYieldings(AutoYield[] calldata routes) external;
 
     /**
      * @notice Set (or clear, trigger = address(0)) the address allowed to call {IBittyV1Vault.autoYield}
@@ -127,55 +147,72 @@ interface IBittyV1Owner {
      */
     function setAssetManager(address assetManager) external;
 
-    function removeAssetManager() external;
-
-    // ============ Payout operators (owner-set) ============
+    /**
+     * @notice Add and/or remove payout operators in one call (like {updateLendingProtocols}). Each added
+     *         address must not already be registered and may not be the owner; each removed address must be
+     *         registered. Adds are applied before removes.
+     */
+    function updatePayoutOperators(address[] calldata addPayoutOperators, address[] calldata removePayoutOperators)
+        external;
 
     /**
-     * @notice Register a new payout operator. Does not remove other payout operators. The owner may not be
-     *         a payout operator. Reverts if already registered.
+     * @notice Owner: approve and/or cancel pending payout operator send proposals in one call (like
+     *         {updatePayoutOperators}). approveIds are executed immediately; cancelIds are dropped. Approves
+     *         are applied before cancels.
      */
-    function addPayoutOperator(address payoutOperator) external;
-
-    function removePayoutOperator(address payoutOperator) external;
-
-    // ============ Sending ============
-
-    function approveSend(uint256 id) external;
-
-    // ============ Payout operator approvals ============
+    function reviewSends(uint256[] calldata approveIds, uint256[] calldata cancelIds) external;
 
     /**
-     * @param expectedHash keccak256(abi.encode(the ScheduledPayment the owner reviewed)); the call
-     * reverts if the stored entry no longer matches, so a proposer cannot swap content before approval.
+     * @notice Owner: approve and/or reject payout operator scheduled-payment proposals in one call (like
+     *         {reviewSends}). approveIds are approved — each expectedHashes[i] is
+     *         keccak256(abi.encode(the ScheduledPayment the owner reviewed)) for approveIds[i], and a
+     *         mismatch reverts so a proposer cannot swap content before approval — while cancelIds are
+     *         removed. Approves run before cancels; approveIds/expectedHashes must be equal length.
      */
-    function approveScheduledPayment(uint256 id, bytes32 expectedHash) external;
-    /**
-     * @param expectedHash keccak256(abi.encode(the WhitelistedRecipient the owner reviewed)); the call
-     * reverts if the stored entry no longer matches, so a proposer cannot swap content before approval.
-     */
-    function approveWhitelistedRecipient(uint256 id, bytes32 expectedHash) external;
-
-    function setScheduledPaymentProtection(uint256 protection) external;
-    function setWhitelistedProtection(uint256 protection) external;
-    function setMaxSendValue(uint256 value) external;
-    function setMaxSendInterval(uint256 value) external;
-    function setMaxScheduledValue(uint256 value) external;
-    function setMaxWhitelistedValue(uint256 value) external;
-    function setChangeTimelock(uint256 value) external;
+    function reviewScheduledPayments(
+        uint256[] calldata approveIds,
+        bytes32[] calldata expectedHashes,
+        uint256[] calldata cancelIds
+    ) external;
 
     /**
-     * @notice Owner: pay a whitelisted recipient. May first source the funds from yield positions —
-     *         `stakingAmount` of `asset` is unstaked from `stakingProtocol` and `lendingAmount` withdrawn
-     *         from `lendingProtocol` into the vault before paying (`address(0)` / `0` = skip that leg).
+     * @notice Owner: approve and/or reject payout operator whitelisted-recipient proposals in one call (like
+     *         {reviewSends}). approveIds are approved — each expectedHashes[i] is
+     *         keccak256(abi.encode(the WhitelistedRecipient the owner reviewed)) for approveIds[i], and a
+     *         mismatch reverts so a proposer cannot swap content before approval — while cancelIds are
+     *         removed. Approves run before cancels; approveIds/expectedHashes must be equal length.
      */
-    function sendToWhitelistedRecipient(
-        uint256 id,
-        address asset,
-        uint256 amount,
-        address stakingProtocol,
-        uint256 stakingAmount,
-        address lendingProtocol,
-        uint256 lendingAmount
+    function reviewWhitelistedRecipients(
+        uint256[] calldata approveIds,
+        bytes32[] calldata expectedHashes,
+        uint256[] calldata cancelIds
+    ) external;
+
+    /**
+     * @notice Update any subset of the seven payment-risk controls in one call. Fields set to the UNCHANGED
+     *         sentinel (type(uint256).max) are left untouched (no storage access); the rest are applied
+     *         through the loosen-waits-changeTimelock guard. Cheaper than separate setters when changing two
+     *         or more, and never a blind copy — an in-flight (pending) timelocked change on an untouched
+     *         field is preserved.
+     */
+    function updatePaymentRisk(PaymentRisk calldata update) external;
+
+    /**
+     * @notice Owner: pay one or more whitelisted recipients in a single call. ids/assets/amounts must be
+     *         non-empty and equal length; row `i` pays `amounts[i]` of `assets[i]` to whitelisted recipient
+     *         `ids[i]`.
+     * @dev May first source the funds from yield positions: for row `i`, `stakingAmounts[i]` of `assets[i]`
+     *      is unstaked from `stakingProtocols[i]` and `lendingAmounts[i]` withdrawn from `lendingProtocols[i]`
+     *      into the vault before paying (`address(0)` / `0` = skip that leg). When any position array is
+     *      non-empty all four must equal `assets.length`; pass empty arrays for a plain vault-balance payout.
+     */
+    function sendToWhitelistedRecipients(
+        uint256[] calldata ids,
+        address[] calldata assets,
+        uint256[] calldata amounts,
+        address[] calldata stakingProtocols,
+        uint256[] calldata stakingAmounts,
+        address[] calldata lendingProtocols,
+        uint256[] calldata lendingAmounts
     ) external;
 }
