@@ -13,7 +13,7 @@ import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.so
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IBittyV1Vault, RiskControlLevel, AutoYieldRoute} from "../../src/interfaces/IBittyV1Vault.sol";
+import {IBittyV1Vault, RiskSettings, AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
 import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Protocol.sol";
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
 
@@ -42,7 +42,25 @@ contract TestVaultFork is Test {
     address[] public ammProtocols;
     address[] public intentProtocols;
     IBittyV1VaultFactory.AssetInput[] internal noDeposits;
-    AutoYieldRoute[] internal noYield;
+    AutoYield[] internal noYield;
+
+    // Single-item wrapper over the batch addScheduledPayments.
+    function _addScheduledPayment(IBittyV1Vault.ScheduledPayment memory sp) internal returns (uint256) {
+        IBittyV1Vault.ScheduledPayment[] memory arr = new IBittyV1Vault.ScheduledPayment[](1);
+        arr[0] = sp;
+        uint256[] memory ids = vault.addScheduledPayments(arr);
+        return ids.length == 0 ? 0 : ids[0];
+    }
+
+    function _u1(uint256 v) internal pure returns (uint256[] memory a) {
+        a = new uint256[](1);
+        a[0] = v;
+    }
+
+    function _a1(address v) internal pure returns (address[] memory a) {
+        a = new address[](1);
+        a[0] = v;
+    }
 
     function setUp() public {
         vm.createSelectFork("mainnet");
@@ -98,7 +116,7 @@ contract TestVaultFork is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vaultAddr = factory.vaultAddress(tx.origin);
         BittyV1Vault(payable(vaultAddr)).setAssetManager(assetManager);
@@ -137,13 +155,13 @@ contract TestVaultFork is Test {
         deal(mainnet.WETH, address(vault), amount);
 
         uint256 balanceBefore =
-            IVaultFull(payable(address(vault))).getSuppliedBalance(address(aaveProtocol), mainnet.WETH);
+            IVaultFull(payable(address(vault))).getSuppliedBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
         assertEq(balanceBefore, 0);
 
         IVaultFull(payable(address(vault))).supply(address(aaveProtocol), mainnet.WETH, amount);
 
         uint256 balanceAfter =
-            IVaultFull(payable(address(vault))).getSuppliedBalance(address(aaveProtocol), mainnet.WETH);
+            IVaultFull(payable(address(vault))).getSuppliedBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
         assertApproxEqAbs(balanceAfter, amount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
     }
@@ -161,7 +179,8 @@ contract TestVaultFork is Test {
         uint256 vaultBalanceAfter = IERC20(mainnet.WETH).balanceOf(address(vault));
         assertApproxEqAbs(vaultBalanceAfter - vaultBalanceBefore, withdrawAmount, 5);
 
-        uint256 remaining = IVaultFull(payable(address(vault))).getSuppliedBalance(address(aaveProtocol), mainnet.WETH);
+        uint256 remaining =
+            IVaultFull(payable(address(vault))).getSuppliedBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
         assertApproxEqAbs(remaining, supplyAmount - withdrawAmount, 10);
     }
 
@@ -170,12 +189,12 @@ contract TestVaultFork is Test {
         deal(mainnet.WETH, address(vault), stakeAmount);
 
         uint256 stakingBalanceBefore =
-            IVaultFull(payable(address(vault))).getStakedBalance(address(lidoProtocol), mainnet.WETH);
+            IVaultFull(payable(address(vault))).getStakedBalances(_a1(address(lidoProtocol)), _a1(mainnet.WETH))[0];
 
         IVaultFull(payable(address(vault))).stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
         uint256 stakingBalanceAfter =
-            IVaultFull(payable(address(vault))).getStakedBalance(address(lidoProtocol), mainnet.WETH);
+            IVaultFull(payable(address(vault))).getStakedBalances(_a1(address(lidoProtocol)), _a1(mainnet.WETH))[0];
         assertGt(stakingBalanceAfter, stakingBalanceBefore);
         assertApproxEqAbs(stakingBalanceAfter - stakingBalanceBefore, stakeAmount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
@@ -217,11 +236,13 @@ contract TestVaultFork is Test {
         IVaultFull(payable(address(vault))).supply(address(aaveProtocol), mainnet.WETH, amount);
 
         uint256 lendingBalance =
-            IVaultFull(payable(address(vault))).getSuppliedBalance(address(aaveProtocol), mainnet.WETH);
+            IVaultFull(payable(address(vault))).getSuppliedBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
         IVaultFull(payable(address(vault))).withdraw(address(aaveProtocol), mainnet.WETH, lendingBalance);
 
         assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(vault)), amount, 5);
-        assertEq(IVaultFull(payable(address(vault))).getSuppliedBalance(address(aaveProtocol), mainnet.WETH), 0);
+        assertEq(
+            IVaultFull(payable(address(vault))).getSuppliedBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0], 0
+        );
     }
 
     /**
@@ -266,7 +287,7 @@ contract TestVaultFork is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -274,7 +295,7 @@ contract TestVaultFork is Test {
         deal(mainnet.USDC, address(vault), 1000e6);
 
         IBittyV1Vault.ScheduledPayment memory scheduledPayment = IBittyV1Vault.ScheduledPayment({
-            scheduledPaymentAddress: address(this),
+            recipient: address(this),
             trigger: address(0),
             assetAddress: mainnet.USDC,
             amount: 100e6,
@@ -286,12 +307,12 @@ contract TestVaultFork is Test {
         });
 
         vm.prank(tx.origin);
-        uint256 testId = vault.addScheduledPayment(scheduledPayment);
+        uint256 testId = _addScheduledPayment(scheduledPayment);
 
         vm.warp(block.timestamp + 8 days);
 
         uint256 balanceBefore = IERC20(mainnet.USDC).balanceOf(address(this));
-        vault.payScheduled(testId);
+        vault.payScheduled(_u1(testId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
         uint256 balanceAfter = IERC20(mainnet.USDC).balanceOf(address(this));
         assertEq(balanceAfter - balanceBefore, 100e6);
     }
@@ -306,7 +327,7 @@ contract TestVaultFork is Test {
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
 
         IBittyV1Vault.ScheduledPayment memory scheduledPayment = IBittyV1Vault.ScheduledPayment({
-            scheduledPaymentAddress: scheduledPaymentAddr,
+            recipient: scheduledPaymentAddr,
             trigger: address(0),
             assetAddress: mainnet.WETH,
             amount: payAmount,
@@ -317,18 +338,19 @@ contract TestVaultFork is Test {
             payWithInsufficientBalance: false
         });
         vm.prank(tx.origin);
-        uint256 salaryId = vault.addScheduledPayment(scheduledPayment);
+        uint256 salaryId = _addScheduledPayment(scheduledPayment);
         vm.warp(block.timestamp + 1 days);
 
         uint256 scheduledPaymentBefore = IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr);
 
         IVaultFull(payable(address(vault))).withdraw(address(aaveProtocol), mainnet.WETH, payAmount);
-        vault.payScheduled(salaryId);
+        vault.payScheduled(_u1(salaryId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
 
         uint256 scheduledPaymentAfter = IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr);
         assertEq(scheduledPaymentAfter - scheduledPaymentBefore, payAmount);
 
-        uint256 remaining = IVaultFull(payable(address(vault))).getSuppliedBalance(address(aaveProtocol), mainnet.WETH);
+        uint256 remaining =
+            IVaultFull(payable(address(vault))).getSuppliedBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
         assertGe(remaining, supplyAmount - payAmount);
     }
 
@@ -345,7 +367,7 @@ contract TestVaultFork is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vaultAddr = factory.vaultAddress(customOwner);
         BittyV1Vault(payable(vaultAddr)).setAssetManager(customAssetManager);

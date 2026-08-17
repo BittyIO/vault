@@ -7,31 +7,70 @@ import {IBittyV1Vault} from "./IBittyV1Vault.sol";
  * @title IBittyV1PayoutOperator
  * @notice The payment-creation surface: scheduled payments, whitelisted recipients and one-off sends.
  *         Callable by the owner (DEFAULT_ADMIN_ROLE) — takes effect immediately — or the vault's
- *         payout operator (set via {IBittyV1Owner.addPayoutOperator}) — stored pending until the owner approves it
- *         (the approve* / approveSend functions on {IBittyV1Owner}). Implemented by {BittyV1Vault}.
+ *         payout operator (set via {IBittyV1Owner.updatePayoutOperators}) — stored pending until the owner
+ *         approves it (the approve* / reviewSends functions on {IBittyV1Owner}). Implemented by {BittyV1Vault}.
  */
 interface IBittyV1PayoutOperator {
-    event ScheduledPaymentAdded(uint256 indexed id, IBittyV1Vault.ScheduledPayment scheduledPayment);
-    event ScheduledPaymentUpdated(uint256 indexed id, IBittyV1Vault.ScheduledPayment scheduledPayment);
-    event ScheduledPaymentRemoved(uint256 indexed id);
-    event WhitelistedRecipientSet(uint256 indexed id, address recipient, address allowedAsset);
-    event WhitelistedRecipientRemoved(uint256 indexed id);
+    // Batched: one event per batch call carries every affected id (and payload), instead of one event
+    // per item — cheaper gas. No indexed fields; consumers decode the arrays.
+    event ScheduledPaymentsAdded(uint256[] ids, IBittyV1Vault.ScheduledPayment[] scheduledPayments);
+    event ScheduledPaymentsUpdated(uint256[] ids, IBittyV1Vault.ScheduledPayment[] scheduledPayments);
+    event ScheduledPaymentsRemoved(uint256[] ids);
+    event WhitelistedRecipientsSet(uint256[] ids, address[] recipients, address[] allowedAssets);
+    event WhitelistedRecipientsRemoved(uint256[] ids);
+    // One send proposal per call, so this stays singular.
     event SendProposed(
         uint256 indexed id, address indexed proposer, address[] recipients, address[] assets, uint256[] amounts
     );
-    event SendCancelled(uint256 indexed id);
+    event SendsCancelled(uint256[] ids);
 
     // ============ Scheduled payments ============
 
-    function addScheduledPayment(IBittyV1Vault.ScheduledPayment calldata scheduledPayment) external returns (uint256 id);
-    function updateScheduledPayment(uint256 id, IBittyV1Vault.ScheduledPayment calldata scheduledPayment) external;
-    function removeScheduledPayment(uint256 id) external;
+    /**
+     * @notice Add one or more scheduled payments in a single call; returns the new ids in order.
+     */
+    function addScheduledPayments(IBittyV1Vault.ScheduledPayment[] calldata scheduledPayments)
+        external
+        returns (uint256[] memory ids);
+
+    /**
+     * @notice Update scheduled payments in a single call. ids[i] is set to scheduledPayments[i]; arrays must
+     *         be equal length.
+     */
+    function updateScheduledPayments(
+        uint256[] calldata ids,
+        IBittyV1Vault.ScheduledPayment[] calldata scheduledPayments
+    ) external;
+
+    /**
+     * @notice Remove one or more scheduled payments by id in a single call.
+     */
+    function removeScheduledPayments(uint256[] calldata ids) external;
 
     // ============ Whitelisted recipients ============
 
-    function addWhitelistedRecipient(address recipient, address allowedAsset) external returns (uint256 id);
-    function updateWhitelistedRecipient(uint256 id, address recipient, address allowedAsset) external;
-    function removeWhitelistedRecipient(uint256 id) external;
+    /**
+     * @notice Add one or more whitelisted recipients in a single call; returns the new ids in order. arrays
+     *         must be equal length.
+     */
+    function addWhitelistedRecipients(address[] calldata recipients, address[] calldata allowedAssets)
+        external
+        returns (uint256[] memory ids);
+
+    /**
+     * @notice Update whitelisted recipients in a single call. ids[i] is set to (recipients[i],
+     *         allowedAssets[i]); arrays must be equal length.
+     */
+    function updateWhitelistedRecipients(
+        uint256[] calldata ids,
+        address[] calldata recipients,
+        address[] calldata allowedAssets
+    ) external;
+
+    /**
+     * @notice Remove one or more whitelisted recipients by id in a single call.
+     */
+    function removeWhitelistedRecipients(uint256[] calldata ids) external;
 
     // ============ One-off sends ============
 
@@ -56,7 +95,7 @@ interface IBittyV1PayoutOperator {
     ) external;
 
     /**
-     * @notice Owner, or the payout operator who proposed it: cancel a pending one-off send.
+     * @notice Owner, or the payout operator who proposed them: cancel pending one-off sends by id.
      */
-    function cancelSend(uint256 id) external;
+    function cancelSends(uint256[] calldata ids) external;
 }

@@ -61,8 +61,12 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         _assetManager.claimAMMFees(ammProtocol, data);
     }
 
-    function getLiquidity(address ammProtocol, bytes memory data) external view returns (uint256) {
-        return _assetManager.getLiquidity(ammProtocol, data);
+    function getLiquidities(address[] calldata ammProtocols, bytes[] calldata data)
+        external
+        view
+        returns (uint256[] memory liquidities)
+    {
+        return _assetManager.getLiquidities(ammProtocols, data);
     }
 
     // ============ Intent (gasless off-chain signing) ============
@@ -109,8 +113,12 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         _assetManager.withdraw(lendingProtocol, assetAddress, amount, address(this));
     }
 
-    function getSuppliedBalance(address lendingProtocol, address assetAddress) external view returns (uint256) {
-        return _assetManager.getSuppliedBalance(lendingProtocol, assetAddress);
+    function getSuppliedBalances(address[] calldata lendingProtocols, address[] calldata assetAddresses)
+        external
+        view
+        returns (uint256[] memory balances)
+    {
+        return _assetManager.getSuppliedBalances(lendingProtocols, assetAddresses);
     }
 
     // ============ Staking ============
@@ -123,8 +131,12 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         _assetManager.unstake(stakingProtocol, asset, amount, address(this));
     }
 
-    function getStakedBalance(address stakingProtocol, address asset) external view returns (uint256) {
-        return _assetManager.getStakedBalance(stakingProtocol, asset);
+    function getStakedBalances(address[] calldata stakingProtocols, address[] calldata assets)
+        external
+        view
+        returns (uint256[] memory balances)
+    {
+        return _assetManager.getStakedBalances(stakingProtocols, assets);
     }
 
     function getUnstakeRequestIds(address stakingProtocol) external view returns (uint256[] memory) {

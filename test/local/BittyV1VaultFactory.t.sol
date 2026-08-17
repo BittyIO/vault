@@ -13,8 +13,9 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {
     AddressZero,
     OwnershipNotTransferable,
-    RiskControlLevel,
-    AutoYieldRoute
+    NoRescueTarget,
+    RiskSettings,
+    AutoYield
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {
@@ -25,9 +26,6 @@ import {
 } from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {
-    IAccessControlDefaultAdminRules
-} from "openzeppelin-contracts/contracts/access/extensions/IAccessControlDefaultAdminRules.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
@@ -51,7 +49,7 @@ contract BittyV1VaultFactoryTest is Test {
     address[] public ammProtocols;
     address[] public intentProtocols;
     IBittyV1VaultFactory.AssetInput[] internal noDeposits;
-    AutoYieldRoute[] internal noYield;
+    AutoYield[] internal noYield;
     address public guardAddress;
     address public assetManagerAddress;
 
@@ -114,7 +112,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         vault = factory.vaultAddress(owner);
         if (assetManager != address(0)) {
@@ -160,7 +158,7 @@ contract BittyV1VaultFactoryTest is Test {
             _oneAddr(makeAddr("unregisteredStaking")),
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -170,8 +168,8 @@ contract BittyV1VaultFactoryTest is Test {
         vm.prank(tx.origin);
         IBittyV1Guard(guardAddress).addLendingProtocols(_oneAddr(aaveV3Address));
 
-        AutoYieldRoute[] memory routes = new AutoYieldRoute[](1);
-        routes[0] = AutoYieldRoute({asset: makeAddr("unregisteredAsset"), protocol: aaveV3Address, isSupplying: true});
+        AutoYield[] memory routes = new AutoYield[](1);
+        routes[0] = AutoYield({asset: makeAddr("unregisteredAsset"), protocol: aaveV3Address, isSupplying: true});
 
         vm.prank(owner1);
         vm.expectRevert(NotRegistered.selector);
@@ -184,14 +182,14 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
     function test_ActivateRevertRouteProtocolNotRegistered() public {
         _initFactory();
-        AutoYieldRoute[] memory routes = new AutoYieldRoute[](1);
-        routes[0] = AutoYieldRoute({
+        AutoYield[] memory routes = new AutoYield[](1);
+        routes[0] = AutoYield({
             asset: wethAddress, // registered
             protocol: makeAddr("unregisteredLending"),
             isSupplying: true
@@ -208,84 +206,55 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
-    }
-
-    function test_activatedVault_hasOneDayDefaultAdminDelay() public {
-        _initFactory();
-        BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
-        assertEq(vaultInstance.OWNER_TRANSFER_DELAY(), 1 days);
-        assertEq(vaultInstance.defaultAdminDelay(), 1 days);
     }
 
     function test_activatedVault_ownerIsAdminInstantly() public {
         _initFactory();
         BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
 
-        assertEq(vaultInstance.defaultAdmin(), owner1);
+        assertEq(vaultInstance.owner(), owner1);
         assertTrue(vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), owner1));
     }
 
     function test_activatedVault_ownershipNotTransferable() public {
         _initFactory();
         BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
+        bytes32 adminRole = vaultInstance.DEFAULT_ADMIN_ROLE();
 
         vm.prank(owner1);
         vm.expectRevert(OwnershipNotTransferable.selector);
-        vaultInstance.beginDefaultAdminTransfer(owner2);
+        vaultInstance.grantRole(adminRole, owner2);
 
-        (address pendingAdmin,) = vaultInstance.pendingDefaultAdmin();
-        assertEq(pendingAdmin, address(0));
-        assertEq(vaultInstance.defaultAdmin(), owner1);
+        assertEq(vaultInstance.owner(), owner1);
     }
 
-    function test_activatedVault_renounceRequiresOneDayDelay() public {
+    function test_activatedVault_delayedRenounceDisabled() public {
         _initFactory();
         BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
         bytes32 adminRole = vaultInstance.DEFAULT_ADMIN_ROLE();
 
+        // Renounce is only via renounceVaultOwnership(); renounceRole is disabled.
         vm.prank(owner1);
-        vaultInstance.beginDefaultAdminTransfer(address(0));
-
-        (, uint48 schedule) = vaultInstance.pendingDefaultAdmin();
-        vm.warp(block.timestamp + 1 days - 1);
-        vm.prank(owner1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminDelay.selector, schedule
-            )
-        );
+        vm.expectRevert(OwnershipNotTransferable.selector);
         vaultInstance.renounceRole(adminRole, owner1);
 
-        vm.warp(block.timestamp + 2);
-        vm.prank(owner1);
-        vaultInstance.renounceRole(adminRole, owner1);
-
-        assertEq(vaultInstance.defaultAdmin(), address(0));
-        assertFalse(vaultInstance.hasRole(adminRole, owner1));
+        assertEq(vaultInstance.owner(), owner1);
+        assertTrue(vaultInstance.hasRole(adminRole, owner1));
     }
 
-    function test_activatedVault_cancelDefaultAdminTransfer() public {
+    function test_activatedVault_renounceVaultOwnershipRequiresRescue() public {
         _initFactory();
         BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
-        bytes32 adminRole = vaultInstance.DEFAULT_ADMIN_ROLE();
 
-        vm.startPrank(owner1);
-        vaultInstance.beginDefaultAdminTransfer(address(0));
-        vaultInstance.cancelDefaultAdminTransfer();
-        vm.stopPrank();
-
-        // A cancelled renounce leaves the owner's role untouched even after the delay elapses.
-        (, uint48 schedule) = vaultInstance.pendingDefaultAdmin();
-        assertEq(schedule, 0);
-        vm.warp(block.timestamp + 1 days + 1);
+        // With no locked immutable scheduled payment to keep paying a safe
+        // address, renounce would strand the funds, so it reverts and the vault
+        // stays owned.
         vm.prank(owner1);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminDelay.selector, 0)
-        );
-        vaultInstance.renounceRole(adminRole, owner1);
-        assertEq(vaultInstance.defaultAdmin(), owner1);
+        vm.expectRevert(NoRescueTarget.selector);
+        vaultInstance.renounceVaultOwnership(1);
+        assertEq(vaultInstance.owner(), owner1);
     }
 
     function test_factoryRevertsIfAddressZero() public {
@@ -327,7 +296,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -365,7 +334,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -409,7 +378,7 @@ contract BittyV1VaultFactoryTest is Test {
                 stakingProtocols,
                 ammProtocols,
                 intentProtocols,
-                RiskControlLevel.Zero
+                RiskSettings(0, 0, 0, 0)
             );
         }
     }
@@ -433,7 +402,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -451,7 +420,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -469,7 +438,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             invalidAMMProviderArray,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -487,7 +456,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             invalidIntentProviderArray,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -510,7 +479,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             selectedIntentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vault = factory.vaultAddress(owner1);
 
@@ -542,7 +511,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             selectedIntentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vault = factory.vaultAddress(owner1);
 
@@ -576,7 +545,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             sel,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vault = factory.vaultAddress(owner1);
 
@@ -608,7 +577,7 @@ contract BittyV1VaultFactoryTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vault = factory.vaultAddress(owner1);
 
@@ -662,7 +631,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertTrue(factory.vaultAddress(owner1).code.length > 0, "Vault should be activated");
@@ -698,7 +667,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertTrue(factory.vaultAddress(owner1).code.length > 0, "Vault should be activated");
@@ -741,7 +710,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             multipleAMMProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertTrue(factory.vaultAddress(owner1).code.length > 0, "Vault should be activated");
@@ -764,7 +733,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -785,7 +754,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -811,7 +780,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -837,7 +806,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             mixedAMMProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -867,7 +836,7 @@ contract BittyV1VaultFactoryTest is Test {
                 stakingProtocols,
                 ammProtocols,
                 intentProtocols,
-                RiskControlLevel.Zero
+                RiskSettings(0, 0, 0, 0)
             );
         } else {
             vm.etch(computedAddr, minimalBytecode);
@@ -883,7 +852,7 @@ contract BittyV1VaultFactoryTest is Test {
                     stakingProtocols,
                     ammProtocols,
                     intentProtocols,
-                    RiskControlLevel.Zero
+                    RiskSettings(0, 0, 0, 0)
                 );
             }
         }
@@ -948,7 +917,7 @@ contract BittyV1VaultFactoryTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address attackerVault = factory.vaultAddress(attacker);
 
@@ -974,7 +943,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -995,7 +964,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         assertTrue(expectedVault.code.length > 0);
     }
@@ -1033,7 +1002,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         BittyV1Vault vaultInstance = BittyV1Vault(payable(factory.vaultAddress(owner1)));
         vaultInstance.setAssetManager(assetManager1);
@@ -1050,7 +1019,7 @@ contract BittyV1VaultFactoryTest is Test {
 
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
         vm.prank(owner2);
-        vm.expectRevert(IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminRules.selector);
+        vm.expectRevert(OwnershipNotTransferable.selector);
         vault.grantRole(adminRole, owner2);
     }
 
@@ -1075,7 +1044,7 @@ contract BittyV1VaultFactoryTest is Test {
 
         bytes32 adminRole = BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE();
         vm.prank(owner1);
-        vm.expectRevert(IAccessControlDefaultAdminRules.AccessControlEnforcedDefaultAdminRules.selector);
+        vm.expectRevert(OwnershipNotTransferable.selector);
         BittyV1Vault(payable(vault)).grantRole(adminRole, makeAddr("other"));
     }
 
@@ -1106,7 +1075,7 @@ contract BittyV1VaultFactoryTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1135,7 +1104,7 @@ contract ActivateVaultWithAssetsTest is Test {
 
     address[] internal noProtocols;
     IBittyV1VaultFactory.AssetInput[] internal noDeposits;
-    AutoYieldRoute[] internal noYield;
+    AutoYield[] internal noYield;
 
     function setUp() public {
         weth = new WETH();
@@ -1229,7 +1198,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertEq(wbtc.balanceOf(vault), amount, "vault received WBTC via permit");
@@ -1258,7 +1227,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         vm.stopPrank();
 
@@ -1287,7 +1256,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         vm.stopPrank();
 
@@ -1313,7 +1282,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertEq(wbtc.balanceOf(vault), wbtcAmount, "vault received WBTC");
@@ -1336,7 +1305,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertEq(weth.balanceOf(vault), ethAmount, "vault holds wrapped WETH");
@@ -1363,7 +1332,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertEq(wbtc.balanceOf(vault), amount, "transfer still succeeds via pre-set allowance");
@@ -1385,7 +1354,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1407,7 +1376,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1427,7 +1396,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1446,7 +1415,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         vm.expectRevert(VaultAlreadyActivated.selector);
@@ -1459,7 +1428,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         vm.stopPrank();
     }
@@ -1481,7 +1450,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1507,22 +1476,18 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
-    function _route(address asset, address protocol, bool isSupplying)
-        internal
-        pure
-        returns (AutoYieldRoute[] memory arr)
-    {
-        arr = new AutoYieldRoute[](1);
-        arr[0] = AutoYieldRoute({asset: asset, protocol: protocol, isSupplying: isSupplying});
+    function _route(address asset, address protocol, bool isSupplying) internal pure returns (AutoYield[] memory arr) {
+        arr = new AutoYield[](1);
+        arr[0] = AutoYield({asset: asset, protocol: protocol, isSupplying: isSupplying});
     }
 
     function test_autoYieldRouteDrivesRegistration() public {
         // The route's asset and protocol are NOT in the explicit arrays; activation must register them.
-        AutoYieldRoute[] memory routes = _route(address(wbtc), address(lending), true);
+        AutoYield[] memory routes = _route(address(wbtc), address(lending), true);
 
         vm.prank(user);
         factory.activateVault(
@@ -1534,7 +1499,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         IVaultFull vault = IVaultFull(payable(factory.vaultAddress(user)));
@@ -1547,13 +1512,13 @@ contract ActivateVaultWithAssetsTest is Test {
         assertEq(lendingProtocols.length, 1, "route protocol registered");
         assertEq(lendingProtocols[0], address(lending));
 
-        (address protocol, bool isSupplying) = vault.getAutoYielding(address(wbtc));
-        assertEq(protocol, address(lending));
-        assertTrue(isSupplying);
+        (address[] memory protocols, bool[] memory isSupplyings) = vault.getAutoYieldings(_single(address(wbtc)));
+        assertEq(protocols[0], address(lending));
+        assertTrue(isSupplyings[0]);
     }
 
-    function test_zeroProtocolAutoYieldRouteReverts() public {
-        AutoYieldRoute[] memory routes = _route(address(wbtc), address(0), true);
+    function test_zeroProtocolAutoYieldReverts() public {
+        AutoYield[] memory routes = _route(address(wbtc), address(0), true);
 
         vm.prank(user);
         vm.expectRevert(AddressZero.selector);
@@ -1566,7 +1531,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1585,14 +1550,14 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertEq(weth.balanceOf(vault), ethAmount, "deposited ETH wrapped to WETH by initialize");
         assertEq(vault.balance, 0, "no raw native ETH left in vault");
     }
 
-    function test_autoYieldRoutesInitialDeposit() public {
+    function test_autoYieldsInitialDeposit() public {
         uint256 amount = 5e8;
         wbtc.mint(user, amount);
         vm.prank(user);
@@ -1600,7 +1565,7 @@ contract ActivateVaultWithAssetsTest is Test {
 
         address vault = factory.vaultAddress(user);
         IBittyV1VaultFactory.AssetInput[] memory deposits = _deposits(_approved(wbtc, amount));
-        AutoYieldRoute[] memory routes = _route(address(wbtc), address(lending), true);
+        AutoYield[] memory routes = _route(address(wbtc), address(lending), true);
 
         vm.prank(user);
         factory.activateVault(
@@ -1612,11 +1577,11 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertEq(
-            IVaultFull(payable(vault)).getSuppliedBalance(address(lending), address(wbtc)),
+            IVaultFull(payable(vault)).getSuppliedBalances(_single(address(lending)), _single(address(wbtc)))[0],
             amount,
             "initial deposit routed into the lending protocol"
         );

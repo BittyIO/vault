@@ -6,7 +6,7 @@ import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {AddressZero, RiskControlLevel, AutoYieldRoute} from "./interfaces/IBittyV1Vault.sol";
+import {AddressZero, RiskSettings, AutoYield} from "./interfaces/IBittyV1Vault.sol";
 import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {BittyV1Vault} from "./BittyV1Vault.sol";
 import {
@@ -58,7 +58,7 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
      * @inheritdoc IBittyV1VaultFactory
      */
     function activateVault(
-        AutoYieldRoute[] memory autoYieldRoutes,
+        AutoYield[] memory autoYields,
         address autoYieldTrigger,
         AssetInput[] memory deposits,
         address[] memory assetAddresses,
@@ -66,9 +66,9 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
         address[] memory stakingProtocols,
         address[] memory ammProtocols,
         address[] memory intentProtocols,
-        RiskControlLevel riskLevel
+        RiskSettings memory riskSettings
     ) external payable override {
-        _checkGuard(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols, autoYieldRoutes);
+        _checkGuard(assetAddresses, lendingProtocols, stakingProtocols, ammProtocols, intentProtocols, autoYields);
 
         bytes32 salt = keccak256(abi.encodePacked(msg.sender));
         address vault = Clones.predictDeterministicAddress(vaultImplementation, salt, address(this));
@@ -101,8 +101,8 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
                 ammProtocols,
                 intentProtocols,
                 defiFacetAddress,
-                riskLevel,
-                autoYieldRoutes,
+                riskSettings,
+                autoYields,
                 autoYieldTrigger
             );
         emit VaultActivated(msg.sender);
@@ -119,7 +119,7 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
         address[] memory stakingProtocols,
         address[] memory ammProtocols,
         address[] memory intentProtocols,
-        AutoYieldRoute[] memory autoYieldRoutes
+        AutoYield[] memory autoYields
     ) internal view {
         IBittyV1Guard guard = IBittyV1Guard(guardAddress);
         for (uint256 i = 0; i < assetAddresses.length; i++) {
@@ -141,8 +141,8 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable {
             if (!guard.isIntentProtocolRegistered(intentProtocols[i])) revert NotRegistered();
         }
 
-        for (uint256 i = 0; i < autoYieldRoutes.length; i++) {
-            AutoYieldRoute memory r = autoYieldRoutes[i];
+        for (uint256 i = 0; i < autoYields.length; i++) {
+            AutoYield memory r = autoYields[i];
             if (r.protocol == address(0)) revert AddressZero();
             if (!guard.isAssetRegistered(r.asset) && !guard.isStableCoinRegistered(r.asset)) {
                 revert NotRegistered();

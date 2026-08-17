@@ -9,8 +9,8 @@ import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {
     IBittyV1Vault,
     ScheduledPaymentNotStartYet,
-    RiskControlLevel,
-    AutoYieldRoute
+    RiskSettings,
+    AutoYield
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {IBittyV1VaultFactory} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
@@ -37,9 +37,27 @@ contract VaultForKidsForkTest is Test {
 
     address[] internal assetAddresses;
     IBittyV1VaultFactory.AssetInput[] internal noDeposits;
-    AutoYieldRoute[] internal noYield;
+    AutoYield[] internal noYield;
 
     address public parentOwner;
+
+    // Single-item wrapper over the batch addScheduledPayments.
+    function _addScheduledPayment(IBittyV1Vault.ScheduledPayment memory sp) internal returns (uint256) {
+        IBittyV1Vault.ScheduledPayment[] memory arr = new IBittyV1Vault.ScheduledPayment[](1);
+        arr[0] = sp;
+        uint256[] memory ids = vault.addScheduledPayments(arr);
+        return ids.length == 0 ? 0 : ids[0];
+    }
+
+    function _u1(uint256 v) internal pure returns (uint256[] memory a) {
+        a = new uint256[](1);
+        a[0] = v;
+    }
+
+    function _a1(address v) internal pure returns (address[] memory a) {
+        a = new address[](1);
+        a[0] = v;
+    }
 
     function setUp() public {
         vm.createSelectFork("mainnet");
@@ -78,7 +96,7 @@ contract VaultForKidsForkTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vaultAddr = factory.vaultAddress(parentOwner);
 
@@ -93,14 +111,14 @@ contract VaultForKidsForkTest is Test {
         uint256 startTimestamp_
     ) internal pure returns (IBittyV1Vault.ScheduledPayment memory) {
         return IBittyV1Vault.ScheduledPayment({
-            scheduledPaymentAddress: scheduledPaymentAddress_,
+            recipient: scheduledPaymentAddress_,
             trigger: address(0),
             assetAddress: assetAddress_,
             amount: amount_,
-            remainingPaymentCount: type(uint8).max,
+            remainingPaymentCount: type(uint256).max,
             startTimestamp: startTimestamp_,
             paymentInterval: PAY_INTERVAL,
-            isImmutable: false,
+            isImmutable: true,
             payWithInsufficientBalance: true
         });
     }
@@ -123,8 +141,8 @@ contract VaultForKidsForkTest is Test {
         IBittyV1Vault.ScheduledPayment memory wethScheduledPayment =
             _makeScheduledPayment(ALICE_ADDRESS, mainnet.WETH, PAY_AMOUNT_WETH, EIGHTEEN_TIMESTAMP);
 
-        uint256 wbtcId = vault.addScheduledPayment(wbtcScheduledPayment);
-        uint256 wethId = vault.addScheduledPayment(wethScheduledPayment);
+        uint256 wbtcId = _addScheduledPayment(wbtcScheduledPayment);
+        uint256 wethId = _addScheduledPayment(wethScheduledPayment);
 
         uint256 totalWBTCBalance = PAY_COUNT * PAY_AMOUNT_WBTC + 1e5;
         uint256 totalWETHBalance = PAY_COUNT * PAY_AMOUNT_WETH + 0.01 ether;
@@ -132,30 +150,29 @@ contract VaultForKidsForkTest is Test {
         deal(mainnet.WETH, address(vault), totalWETHBalance);
 
         vm.expectRevert(ScheduledPaymentNotStartYet.selector);
-        vault.payScheduled(wbtcId);
+        vault.payScheduled(_u1(wbtcId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
 
-        // Step 3: parent gives up vault admin — no account holds DEFAULT_ADMIN_ROLE afterward
-        vm.startPrank(parentOwner);
-        vault.beginDefaultAdminTransfer(address(0));
-        vm.stopPrank();
-        vm.warp(block.timestamp + 1 days + 1);
+        // Step 3: parent gives up vault admin in one atomic renounceVaultOwnership().
+        // The immutable gifts must be locked (past their lock window, capped at
+        // 7 days) to survive as the rescue path, so let that window pass first.
+        vm.warp(block.timestamp + 7 days + 1);
         vm.prank(parentOwner);
-        vault.renounceRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner);
+        vault.renounceVaultOwnership(wbtcId);
         assertFalse(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner));
 
         vm.expectRevert();
-        vault.addScheduledPayment(wbtcScheduledPayment);
+        _addScheduledPayment(wbtcScheduledPayment);
 
         // Step 4: after age 18, the scheduled gifts pay out to the kids' configured addresses.
         vm.warp(EIGHTEEN_TIMESTAMP);
 
-        vault.payScheduled(wbtcId);
-        vault.payScheduled(wethId);
+        vault.payScheduled(_u1(wbtcId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+        vault.payScheduled(_u1(wethId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
 
         for (uint256 i = 1; i <= PAY_COUNT; i++) {
             vm.warp(EIGHTEEN_TIMESTAMP + i * PAY_INTERVAL);
-            vault.payScheduled(wbtcId);
-            vault.payScheduled(wethId);
+            vault.payScheduled(_u1(wbtcId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+            vault.payScheduled(_u1(wethId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
         }
         assertEq(IERC20(WBTC).balanceOf(ALICE_ADDRESS), totalWBTCBalance);
         assertEq(IERC20(mainnet.WETH).balanceOf(ALICE_ADDRESS), totalWETHBalance);
