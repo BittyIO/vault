@@ -8,7 +8,7 @@ import {
     InsufficientBalance,
     ArrayLengthMismatch
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {RiskControlLevel, AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
+import {RiskSettings, AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {
     InvalidLendingProtocol,
@@ -126,7 +126,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             _single(address(mockAmm)),
             intentProtocols,
             address(0),
-            RiskControlLevel.Zero,
+            RiskSettings(0, 0, 0, 0),
             new AutoYield[](0),
             address(0)
         );
@@ -154,7 +154,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             ammProtocols,
             intentProtocols,
             address(0),
-            RiskControlLevel.Zero,
+            RiskSettings(0, 0, 0, 0),
             new AutoYield[](0),
             address(0)
         );
@@ -465,7 +465,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             ammProtocols,
             intentProtocols,
             address(0),
-            RiskControlLevel.Zero,
+            RiskSettings(0, 0, 0, 0),
             new AutoYield[](0),
             address(0)
         );
@@ -789,7 +789,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
             _single(address(mockAmm)),
             intentProtocols,
             address(0),
-            RiskControlLevel.Zero,
+            RiskSettings(0, 0, 0, 0),
             new AutoYield[](0),
             address(0)
         );

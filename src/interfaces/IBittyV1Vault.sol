@@ -20,10 +20,9 @@ error ScheduledPaymentTriggerError();
 error ScheduledPaymentNotStartYet();
 error ScheduledPaymentStartTimestampInPast();
 error ScheduledPaymentInInterval();
-error ScheduledPaymentIntervalTooShort();
 error AssetAddressNotContract();
 error ProtectionPeriodNotEnded();
-error ScheduledPaymentProtectionTooLong();
+error PaymentProtectionTooLong();
 error PayMoreThanScheduledPaymentAmount();
 error PayScheduledPaymentAmountTriggerEmpty();
 
@@ -64,10 +63,11 @@ error ScheduledPaymentContentMismatch();
 error WhitelistedRecipientContentMismatch();
 error PendingSendNotFound();
 
-enum RiskControlLevel {
-    Zero,
-    Standard,
-    High
+struct RiskSettings {
+    uint64 newPaymentProtection;
+    uint64 maxSendValue;
+    uint64 maxSendInterval;
+    uint64 changeTimelock;
 }
 
 struct AutoYield {
@@ -93,18 +93,18 @@ interface IBittyV1Vault {
     // zero-balance entries are excluded). Single-payment paths emit a one-element array. No indexed fields.
     event ScheduledPaymentsPaid(
         uint256[] ids,
-        address[] scheduledPaymentAddresses,
+        address[] recipients,
         address[] assetAddresses,
         uint256[] amounts,
-        uint8[] remainingPaymentCounts
+        uint256[] remainingPaymentCounts
     );
 
     struct ScheduledPayment {
         // a more complex scheduledPayment contract can be implemented for advanced users out of this repo
-        address scheduledPaymentAddress;
-        // remaining number of payments; set to type(uint8).max (255) for an unlimited scheduled payment that
+        address recipient;
+        // remaining number of payments; set to type(uint256).max for an unlimited scheduled payment that
         // never decrements and so never runs out
-        uint8 remainingPaymentCount;
+        uint256 remainingPaymentCount;
         bool isImmutable;
         // if this is true, then the payment will not revert if the balance is insufficient
         bool payWithInsufficientBalance;
@@ -159,32 +159,18 @@ interface IBittyV1Vault {
     function isPayoutOperator(address account) external view returns (bool);
 
     /**
-     * @notice The risk-control preset chosen at activation (None/Standard/Strict). The live controls may
-     *         have been tuned since — see {getRiskConfig} — but this records the starting preset so the UI
-     *         can show it and offer a reset to its defaults.
-     */
-    function getRiskControlLevel() external view returns (RiskControlLevel);
-
-    /**
-     * @notice The vault's currently in-force payment risk controls (all zero = no controls). Caps are in
-     *         stablecoin whole tokens; a non-zero cap makes that payment path stablecoin-only.
+     * @notice The vault's currently in-force payment risk controls (all zero = no controls). `maxSendValue`
+     *         is in stablecoin whole tokens; a non-zero cap makes the owner one-off send path stablecoin-only.
      *         `changeTimelock` is the delay a loosening of any control must wait. A queued loosening is
      *         reflected here only once its delay has elapsed. `maxSendInterval` is the rolling window
      *         (seconds) over which `maxSendValue` caps the owner's CUMULATIVE one-off sends (0 = per-
-     *         transaction cap only).
+     *         transaction cap only). `newPaymentProtection` is the protection window applied to newly added
+     *         scheduled payments and whitelisted recipients.
      */
     function getRiskConfig()
         external
         view
-        returns (
-            uint64 scheduledPaymentProtection,
-            uint64 whitelistedProtection,
-            uint64 maxSendValue,
-            uint64 maxScheduledValue,
-            uint64 maxWhitelistedValue,
-            uint64 changeTimelock,
-            uint64 maxSendInterval
-        );
+        returns (uint64 newPaymentProtection, uint64 maxSendValue, uint64 changeTimelock, uint64 maxSendInterval);
 
     function getLendingProtocols() external view returns (address[] memory);
     function getStakingProtocols() external view returns (address[] memory);
@@ -239,25 +225,25 @@ interface IBittyV1Vault {
     /**
      * @notice Pay each scheduled payment `ids[i]` its full scheduled amount. Trigger-gated per entry if a
      *         trigger is set on it.
+     * @dev May first source each row's funds from yield positions: for row `i`, `stakingAmounts[i]` of the
+     *      payment's asset is unstaked from `stakingProtocols[i]` and `lendingAmounts[i]` withdrawn from
+     *      `lendingProtocols[i]` into the vault before paying (`address(0)` / `0` = skip that leg). The
+     *      staking and lending pairs are independently optional: an empty staking (or lending) pair skips
+     *      that leg, but a supplied pair must equal `ids.length`. Pass empty arrays for a plain
+     *      vault-balance payout.
      */
-    function payScheduled(uint256[] calldata ids) external;
+    function payScheduled(
+        uint256[] calldata ids,
+        address[] calldata stakingProtocols,
+        uint256[] calldata stakingAmounts,
+        address[] calldata lendingProtocols,
+        uint256[] calldata lendingAmounts
+    ) external;
 
     /**
      * @notice Pay a partial amount of a scheduled payment (requires a trigger to be set).
      */
     function payScheduledAmount(uint256 id, uint256 amount) external;
-
-    /**
-     * @notice Pay a scheduled payment straight out of a staked position (delivered to the configured
-     * payee). Trigger-gated like {payScheduled}.
-     */
-    function payScheduledFromStaking(uint256 id, address stakingProtocol) external;
-
-    /**
-     * @notice Pay a scheduled payment straight out of a supplied (lending) position (delivered to the
-     * configured payee). Trigger-gated like {payScheduled}.
-     */
-    function payScheduledFromLending(uint256 id, address lendingProtocol) external;
 
     /**
      * @notice Wrap any native ETH the vault holds into WETH. receive() auto-wraps incoming ETH, but ETH

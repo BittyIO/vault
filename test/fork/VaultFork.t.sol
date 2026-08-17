@@ -13,7 +13,7 @@ import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.so
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IBittyV1Vault, RiskControlLevel, AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
+import {IBittyV1Vault, RiskSettings, AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
 import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Protocol.sol";
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
 
@@ -116,7 +116,7 @@ contract TestVaultFork is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vaultAddr = factory.vaultAddress(tx.origin);
         BittyV1Vault(payable(vaultAddr)).setAssetManager(assetManager);
@@ -287,7 +287,7 @@ contract TestVaultFork is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -295,7 +295,7 @@ contract TestVaultFork is Test {
         deal(mainnet.USDC, address(vault), 1000e6);
 
         IBittyV1Vault.ScheduledPayment memory scheduledPayment = IBittyV1Vault.ScheduledPayment({
-            scheduledPaymentAddress: address(this),
+            recipient: address(this),
             trigger: address(0),
             assetAddress: mainnet.USDC,
             amount: 100e6,
@@ -312,7 +312,7 @@ contract TestVaultFork is Test {
         vm.warp(block.timestamp + 8 days);
 
         uint256 balanceBefore = IERC20(mainnet.USDC).balanceOf(address(this));
-        vault.payScheduled(_u1(testId));
+        vault.payScheduled(_u1(testId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
         uint256 balanceAfter = IERC20(mainnet.USDC).balanceOf(address(this));
         assertEq(balanceAfter - balanceBefore, 100e6);
     }
@@ -327,7 +327,7 @@ contract TestVaultFork is Test {
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
 
         IBittyV1Vault.ScheduledPayment memory scheduledPayment = IBittyV1Vault.ScheduledPayment({
-            scheduledPaymentAddress: scheduledPaymentAddr,
+            recipient: scheduledPaymentAddr,
             trigger: address(0),
             assetAddress: mainnet.WETH,
             amount: payAmount,
@@ -344,7 +344,7 @@ contract TestVaultFork is Test {
         uint256 scheduledPaymentBefore = IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr);
 
         IVaultFull(payable(address(vault))).withdraw(address(aaveProtocol), mainnet.WETH, payAmount);
-        vault.payScheduled(_u1(salaryId));
+        vault.payScheduled(_u1(salaryId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
 
         uint256 scheduledPaymentAfter = IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr);
         assertEq(scheduledPaymentAfter - scheduledPaymentBefore, payAmount);
@@ -367,7 +367,7 @@ contract TestVaultFork is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vaultAddr = factory.vaultAddress(customOwner);
         BittyV1Vault(payable(vaultAddr)).setAssetManager(customAssetManager);

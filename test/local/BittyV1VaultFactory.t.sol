@@ -14,7 +14,7 @@ import {
     AddressZero,
     OwnershipNotTransferable,
     NoRescueTarget,
-    RiskControlLevel,
+    RiskSettings,
     AutoYield
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
@@ -112,7 +112,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         vault = factory.vaultAddress(owner);
         if (assetManager != address(0)) {
@@ -158,7 +158,7 @@ contract BittyV1VaultFactoryTest is Test {
             _oneAddr(makeAddr("unregisteredStaking")),
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -182,7 +182,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -206,7 +206,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -296,7 +296,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -334,7 +334,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -378,7 +378,7 @@ contract BittyV1VaultFactoryTest is Test {
                 stakingProtocols,
                 ammProtocols,
                 intentProtocols,
-                RiskControlLevel.Zero
+                RiskSettings(0, 0, 0, 0)
             );
         }
     }
@@ -402,7 +402,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -420,7 +420,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -438,7 +438,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             invalidAMMProviderArray,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -456,7 +456,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             invalidIntentProviderArray,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -479,7 +479,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             selectedIntentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vault = factory.vaultAddress(owner1);
 
@@ -511,7 +511,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             selectedIntentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vault = factory.vaultAddress(owner1);
 
@@ -545,7 +545,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             sel,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vault = factory.vaultAddress(owner1);
 
@@ -577,7 +577,7 @@ contract BittyV1VaultFactoryTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address vault = factory.vaultAddress(owner1);
 
@@ -631,7 +631,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertTrue(factory.vaultAddress(owner1).code.length > 0, "Vault should be activated");
@@ -667,7 +667,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertTrue(factory.vaultAddress(owner1).code.length > 0, "Vault should be activated");
@@ -710,7 +710,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             multipleAMMProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertTrue(factory.vaultAddress(owner1).code.length > 0, "Vault should be activated");
@@ -733,7 +733,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -754,7 +754,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -780,7 +780,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -806,7 +806,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             mixedAMMProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -836,7 +836,7 @@ contract BittyV1VaultFactoryTest is Test {
                 stakingProtocols,
                 ammProtocols,
                 intentProtocols,
-                RiskControlLevel.Zero
+                RiskSettings(0, 0, 0, 0)
             );
         } else {
             vm.etch(computedAddr, minimalBytecode);
@@ -852,7 +852,7 @@ contract BittyV1VaultFactoryTest is Test {
                     stakingProtocols,
                     ammProtocols,
                     intentProtocols,
-                    RiskControlLevel.Zero
+                    RiskSettings(0, 0, 0, 0)
                 );
             }
         }
@@ -917,7 +917,7 @@ contract BittyV1VaultFactoryTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         address attackerVault = factory.vaultAddress(attacker);
 
@@ -943,7 +943,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -964,7 +964,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         assertTrue(expectedVault.code.length > 0);
     }
@@ -1002,7 +1002,7 @@ contract BittyV1VaultFactoryTest is Test {
             stakingProtocols,
             ammProtocols,
             intentProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         BittyV1Vault vaultInstance = BittyV1Vault(payable(factory.vaultAddress(owner1)));
         vaultInstance.setAssetManager(assetManager1);
@@ -1075,7 +1075,7 @@ contract BittyV1VaultFactoryTest is Test {
             new address[](0),
             new address[](0),
             new address[](0),
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1198,7 +1198,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertEq(wbtc.balanceOf(vault), amount, "vault received WBTC via permit");
@@ -1227,7 +1227,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         vm.stopPrank();
 
@@ -1256,7 +1256,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         vm.stopPrank();
 
@@ -1282,7 +1282,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertEq(wbtc.balanceOf(vault), wbtcAmount, "vault received WBTC");
@@ -1305,7 +1305,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertEq(weth.balanceOf(vault), ethAmount, "vault holds wrapped WETH");
@@ -1332,7 +1332,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertEq(wbtc.balanceOf(vault), amount, "transfer still succeeds via pre-set allowance");
@@ -1354,7 +1354,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1376,7 +1376,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1396,7 +1396,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1415,7 +1415,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         vm.expectRevert(VaultAlreadyActivated.selector);
@@ -1428,7 +1428,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
         vm.stopPrank();
     }
@@ -1450,7 +1450,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1476,7 +1476,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1499,7 +1499,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         IVaultFull vault = IVaultFull(payable(factory.vaultAddress(user)));
@@ -1531,7 +1531,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
     }
 
@@ -1550,7 +1550,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertEq(weth.balanceOf(vault), ethAmount, "deposited ETH wrapped to WETH by initialize");
@@ -1577,7 +1577,7 @@ contract ActivateVaultWithAssetsTest is Test {
             noProtocols,
             noProtocols,
             noProtocols,
-            RiskControlLevel.Zero
+            RiskSettings(0, 0, 0, 0)
         );
 
         assertEq(

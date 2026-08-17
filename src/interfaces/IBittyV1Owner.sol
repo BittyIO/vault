@@ -13,17 +13,14 @@ import {IBittyV1Vault, AutoYield} from "./IBittyV1Vault.sol";
  */
 interface IBittyV1Owner {
     /**
-     * @notice Input to {updatePaymentRisk}: the seven payment-risk controls. Set a field to
+     * @notice Input to {updatePaymentRisk}: the payment-risk controls. Set a field to
      *         type(uint256).max ("UNCHANGED") to leave it as-is — those fields cost no storage access.
      *         Any other value is applied through the loosen-waits-changeTimelock guard.
      */
     struct PaymentRisk {
-        uint256 scheduledPaymentProtection;
-        uint256 whitelistedProtection;
+        uint256 newPaymentProtection;
         uint256 maxSendValue;
         uint256 maxSendInterval;
-        uint256 maxScheduledValue;
-        uint256 maxWhitelistedValue;
         uint256 changeTimelock;
     }
 
@@ -44,7 +41,7 @@ interface IBittyV1Owner {
     event OwnershipRenounced(address indexed formerOwner);
     event PayoutOperatorsUpdated(address[] addPayoutOperators, address[] removePayoutOperators);
     // One event for a whole {updatePaymentRisk} call; echoes the input (UNCHANGED fields carry the sentinel).
-    event PaymentRiskUpdated(PaymentRisk update);
+    event PaymentRiskUpdated(PaymentRisk paymentRisk);
     // Batched: one event per batch call. No indexed fields; consumers decode the arrays.
     event WhitelistedRecipientsPaid(uint256[] ids, address[] recipients, address[] assets, uint256[] amounts);
     // Owner review of payout operator proposals (creation events live on {IBittyV1PayoutOperator}).
@@ -189,7 +186,7 @@ interface IBittyV1Owner {
     ) external;
 
     /**
-     * @notice Update any subset of the seven payment-risk controls in one call. Fields set to the UNCHANGED
+     * @notice Update any subset of the payment-risk controls in one call. Fields set to the UNCHANGED
      *         sentinel (type(uint256).max) are left untouched (no storage access); the rest are applied
      *         through the loosen-waits-changeTimelock guard. Cheaper than separate setters when changing two
      *         or more, and never a blind copy — an in-flight (pending) timelocked change on an untouched

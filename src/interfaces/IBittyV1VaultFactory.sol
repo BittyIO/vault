@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {RiskControlLevel, AutoYield} from "./IBittyV1Vault.sol";
+import {RiskSettings, AutoYield} from "./IBittyV1Vault.sol";
 
 error VaultAlreadyActivated();
 error NotDeployer();
@@ -59,7 +59,7 @@ interface IBittyV1VaultFactory {
      *        automatically, so list here ONLY staking protocols not referenced in `autoYields`.
      * @param ammProtocols The addresses of the amm protocols.
      * @param intentProtocols The addresses of the intent protocols.
-     * @param riskLevel The risk posture (None/Standard/Strict) whose hardcoded defaults seed the vault.
+     * @param riskSettings The payment-risk controls to seed the vault with.
      */
     function activateVault(
         AutoYield[] memory autoYields,
@@ -70,7 +70,7 @@ interface IBittyV1VaultFactory {
         address[] memory stakingProtocols,
         address[] memory ammProtocols,
         address[] memory intentProtocols,
-        RiskControlLevel riskLevel
+        RiskSettings memory riskSettings
     ) external payable;
 
     /**

@@ -11,7 +11,7 @@ import {
     ArrayLengthMismatch,
     OwnerAndPayoutOperatorMustDiffer,
     NotPayoutOperator,
-    RiskControlLevel,
+    RiskSettings,
     AutoYield
 } from "./interfaces/IBittyV1Vault.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
@@ -108,7 +108,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         address[] memory ammProtocols,
         address[] memory intentProtocols,
         address defiFacet,
-        RiskControlLevel riskLevel,
+        RiskSettings memory riskSettings,
         AutoYield[] memory autoYields,
         address autoYieldTrigger
     ) public initializer {
@@ -117,7 +117,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         __AccessControl_init();
         _initOwner(owner);
 
-        _vault.initialize(guardAddress, riskLevel);
+        _vault.initialize(guardAddress, riskSettings);
         if (assetAddresses.length > 0) {
             _vault.addAssets(assetAddresses);
         }
@@ -250,6 +250,13 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         }
     }
 
+    /**
+     * @dev ETH (address(0)) payments use WETH on yield-position sourcing paths.
+     */
+    function _payoutAsset(address assetAddress) private view returns (address) {
+        return assetAddress == address(0) ? _vault.weth : assetAddress;
+    }
+
     function reviewSends(uint256[] calldata approveIds, uint256[] calldata cancelIds)
         external
         override
@@ -290,67 +297,82 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         _vault.reviewScheduledPayments(approveIds, expectedHashes, cancelIds);
     }
 
-    function updatePaymentRisk(IBittyV1Owner.PaymentRisk calldata update)
+    function updatePaymentRisk(IBittyV1Owner.PaymentRisk calldata paymentRisk)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _vault.updatePaymentRisk(update);
+        _vault.updatePaymentRisk(paymentRisk);
     }
 
     function getRiskConfig()
         external
         view
-        returns (
-            uint64 scheduledPaymentProtection,
-            uint64 whitelistedProtection,
-            uint64 maxSendValue,
-            uint64 maxScheduledValue,
-            uint64 maxWhitelistedValue,
-            uint64 changeTimelock,
-            uint64 maxSendInterval
-        )
+        returns (uint64 newPaymentProtection, uint64 maxSendValue, uint64 changeTimelock, uint64 maxSendInterval)
     {
         return _vault.getRiskConfig();
     }
 
-    function getRiskControlLevel() external view returns (RiskControlLevel) {
-        return _vault.getRiskControlLevel();
+    /**
+     * @notice Pay each scheduled payment `ids[i]`, optionally sourcing each row's funds from yield positions
+     *         first. For row `i`, `stakingAmounts[i]` of the payment's asset is unstaked from
+     *         `stakingProtocols[i]` and `lendingAmounts[i]` withdrawn from `lendingProtocols[i]` into the
+     *         vault before the batched payout runs (`address(0)` / `0` = skip that leg). The staking and
+     *         lending pairs are independently optional: an empty pair skips that leg; a supplied pair must
+     *         equal `ids.length`. Pass empty arrays for a plain vault-balance payout.
+     */
+    function payScheduled(
+        uint256[] calldata ids,
+        address[] calldata stakingProtocols,
+        uint256[] calldata stakingAmounts,
+        address[] calldata lendingProtocols,
+        uint256[] calldata lendingAmounts
+    ) external {
+        _pullScheduledFromPositions(ids, stakingProtocols, stakingAmounts, lendingProtocols, lendingAmounts);
+        _vault.payScheduled(ids);
     }
 
-    function payScheduled(uint256[] calldata ids) external {
-        _vault.payScheduled(ids);
+    /**
+     * @dev Source each scheduled payment's funds from yield positions into the vault before paying. The
+     *      staking and lending pairs are independently optional — an empty pair skips that leg entirely; a
+     *      supplied pair must equal `ids.length`. Each row's asset is read from the scheduled payment config.
+     */
+    function _pullScheduledFromPositions(
+        uint256[] calldata ids,
+        address[] calldata stakingProtocols,
+        uint256[] calldata stakingAmounts,
+        address[] calldata lendingProtocols,
+        uint256[] calldata lendingAmounts
+    ) private {
+        _pullScheduledLeg(ids, stakingProtocols, stakingAmounts, true);
+        _pullScheduledLeg(ids, lendingProtocols, lendingAmounts, false);
+    }
+
+    function _pullScheduledLeg(
+        uint256[] calldata ids,
+        address[] calldata protocols,
+        uint256[] calldata amounts,
+        bool isStaking
+    ) private {
+        if (protocols.length == 0 && amounts.length == 0) {
+            return;
+        }
+        uint256 n = ids.length;
+        if (protocols.length != n || amounts.length != n) {
+            revert ArrayLengthMismatch();
+        }
+        for (uint256 i = 0; i < n; i++) {
+            address asset = _vault.scheduledPaymentAsset(ids[i]);
+            if (isStaking) {
+                _pullOneFromPositions(asset, protocols[i], amounts[i], address(0), 0);
+            } else {
+                _pullOneFromPositions(asset, address(0), 0, protocols[i], amounts[i]);
+            }
+        }
     }
 
     function payScheduledAmount(uint256 id, uint256 amount) external {
         _vault.payScheduledAmount(id, amount);
-    }
-
-    /**
-     * @notice Pay a scheduled payment straight out of a staked position; recipient is sourced from config.
-     * @dev Only works for protocols whose unstake settles synchronously to a recipient.
-     */
-    function payScheduledFromStaking(uint256 id, address stakingProtocol) external {
-        (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
-            _vault.accrueScheduledPaymentOnBehalf(id);
-        _assetManager.unstake(stakingProtocol, _payoutAsset(assetAddress), payAmount, scheduledPaymentAddress);
-    }
-
-    /**
-     * @notice Pay a scheduled payment straight out of a supplied (lending) position.
-     * @dev See {payScheduledFromStaking} for recipient-safety guarantees.
-     */
-    function payScheduledFromLending(uint256 id, address lendingProtocol) external {
-        (address scheduledPaymentAddress, address assetAddress, uint256 payAmount) =
-            _vault.accrueScheduledPaymentOnBehalf(id);
-        _assetManager.withdraw(lendingProtocol, _payoutAsset(assetAddress), payAmount, scheduledPaymentAddress);
-    }
-
-    /**
-     * @dev ETH (address(0)) scheduled payments use WETH on yield-position payout paths.
-     */
-    function _payoutAsset(address assetAddress) private view returns (address) {
-        return assetAddress == address(0) ? _vault.weth : assetAddress;
     }
 
     function addWhitelistedRecipients(address[] calldata recipients, address[] calldata allowedAssets)
@@ -449,7 +471,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        // The owner may never be a payout operator (hasRole lives here, not in the library).
         for (uint256 i; i < addPayoutOperators.length; ++i) {
             if (hasRole(DEFAULT_ADMIN_ROLE, addPayoutOperators[i])) revert OwnerAndPayoutOperatorMustDiffer();
         }
