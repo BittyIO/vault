@@ -41,6 +41,7 @@ interface IBittyV1Owner {
     event ScheduledPaymentsApproved(uint256[] ids);
     event WhitelistedRecipientsApproved(uint256[] ids);
     event SendsApproved(uint256[] ids);
+    event Retrieved721(address indexed contractAddress, uint256 indexed tokenId, address indexed to);
 
     /**
      * @notice Batch-set the assets. Adds are applied before removes.
@@ -214,4 +215,23 @@ interface IBittyV1Owner {
         address[] calldata lendingProtocols,
         uint256[] calldata lendingAmounts
     ) external;
+
+    /**
+     * @notice Owner: rescue a stray ERC-721 that was transferred into the vault. The vault implements no
+     *         onERC721Received, so safe transfers bounce — only plain transferFrom, unchecked mints and
+     *         airdrops can strand an NFT here; this is the sole way back out.
+     * @dev Two guards keep the rescue path from becoming a value exit that bypasses payment protections:
+     *      - Reverts ProtocolNFT when `contractAddress` is the position NFT of any guard-registered AMM
+     *        protocol (template or this vault's clone), so LP positions can never leave through it — even
+     *        after the protocol is removed from the vault or deprecated in the guard.
+     *      - Transfers via safeTransferFrom, never transferFrom: ERC-721 transferFrom shares its selector
+     *        with ERC-20 transferFrom, so the plain variant would move `tokenId` worth of any ERC-20.
+     *        ERC-20s do not implement safeTransferFrom, so they cannot be touched.
+     *      NFT rescue is deliberately outside the payment-protection envelope (no delay, no caps): nothing
+     *      of vault-accounted value can pass the guards above.
+     * @param contractAddress The ERC-721 contract holding the stray token.
+     * @param tokenId The token to retrieve.
+     * @param to The address to send the token to.
+     */
+    function retrieve721(address contractAddress, uint256 tokenId, address to) external;
 }

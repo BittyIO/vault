@@ -14,7 +14,8 @@ import {
     DisableRebalanceUntilTimestampTooEarly,
     DisableRebalanceUntilTimestampTooLong,
     InvalidAMMProtocol,
-    InvalidIntentProtocol
+    InvalidIntentProtocol,
+    ProtocolNFT
 } from "../interfaces/IBittyV1AssetManager.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -119,7 +120,6 @@ library AssetManagerLogic {
      * @notice Set the vault's single asset manager, replacing any previous one. The manager has full
      * trading access, bounded only by the token allowlist and per-asset minimal-balance floors.
      */
-    /// @dev address(0) clears the manager (the former {removeAssetManager}).
     function setAssetManager(AssetManagerStorage storage logicStorage, address assetManager)
         external
         onlyInitialized(logicStorage)
@@ -830,9 +830,8 @@ library AssetManagerLogic {
     }
 
     function _approveNFTIfNeeded(address protocol) private {
-        (bool success, bytes memory data) = protocol.staticcall(abi.encodeWithSignature("positionAssetManager()"));
-        if (!success || data.length < 32) return;
-        address nft = abi.decode(data, (address));
+        address nft = _positionNFT(protocol);
+        if (nft == address(0)) return;
         (bool success2, bytes memory result) =
             nft.staticcall(abi.encodeWithSignature("isApprovedForAll(address,address)", address(this), protocol));
         if (!success2 || result.length < 32) return;
@@ -840,5 +839,34 @@ library AssetManagerLogic {
         if (!approved) {
             nft.functionCall(abi.encodeWithSignature("setApprovalForAll(address,bool)", protocol, true));
         }
+    }
+
+    /**
+     * @notice Reverts when `nftContract` is the position NFT (e.g. Uniswap's NonfungiblePositionManager) of
+     *         any guard-registered AMM protocol — the registered template or this vault's clone of it.
+     * @dev Deliberately checked against the guard's FULL registry rather than the vault's enabled set: the
+     *      guard only ever adds/deprecates, so removing an AMM protocol from the vault (or deprecating it in
+     *      the guard) can never turn {IBittyV1Owner.retrieve721} into an LP-position exit. Both the template
+     *      and the clone are probed so the check holds whether positionAssetManager() is an immutable
+     *      (template answers) or per-clone storage (clone answers).
+     */
+    function checkNotProtocolNFT(AssetManagerStorage storage logicStorage, address nftContract) external view {
+        address[] memory protocols = logicStorage.guard.getAMMProtocols();
+        for (uint256 i = 0; i < protocols.length; i++) {
+            if (_positionNFT(protocols[i]) == nftContract) revert ProtocolNFT();
+            address clone = logicStorage.clonedProtocols[protocols[i]];
+            if (clone != address(0) && _positionNFT(clone) == nftContract) revert ProtocolNFT();
+        }
+    }
+
+    /**
+     * @dev The protocol's position NFT, or address(0) when it has none (probe fails or returns malformed
+     *      data — the right failure direction both for {_approveNFTIfNeeded}, which then skips approval, and
+     *      for {checkNotProtocolNFT}, where a non-AMM adapter simply never matches).
+     */
+    function _positionNFT(address protocol) private view returns (address) {
+        (bool success, bytes memory data) = protocol.staticcall(abi.encodeWithSignature("positionAssetManager()"));
+        if (!success || data.length < 32) return address(0);
+        return abi.decode(data, (address));
     }
 }

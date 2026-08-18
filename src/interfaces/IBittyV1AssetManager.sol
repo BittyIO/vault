@@ -12,6 +12,7 @@ error InvalidValidTo();
 error DisableRebalanceUntilTimestampTooEarly();
 error DisableRebalanceUntilTimestampTooLong();
 error RebalanceDisabled();
+error ProtocolNFT();
 
 /**
  * @title IBittyV1AssetManager
