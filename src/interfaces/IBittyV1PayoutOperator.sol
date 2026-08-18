@@ -11,20 +11,15 @@ import {IBittyV1Vault} from "./IBittyV1Vault.sol";
  *         approves it (the approve* / reviewSends functions on {IBittyV1Owner}). Implemented by {BittyV1Vault}.
  */
 interface IBittyV1PayoutOperator {
-    // Batched: one event per batch call carries every affected id (and payload), instead of one event
-    // per item — cheaper gas. No indexed fields; consumers decode the arrays.
     event ScheduledPaymentsAdded(uint256[] ids, IBittyV1Vault.ScheduledPayment[] scheduledPayments);
     event ScheduledPaymentsUpdated(uint256[] ids, IBittyV1Vault.ScheduledPayment[] scheduledPayments);
     event ScheduledPaymentsRemoved(uint256[] ids);
     event WhitelistedRecipientsSet(uint256[] ids, address[] recipients, address[] allowedAssets);
     event WhitelistedRecipientsRemoved(uint256[] ids);
-    // One send proposal per call, so this stays singular.
     event SendProposed(
         uint256 indexed id, address indexed proposer, address[] recipients, address[] assets, uint256[] amounts
     );
     event SendsCancelled(uint256[] ids);
-
-    // ============ Scheduled payments ============
 
     /**
      * @notice Add one or more scheduled payments in a single call; returns the new ids in order.
@@ -46,8 +41,6 @@ interface IBittyV1PayoutOperator {
      * @notice Remove one or more scheduled payments by id in a single call.
      */
     function removeScheduledPayments(uint256[] calldata ids) external;
-
-    // ============ Whitelisted recipients ============
 
     /**
      * @notice Add one or more whitelisted recipients in a single call; returns the new ids in order. arrays
@@ -71,8 +64,6 @@ interface IBittyV1PayoutOperator {
      * @notice Remove one or more whitelisted recipients by id in a single call.
      */
     function removeWhitelistedRecipients(uint256[] calldata ids) external;
-
-    // ============ One-off sends ============
 
     /**
      * @notice Owner: execute a batch of transfers immediately. Payout operator: queue the entire batch for

@@ -24,7 +24,6 @@ interface IBittyV1Owner {
         uint256 changeTimelock;
     }
 
-    // ============ Events ============
     event AssetsUpdated(address[] addAssets, address[] removeAssets);
     event AssetsLocked();
     event ProtocolsLocked();
@@ -35,24 +34,27 @@ interface IBittyV1Owner {
     event MinimalBalancesSet(address[] assets, uint256[] minimalBalances);
     event AutoYieldTriggerSet(address indexed trigger);
     event AssetManagerSet(address indexed assetManager);
-    // Ownership renounced: pending payouts cleared and the admin role instantly
-    // dropped, leaving the vault ownerless. This is the ONLY renounce path
-    // (there is no delayed default-admin transfer).
     event OwnershipRenounced(address indexed formerOwner);
     event PayoutOperatorsUpdated(address[] addPayoutOperators, address[] removePayoutOperators);
-    // One event for a whole {updatePaymentRisk} call; echoes the input (UNCHANGED fields carry the sentinel).
     event PaymentRiskUpdated(PaymentRisk paymentRisk);
-    // Batched: one event per batch call. No indexed fields; consumers decode the arrays.
     event WhitelistedRecipientsPaid(uint256[] ids, address[] recipients, address[] assets, uint256[] amounts);
-    // Owner review of payout operator proposals (creation events live on {IBittyV1PayoutOperator}).
     event ScheduledPaymentsApproved(uint256[] ids);
     event WhitelistedRecipientsApproved(uint256[] ids);
-    // Approved send ids only; recipients/assets/amounts are recoverable from the matching {SendProposed}.
     event SendsApproved(uint256[] ids);
 
-    // ============ Vault config ============
+    /**
+     * @notice Batch-set the assets. Adds are applied before removes.
+     */
     function updateAssets(address[] memory addAssets, address[] memory removeAssets) external;
+
+    /**
+     * @notice Disable adding assets.
+     */
     function disableAddingAssets() external;
+
+    /**
+     * @notice Disable adding protocols.
+     */
     function disableAddingProtocols() external;
 
     /**
