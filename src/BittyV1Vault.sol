@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {WETH} from "solmate/tokens/WETH.sol";
+import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
 import {IBittyV1Owner} from "./interfaces/IBittyV1Owner.sol";
 import {IBittyV1PayoutOperator} from "./interfaces/IBittyV1PayoutOperator.sol";
@@ -524,6 +525,17 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         _assetManager.addIntentProtocols(addIntentProtocols);
         _assetManager.removeIntentProtocols(removeIntentProtocols);
         emit IntentProtocolsUpdated(addIntentProtocols, removeIntentProtocols);
+    }
+
+    function retrieve721(address contractAddress, uint256 tokenId, address to)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        if (to == address(0)) revert AddressZero();
+        _assetManager.checkNotProtocolNFT(contractAddress);
+        IERC721(contractAddress).safeTransferFrom(address(this), to, tokenId);
+        emit Retrieved721(contractAddress, tokenId, to);
     }
 
     function wethAddress() external view returns (address) {

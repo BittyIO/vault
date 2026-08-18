@@ -54,6 +54,9 @@ import {
 import {RiskSettings, AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {MockERC721} from "solmate/test/utils/mocks/MockERC721.sol";
+import {ProtocolNFT} from "../../src/interfaces/IBittyV1AssetManager.sol";
+import {IBittyV1AMMProtocol} from "protocol-contracts/src/interfaces/IBittyV1AMMProtocol.sol";
 import {MockStakingProtocol} from "../helpers/MockStakingProtocol.sol";
 import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {MockAMMProtocol} from "../helpers/MockAMMProtocol.sol";
@@ -94,6 +97,58 @@ contract ReentrantEthReceiver {
 contract RejectEthReceiver {
     function ping() external pure returns (bool) {
         return true;
+    }
+}
+
+/**
+ * @dev AMM protocol reporting a position NFT (like Uniswap V3), for proving retrieve721 refuses
+ *      protocol position NFTs. `nft` is immutable so clones report it too.
+ */
+contract MockAMMWithPositionNFT is MockAMMProtocol {
+    address public immutable nft;
+
+    constructor(address nft_) {
+        nft = nft_;
+    }
+
+    function positionAssetManager() external view returns (address) {
+        return nft;
+    }
+}
+
+/**
+ * @dev AMM protocol whose position NFT lives in CLONE storage (set by initialize), while the
+ *      template reports address(0) — exercises checkNotProtocolNFT's clone-probe branch, which
+ *      only matters when the template's probe and the clone's disagree.
+ */
+contract MockAMMWithCloneNFT is IBittyV1AMMProtocol {
+    // Template storage stays zero; each clone's initialize fills its own copy.
+    address public positionAssetManager;
+    address public immutable cloneNft;
+
+    constructor(address cloneNft_) {
+        cloneNft = cloneNft_;
+    }
+
+    function initialize(address) external override {
+        positionAssetManager = cloneNft;
+    }
+
+    function name() external pure override returns (string memory) {
+        return "MockAMMCloneNFT";
+    }
+
+    function version() external pure override returns (string memory) {
+        return "1.0.0";
+    }
+
+    function addLiquidity(bytes memory) external override {}
+    function removeLiquidity(bytes memory) external override {}
+    function decreaseLiquidity(bytes memory) external override {}
+    function claimAMMFees(bytes memory) external override {}
+
+    function getLiquidity(bytes memory) external pure override returns (uint256) {
+        return 0;
     }
 }
 
@@ -3843,5 +3898,138 @@ contract BittyV1VaultTest is Test {
 
         vm.expectRevert(TransferFailed.selector);
         _payScheduled(_oneU(pId));
+    }
+
+    function test_Retrieve721_ownerRescuesStrayNFT() public {
+        _initializeVault();
+        MockERC721 nft = new MockERC721("Stray", "STRAY");
+        nft.mint(address(vault), 7);
+
+        address rescueTo = makeAddr("rescueTo");
+        vm.expectEmit(true, true, true, true, address(vault));
+        emit IBittyV1Owner.Retrieved721(address(nft), 7, rescueTo);
+        vm.prank(ownerAddress);
+        vault.retrieve721(address(nft), 7, rescueTo);
+
+        assertEq(nft.ownerOf(7), rescueTo);
+    }
+
+    function test_Retrieve721_revertsForNonOwner() public {
+        _initializeVault();
+        MockERC721 nft = new MockERC721("Stray", "STRAY");
+        nft.mint(address(vault), 1);
+
+        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(_roleError(stranger, adminRole));
+        vault.retrieve721(address(nft), 1, stranger);
+    }
+
+    function test_Retrieve721_revertsForZeroRecipient() public {
+        _initializeVault();
+        MockERC721 nft = new MockERC721("Stray", "STRAY");
+        nft.mint(address(vault), 1);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(AddressZero.selector);
+        vault.retrieve721(address(nft), 1, address(0));
+    }
+
+    function test_Retrieve721_blocksProtocolPositionNFT_evenAfterProtocolRemoval() public {
+        MockERC721 positionNft = new MockERC721("UniV3 Positions", "UNI-V3-POS");
+        MockAMMWithPositionNFT amm = new MockAMMWithPositionNFT(address(positionNft));
+        address[] memory amms = new address[](1);
+        amms[0] = address(amm);
+
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addAMMProtocols(amms);
+
+        vault.initialize(
+            ownerAddress,
+            guardAddress,
+            address(weth),
+            new address[](0),
+            new address[](0),
+            new address[](0),
+            amms,
+            new address[](0),
+            defiFacet,
+            RiskSettings(0, 0, 0, 0),
+            new AutoYield[](0),
+            address(0)
+        );
+        positionNft.mint(address(vault), 42);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(ProtocolNFT.selector);
+        vault.retrieve721(address(positionNft), 42, ownerAddress);
+
+        vm.prank(ownerAddress);
+        vault.updateAMMProtocols(new address[](0), amms);
+        vm.prank(ownerAddress);
+        vm.expectRevert(ProtocolNFT.selector);
+        vault.retrieve721(address(positionNft), 42, ownerAddress);
+
+        assertEq(positionNft.ownerOf(42), address(vault));
+    }
+
+    function test_Retrieve721_blocksCloneReportedPositionNFT() public {
+        MockERC721 positionNft = new MockERC721("UniV3 Positions", "UNI-V3-POS");
+        MockAMMWithCloneNFT amm = new MockAMMWithCloneNFT(address(positionNft));
+        address[] memory amms = new address[](1);
+        amms[0] = address(amm);
+        MockERC20 t0 = new MockERC20("Token0", "T0", 18);
+        MockERC20 t1 = new MockERC20("Token1", "T1", 18);
+        address[] memory assets = new address[](2);
+        assets[0] = address(t0);
+        assets[1] = address(t1);
+        vm.startPrank(tx.origin);
+        BittyV1Guard(guardAddress).addAMMProtocols(amms);
+        BittyV1Guard(guardAddress).addAssets(assets);
+        vm.stopPrank();
+
+        vault.initialize(
+            ownerAddress,
+            guardAddress,
+            address(weth),
+            assets,
+            new address[](0),
+            new address[](0),
+            amms,
+            new address[](0),
+            defiFacet,
+            RiskSettings(0, 0, 0, 0),
+            new AutoYield[](0),
+            address(0)
+        );
+        _grantAssetManager(assetManagerAddress);
+
+        vm.prank(assetManagerAddress);
+        IVaultFull(payable(address(vault))).addLiquidity(address(amm), address(t0), 0, address(t1), 0, "");
+        assertEq(amm.positionAssetManager(), address(0));
+
+        positionNft.mint(address(vault), 1);
+        vm.prank(ownerAddress);
+        vm.expectRevert(ProtocolNFT.selector);
+        vault.retrieve721(address(positionNft), 1, ownerAddress);
+
+        MockERC721 stray = new MockERC721("Stray", "STRAY");
+        stray.mint(address(vault), 2);
+        address rescueTo = makeAddr("rescueTo");
+        vm.prank(ownerAddress);
+        vault.retrieve721(address(stray), 2, rescueTo);
+        assertEq(stray.ownerOf(2), rescueTo);
+    }
+
+    function test_Retrieve721_cannotMoveERC20() public {
+        _initializeVault();
+        MockERC20 token = new MockERC20("Token", "TKN", 18);
+        token.mint(address(vault), 1_000e18);
+        vm.prank(ownerAddress);
+        vm.expectRevert();
+        vault.retrieve721(address(token), 1_000e18, makeAddr("attackerExit"));
+
+        assertEq(token.balanceOf(address(vault)), 1_000e18);
     }
 }
