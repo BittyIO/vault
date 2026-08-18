@@ -23,22 +23,34 @@ error RebalanceDisabled();
 interface IBittyV1AssetManager {
     event RebalanceDisabledUntil(uint256 timestamp);
 
-    // ============ Lending ============
-
+    /**
+     * @notice Supply assets to a lending protocol.
+     */
     function supply(address lendingProtocol, address assetAddress, uint256 amount) external;
 
+    /**
+     * @notice Withdraw assets from a lending protocol.
+     */
     function withdraw(address lendingProtocol, address assetAddress, uint256 amount) external;
 
-    // ============ Staking ============
-
+    /**
+     * @notice Stake assets to a staking protocol.
+     */
     function stake(address stakingProtocol, address asset, uint256 amount) external;
 
+    /**
+     * @notice Unstake assets from a staking protocol.
+     */
     function unstake(address stakingProtocol, address asset, uint256 amount) external;
 
+    /**
+     * @notice Claim unstaked assets from a staking protocol.
+     */
     function claimUnstaked(address stakingProtocol, uint256[] memory requestIds) external;
 
-    // ============ AMM liquidity ============
-
+    /**
+     * @notice Add liquidity to an AMM protocol.
+     */
     function addLiquidity(
         address ammProtocol,
         address token0,
@@ -48,20 +60,25 @@ interface IBittyV1AssetManager {
         bytes memory data
     ) external;
 
+    /**
+     * @notice Remove liquidity from an AMM protocol.
+     */
     function removeLiquidity(address ammProtocol, bytes memory data) external;
 
+    /**
+     * @notice Decrease liquidity from an AMM protocol.
+     */
     function decreaseLiquidity(address ammProtocol, bytes memory data) external;
 
+    /**
+     * @notice Claim fees from an AMM protocol.
+     */
     function claimAMMFees(address ammProtocol, bytes memory data) external;
-
-    // ============ Rebalance ============
 
     /**
      * @notice Disable rebalancing (asset manager trades) until `timestamp`.
      */
     function disableRebalanceUntilTimestamp(uint256 timestamp) external;
-
-    // ============ Intent (gasless off-chain signing) ============
 
     /**
      * @notice Pre-approve the intent protocol's settlement relayer for `token` (max), so gasless

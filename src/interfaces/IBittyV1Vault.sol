@@ -89,8 +89,6 @@ struct AutoYield {
  * 3. Let the owner only ever lower the vault's risk.
  */
 interface IBittyV1Vault {
-    // Batched: {payScheduled} emits one event carrying every payment it actually paid this call (skipped
-    // zero-balance entries are excluded). Single-payment paths emit a one-element array. No indexed fields.
     event ScheduledPaymentsPaid(
         uint256[] ids,
         address[] recipients,
@@ -123,12 +121,29 @@ interface IBittyV1Vault {
         address allowedAsset;
     }
 
-    // ============ Reads ============
-
+    /**
+     * @notice The vault's assets.
+     */
     function getAssets() external view returns (address[] memory);
+
+    /**
+     * @notice The vault's stablecoins.
+     */
     function getStableCoins() external view returns (address[] memory);
+
+    /**
+     * @notice The vault's WETH address.
+     */
     function wethAddress() external view returns (address);
+
+    /**
+     * @notice Check if adding assets is disabled.
+     */
     function isAddingAssetsDisabled() external view returns (bool);
+
+    /**
+     * @notice Check if adding protocols is disabled.
+     */
     function isAddingProtocolsDisabled() external view returns (bool);
 
     /**
@@ -156,6 +171,9 @@ interface IBittyV1Vault {
      */
     function getPayoutOperators() external view returns (address[] memory);
 
+    /**
+     * @notice Check if an address is a payout operator.
+     */
     function isPayoutOperator(address account) external view returns (bool);
 
     /**
@@ -211,8 +229,6 @@ interface IBittyV1Vault {
         external
         view
         returns (address[] memory recipients, address[] memory allowedAssets);
-
-    // ============ Permissionless (trigger-gated / keeper) ============
 
     /**
      * @notice Sweep the vault's spendable balance of each `assetAddresses[i]` into its configured yield
