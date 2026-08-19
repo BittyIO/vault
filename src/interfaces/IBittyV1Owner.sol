@@ -129,16 +129,16 @@ interface IBittyV1Owner {
     function setMinimalBalances(address[] calldata assetAddresses, uint256[] calldata minimalBalances) external;
 
     /**
-     * @notice Batch-set the per-asset default yield route. One call for many assets; protocol = address(0) in a route clears that asset's route.
+     * @notice Batch-set the per-asset default yield routes AND the auto-yield trigger in one call, so
+     *         turning Auto Earn on (routes + keeper) or off is a single transaction.
+     * @dev One call for many assets; protocol = address(0) in a route clears that asset's route.
+     *      `trigger` is ALWAYS written: the address (besides the vault itself) allowed to call
+     *      {IBittyV1Vault.autoYield} on demand, on top of the vault's own deposit-time trigger
+     *      (address(0) = none). Use a trusted keeper — the call moves funds into a yield position, so
+     *      it must never be permissionless. A caller changing only routes must pass the current
+     *      trigger (read via getAutoYieldTrigger); routes = [] changes only the trigger.
      */
-    function setAutoYieldings(AutoYield[] calldata routes) external;
-
-    /**
-     * @notice Set (or clear, trigger = address(0)) the address allowed to call {IBittyV1Vault.autoYield}
-     *         on demand, on top of the vault's own deposit-time trigger. Use a trusted keeper — the call
-     *         moves funds into a yield position, so it must never be permissionless.
-     */
-    function setAutoYieldTrigger(address trigger) external;
+    function setAutoYieldings(AutoYield[] calldata routes, address trigger) external;
 
     /**
      * @notice Set the vault's single asset manager, replacing any previous one. Only this address may trade;

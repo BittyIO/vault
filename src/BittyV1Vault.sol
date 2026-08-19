@@ -437,8 +437,14 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         emit MinimalBalancesSet(assetAddresses, minimalBalances);
     }
 
-    function setAutoYieldings(AutoYield[] calldata routes) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setAutoYieldings(AutoYield[] calldata routes, address trigger)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
         _assetManager.setAutoYieldings(routes);
+        _assetManager.autoYieldTrigger = trigger;
+        emit AutoYieldTriggerSet(trigger);
     }
 
     function getAutoYieldings(address[] calldata assetAddresses)
@@ -447,11 +453,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         returns (address[] memory protocols, bool[] memory isSupplyings)
     {
         return _assetManager.getAutoYieldings(assetAddresses);
-    }
-
-    function setAutoYieldTrigger(address trigger) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.autoYieldTrigger = trigger;
-        emit AutoYieldTriggerSet(trigger);
     }
 
     function getAutoYieldTrigger() external view returns (address) {
