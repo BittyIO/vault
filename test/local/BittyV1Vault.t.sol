@@ -55,7 +55,7 @@ import {RiskSettings, AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockERC721} from "solmate/test/utils/mocks/MockERC721.sol";
-import {ProtocolNFT} from "../../src/interfaces/IBittyV1AssetManager.sol";
+import {InvalidLendingProtocol, NotAssetManager, ProtocolNFT} from "../../src/interfaces/IBittyV1AssetManager.sol";
 import {IBittyV1AMMProtocol} from "protocol-contracts/src/interfaces/IBittyV1AMMProtocol.sol";
 import {MockStakingProtocol} from "../helpers/MockStakingProtocol.sol";
 import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
@@ -2251,6 +2251,15 @@ contract BittyV1VaultTest is Test {
         assertEq(vault.getAssetManager(), newAssetManager);
     }
 
+    function test_setAssetManager_emitsAssetManagerSet() public {
+        _initializeVault();
+        address newAssetManager = makeAddr("newAssetManager");
+        vm.prank(ownerAddress);
+        vm.expectEmit(true, false, false, true);
+        emit IBittyV1Owner.AssetManagerSet(newAssetManager);
+        vault.setAssetManager(newAssetManager);
+    }
+
     function test_ownershipNotTransferable_grantAndRevokeBlocked() public {
         _initializeVault();
         bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
@@ -2801,6 +2810,214 @@ contract BittyV1VaultTest is Test {
 
         assertEq(usdc.balanceOf(payee), amount, "payee paid from the staked position");
         assertEq(usdc.balanceOf(address(vault)), 0, "no residual in the vault");
+    }
+
+    function test_payScheduled_revertsWhenPositionArraysMismatch() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        address payee = makeAddr("payee");
+        vm.prank(ownerAddress);
+        uint256 id = _addScheduledPayment(
+            _makeScheduledPayment(payee, address(0), address(usdc), 100e6, 1, block.timestamp, 0, false)
+        );
+        vm.expectRevert(ArrayLengthMismatch.selector);
+        vault.payScheduled(_oneU(id), _arr(makeAddr("staking")), new uint256[](0), new address[](0), new uint256[](0));
+    }
+
+    function test_fallback_delegatesViewCallsToDeFiFacet() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        _setupSuppliedReserve(usdc, impl, 100e6);
+        assertEq(
+            IVaultFull(payable(address(vault))).getSuppliedBalances(_arr(address(impl)), _arr(address(usdc)))[0], 100e6
+        );
+    }
+
+    function test_fallback_bubblesRevertFromDeFiFacet() public {
+        _initializeVault();
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(InvalidLendingProtocol.selector);
+        IVaultFull(payable(address(vault))).supply(makeAddr("unknownLending"), address(weth), 1);
+    }
+
+    // ─── Owner-as-manager one-tx yield (simple*) ───────────────────────────────
+
+    function _grantOwnerAsAssetManager() internal {
+        vm.prank(ownerAddress);
+        vault.setAssetManager(ownerAddress);
+    }
+
+    function _autoYieldRoute(address asset, address protocol, bool isSupplying)
+        internal
+        pure
+        returns (AutoYield[] memory routes)
+    {
+        routes = new AutoYield[](1);
+        routes[0] = AutoYield({asset: asset, protocol: protocol, isSupplying: isSupplying});
+    }
+
+    function test_simpleSupply_registersProtocolAndSupplies() public {
+        _initializeVault();
+        _grantOwnerAsAssetManager();
+        MockERC20 usdc = _addStableCoin(6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addLendingProtocols(_arr(address(impl)));
+
+        uint256 amount = 500e6;
+        usdc.mint(address(vault), amount);
+        assertEq(IVaultFull(payable(address(vault))).getLendingProtocols().length, 0);
+
+        vm.prank(ownerAddress);
+        vault.simpleSupply(address(impl), address(usdc), amount);
+
+        assertEq(IVaultFull(payable(address(vault))).getLendingProtocols().length, 1);
+        assertEq(
+            IVaultFull(payable(address(vault))).getSuppliedBalances(_arr(address(impl)), _arr(address(usdc)))[0], amount
+        );
+    }
+
+    function test_simpleStake_registersProtocolAndStakes() public {
+        _initializeVault();
+        _grantOwnerAsAssetManager();
+        MockERC20 usdc = _addStableCoin(6);
+        MockStakingProtocol impl = new MockStakingProtocol();
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addStakingProtocols(_arr(address(impl)));
+
+        uint256 amount = 300e6;
+        usdc.mint(address(vault), amount);
+        assertEq(IVaultFull(payable(address(vault))).getStakingProtocols().length, 0);
+
+        vm.prank(ownerAddress);
+        vault.simpleStake(address(impl), address(usdc), amount);
+
+        assertEq(IVaultFull(payable(address(vault))).getStakingProtocols().length, 1);
+        assertGt(IVaultFull(payable(address(vault))).getStakedBalances(_arr(address(impl)), _arr(address(usdc)))[0], 0);
+    }
+
+    function test_simpleWithdraw_clearsAutoYieldRouteAndWithdraws() public {
+        _initializeVault();
+        _grantOwnerAsAssetManager();
+        MockERC20 usdc = _addStableCoin(6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addLendingProtocols(_arr(address(impl)));
+
+        uint256 amount = 1_000e6;
+        usdc.mint(address(vault), amount);
+        vm.startPrank(ownerAddress);
+        vault.simpleSupply(address(impl), address(usdc), amount);
+        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(impl), true), address(0));
+        (address[] memory routed,) = vault.getAutoYieldings(_arr(address(usdc)));
+        assertEq(routed[0], address(impl));
+
+        vault.simpleWithdraw(address(impl), address(usdc), 400e6, true);
+        (routed,) = vault.getAutoYieldings(_arr(address(usdc)));
+        assertEq(routed[0], address(0));
+        vm.stopPrank();
+
+        assertGe(usdc.balanceOf(address(vault)), 400e6);
+    }
+
+    function test_simpleUnstake_clearsAutoYieldRouteAndUnstakes() public {
+        _initializeVault();
+        _grantOwnerAsAssetManager();
+        MockERC20 usdc = _addStableCoin(6);
+        MockStakingProtocol impl = new MockStakingProtocol();
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addStakingProtocols(_arr(address(impl)));
+
+        uint256 amount = 800e6;
+        usdc.mint(address(vault), amount);
+        vm.startPrank(ownerAddress);
+        vault.simpleStake(address(impl), address(usdc), amount);
+        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(impl), false), address(0));
+        (address[] memory routed,) = vault.getAutoYieldings(_arr(address(usdc)));
+        assertEq(routed[0], address(impl));
+
+        vault.simpleUnstake(address(impl), address(usdc), 250e6, true);
+        (routed,) = vault.getAutoYieldings(_arr(address(usdc)));
+        assertEq(routed[0], address(0));
+        vm.stopPrank();
+
+        assertGe(usdc.balanceOf(address(vault)), 250e6);
+    }
+
+    function test_simpleSupply_revertsWhenOwnerIsNotAssetManager() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addLendingProtocols(_arr(address(impl)));
+        usdc.mint(address(vault), 100e6);
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotAssetManager.selector);
+        vault.simpleSupply(address(impl), address(usdc), 100e6);
+    }
+
+    function test_simpleSupply_skipsRegistrationWhenProtocolAlreadyEnabled() public {
+        _initializeVault();
+        _grantOwnerAsAssetManager();
+        MockERC20 usdc = _addStableCoin(6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addLendingProtocols(_arr(address(impl)));
+
+        usdc.mint(address(vault), 700e6);
+        vm.startPrank(ownerAddress);
+        vault.simpleSupply(address(impl), address(usdc), 500e6);
+        assertEq(IVaultFull(payable(address(vault))).getLendingProtocols().length, 1);
+        vault.simpleSupply(address(impl), address(usdc), 200e6);
+        vm.stopPrank();
+
+        assertEq(
+            IVaultFull(payable(address(vault))).getSuppliedBalances(_arr(address(impl)), _arr(address(usdc)))[0], 700e6
+        );
+    }
+
+    function test_simpleWithdraw_keepsAutoYieldRouteWhenNotClearing() public {
+        _initializeVault();
+        _grantOwnerAsAssetManager();
+        MockERC20 usdc = _addStableCoin(6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addLendingProtocols(_arr(address(impl)));
+
+        usdc.mint(address(vault), 1_000e6);
+        vm.startPrank(ownerAddress);
+        vault.simpleSupply(address(impl), address(usdc), 1_000e6);
+        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(impl), true), address(0));
+        vault.simpleWithdraw(address(impl), address(usdc), 200e6, false);
+        (address[] memory routed,) = vault.getAutoYieldings(_arr(address(usdc)));
+        assertEq(routed[0], address(impl));
+        vm.stopPrank();
+    }
+
+    function test_getAutoYieldTrigger_returnsConfiguredAddress() public {
+        _initializeVault();
+        address trigger = makeAddr("keeper");
+        vm.prank(ownerAddress);
+        vault.setAutoYieldings(new AutoYield[](0), trigger);
+        assertEq(vault.getAutoYieldTrigger(), trigger);
+    }
+
+    function test_fallback_delegatesMutatingCallToDeFiFacet() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addLendingProtocols(_arr(address(impl)));
+        vm.prank(ownerAddress);
+        IVaultFull(payable(address(vault))).updateLendingProtocols(_arr(address(impl)), new address[](0));
+
+        usdc.mint(address(vault), 50e6);
+        vm.prank(assetManagerAddress);
+        IVaultFull(payable(address(vault))).supply(address(impl), address(usdc), 50e6);
+        assertEq(
+            IVaultFull(payable(address(vault))).getSuppliedBalances(_arr(address(impl)), _arr(address(usdc)))[0], 50e6
+        );
     }
 
     // ─── Unlimited scheduled payment ───────────────────────────────────────────

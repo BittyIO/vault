@@ -161,6 +161,27 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         _grantAssetManagerRole(assetManagerAddress);
     }
 
+    /// @dev Same vault, but with NO yield protocols enabled — the state a fresh
+    ///      minimal activation leaves behind, which the simple* entry points
+    ///      are built for.
+    function doInitializeWithoutProtocols() public {
+        this.initialize(
+            ownerAddress,
+            guardAddress,
+            mainnet.WETH,
+            vaultAssets,
+            new address[](0),
+            new address[](0),
+            ammProtocols,
+            intentProtocols,
+            address(0),
+            RiskSettings(0, 0, 0, 0),
+            new AutoYield[](0),
+            address(0)
+        );
+        _grantAssetManagerRole(assetManagerAddress);
+    }
+
     function test_DisableAddingProtocols_BlocksAllProtocolTypesIncludingIntent() public {
         address intentProto = makeAddr("intentProtocol");
         vm.prank(tx.origin);
@@ -1238,6 +1259,386 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.updateIntentProtocols(_single(address(intent)), new address[](0));
 
         assertTrue(this.isValidSignature(keccak256("order"), hex"abcd") == bytes4(0x1626ba7e));
+    }
+
+    // ============ prepareIntentTrade (one-tx trade setup) ============
+
+    // Allow-listed either as a plain asset or a stablecoin — the Guard decides
+    // which set a token lands in, and prepareIntentTrade must treat both as
+    // "already added".
+    function _hasAsset(address token) internal view returns (bool) {
+        address[] memory assetList = this.getAssets();
+        for (uint256 i; i < assetList.length; ++i) {
+            if (assetList[i] == token) return true;
+        }
+        address[] memory stableList = this.getStableCoins();
+        for (uint256 i; i < stableList.length; ++i) {
+            if (stableList[i] == token) return true;
+        }
+        return false;
+    }
+
+    // A first gasless trade otherwise costs three owner/manager txs (register
+    // the intent protocol, allow-list the buy asset, approve the relayer).
+    // prepareIntentTrade does all three in one, and is idempotent.
+    function test_PrepareIntentTrade_doesAllThreeInOneCall() public {
+        MockIntentProtocol intent = new MockIntentProtocol();
+        address relayer = makeAddr("vaultRelayer");
+        intent.setEndpoints(makeAddr("settlement"), relayer);
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addIntentProtocols(_single(address(intent)));
+
+        // A token the Guard knows but this vault has NOT added — exactly the
+        // case a first buy of a new asset hits.
+        MockERC20 newToken = new MockERC20("NEW", "NEW", 18);
+        address newAsset = address(newToken);
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addAssets(_single(newAsset));
+
+        this.doInitialize();
+
+        // Nothing is set up yet: no intent protocol, the asset isn't allow-listed.
+        assertEq(this.getIntentProtocols().length, 0);
+        assertFalse(_hasAsset(newAsset), "asset not allow-listed yet");
+
+        address[] memory assets = _single(newAsset);
+        address[] memory approve = _single(mainnet.WETH);
+        vm.prank(ownerAddress);
+        this.prepareIntentTrade(address(intent), assets, approve);
+
+        assertEq(this.getIntentProtocols().length, 1, "intent protocol registered");
+        assertEq(this.getIntentProtocols()[0], address(intent));
+        assertTrue(_hasAsset(newAsset), "buy asset allow-listed");
+        assertEq(
+            IERC20(mainnet.WETH).allowance(address(this), relayer),
+            type(uint256).max,
+            "relayer approved for the sell token"
+        );
+    }
+
+    // Called again before every order, so re-running must be a no-op rather
+    // than reverting on the already-registered protocol/asset.
+    function test_PrepareIntentTrade_isIdempotent() public {
+        MockIntentProtocol intent = new MockIntentProtocol();
+        intent.setEndpoints(makeAddr("settlement"), makeAddr("vaultRelayer"));
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addIntentProtocols(_single(address(intent)));
+        this.doInitialize();
+
+        address[] memory assets = _single(WBTC);
+        address[] memory approve = _single(mainnet.WETH);
+        vm.startPrank(ownerAddress);
+        this.prepareIntentTrade(address(intent), assets, approve);
+        this.prepareIntentTrade(address(intent), assets, approve);
+        vm.stopPrank();
+
+        assertEq(this.getIntentProtocols().length, 1, "no duplicate protocol");
+        assertTrue(_hasAsset(WBTC));
+    }
+
+    // Everything already in place: the call must still succeed after the owner
+    // has permanently locked adding protocols/assets (nothing new is added).
+    function test_PrepareIntentTrade_worksWhenAddingLockedAndNothingNew() public {
+        MockIntentProtocol intent = new MockIntentProtocol();
+        intent.setEndpoints(makeAddr("settlement"), makeAddr("vaultRelayer"));
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addIntentProtocols(_single(address(intent)));
+        this.doInitialize();
+
+        vm.startPrank(ownerAddress);
+        this.prepareIntentTrade(address(intent), _single(WBTC), new address[](0));
+        this.disableAddingProtocols();
+        this.disableAddingAssets();
+        // Same inputs, now with adding locked — no new registration is needed,
+        // so it must not revert.
+        this.prepareIntentTrade(address(intent), _single(WBTC), _single(mainnet.WETH));
+        vm.stopPrank();
+
+        assertTrue(_hasAsset(WBTC));
+    }
+
+    function test_PrepareIntentTrade_revertsForNonOwner() public {
+        MockIntentProtocol intent = new MockIntentProtocol();
+        this.doInitialize();
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert();
+        this.prepareIntentTrade(address(intent), new address[](0), new address[](0));
+    }
+
+    // ============ simpleStake / simpleSupply (one-tx first yield) ============
+
+    // A first lend into a protocol the vault hasn't enabled otherwise costs two
+    // txs (owner registers it, manager supplies). For an owner who is also the
+    // manager this does both at once.
+    function test_SimpleSupply_registersProtocolAndSupplies() public {
+        this.doInitializeWithoutProtocols();
+        // The owner is also the asset manager — the single-user setup.
+        _grantAssetManagerRole(ownerAddress);
+        assertEq(this.getLendingProtocols().length, 0, "no lending protocol yet");
+
+        uint256 amount = 1 ether;
+        deal(mainnet.WETH, address(this), amount);
+        vm.prank(ownerAddress);
+        this.simpleSupply(address(aaveProtocol), mainnet.WETH, amount);
+
+        assertEq(this.getLendingProtocols().length, 1, "protocol registered");
+        assertApproxEqAbs(this.getSuppliedBalances(_one(address(aaveProtocol)), _one(mainnet.WETH))[0], amount, 10);
+    }
+
+    function test_SimpleStake_registersProtocolAndStakes() public {
+        this.doInitializeWithoutProtocols();
+        _grantAssetManagerRole(ownerAddress);
+        assertEq(this.getStakingProtocols().length, 0, "no staking protocol yet");
+
+        uint256 amount = 0.1 ether;
+        deal(mainnet.WETH, address(this), amount);
+        vm.prank(ownerAddress);
+        this.simpleStake(address(lidoProtocol), mainnet.WETH, amount);
+
+        assertEq(this.getStakingProtocols().length, 1, "protocol registered");
+        assertGt(this.getStakedBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 0);
+    }
+
+    // Already-registered protocol: no re-add (which would revert once adding is
+    // locked), just the supply.
+    function test_SimpleSupply_skipsRegistrationWhenAlreadyEnabled() public {
+        this.doInitialize();
+        _grantAssetManagerRole(ownerAddress);
+        assertEq(this.getLendingProtocols().length, 1);
+
+        vm.prank(ownerAddress);
+        this.disableAddingProtocols();
+
+        uint256 amount = 1 ether;
+        deal(mainnet.WETH, address(this), amount);
+        vm.prank(ownerAddress);
+        this.simpleSupply(address(aaveProtocol), mainnet.WETH, amount);
+
+        assertEq(this.getLendingProtocols().length, 1, "still just the one");
+    }
+
+    // An owner who is NOT the asset manager can't move funds this way — they
+    // keep the two-step path (register, then the manager supplies).
+    function test_SimpleSupply_revertsWhenOwnerIsNotAssetManager() public {
+        this.doInitialize();
+        _grantAssetManagerRole(assetManagerAddress);
+
+        deal(mainnet.WETH, address(this), 1 ether);
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotAssetManager.selector);
+        this.simpleSupply(address(aaveProtocol), mainnet.WETH, 1 ether);
+    }
+
+    function test_SimpleStake_revertsForNonOwner() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+        vm.prank(assetManagerAddress);
+        vm.expectRevert();
+        this.simpleStake(address(lidoProtocol), mainnet.WETH, 1 ether);
+    }
+
+    // ---- simpleWithdraw / simpleUnstake (exit + clear route in one tx) ----
+
+    // Exiting an auto-yielded position is otherwise two txs (clear the route,
+    // then withdraw) or an EIP-5792 batch the wallet may not support.
+    function test_SimpleWithdraw_clearsRouteAndWithdrawsInOneCall() public {
+        this.doInitialize();
+        _grantAssetManagerRole(ownerAddress);
+
+        uint256 amount = 1 ether;
+        deal(mainnet.WETH, address(this), amount);
+        vm.startPrank(ownerAddress);
+        this.supply(address(aaveProtocol), mainnet.WETH, amount);
+        // Route set: without clearing it the keeper would re-supply the funds.
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true), _assetManager.autoYieldTrigger);
+        (address routed,) = _getAutoYieldingOne(mainnet.WETH);
+        assertEq(routed, address(aaveProtocol), "route is set");
+
+        this.simpleWithdraw(address(aaveProtocol), mainnet.WETH, 0.5 ether, true);
+        vm.stopPrank();
+
+        (address after_,) = _getAutoYieldingOne(mainnet.WETH);
+        assertEq(after_, address(0), "route cleared in the same tx");
+        assertGe(IERC20(mainnet.WETH).balanceOf(address(this)), 0.5 ether, "funds back in the vault");
+    }
+
+    // clearRoute = false leaves the route alone (a partial exit that should keep
+    // auto-yielding the rest).
+    function test_SimpleWithdraw_keepsRouteWhenNotClearing() public {
+        this.doInitialize();
+        _grantAssetManagerRole(ownerAddress);
+
+        deal(mainnet.WETH, address(this), 1 ether);
+        vm.startPrank(ownerAddress);
+        this.supply(address(aaveProtocol), mainnet.WETH, 1 ether);
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true), _assetManager.autoYieldTrigger);
+        this.simpleWithdraw(address(aaveProtocol), mainnet.WETH, 0.25 ether, false);
+        vm.stopPrank();
+
+        (address routed,) = _getAutoYieldingOne(mainnet.WETH);
+        assertEq(routed, address(aaveProtocol), "route untouched");
+    }
+
+    function test_SimpleUnstake_clearsRouteAndUnstakesInOneCall() public {
+        this.doInitialize();
+        _grantAssetManagerRole(ownerAddress);
+
+        uint256 amount = 0.2 ether;
+        deal(mainnet.WETH, address(this), amount);
+        vm.startPrank(ownerAddress);
+        this.stake(address(lidoProtocol), mainnet.WETH, amount);
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false), _assetManager.autoYieldTrigger);
+
+        this.simpleUnstake(address(lidoProtocol), mainnet.WETH, 0.1 ether, true);
+        vm.stopPrank();
+
+        (address routed,) = _getAutoYieldingOne(mainnet.WETH);
+        assertEq(routed, address(0), "route cleared in the same tx");
+    }
+
+    function test_SimpleWithdraw_revertsWhenOwnerIsNotAssetManager() public {
+        this.doInitialize();
+        _grantAssetManagerRole(assetManagerAddress);
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotAssetManager.selector);
+        this.simpleWithdraw(address(aaveProtocol), mainnet.WETH, 1, true);
+    }
+
+    function test_SimpleUnstake_revertsForNonOwner() public {
+        this.doInitialize();
+        vm.prank(assetManagerAddress);
+        vm.expectRevert();
+        this.simpleUnstake(address(lidoProtocol), mainnet.WETH, 1, true);
+    }
+
+    // Completes the role matrix: every one-tx entry point rejects BOTH a
+    // non-owner and an owner who isn't the vault's asset manager.
+    function test_SimpleUnstake_revertsWhenOwnerIsNotAssetManager() public {
+        this.doInitialize();
+        _grantAssetManagerRole(assetManagerAddress);
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotAssetManager.selector);
+        this.simpleUnstake(address(lidoProtocol), mainnet.WETH, 1, true);
+    }
+
+    function test_SimpleWithdraw_revertsForNonOwner() public {
+        this.doInitialize();
+        vm.prank(assetManagerAddress);
+        vm.expectRevert();
+        this.simpleWithdraw(address(aaveProtocol), mainnet.WETH, 1, true);
+    }
+
+    // End-to-end proof of what prepareIntentTrade is for: a gasless order whose
+    // BUY leg isn't allow-listed is refused by the vault's authorizer (CoW then
+    // rejects the signature, which is the opaque "failed to buy" users hit).
+    // One prepareIntentTrade call makes the very same order authorized.
+    function test_PrepareIntentTrade_makesPreviouslyUnbuyableTokenAuthorized() public {
+        MockERC20 newToken = new MockERC20("BUYME", "BUYME", 18);
+        MockIntentProtocol intent = new MockIntentProtocol();
+        intent.setEndpoints(makeAddr("settlement"), makeAddr("vaultRelayer"));
+        vm.startPrank(tx.origin);
+        BittyV1Guard(guardAddress).addAssets(_single(address(newToken)));
+        BittyV1Guard(guardAddress).addIntentProtocols(_single(address(intent)));
+        vm.stopPrank();
+
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+
+        // Before: the vault can't receive the token, so the order is refused.
+        assertFalse(
+            this.isOffchainOrderAuthorized(assetManagerAddress, mainnet.WETH, address(newToken), 0.5 ether),
+            "unlisted buy token must be refused"
+        );
+
+        vm.prank(ownerAddress);
+        this.prepareIntentTrade(address(intent), _single(address(newToken)), _single(mainnet.WETH));
+
+        // After: same order, now authorized — one tx did all the setup.
+        assertTrue(
+            this.isOffchainOrderAuthorized(assetManagerAddress, mainnet.WETH, address(newToken), 0.5 ether),
+            "prepared order must be authorized"
+        );
+    }
+
+    // ---- mirror cases + skip branches for the one-tx entry points ----
+
+    function test_SimpleStake_revertsWhenOwnerIsNotAssetManager() public {
+        this.doInitialize();
+        _grantAssetManagerRole(assetManagerAddress);
+
+        deal(mainnet.WETH, address(this), 1 ether);
+        vm.prank(ownerAddress);
+        vm.expectRevert(NotAssetManager.selector);
+        this.simpleStake(address(lidoProtocol), mainnet.WETH, 1 ether);
+    }
+
+    function test_SimpleSupply_revertsForNonOwner() public {
+        this.doInitialize();
+        deal(mainnet.WETH, address(this), 1 ether);
+        // The asset manager alone can't register a protocol, so this path is
+        // owner-gated even though the manager may supply via the facet.
+        vm.prank(assetManagerAddress);
+        vm.expectRevert();
+        this.simpleSupply(address(aaveProtocol), mainnet.WETH, 1 ether);
+    }
+
+    function test_SimpleStake_skipsRegistrationWhenAlreadyEnabled() public {
+        this.doInitialize();
+        _grantAssetManagerRole(ownerAddress);
+        assertEq(this.getStakingProtocols().length, 1);
+
+        vm.prank(ownerAddress);
+        this.disableAddingProtocols();
+
+        deal(mainnet.WETH, address(this), 0.1 ether);
+        vm.prank(ownerAddress);
+        this.simpleStake(address(lidoProtocol), mainnet.WETH, 0.1 ether);
+
+        assertEq(this.getStakingProtocols().length, 1, "still just the one");
+        assertGt(this.getStakedBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 0);
+    }
+
+    // address(0) = "don't touch the intent protocol", so the call can be used to
+    // only allow-list assets.
+    function test_PrepareIntentTrade_zeroProtocolOnlyAddsAssets() public {
+        MockERC20 newToken = new MockERC20("NEW2", "NEW2", 18);
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addAssets(_single(address(newToken)));
+        this.doInitialize();
+
+        vm.prank(ownerAddress);
+        this.prepareIntentTrade(address(0), _single(address(newToken)), new address[](0));
+
+        assertEq(this.getIntentProtocols().length, 0, "no protocol registered");
+        assertTrue(_hasAsset(address(newToken)), "asset still allow-listed");
+    }
+
+    // Mixed input: one asset already allow-listed, one not — only the missing
+    // one is added (the filter that keeps a locked-adding vault working).
+    function test_PrepareIntentTrade_addsOnlyMissingAssets() public {
+        MockERC20 newToken = new MockERC20("NEW3", "NEW3", 18);
+        vm.prank(tx.origin);
+        BittyV1Guard(guardAddress).addAssets(_single(address(newToken)));
+        this.doInitialize();
+
+        // WETH is already on the vault; the mock token is not.
+        assertTrue(_hasAsset(mainnet.WETH));
+        assertFalse(_hasAsset(address(newToken)));
+
+        vm.prank(ownerAddress);
+        this.prepareIntentTrade(address(0), _two(mainnet.WETH, address(newToken)), new address[](0));
+
+        assertTrue(_hasAsset(mainnet.WETH), "existing asset untouched");
+        assertTrue(_hasAsset(address(newToken)), "missing asset added");
+    }
+
+    // Nothing to do at all — must be a clean no-op rather than reverting.
+    function test_PrepareIntentTrade_emptyArraysIsNoOp() public {
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.prepareIntentTrade(address(0), new address[](0), new address[](0));
+        assertEq(this.getIntentProtocols().length, 0);
     }
 
     // ============ AssetManagerLogic revert / branch coverage ============
