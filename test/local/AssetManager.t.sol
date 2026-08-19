@@ -940,14 +940,14 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         address stranger = makeAddr("stranger");
         vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
         vm.prank(stranger);
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true));
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true), _assetManager.autoYieldTrigger);
     }
 
     function test_SetAutoYieldingRevertAssetAddressZero() public {
         this.doInitialize();
         vm.expectRevert(AddressZero.selector);
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(address(0), address(aaveProtocol), true));
+        this.setAutoYieldings(_route(address(0), address(aaveProtocol), true), _assetManager.autoYieldTrigger);
     }
 
     function test_SetAutoYieldingRevertUnregisteredLendingProtocol() public {
@@ -955,14 +955,14 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         // A staking protocol is not a valid supply route (and vice versa below).
         vm.expectRevert(InvalidLendingProtocol.selector);
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), true));
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), true), _assetManager.autoYieldTrigger);
     }
 
     function test_SetAutoYieldingRevertUnregisteredStakingProtocol() public {
         this.doInitialize();
         vm.expectRevert(InvalidStakingProtocol.selector);
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), false));
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), false), _assetManager.autoYieldTrigger);
     }
 
     function test_SetAutoYieldings_batchSetsMultipleRoutes() public {
@@ -972,7 +972,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         routes[1] = AutoYield({asset: WBTC, protocol: address(aaveProtocol), isSupplying: true});
 
         vm.prank(ownerAddress);
-        this.setAutoYieldings(routes);
+        this.setAutoYieldings(routes, _assetManager.autoYieldTrigger);
 
         (address p0, bool s0) = _getAutoYieldingOne(mainnet.WETH);
         assertEq(p0, address(aaveProtocol));
@@ -981,19 +981,42 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(p1, address(aaveProtocol));
     }
 
+    // The merged setter: routes AND the keeper land in ONE transaction, and an
+    // empty routes array is the trigger-only form.
+    function test_SetAutoYieldings_setsRoutesAndTriggerInOneCall() public {
+        this.doInitialize();
+        address keeper = makeAddr("keeper");
+        AutoYield[] memory routes = new AutoYield[](1);
+        routes[0] = AutoYield({asset: mainnet.WETH, protocol: address(aaveProtocol), isSupplying: true});
+
+        vm.prank(ownerAddress);
+        this.setAutoYieldings(routes, keeper);
+
+        (address p,) = _getAutoYieldingOne(mainnet.WETH);
+        assertEq(p, address(aaveProtocol));
+        assertEq(_assetManager.autoYieldTrigger, keeper);
+
+        // Trigger-only update: empty routes leave the route untouched.
+        vm.prank(ownerAddress);
+        this.setAutoYieldings(new AutoYield[](0), address(0));
+        (p,) = _getAutoYieldingOne(mainnet.WETH);
+        assertEq(p, address(aaveProtocol));
+        assertEq(_assetManager.autoYieldTrigger, address(0));
+    }
+
     function test_SetAndGetAutoYielding() public {
         this.doInitialize();
         (address protocol, bool isSupplying) = _getAutoYieldingOne(mainnet.WETH);
         assertEq(protocol, address(0));
 
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true));
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true), _assetManager.autoYieldTrigger);
         (protocol, isSupplying) = _getAutoYieldingOne(mainnet.WETH);
         assertEq(protocol, address(aaveProtocol));
         assertTrue(isSupplying);
 
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(0), true));
+        this.setAutoYieldings(_route(mainnet.WETH, address(0), true), _assetManager.autoYieldTrigger);
         (protocol,) = _getAutoYieldingOne(mainnet.WETH);
         assertEq(protocol, address(0));
     }
@@ -1018,11 +1041,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldTriggerCanSweep() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true));
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true), _assetManager.autoYieldTrigger);
         address keeper = makeAddr("keeper");
         vm.prank(ownerAddress);
-        this.setAutoYieldTrigger(keeper);
-        assertEq(this.getAutoYieldTrigger(), keeper);
+        this.setAutoYieldings(new AutoYield[](0), keeper);
+        assertEq(_assetManager.autoYieldTrigger, keeper);
 
         // The vault holds WETH (not from an ETH deposit) — the trigger sweeps it into the route.
         deal(mainnet.WETH, address(this), 1 ether);
@@ -1038,9 +1061,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         address keeper = makeAddr("keeper");
         vm.prank(ownerAddress);
-        this.setAutoYieldTrigger(keeper);
+        this.setAutoYieldings(new AutoYield[](0), keeper);
         vm.prank(ownerAddress);
-        this.setAutoYieldTrigger(address(0));
+        this.setAutoYieldings(new AutoYield[](0), address(0));
 
         vm.prank(keeper);
         vm.expectRevert(NotAutoYieldTrigger.selector);
@@ -1057,7 +1080,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldSupplyOnDeposit() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true));
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true), _assetManager.autoYieldTrigger);
 
         _depositEth(1 ether);
 
@@ -1069,7 +1092,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldStakeOnDeposit() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false));
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false), _assetManager.autoYieldTrigger);
 
         _depositEth(0.5 ether);
 
@@ -1080,7 +1103,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldKeepsMinimalBalanceLiquid() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false));
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false), _assetManager.autoYieldTrigger);
         vm.prank(ownerAddress);
         this.setMinimalBalances(_one(mainnet.WETH), _one(uint256(0.3 ether)));
 
@@ -1092,7 +1115,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldNothingSpendableKeepsWeth() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false));
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false), _assetManager.autoYieldTrigger);
         vm.prank(ownerAddress);
         this.setMinimalBalances(_one(mainnet.WETH), _one(uint256(1 ether)));
 
@@ -1105,7 +1128,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldSkippedAfterProtocolRemoved() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false));
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false), _assetManager.autoYieldTrigger);
         vm.prank(ownerAddress);
         this.updateStakingProtocols(new address[](0), stakingProtocols);
 
@@ -1117,7 +1140,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldSkippedForDeprecatedProtocol() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false));
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false), _assetManager.autoYieldTrigger);
         vm.prank(tx.origin);
         BittyV1Guard(guardAddress).deprecateStakingProtocols(stakingProtocols);
 
