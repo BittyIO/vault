@@ -141,6 +141,62 @@ interface IBittyV1Owner {
     function setAutoYieldings(AutoYield[] calldata routes, address trigger) external;
 
     /**
+     * @notice One-transaction setup for gasless (intent) trading: register the intent protocol, add the
+     *         assets the vault must be allowed to receive, and pre-approve the settlement relayer for the
+     *         tokens it will sell. Every step is skipped when already in place, so this is idempotent and
+     *         safe to call before each order.
+     * @dev Exists because a first trade otherwise costs up to THREE owner/manager transactions
+     *      (updateIntentProtocols, updateAssets, approveIntentRelayer) before the gasless order can even
+     *      be signed. Owner-gated: two of the three are owner powers, and the approval only lets the
+     *      relayer pull tokens against an order the asset manager has signed and that
+     *      {IBittyV1Vault.isOffchainOrderAuthorized} still accepts at settlement — so granting it moves
+     *      no funds by itself.
+     * @param intentProtocol The intent protocol (e.g. the CoW adapter) to register; address(0) skips.
+     * @param assets Assets the vault must hold/receive — typically the order's buy token. Already-added
+     *        entries are ignored; each must be registered on the Guard.
+     * @param approveTokens Sell tokens to pre-approve for the protocol's settlement relayer.
+     */
+    function prepareIntentTrade(address intentProtocol, address[] calldata assets, address[] calldata approveTokens)
+        external;
+
+    /**
+     * @notice Supply `amount` of `assetAddress` to `lendingProtocol`, registering the protocol first when
+     *         the vault hasn't enabled it yet — the whole first-time lend in ONE transaction.
+     * @dev Caller must be the owner (to register the protocol) AND the vault's asset manager (to move
+     *      funds), i.e. the common single-user setup. A vault whose manager is a separate address keeps
+     *      the two-step path: the owner calls {updateLendingProtocols}, the manager then supplies. The
+     *      protocol registration is skipped when already present, so this stays usable after the owner
+     *      has permanently locked adding protocols. Nothing else is needed: the protocol's token
+     *      allowance is granted inside the supply itself, and lending needs no asset allow-listing.
+     */
+    function simpleSupply(address lendingProtocol, address assetAddress, uint256 amount) external;
+
+    /**
+     * @notice Stake `amount` of `assetAddress` into `stakingProtocol`, registering the protocol first when
+     *         the vault hasn't enabled it yet — the whole first-time stake in ONE transaction.
+     * @dev Same role requirement and semantics as {simpleSupply}.
+     */
+    function simpleStake(address stakingProtocol, address assetAddress, uint256 amount) external;
+
+    /**
+     * @notice Withdraw `amount` of `assetAddress` from `lendingProtocol` back into the vault, optionally
+     *         clearing that asset's auto-yield route in the SAME transaction.
+     * @dev Exiting a position that still has a route is otherwise two transactions — clear the route,
+     *      then withdraw — because the keeper would sweep the funds straight back in between them.
+     *      Caller must be the owner (to change the route) AND the vault's asset manager (to move funds),
+     *      the same pairing as {simpleSupply}. Pass `clearRoute` = false to just withdraw.
+     */
+    function simpleWithdraw(address lendingProtocol, address assetAddress, uint256 amount, bool clearRoute) external;
+
+    /**
+     * @notice Unstake `amount` of `assetAddress` from `stakingProtocol` back into the vault, optionally
+     *         clearing that asset's auto-yield route in the SAME transaction.
+     * @dev Same role requirement and rationale as {simpleWithdraw}. `amount` = type(uint256).max drains
+     *      the whole position (the adapter computes the exact fee-adjusted amount itself).
+     */
+    function simpleUnstake(address stakingProtocol, address assetAddress, uint256 amount, bool clearRoute) external;
+
+    /**
      * @notice Set the vault's single asset manager, replacing any previous one. Only this address may trade;
      *         it has full trading access, bounded only by the token allowlist and per-asset minimal-balance
      *         floors. The owner may set itself.

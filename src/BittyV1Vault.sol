@@ -6,6 +6,7 @@ import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
 import {IBittyV1Owner} from "./interfaces/IBittyV1Owner.sol";
 import {IBittyV1PayoutOperator} from "./interfaces/IBittyV1PayoutOperator.sol";
+import {NotAssetManager} from "./interfaces/IBittyV1AssetManager.sol";
 import {
     IBittyV1Vault,
     AddressZero,
@@ -18,6 +19,7 @@ import {
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultStorage, AssetManagerStorage} from "./logic/Storages.sol";
+import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
 /**
  * @title BittyV1Vault
@@ -27,8 +29,8 @@ import {VaultStorage, AssetManagerStorage} from "./logic/Storages.sol";
 contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator {
     using AssetManagerLogic for AssetManagerStorage;
     using VaultLogic for VaultStorage;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
-    // {autoYield} may only be invoked by the vault itself (from {receive}) or the owner-set trigger.
     error NotAutoYieldTrigger();
 
     modifier onlyOwnerOrPayoutOperator() {
@@ -152,7 +154,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
             WETH(payable(weth)).deposit{value: ethBalance}();
         }
 
-        // Route deposited (and just-wrapped) balances into their configured yield routes atomically.
         _assetManager.autoYield(autoYieldAssets);
     }
 
@@ -414,8 +415,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         address[] calldata lendingProtocols,
         uint256[] calldata lendingAmounts
     ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        // Position sourcing must happen before payout (it uses the asset manager); the library validates the
-        // ids/assets/amounts lengths, and _pullFromPositions validates the position arrays against assets.
         _pullFromPositions(assets, stakingProtocols, stakingAmounts, lendingProtocols, lendingAmounts);
         _vault.sendToWhitelistedRecipients(ids, assets, amounts);
     }
@@ -516,6 +515,104 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         _assetManager.addAMMProtocols(addAMMProtocols);
         _assetManager.removeAMMProtocols(removeAMMProtocols);
         emit AMMProtocolsUpdated(addAMMProtocols, removeAMMProtocols);
+    }
+
+    function prepareIntentTrade(address intentProtocol, address[] calldata assets, address[] calldata approveTokens)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        if (intentProtocol != address(0) && !_assetManager.intentProtocols.contains(intentProtocol)) {
+            address[] memory one = new address[](1);
+            one[0] = intentProtocol;
+            _assetManager.addIntentProtocols(one);
+            emit IntentProtocolsUpdated(one, new address[](0));
+        }
+
+        uint256 missing;
+        for (uint256 i; i < assets.length; ++i) {
+            if (!_vault.assets.contains(assets[i]) && !_vault.stableCoins.contains(assets[i])) ++missing;
+        }
+        if (missing > 0) {
+            address[] memory toAdd = new address[](missing);
+            uint256 j;
+            for (uint256 i; i < assets.length; ++i) {
+                if (!_vault.assets.contains(assets[i]) && !_vault.stableCoins.contains(assets[i])) {
+                    toAdd[j++] = assets[i];
+                }
+            }
+            _vault.addAssets(toAdd);
+            emit AssetsUpdated(toAdd, new address[](0));
+        }
+
+        for (uint256 i; i < approveTokens.length; ++i) {
+            _assetManager.approveIntentRelayer(intentProtocol, approveTokens[i]);
+        }
+    }
+
+    /**
+     * @dev Shared guard for the one-tx yield entry points (simpleSupply / simpleStake): the caller must be the owner (the role that may
+     *      register a protocol) and also the vault's asset manager (the role that may move funds into a
+     *      position). Enforced here because these bypass the DeFi facet's onlyAssetManager wrapper.
+     */
+    function _checkOwnerIsAssetManager() private view {
+        if (_assetManager.assetManager != _msgSender()) revert NotAssetManager();
+    }
+
+    function simpleSupply(address lendingProtocol, address assetAddress, uint256 amount)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _checkOwnerIsAssetManager();
+        if (!_assetManager.lendingProtocols.contains(lendingProtocol)) {
+            address[] memory one = new address[](1);
+            one[0] = lendingProtocol;
+            _assetManager.addLendingProtocols(one);
+            emit LendingProtocolsUpdated(one, new address[](0));
+        }
+        _assetManager.supply(lendingProtocol, assetAddress, amount);
+    }
+
+    function simpleStake(address stakingProtocol, address assetAddress, uint256 amount)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _checkOwnerIsAssetManager();
+        if (!_assetManager.stakingProtocols.contains(stakingProtocol)) {
+            address[] memory one = new address[](1);
+            one[0] = stakingProtocol;
+            _assetManager.addStakingProtocols(one);
+            emit StakingProtocolsUpdated(one, new address[](0));
+        }
+        _assetManager.stake(stakingProtocol, assetAddress, amount);
+    }
+
+    function simpleWithdraw(address lendingProtocol, address assetAddress, uint256 amount, bool clearRoute)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _checkOwnerIsAssetManager();
+        if (clearRoute) _clearAutoYieldRoute(assetAddress);
+        _assetManager.withdraw(lendingProtocol, assetAddress, amount, address(this));
+    }
+
+    function simpleUnstake(address stakingProtocol, address assetAddress, uint256 amount, bool clearRoute)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _checkOwnerIsAssetManager();
+        if (clearRoute) _clearAutoYieldRoute(assetAddress);
+        _assetManager.unstake(stakingProtocol, assetAddress, amount, address(this));
+    }
+
+    function _clearAutoYieldRoute(address assetAddress) private {
+        AutoYield[] memory routes = new AutoYield[](1);
+        routes[0] = AutoYield({asset: assetAddress, protocol: address(0), isSupplying: false});
+        _assetManager.setAutoYieldings(routes);
     }
 
     function updateIntentProtocols(address[] memory addIntentProtocols, address[] memory removeIntentProtocols)
