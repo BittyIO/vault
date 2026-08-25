@@ -60,4 +60,9 @@ contract MockLendingProtocol is IBittyV1LendingProtocol, Ownable, Initializable 
     function receiptTokenOf(address) external pure returns (address) {
         return address(0);
     }
+
+    /// @dev Declares its category so the guard will register it; `virtual` so subclasses can differ.
+    function supportsInterface(bytes4 interfaceId) public pure virtual returns (bool) {
+        return interfaceId == type(IBittyV1LendingProtocol).interfaceId || interfaceId == 0x01ffc9a7;
+    }
 }

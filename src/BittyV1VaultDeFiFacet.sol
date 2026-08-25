@@ -2,11 +2,13 @@
 pragma solidity ^0.8.34;
 
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
-import {IBittyV1AssetManager, NotAssetManager} from "./interfaces/IBittyV1AssetManager.sol";
+import {IBittyV1AssetManager, NotAssetManager, AssetManagerExpired} from "./interfaces/IBittyV1AssetManager.sol";
 import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
-import {AssetManagerStorage} from "./logic/Storages.sol";
+import {VaultLogic} from "./logic/VaultLogic.sol";
+import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
+import {BITTY_GUARD, INTENT_INTERFACE_ID} from "./logic/Constants.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
@@ -21,6 +23,7 @@ import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/Enum
  */
 contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
     using AssetManagerLogic for AssetManagerStorage;
+    using VaultLogic for VaultStorage;
     using EnumerableSet for EnumerableSet.AddressSet;
 
     /**
@@ -33,10 +36,11 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
     }
 
     function _checkAssetManager() internal view {
-        if (_msgSender() != _assetManager.assetManager) revert NotAssetManager();
+        address sender = _msgSender();
+        if (_assetManager.isActiveAssetManager(sender)) return;
+        if (sender == _assetManager.assetManager) revert AssetManagerExpired();
+        revert NotAssetManager();
     }
-
-    // ============ AMM liquidity ============
 
     function addLiquidity(
         address ammProtocol,
@@ -69,8 +73,6 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         return _assetManager.getLiquidities(ammProtocols, data);
     }
 
-    // ============ Intent (gasless off-chain signing) ============
-
     /**
      * @notice Pre-approve the intent protocol's settlement relayer for `token` (max), so gasless
      *         off-chain-signed orders can be pulled at settlement. One amortized approval per sell token.
@@ -91,15 +93,13 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         _assetManager.cancelIntentOrders(intentProtocol, orderUids);
     }
 
-    function getIntentProtocols() external view returns (address[] memory) {
-        return _assetManager.getIntentProtocols();
+    function cancelIntentOrder(address intentProtocol, bytes calldata orderUid) external onlyAssetManager {
+        _assetManager.cancelIntentOrderOne(intentProtocol, orderUid);
     }
 
     function getClone(address intentProtocol) external view returns (address) {
         return _assetManager.getClone(intentProtocol);
     }
-
-    // ============ Lending ============
 
     function supply(address lendingProtocol, address assetAddress, uint256 amount) external override onlyAssetManager {
         _assetManager.supply(lendingProtocol, assetAddress, amount);
@@ -121,8 +121,6 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         return _assetManager.getSuppliedBalances(lendingProtocols, assetAddresses);
     }
 
-    // ============ Staking ============
-
     function stake(address stakingProtocol, address asset, uint256 amount) external override onlyAssetManager {
         _assetManager.stake(stakingProtocol, asset, amount);
     }
@@ -143,40 +141,30 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         return _assetManager.getUnstakeRequestIds(stakingProtocol);
     }
 
-    function claimUnstaked(address stakingProtocol, uint256[] memory requestIds) external override onlyAssetManager {
-        _assetManager.claimUnstaked(stakingProtocol, requestIds);
+    function claimUnstaked(address stakingProtocol, uint256 requestId) external onlyAssetManager {
+        _assetManager.claimUnstakedOne(stakingProtocol, requestId);
     }
 
-    // ============ Rebalance ============
+    function claimUnstakeds(address stakingProtocol, uint256[] memory requestIds) external override onlyAssetManager {
+        _assetManager.claimUnstaked(stakingProtocol, requestIds);
+    }
 
     function disableRebalanceUntilTimestamp(uint256 timestamp) external override onlyAssetManager {
         _assetManager.disableRebalanceUntilTimestamp(timestamp);
         emit RebalanceDisabledUntil(timestamp);
     }
 
-    function getLendingProtocols() external view returns (address[] memory) {
-        return _assetManager.getLendingProtocols();
+    /**
+     * @dev Empty means NO protocol is usable by this vault — the list is the permission, and nothing
+     *      is seeded here at activation. Read each entry's kind from the guard's `protocolCategory`.
+     */
+    function getProtocols() external view returns (address[] memory) {
+        return _assetManager.getProtocols();
     }
 
-    function getStakingProtocols() external view returns (address[] memory) {
-        return _assetManager.getStakingProtocols();
+    function guard() external pure returns (IBittyV1Guard) {
+        return IBittyV1Guard(BITTY_GUARD);
     }
-
-    function getAMMProtocols() external view returns (address[] memory) {
-        return _assetManager.getAMMProtocols();
-    }
-
-    // ============ Views ============
-
-    function guard() external view returns (IBittyV1Guard) {
-        return _assetManager.guard;
-    }
-
-    function minimalBalance(address assetAddress) external view returns (uint256) {
-        return _assetManager.minimalBalances[assetAddress];
-    }
-
-    // ============ EIP-1271 (intent order signature validation) ============
 
     /**
      * @notice Validates intent order signatures on behalf of the vault.
@@ -185,8 +173,9 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
      *         (CoW Swap, UniswapX, etc.) without protocol-specific vault logic.
      */
     function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4) {
-        address[] memory protocols = _assetManager.getIntentProtocols();
+        address[] memory protocols = _assetManager.getProtocols();
         for (uint256 i = 0; i < protocols.length; i++) {
+            if (IBittyV1Guard(BITTY_GUARD).protocolCategory(protocols[i]) != INTENT_INTERFACE_ID) continue;
             address clone = _assetManager.clonedProtocols[protocols[i]];
             if (clone == address(0)) continue;
             try IBittyV1IntentProtocol(clone).isValidSignature(hash, signature) returns (bytes4 result) {
@@ -195,8 +184,6 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         }
         return 0xffffffff;
     }
-
-    // ============ Gasless off-chain order authorization ============
 
     /**
      * @notice Authorize a gasless, off-chain-signed intent order against live vault state. Called
@@ -214,14 +201,12 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         view
         returns (bool)
     {
-        if (signer == address(0) || signer != _assetManager.assetManager) return false;
-        // Honour an owner "pause trading" window (disableRebalanceUntilTimestamp).
+        if (!_assetManager.isActiveAssetManager(signer)) return false;
         uint256 disabledUntil = _assetManager.rebalanceDisabledUntilTimestamp;
         if (disabledUntil > 0 && block.timestamp < disabledUntil) return false;
-        if (!_vault.assets.contains(buyToken) && !_vault.stableCoins.contains(buyToken)) return false;
+        if (!_vault.assetAllowed(buyToken)) return false;
         uint256 bal = IERC20(sellToken).balanceOf(address(this));
         if (bal < sellAmount) return false;
-        if (bal - sellAmount < _assetManager.minimalBalances[sellToken]) return false;
         return true;
     }
 
@@ -231,6 +216,6 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
      *         protocol-contracts' IBittyVaultOffchainAuth.isOffchainManager.
      */
     function isOffchainManager(address signer) external view returns (bool) {
-        return signer != address(0) && signer == _assetManager.assetManager;
+        return _assetManager.isActiveAssetManager(signer);
     }
 }

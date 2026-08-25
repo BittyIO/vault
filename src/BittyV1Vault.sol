@@ -6,32 +6,55 @@ import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
 import {IBittyV1Owner} from "./interfaces/IBittyV1Owner.sol";
 import {IBittyV1PayoutOperator} from "./interfaces/IBittyV1PayoutOperator.sol";
-import {NotAssetManager} from "./interfaces/IBittyV1AssetManager.sol";
 import {
     IBittyV1Vault,
     AddressZero,
     ArrayLengthMismatch,
     OwnerAndPayoutOperatorMustDiffer,
     NotPayoutOperator,
-    RiskSettings,
+    NotTrustedForwarder,
+    InvalidRelayedCalldata,
     AutoYield
 } from "./interfaces/IBittyV1Vault.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultStorage, AssetManagerStorage} from "./logic/Storages.sol";
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
+import {Multicall} from "openzeppelin-contracts/contracts/utils/Multicall.sol";
+import {Context} from "openzeppelin-contracts/contracts/utils/Context.sol";
 
 /**
  * @title BittyV1Vault
  * @notice Core custody + payments: asset allowlist, scheduled payments and whitelisted recipients.
  *         Asset manager trading/yield lives in {BittyV1VaultDeFiFacet}, reached through this contract's fallback.
  */
-contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator {
+/**
+ * @dev Batching comes from OpenZeppelin's {Multicall}: it self-delegatecalls each entry, so msg.sender
+ *      and storage are the caller's throughout and every call is authorised exactly as it would be on
+ *      its own — batching grants nothing. Since OZ 5.0.1 it also re-appends the ERC-2771 sender suffix
+ *      to each sub-call, which a naive loop would drop, silently turning a relayed batch into calls
+ *      attributed to the forwarder.
+ *
+ *      A generic batch rather than bespoke one-transaction helpers: the pairs worth batching (allow a
+ *      token then approve the relayer for it, enter a position then set its yield route) are the
+ *      client's to compose, and every helper we wrote for a specific pair became dead weight the
+ *      moment the underlying step stopped being needed.
+ */
+contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1PayoutOperator {
     using AssetManagerLogic for AssetManagerStorage;
     using VaultLogic for VaultStorage;
     using EnumerableSet for EnumerableSet.AddressSet;
 
+    address public immutable AUTO_YIELD_KEEPER;
+
+    address public immutable DEFI_FACET;
+
     error NotAutoYieldTrigger();
+
+    constructor(address defiFacet, address autoYieldKeeper) {
+        DEFI_FACET = defiFacet;
+        AUTO_YIELD_KEEPER = autoYieldKeeper;
+    }
 
     modifier onlyOwnerOrPayoutOperator() {
         if (!hasRole(DEFAULT_ADMIN_ROLE, _msgSender()) && !_vault.isPayoutOperator(_msgSender())) {
@@ -47,17 +70,19 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
     function renounceVaultOwnership(uint256 rescueScheduledPaymentId) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.prepareRenounce(rescueScheduledPaymentId);
         address formerOwner = _msgSender();
+
+        address remainingManager = _assetManager.prepareRenounceAssetManager(_vault, formerOwner);
         _renounceOwner();
+
+        emit AssetManagerSet(remainingManager, _assetManager.assetManagerExpiresAt);
         emit OwnershipRenounced(formerOwner);
     }
 
     receive() external payable {
         address weth = _vault.weth;
-        if (msg.value > 0 && weth != address(0) && msg.sender != weth) {
+        if (msg.value > 0 && msg.sender != weth) {
             WETH(payable(weth)).deposit{value: msg.value}();
-            address[] memory one = new address[](1);
-            one[0] = weth;
-            try this.autoYield(one) {} catch {}
+            try this.autoYield(weth) {} catch {}
         }
     }
 
@@ -66,11 +91,64 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
      * @dev Never permissionless — a griefer could strand swap liquidity by routing on demand. The trigger
      *      check is done once for the whole batch.
      */
-    function autoYield(address[] calldata assetAddresses) external {
-        if (msg.sender != address(this) && msg.sender != _assetManager.autoYieldTrigger) {
-            revert NotAutoYieldTrigger();
-        }
+    function autoYield(address assetAddress) external {
+        _checkAutoYieldCaller();
+        _assetManager.autoYieldOne(assetAddress);
+    }
+
+    function autoYields(address[] calldata assetAddresses) external {
+        _checkAutoYieldCaller();
         _assetManager.autoYield(assetAddresses);
+    }
+
+    /**
+     * @notice Reimburse the trusted forwarder, in stablecoin, for gas it fronted for this vault.
+     * @dev Deliberately outside the payment-risk controls — see {VaultLogic-payRelayerFee}.
+     */
+    function payRelayerFee(address stableCoinAddress, uint256 amount) external {
+        address forwarder = trustedForwarder();
+        if (forwarder == address(0) || msg.sender != forwarder) revert NotTrustedForwarder();
+        _vault.payRelayerFee(stableCoinAddress, amount);
+    }
+
+    /**
+     * @notice What the forwarder may still reclaim from this vault today, as an 18-decimal
+     *         whole-stable-coin-token value. Resets at 00:00 UTC.
+     * @dev Read before relaying: going over reverts the whole relayed call, so the relayer would burn
+     *      the gas it just spent and collect nothing.
+     */
+    function gasBudgetRemaining() external view returns (uint256) {
+        return _vault.gasBudgetRemaining();
+    }
+
+    /**
+     * @inheritdoc IBittyV1Owner
+     */
+    function setGasless(address[] calldata stableCoins, uint64 dailyLimit, uint64 maxFeePerOp_)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _vault.setGasless(stableCoins, dailyLimit, maxFeePerOp_);
+    }
+
+    /**
+     * @inheritdoc IBittyV1Owner
+     */
+    function disableGasless() external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.disableGasless();
+    }
+
+    /**
+     * @notice The terms on which this vault will pay for relayed gas.
+     * @dev dailyLimit of 0 means relaying is off; {gasBudgetRemaining} is the separate live figure.
+     */
+    function gaslessConfig()
+        external
+        view
+        returns (address[] memory stableCoins, uint256 dailyLimit, uint256 maxFeePerOp)
+    {
+        return (_vault.getGaslessStableCoins(), _vault.gasBudgetDailyLimit(), _vault.maxFeePerOpValue());
     }
 
     /**
@@ -89,8 +167,27 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         }
     }
 
+    function _msgSender() internal view virtual override(BittyV1VaultBase, Context) returns (address) {
+        return BittyV1VaultBase._msgSender();
+    }
+
+    function _msgData() internal view virtual override(BittyV1VaultBase, Context) returns (bytes calldata) {
+        return BittyV1VaultBase._msgData();
+    }
+
+    function _contextSuffixLength() internal view virtual override(BittyV1VaultBase, Context) returns (uint256) {
+        return BittyV1VaultBase._contextSuffixLength();
+    }
+
     fallback() external payable {
-        address facet = _defiFacet;
+        // Under 24 bytes there is no room for a selector plus the ERC-2771 suffix, so the facet would
+        // dispatch on bytes taken from the appended address itself — a selector anyone can choose by
+        // grinding a vanity key, not a function anyone encoded a call to. Nothing reachable that way is
+        // dangerous today: every zero-argument facet function is a view, and the ABI decoder rejects
+        // short calldata for the rest. That is a property of the facet as it stands, not a guarantee —
+        // the first zero-argument state-changing function added there would be callable this way.
+        if (msg.data.length < 24 && msg.sender == trustedForwarder()) revert InvalidRelayedCalldata();
+        address facet = DEFI_FACET;
         assembly {
             calldatacopy(0, 0, calldatasize())
             let ok := delegatecall(gas(), facet, 0, calldatasize(), 0, 0)
@@ -101,60 +198,29 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         }
     }
 
-    function initialize(
-        address owner,
-        address guardAddress,
-        address weth,
-        address[] memory assetAddresses,
-        address[] memory lendingProtocols,
-        address[] memory stakingProtocols,
-        address[] memory ammProtocols,
-        address[] memory intentProtocols,
-        address defiFacet,
-        RiskSettings memory riskSettings,
-        AutoYield[] memory autoYields,
-        address autoYieldTrigger
-    ) public initializer {
-        _defiFacet = defiFacet;
+    function initialize(address owner, address weth, address activationStableCoin, uint256 activationFee)
+        public
+        initializer
+    {
         _vault.weth = weth;
         __AccessControl_init();
         _initOwner(owner);
 
-        _vault.initialize(guardAddress, riskSettings);
-        if (assetAddresses.length > 0) {
-            _vault.addAssets(assetAddresses);
+        _vault.initialize();
+
+        _vault.seedMinimalAllowList(weth);
+
+        if (activationStableCoin != address(0) && activationFee != 0) {
+            _vault.payActivationFee(activationStableCoin, activationFee);
         }
 
-        _assetManager.initialize(guardAddress);
-
-        _assetManager.setAssetManager(owner);
-
-        if (lendingProtocols.length > 0) {
-            _assetManager.addLendingProtocols(lendingProtocols);
-        }
-        if (stakingProtocols.length > 0) {
-            _assetManager.addStakingProtocols(stakingProtocols);
-        }
-        if (ammProtocols.length > 0) {
-            _assetManager.addAMMProtocols(ammProtocols);
-        }
-        if (intentProtocols.length > 0) {
-            _assetManager.addIntentProtocols(intentProtocols);
-        }
-
-        _assetManager.autoYieldTrigger = autoYieldTrigger;
-        address[] memory autoYieldAssets = new address[](autoYields.length);
-        for (uint256 i = 0; i < autoYields.length; i++) {
-            _assetManager.registerAutoYield(_vault, autoYields[i]);
-            autoYieldAssets[i] = autoYields[i].asset;
-        }
+        _assetManager.initialize();
+        _assetManager.initAssetManager(owner);
 
         uint256 ethBalance = address(this).balance;
-        if (ethBalance > 0 && weth != address(0)) {
+        if (ethBalance > 0) {
             WETH(payable(weth)).deposit{value: ethBalance}();
         }
-
-        _assetManager.autoYield(autoYieldAssets);
     }
 
     function updateAssets(address[] memory addAssets, address[] memory removeAssets)
@@ -185,7 +251,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         return _assetManager.addingProtocolsDisabled;
     }
 
-    function send(
+    function batchSend(
         address[] calldata recipients,
         address[] calldata assets,
         uint256[] calldata amounts,
@@ -198,7 +264,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
             _pullFromPositions(assets, stakingProtocols, stakingAmounts, lendingProtocols, lendingAmounts);
             _vault.send(recipients, assets, amounts);
         } else {
-            _vault.proposeSend(recipients, assets, amounts);
+            _vault.proposeSend(recipients, assets, amounts, _msgSender());
         }
     }
 
@@ -259,36 +325,113 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         return assetAddress == address(0) ? _vault.weth : assetAddress;
     }
 
+    function send(
+        address recipient,
+        address asset,
+        uint256 amount,
+        address stakingProtocol,
+        uint256 stakingAmount,
+        address lendingProtocol,
+        uint256 lendingAmount
+    ) external onlyOwnerOrPayoutOperator {
+        if (_byOwner()) {
+            _pullOneFromPositions(asset, stakingProtocol, stakingAmount, lendingProtocol, lendingAmount);
+            _vault.sendOne(recipient, asset, amount);
+        } else {
+            _vault.proposeSendOne(recipient, asset, amount, _msgSender());
+        }
+    }
+
+    function sendToWhitelistedRecipient(
+        uint256 id,
+        address asset,
+        uint256 amount,
+        address stakingProtocol,
+        uint256 stakingAmount,
+        address lendingProtocol,
+        uint256 lendingAmount
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pullOneFromPositions(asset, stakingProtocol, stakingAmount, lendingProtocol, lendingAmount);
+        _vault.sendToWhitelistedRecipientOne(id, asset, amount);
+    }
+
+    function payScheduled(
+        uint256 id,
+        address stakingProtocol,
+        uint256 stakingAmount,
+        address lendingProtocol,
+        uint256 lendingAmount
+    ) external {
+        address asset = _vault.scheduledPaymentAsset(id);
+        _pullOneFromPositions(asset, stakingProtocol, stakingAmount, lendingProtocol, lendingAmount);
+        _vault.payScheduledOne(id, _msgSender());
+    }
+
+    function approveSend(uint256 id) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _vault.approveSendOne(id);
+    }
+
+    function addScheduledPayment(IBittyV1Vault.ScheduledPayment calldata scheduledPayment)
+        external
+        onlyOwnerOrPayoutOperator
+        returns (uint256)
+    {
+        return _vault.addScheduledPaymentOne(scheduledPayment, _byOwner(), _msgSender());
+    }
+
+    function addWhitelistedRecipient(address recipient, address allowedAsset)
+        external
+        onlyOwnerOrPayoutOperator
+        returns (uint256)
+    {
+        return _vault.addWhitelistedRecipientOne(recipient, allowedAsset, _byOwner(), _msgSender());
+    }
+
+    function cancelSend(uint256 id) external onlyOwnerOrPayoutOperator {
+        _vault.cancelSendOne(id, _byOwner(), _msgSender());
+    }
+
+    /**
+     * @dev Three callers, for three reasons. The vault itself, so {receive} can sweep a deposit. Bitty's
+     *      keeper, which is what makes Auto Earn automatic. And the owner, so a vault is never dependent
+     *      on that keeper being up — it is their money moving into routes they already chose.
+     *
+     *      Raw msg.sender for the self-call: an identity question, not an authorisation one, so it must
+     *      never resolve to a relayed signer. The other two are authorisation, hence {_msgSender}.
+     */
+    function _checkAutoYieldCaller() private view {
+        if (msg.sender == address(this)) return;
+        address sender = _msgSender();
+        if (sender == AUTO_YIELD_KEEPER) return;
+        if (hasRole(DEFAULT_ADMIN_ROLE, sender)) return;
+        revert NotAutoYieldTrigger();
+    }
+
+    function setAutoYielding(AutoYield calldata route) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetManager.setAutoYieldingOne(route);
+    }
+
     function reviewSends(uint256[] calldata approveIds, uint256[] calldata cancelIds)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _vault.reviewSends(approveIds, cancelIds);
+        _vault.reviewSends(approveIds, cancelIds, _msgSender());
     }
 
     function cancelSends(uint256[] calldata ids) external override onlyOwnerOrPayoutOperator {
-        _vault.cancelSends(ids, _byOwner());
-    }
-
-    function addScheduledPayments(IBittyV1Vault.ScheduledPayment[] calldata scheduledPayments_)
-        external
-        override
-        onlyOwnerOrPayoutOperator
-        returns (uint256[] memory ids)
-    {
-        return _vault.addScheduledPayments(scheduledPayments_, _byOwner());
+        _vault.cancelSends(ids, _byOwner(), _msgSender());
     }
 
     function updateScheduledPayments(
         uint256[] calldata ids,
         IBittyV1Vault.ScheduledPayment[] calldata scheduledPayments_
     ) external override onlyOwnerOrPayoutOperator {
-        _vault.updateScheduledPayments(ids, scheduledPayments_, _byOwner());
+        _vault.updateScheduledPayments(ids, scheduledPayments_, _byOwner(), _msgSender());
     }
 
     function removeScheduledPayments(uint256[] calldata ids) external override onlyOwnerOrPayoutOperator {
-        _vault.removeScheduledPayments(ids, _byOwner());
+        _vault.removeScheduledPayments(ids, _byOwner(), _msgSender());
     }
 
     function reviewScheduledPayments(
@@ -296,7 +439,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         bytes32[] calldata expectedHashes,
         uint256[] calldata cancelIds
     ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.reviewScheduledPayments(approveIds, expectedHashes, cancelIds);
+        _vault.reviewScheduledPayments(approveIds, expectedHashes, cancelIds, _msgSender());
     }
 
     function updatePaymentRisk(IBittyV1Owner.PaymentRisk calldata paymentRisk)
@@ -323,7 +466,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
      *         lending pairs are independently optional: an empty pair skips that leg; a supplied pair must
      *         equal `ids.length`. Pass empty arrays for a plain vault-balance payout.
      */
-    function payScheduled(
+    function payScheduleds(
         uint256[] calldata ids,
         address[] calldata stakingProtocols,
         uint256[] calldata stakingAmounts,
@@ -331,7 +474,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         uint256[] calldata lendingAmounts
     ) external {
         _pullScheduledFromPositions(ids, stakingProtocols, stakingAmounts, lendingProtocols, lendingAmounts);
-        _vault.payScheduled(ids);
+        _vault.payScheduled(ids, _msgSender());
     }
 
     /**
@@ -374,16 +517,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
     }
 
     function payScheduledAmount(uint256 id, uint256 amount) external {
-        _vault.payScheduledAmount(id, amount);
-    }
-
-    function addWhitelistedRecipients(address[] calldata recipients, address[] calldata allowedAssets)
-        external
-        override
-        onlyOwnerOrPayoutOperator
-        returns (uint256[] memory ids)
-    {
-        return _vault.addWhitelistedRecipients(recipients, allowedAssets, _byOwner());
+        _vault.payScheduledAmount(id, amount, _msgSender());
     }
 
     function updateWhitelistedRecipients(
@@ -391,11 +525,11 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         address[] calldata recipients,
         address[] calldata allowedAssets
     ) external override onlyOwnerOrPayoutOperator {
-        _vault.updateWhitelistedRecipients(ids, recipients, allowedAssets, _byOwner());
+        _vault.updateWhitelistedRecipients(ids, recipients, allowedAssets, _byOwner(), _msgSender());
     }
 
     function removeWhitelistedRecipients(uint256[] calldata ids) external override onlyOwnerOrPayoutOperator {
-        _vault.removeWhitelistedRecipients(ids, _byOwner());
+        _vault.removeWhitelistedRecipients(ids, _byOwner(), _msgSender());
     }
 
     function reviewWhitelistedRecipients(
@@ -403,20 +537,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         bytes32[] calldata expectedHashes,
         uint256[] calldata cancelIds
     ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _vault.reviewWhitelistedRecipients(approveIds, expectedHashes, cancelIds);
-    }
-
-    function sendToWhitelistedRecipients(
-        uint256[] calldata ids,
-        address[] calldata assets,
-        uint256[] calldata amounts,
-        address[] calldata stakingProtocols,
-        uint256[] calldata stakingAmounts,
-        address[] calldata lendingProtocols,
-        uint256[] calldata lendingAmounts
-    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _pullFromPositions(assets, stakingProtocols, stakingAmounts, lendingProtocols, lendingAmounts);
-        _vault.sendToWhitelistedRecipients(ids, assets, amounts);
+        _vault.reviewWhitelistedRecipients(approveIds, expectedHashes, cancelIds, _msgSender());
     }
 
     function getWhitelistedRecipients(uint256[] calldata ids)
@@ -427,23 +548,8 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         return _vault.getWhitelistedRecipients(ids);
     }
 
-    function setMinimalBalances(address[] calldata assetAddresses, uint256[] calldata minimalBalances)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.setMinimalBalances(assetAddresses, minimalBalances);
-        emit MinimalBalancesSet(assetAddresses, minimalBalances);
-    }
-
-    function setAutoYieldings(AutoYield[] calldata routes, address trigger)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function setAutoYieldings(AutoYield[] calldata routes) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _assetManager.setAutoYieldings(routes);
-        _assetManager.autoYieldTrigger = trigger;
-        emit AutoYieldTriggerSet(trigger);
     }
 
     function getAutoYieldings(address[] calldata assetAddresses)
@@ -454,29 +560,24 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         return _assetManager.getAutoYieldings(assetAddresses);
     }
 
-    function getAutoYieldTrigger() external view returns (address) {
-        return _assetManager.autoYieldTrigger;
+    function setAssetManager(address assetManager, uint64 expiresAt) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        _assetManager.setAssetManager(_vault, assetManager, expiresAt);
+        emit AssetManagerSet(assetManager, expiresAt);
     }
 
-    function setAssetManager(address assetManager) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        _assetManager.setAssetManager(assetManager);
-        emit AssetManagerSet(assetManager);
-    }
-
-    function getAssetManager() external view returns (address) {
-        return _assetManager.assetManager;
-    }
-
-    function updatePayoutOperators(address[] calldata addPayoutOperators, address[] calldata removePayoutOperators)
+    function getAssetManagerSettings()
         external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
+        view
+        returns (address assetManager, uint64 expiresAt, address pendingAssetManager, uint64 pendingAt)
     {
-        for (uint256 i; i < addPayoutOperators.length; ++i) {
-            if (hasRole(DEFAULT_ADMIN_ROLE, addPayoutOperators[i])) revert OwnerAndPayoutOperatorMustDiffer();
-        }
-        _vault.updatePayoutOperators(addPayoutOperators, removePayoutOperators);
-        emit PayoutOperatorsUpdated(addPayoutOperators, removePayoutOperators);
+        (address granted, uint64 grantedExpiresAt) = _assetManager.liveGrant();
+        return (granted, grantedExpiresAt, _assetManager.pendingAssetManager, _assetManager.pendingAssetManagerAt);
+    }
+
+    function updatePayoutOperator(address payoutOperator, bool add) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (add && hasRole(DEFAULT_ADMIN_ROLE, payoutOperator)) revert OwnerAndPayoutOperatorMustDiffer();
+        _vault.updatePayoutOperatorOne(payoutOperator, add);
+        emit PayoutOperatorUpdated(payoutOperator, add);
     }
 
     function getPayoutOperators() external view returns (address[] memory) {
@@ -487,142 +588,13 @@ contract BittyV1Vault is BittyV1VaultBase, IBittyV1Owner, IBittyV1PayoutOperator
         return _vault.isPayoutOperator(account);
     }
 
-    function updateLendingProtocols(address[] memory addLendingProtocols, address[] memory removeLendingProtocols)
+    function updateProtocols(address[] memory addProtocols, address[] memory removeProtocols)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _assetManager.addLendingProtocols(addLendingProtocols);
-        _assetManager.removeLendingProtocols(removeLendingProtocols);
-        emit LendingProtocolsUpdated(addLendingProtocols, removeLendingProtocols);
-    }
-
-    function updateStakingProtocols(address[] memory addStakingProtocols, address[] memory removeStakingProtocols)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.addStakingProtocols(addStakingProtocols);
-        _assetManager.removeStakingProtocols(removeStakingProtocols);
-        emit StakingProtocolsUpdated(addStakingProtocols, removeStakingProtocols);
-    }
-
-    function updateAMMProtocols(address[] memory addAMMProtocols, address[] memory removeAMMProtocols)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.addAMMProtocols(addAMMProtocols);
-        _assetManager.removeAMMProtocols(removeAMMProtocols);
-        emit AMMProtocolsUpdated(addAMMProtocols, removeAMMProtocols);
-    }
-
-    function prepareIntentTrade(address intentProtocol, address[] calldata assets, address[] calldata approveTokens)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        if (intentProtocol != address(0) && !_assetManager.intentProtocols.contains(intentProtocol)) {
-            address[] memory one = new address[](1);
-            one[0] = intentProtocol;
-            _assetManager.addIntentProtocols(one);
-            emit IntentProtocolsUpdated(one, new address[](0));
-        }
-
-        uint256 missing;
-        for (uint256 i; i < assets.length; ++i) {
-            if (!_vault.assets.contains(assets[i]) && !_vault.stableCoins.contains(assets[i])) ++missing;
-        }
-        if (missing > 0) {
-            address[] memory toAdd = new address[](missing);
-            uint256 j;
-            for (uint256 i; i < assets.length; ++i) {
-                if (!_vault.assets.contains(assets[i]) && !_vault.stableCoins.contains(assets[i])) {
-                    toAdd[j++] = assets[i];
-                }
-            }
-            _vault.addAssets(toAdd);
-            emit AssetsUpdated(toAdd, new address[](0));
-        }
-
-        for (uint256 i; i < approveTokens.length; ++i) {
-            _assetManager.approveIntentRelayer(intentProtocol, approveTokens[i]);
-        }
-    }
-
-    /**
-     * @dev Shared guard for the one-tx yield entry points (simpleSupply / simpleStake): the caller must be the owner (the role that may
-     *      register a protocol) and also the vault's asset manager (the role that may move funds into a
-     *      position). Enforced here because these bypass the DeFi facet's onlyAssetManager wrapper.
-     */
-    function _checkOwnerIsAssetManager() private view {
-        if (_assetManager.assetManager != _msgSender()) revert NotAssetManager();
-    }
-
-    function simpleSupply(address lendingProtocol, address assetAddress, uint256 amount)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _checkOwnerIsAssetManager();
-        if (!_assetManager.lendingProtocols.contains(lendingProtocol)) {
-            address[] memory one = new address[](1);
-            one[0] = lendingProtocol;
-            _assetManager.addLendingProtocols(one);
-            emit LendingProtocolsUpdated(one, new address[](0));
-        }
-        _assetManager.supply(lendingProtocol, assetAddress, amount);
-    }
-
-    function simpleStake(address stakingProtocol, address assetAddress, uint256 amount)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _checkOwnerIsAssetManager();
-        if (!_assetManager.stakingProtocols.contains(stakingProtocol)) {
-            address[] memory one = new address[](1);
-            one[0] = stakingProtocol;
-            _assetManager.addStakingProtocols(one);
-            emit StakingProtocolsUpdated(one, new address[](0));
-        }
-        _assetManager.stake(stakingProtocol, assetAddress, amount);
-    }
-
-    function simpleWithdraw(address lendingProtocol, address assetAddress, uint256 amount, bool clearRoute)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _checkOwnerIsAssetManager();
-        if (clearRoute) _clearAutoYieldRoute(assetAddress);
-        _assetManager.withdraw(lendingProtocol, assetAddress, amount, address(this));
-    }
-
-    function simpleUnstake(address stakingProtocol, address assetAddress, uint256 amount, bool clearRoute)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _checkOwnerIsAssetManager();
-        if (clearRoute) _clearAutoYieldRoute(assetAddress);
-        _assetManager.unstake(stakingProtocol, assetAddress, amount, address(this));
-    }
-
-    function _clearAutoYieldRoute(address assetAddress) private {
-        AutoYield[] memory routes = new AutoYield[](1);
-        routes[0] = AutoYield({asset: assetAddress, protocol: address(0), isSupplying: false});
-        _assetManager.setAutoYieldings(routes);
-    }
-
-    function updateIntentProtocols(address[] memory addIntentProtocols, address[] memory removeIntentProtocols)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        _assetManager.addIntentProtocols(addIntentProtocols);
-        _assetManager.removeIntentProtocols(removeIntentProtocols);
-        emit IntentProtocolsUpdated(addIntentProtocols, removeIntentProtocols);
+        _assetManager.updateProtocols(addProtocols, removeProtocols);
+        emit ProtocolsUpdated(addProtocols, removeProtocols);
     }
 
     function retrieve721(address contractAddress, uint256 tokenId, address to)

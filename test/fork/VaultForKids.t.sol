@@ -2,18 +2,15 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
-import {
-    IBittyV1Vault,
-    ScheduledPaymentNotStartYet,
-    RiskSettings,
-    AutoYield
-} from "../../src/interfaces/IBittyV1Vault.sol";
-import {IBittyV1VaultFactory} from "../../src/interfaces/IBittyV1VaultFactory.sol";
+import {IBittyV1Vault, ScheduledPaymentNotStartYet, AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
+import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 
 /**
@@ -21,6 +18,12 @@ import {mainnet} from "protocol-contracts/script/addresses.sol";
  * schedule gifts at age 18, renounce admin, and kids claim through gift wallets.
  */
 contract VaultForKidsForkTest is Test {
+    /// The address that will actually be msg.sender for the next call, honouring an active prank.
+    function _self() internal view returns (address) {
+        (VmSafe.CallerMode mode, address sender,) = vm.readCallers();
+        return mode == VmSafe.CallerMode.None ? address(this) : sender;
+    }
+
     address internal constant WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
 
     address internal ALICE_ADDRESS = makeAddr("alice");
@@ -36,16 +39,16 @@ contract VaultForKidsForkTest is Test {
     BittyV1Guard public guard;
 
     address[] internal assetAddresses;
-    IBittyV1VaultFactory.AssetInput[] internal noDeposits;
     AutoYield[] internal noYield;
 
     address public parentOwner;
 
-    // Single-item wrapper over the batch addScheduledPayments.
+    // Single-item wrapper.
     function _addScheduledPayment(IBittyV1Vault.ScheduledPayment memory sp) internal returns (uint256) {
         IBittyV1Vault.ScheduledPayment[] memory arr = new IBittyV1Vault.ScheduledPayment[](1);
         arr[0] = sp;
-        uint256[] memory ids = vault.addScheduledPayments(arr);
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = vault.addScheduledPayment(arr[0]);
         return ids.length == 0 ? 0 : ids[0];
     }
 
@@ -60,14 +63,26 @@ contract VaultForKidsForkTest is Test {
     }
 
     function setUp() public {
-        vm.createSelectFork("mainnet");
+        // Pinned. Unpinned, this follows mainnet HEAD — and since the guard was deployed to
+        // BITTY_GUARD at block 25830629 the fork now carries the real one, pre-populated with
+        // assets, so setUp could not install its own and the fixtures no longer matched.
+        // A pin below that block also makes these tests deterministic, which they were not.
+        vm.createSelectFork("mainnet", 25829629);
 
         assetAddresses = new address[](2);
         assetAddresses[0] = WBTC;
         assetAddresses[1] = mainnet.WETH;
 
-        guard = new BittyV1Guard();
-        vm.startPrank(tx.origin);
+        // On a mainnet fork BITTY_GUARD now holds the REAL deployed guard, and
+        // AccessControlDefaultAdminRules refuses to install a second admin over its storage —
+        // so re-deploying reverts. Deploy only when the fork block predates the deployment.
+        if (BITTY_GUARD.code.length == 0) {
+            vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+            deployCodeTo("BittyV1Guard.sol:BittyV1Guard", BITTY_GUARD);
+            vm.stopPrank();
+        }
+        guard = BittyV1Guard(BITTY_GUARD);
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
         guard.grantRole(guard.ASSET_MANAGER_ROLE(), tx.origin);
         guard.grantRole(guard.STABLE_COIN_MANAGER_ROLE(), tx.origin);
         guard.grantRole(guard.LENDING_MANAGER_ROLE(), tx.origin);
@@ -76,28 +91,18 @@ contract VaultForKidsForkTest is Test {
         guard.addAssets(assetAddresses);
         vm.stopPrank();
 
-        vaultImpl = new BittyV1Vault();
+        vaultImpl = new BittyV1Vault(address(new BittyV1VaultDeFiFacet()), address(0xA07E1D));
         BittyV1VaultDeFiFacet defiFacet = new BittyV1VaultDeFiFacet();
         factory = new BittyV1VaultFactory();
         vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(address(vaultImpl), address(defiFacet), address(guard), mainnet.WETH);
+        factory.initialize(address(vaultImpl), mainnet.WETH);
 
         parentOwner = address(this);
     }
 
     function _deployKidsVaultViaFactory() internal {
         address expected = factory.vaultAddress(parentOwner);
-        factory.activateVault(
-            noYield,
-            address(0),
-            noDeposits,
-            assetAddresses,
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            new address[](0),
-            RiskSettings(0, 0, 0, 0)
-        );
+        factory.activateVault();
         address vaultAddr = factory.vaultAddress(parentOwner);
 
         assertEq(vaultAddr, expected);
@@ -150,7 +155,7 @@ contract VaultForKidsForkTest is Test {
         deal(mainnet.WETH, address(vault), totalWETHBalance);
 
         vm.expectRevert(ScheduledPaymentNotStartYet.selector);
-        vault.payScheduled(_u1(wbtcId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+        vault.payScheduleds(_u1(wbtcId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
 
         // Step 3: parent gives up vault admin in one atomic renounceVaultOwnership().
         // The immutable gifts must be locked (past their lock window, capped at
@@ -166,13 +171,13 @@ contract VaultForKidsForkTest is Test {
         // Step 4: after age 18, the scheduled gifts pay out to the kids' configured addresses.
         vm.warp(EIGHTEEN_TIMESTAMP);
 
-        vault.payScheduled(_u1(wbtcId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
-        vault.payScheduled(_u1(wethId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+        vault.payScheduleds(_u1(wbtcId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+        vault.payScheduleds(_u1(wethId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
 
         for (uint256 i = 1; i <= PAY_COUNT; i++) {
             vm.warp(EIGHTEEN_TIMESTAMP + i * PAY_INTERVAL);
-            vault.payScheduled(_u1(wbtcId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
-            vault.payScheduled(_u1(wethId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+            vault.payScheduleds(_u1(wbtcId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+            vault.payScheduleds(_u1(wethId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
         }
         assertEq(IERC20(WBTC).balanceOf(ALICE_ADDRESS), totalWBTCBalance);
         assertEq(IERC20(mainnet.WETH).balanceOf(ALICE_ADDRESS), totalWETHBalance);

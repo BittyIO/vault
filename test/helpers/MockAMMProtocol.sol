@@ -40,4 +40,9 @@ contract MockAMMProtocol is IBittyV1AMMProtocol {
     function getLiquidity(bytes memory) external pure override returns (uint256) {
         return 0;
     }
+
+    /// @dev Declares its category so the guard will register it; `virtual` so subclasses can differ.
+    function supportsInterface(bytes4 interfaceId) public pure virtual returns (bool) {
+        return interfaceId == type(IBittyV1AMMProtocol).interfaceId || interfaceId == 0x01ffc9a7;
+    }
 }
