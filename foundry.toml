@@ -32,6 +32,24 @@ optimizer = true
 optimizer_runs = 10000
 via_ir = true
 
+[profile.deploy]
+src = "src"
+out = "out-deploy"
+libs = ["lib"]
+solc_version = "0.8.34"
+evm_version = "prague"
+optimizer = true
+optimizer_runs = 10000
+via_ir = true
+# Deliberately NO bytecode_hash/cbor_metadata override and NO `libraries` pin.
+#
+# Both change the init code and therefore every CREATE2 address derived from it. solc records the
+# `libraries` setting in each contract's metadata, so pinning shifts even contracts that link nothing.
+#
+# This is the configuration the live Sepolia, Base and mainnet deployment was built with, and the
+# vanity salts were mined against that init code. Verified against three independent addresses that
+# reproduce only under it: VaultLogic 0xc66aef7C…, factory 0x580082Fb…, forwarder 0x00006758bf….
+
 remappings = [
     "forge-std/=lib/forge-std/src/",
     "openzeppelin-contracts/=lib/openzeppelin-contracts/",

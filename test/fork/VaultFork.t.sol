@@ -2,25 +2,35 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {IVaultFull} from "../helpers/IVaultFull.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
-import {IBittyV1VaultFactory, VaultAlreadyActivated} from "../../src/interfaces/IBittyV1VaultFactory.sol";
+import {VaultAlreadyActivated} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
+import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IBittyV1Vault, RiskSettings, AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
+import {IBittyV1Vault, AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
 import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Protocol.sol";
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
+import {effectiveAssetManager} from "../helpers/AssetManagerView.sol";
 
 /**
  * @notice Mainnet fork integration tests for BittyV1Vault with real Aave and Lido providers.
  */
 contract TestVaultFork is Test {
+    /// The address that will actually be msg.sender for the next call, honouring an active prank.
+    function _self() internal view returns (address) {
+        (VmSafe.CallerMode mode, address sender,) = vm.readCallers();
+        return mode == VmSafe.CallerMode.None ? address(this) : sender;
+    }
+
     using SafeERC20 for IERC20;
     using Path for bytes;
 
@@ -41,14 +51,14 @@ contract TestVaultFork is Test {
     address[] public stakingProtocols;
     address[] public ammProtocols;
     address[] public intentProtocols;
-    IBittyV1VaultFactory.AssetInput[] internal noDeposits;
     AutoYield[] internal noYield;
 
-    // Single-item wrapper over the batch addScheduledPayments.
+    // Single-item wrapper.
     function _addScheduledPayment(IBittyV1Vault.ScheduledPayment memory sp) internal returns (uint256) {
         IBittyV1Vault.ScheduledPayment[] memory arr = new IBittyV1Vault.ScheduledPayment[](1);
         arr[0] = sp;
-        uint256[] memory ids = vault.addScheduledPayments(arr);
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = vault.addScheduledPayment(arr[0]);
         return ids.length == 0 ? 0 : ids[0];
     }
 
@@ -63,10 +73,22 @@ contract TestVaultFork is Test {
     }
 
     function setUp() public {
-        vm.createSelectFork("mainnet");
+        // Pinned. Unpinned, this follows mainnet HEAD — and since the guard was deployed to
+        // BITTY_GUARD at block 25830629 the fork now carries the real one, pre-populated with
+        // assets, so setUp could not install its own and the fixtures no longer matched.
+        // A pin below that block also makes these tests deterministic, which they were not.
+        vm.createSelectFork("mainnet", 25829629);
 
-        guard = new BittyV1Guard();
-        vm.startPrank(tx.origin);
+        // On a mainnet fork BITTY_GUARD now holds the REAL deployed guard, and
+        // AccessControlDefaultAdminRules refuses to install a second admin over its storage —
+        // so re-deploying reverts. Deploy only when the fork block predates the deployment.
+        if (BITTY_GUARD.code.length == 0) {
+            vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+            deployCodeTo("BittyV1Guard.sol:BittyV1Guard", BITTY_GUARD);
+            vm.stopPrank();
+        }
+        guard = BittyV1Guard(BITTY_GUARD);
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
         guard.grantRole(guard.ASSET_MANAGER_ROLE(), tx.origin);
         guard.grantRole(guard.STABLE_COIN_MANAGER_ROLE(), tx.origin);
         guard.grantRole(guard.LENDING_MANAGER_ROLE(), tx.origin);
@@ -77,15 +99,15 @@ contract TestVaultFork is Test {
 
         aaveProtocol = new AaveV3Protocol(mainnet.AAVE_V3, mainnet.POOL_DATA_PROVIDER);
         aaveProtocol.initialize(address(this));
-        guard.addLendingProtocols(_arr(address(aaveProtocol)));
+        guard.addProtocols(_arr(address(aaveProtocol)));
 
         lidoProtocol = new LidoV2Protocol(mainnet.STETH, mainnet.UNSTETH, mainnet.WETH);
         lidoProtocol.initialize(address(this));
-        guard.addStakingProtocols(_arr(address(lidoProtocol)));
+        guard.addProtocols(_arr(address(lidoProtocol)));
 
         uniswapV3Protocol = new UniswapV3Protocol(mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
         uniswapV3Protocol.initialize(address(this));
-        guard.addAMMProtocols(_arr(address(uniswapV3Protocol)));
+        guard.addProtocols(_arr(address(uniswapV3Protocol)));
         vm.stopPrank();
 
         assets = _arr(mainnet.WETH, WBTC);
@@ -99,27 +121,22 @@ contract TestVaultFork is Test {
         ammProtocols = _arr(address(uniswapV3Protocol));
         intentProtocols = new address[](0);
 
-        vaultImpl = new BittyV1Vault();
+        vaultImpl = new BittyV1Vault(address(new BittyV1VaultDeFiFacet()), address(0xA07E1D));
         BittyV1VaultDeFiFacet defiFacet = new BittyV1VaultDeFiFacet();
         factory = new BittyV1VaultFactory();
         vm.prank(factory.DEPLOYER(), factory.DEPLOYER());
-        factory.initialize(address(vaultImpl), address(defiFacet), address(guard), mainnet.WETH);
+        factory.initialize(address(vaultImpl), mainnet.WETH);
 
         assetManager = address(this);
         vm.startPrank(tx.origin);
-        factory.activateVault(
-            noYield,
-            address(0),
-            noDeposits,
-            vaultAssets,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols,
-            RiskSettings(0, 0, 0, 0)
-        );
+        factory.activateVault();
         address vaultAddr = factory.vaultAddress(tx.origin);
-        BittyV1Vault(payable(vaultAddr)).setAssetManager(assetManager);
+        // Activation no longer takes protocols; the owner enables them afterwards, as in production.
+        address[] memory noneP = new address[](0);
+        BittyV1Vault(payable(vaultAddr)).updateProtocols(lendingProtocols, noneP);
+        BittyV1Vault(payable(vaultAddr)).updateProtocols(stakingProtocols, noneP);
+        BittyV1Vault(payable(vaultAddr)).updateProtocols(ammProtocols, noneP);
+        BittyV1Vault(payable(vaultAddr)).setAssetManager(assetManager, 0);
         vm.stopPrank();
         vault = BittyV1Vault(payable(vaultAddr));
     }
@@ -137,17 +154,26 @@ contract TestVaultFork is Test {
         return arr;
     }
 
+    function _has(address[] memory list, address wanted) internal pure returns (bool) {
+        for (uint256 i = 0; i < list.length; i++) {
+            if (list[i] == wanted) return true;
+        }
+        return false;
+    }
+
     function test_VaultDeployAndInitialize() public view {
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), tx.origin));
         assertEq(IVaultFull(payable(address(vault))).wethAddress(), mainnet.WETH);
 
-        address[] memory lending = IVaultFull(payable(address(vault))).getLendingProtocols();
-        assertEq(lending.length, 1);
-        assertEq(lending[0], address(aaveProtocol));
-
-        address[] memory staking = IVaultFull(payable(address(vault))).getStakingProtocols();
-        assertEq(staking.length, 1);
-        assertEq(staking[0], address(lidoProtocol));
+        // ONE category-free list: getProtocols returns every registered protocol, so this asserts
+        // membership rather than a per-category length. The two reads this replaced both called
+        // getProtocols and then asserted length 1 with element 0 being a different protocol each
+        // time — left over from the per-category getters, and impossible for one list to satisfy.
+        address[] memory protocols = IVaultFull(payable(address(vault))).getProtocols();
+        assertEq(protocols.length, 3);
+        assertTrue(_has(protocols, address(aaveProtocol)));
+        assertTrue(_has(protocols, address(lidoProtocol)));
+        assertTrue(_has(protocols, address(uniswapV3Protocol)));
     }
 
     function test_SupplyToAave() public {
@@ -223,7 +249,7 @@ contract TestVaultFork is Test {
         uint256[] memory ids = IVaultFull(payable(address(vault))).getUnstakeRequestIds(address(lidoProtocol));
         assertEq(ids.length, 1);
 
-        IVaultFull(payable(address(vault))).claimUnstaked(address(lidoProtocol), ids);
+        IVaultFull(payable(address(vault))).claimUnstakeds(address(lidoProtocol), ids);
         // On mainnet fork, Lido withdrawals are not finalized immediately, so request ids remain
         uint256[] memory remaining = IVaultFull(payable(address(vault))).getUnstakeRequestIds(address(lidoProtocol));
         assertEq(remaining.length, 1);
@@ -278,17 +304,7 @@ contract TestVaultFork is Test {
     function test_FactoryRevertWhenVaultAlreadyActivated() public {
         vm.expectRevert(VaultAlreadyActivated.selector);
         vm.prank(tx.origin);
-        factory.activateVault(
-            noYield,
-            address(0),
-            noDeposits,
-            vaultAssets,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols,
-            RiskSettings(0, 0, 0, 0)
-        );
+        factory.activateVault();
     }
 
     function test_AddScheduledPaymentAndPayScheduledPayment() public {
@@ -312,7 +328,7 @@ contract TestVaultFork is Test {
         vm.warp(block.timestamp + 8 days);
 
         uint256 balanceBefore = IERC20(mainnet.USDC).balanceOf(address(this));
-        vault.payScheduled(_u1(testId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+        vault.payScheduleds(_u1(testId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
         uint256 balanceAfter = IERC20(mainnet.USDC).balanceOf(address(this));
         assertEq(balanceAfter - balanceBefore, 100e6);
     }
@@ -344,7 +360,7 @@ contract TestVaultFork is Test {
         uint256 scheduledPaymentBefore = IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr);
 
         IVaultFull(payable(address(vault))).withdraw(address(aaveProtocol), mainnet.WETH, payAmount);
-        vault.payScheduled(_u1(salaryId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+        vault.payScheduleds(_u1(salaryId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
 
         uint256 scheduledPaymentAfter = IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr);
         assertEq(scheduledPaymentAfter - scheduledPaymentBefore, payAmount);
@@ -358,24 +374,19 @@ contract TestVaultFork is Test {
         address customOwner = makeAddr("customVaultOwner");
         address customAssetManager = makeAddr("customAssetManager");
         vm.startPrank(customOwner);
-        factory.activateVault(
-            noYield,
-            address(0),
-            noDeposits,
-            vaultAssets,
-            lendingProtocols,
-            stakingProtocols,
-            ammProtocols,
-            intentProtocols,
-            RiskSettings(0, 0, 0, 0)
-        );
+        factory.activateVault();
         address vaultAddr = factory.vaultAddress(customOwner);
-        BittyV1Vault(payable(vaultAddr)).setAssetManager(customAssetManager);
+        // Activation no longer takes protocols; the owner enables them afterwards, as in production.
+        address[] memory noneP = new address[](0);
+        BittyV1Vault(payable(vaultAddr)).updateProtocols(lendingProtocols, noneP);
+        BittyV1Vault(payable(vaultAddr)).updateProtocols(stakingProtocols, noneP);
+        BittyV1Vault(payable(vaultAddr)).updateProtocols(ammProtocols, noneP);
+        BittyV1Vault(payable(vaultAddr)).setAssetManager(customAssetManager, 0);
         vm.stopPrank();
 
         BittyV1Vault customVault = BittyV1Vault(payable(vaultAddr));
         assertTrue(customVault.hasRole(customVault.DEFAULT_ADMIN_ROLE(), customOwner));
-        assertEq(customVault.getAssetManager(), customAssetManager);
+        assertEq(effectiveAssetManager(address(customVault)), customAssetManager);
         assertEq(factory.vaultAddress(customOwner), vaultAddr);
     }
 }

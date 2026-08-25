@@ -1,23 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-error MinimalBalanceNotMet();
 error NotAssetManager();
+error AssetManagerExpired();
+error AssetManagerExpiryInPast();
 error InvalidLendingProtocol();
 error InvalidStakingProtocol();
 error InvalidAMMProtocol();
 error InvalidIntentProtocol();
-error IntentProtocolMismatch();
-error InvalidValidTo();
 error DisableRebalanceUntilTimestampTooEarly();
 error DisableRebalanceUntilTimestampTooLong();
-error RebalanceDisabled();
 error ProtocolNFT();
 
 /**
  * @title IBittyV1AssetManager
  * @notice Only the vault asset manager's trading/yield functions and their events. Implemented by
- *         {BittyV1VaultDeFiFacet}. Owner-only asset manager config (setMinimalBalance, setAssetManager, protocol
+ *         {BittyV1VaultDeFiFacet}. Owner-only asset manager config (setAssetManager, protocol
  *         add/remove) lives in {IBittyV1Owner}; asset manager read functions (getSuppliedBalance,
  *         getLiquidity, protocol getters, …) live in {IBittyV1Vault}.
  */
@@ -26,31 +24,58 @@ interface IBittyV1AssetManager {
 
     /**
      * @notice Supply assets to a lending protocol.
+     * @param lendingProtocol The lending protocol to supply assets to.
+     * @param assetAddress The address of the asset to supply.
+     * @param amount The amount of the asset to supply.
      */
     function supply(address lendingProtocol, address assetAddress, uint256 amount) external;
 
     /**
      * @notice Withdraw assets from a lending protocol.
+     * @param lendingProtocol The lending protocol to withdraw assets from.
+     * @param assetAddress The address of the asset to withdraw.
+     * @param amount The amount of the asset to withdraw.
      */
     function withdraw(address lendingProtocol, address assetAddress, uint256 amount) external;
 
     /**
      * @notice Stake assets to a staking protocol.
+     * @param stakingProtocol The staking protocol to stake assets to.
+     * @param asset The asset to stake.
+     * @param amount The amount of the asset to stake.
      */
     function stake(address stakingProtocol, address asset, uint256 amount) external;
 
     /**
      * @notice Unstake assets from a staking protocol.
+     * @param stakingProtocol The staking protocol to unstake assets from.
+     * @param asset The asset to unstake.
+     * @param amount The amount of the asset to unstake.
      */
     function unstake(address stakingProtocol, address asset, uint256 amount) external;
 
     /**
-     * @notice Claim unstaked assets from a staking protocol.
+     * @notice Claim a finalized unstake request.
+     * @param stakingProtocol The staking protocol to claim the unstake request from.
+     * @param requestId The ID of the unstake request to claim.
      */
-    function claimUnstaked(address stakingProtocol, uint256[] memory requestIds) external;
+    function claimUnstaked(address stakingProtocol, uint256 requestId) external;
+
+    /**
+     * @notice Claim unstaked assets from a staking protocol.
+     * @param stakingProtocol The staking protocol to claim unstaked assets from.
+     * @param requestIds The IDs of the unstaked requests to claim.
+     */
+    function claimUnstakeds(address stakingProtocol, uint256[] memory requestIds) external;
 
     /**
      * @notice Add liquidity to an AMM protocol.
+     * @param ammProtocol The AMM protocol to add liquidity to.
+     * @param token0 The first token to add liquidity from.
+     * @param amount0 The amount of the first token to add liquidity from.
+     * @param token1 The second token to add liquidity from.
+     * @param amount1 The amount of the second token to add liquidity from.
+     * @param data The data for the add.
      */
     function addLiquidity(
         address ammProtocol,
@@ -63,37 +88,49 @@ interface IBittyV1AssetManager {
 
     /**
      * @notice Remove liquidity from an AMM protocol.
+     * @param ammProtocol The AMM protocol to remove liquidity from.
+     * @param data The data for the remove.
      */
     function removeLiquidity(address ammProtocol, bytes memory data) external;
 
     /**
      * @notice Decrease liquidity from an AMM protocol.
+     * @param ammProtocol The AMM protocol to decrease liquidity from.
+     * @param data The data for the decrease.
      */
     function decreaseLiquidity(address ammProtocol, bytes memory data) external;
 
     /**
      * @notice Claim fees from an AMM protocol.
+     * @param ammProtocol The AMM protocol to claim fees from.
+     * @param data The data for the claim.
      */
     function claimAMMFees(address ammProtocol, bytes memory data) external;
 
     /**
-     * @notice Disable rebalancing (asset manager trades) until `timestamp`.
+     * @notice Disable rebalancing until a timestamp.
+     * @param timestamp The timestamp when rebalancing should be disabled.
      */
     function disableRebalanceUntilTimestamp(uint256 timestamp) external;
 
     /**
-     * @notice Pre-approve the intent protocol's settlement relayer for `token` (max), so gasless
-     *         off-chain-signed orders can be pulled at settlement. Order placement is entirely off-chain
-     *         (sign + post to the orderbook); the vault only custodies tokens, validates via
-     *         isValidSignature, and grants this allowance. One approval per sell token.
+     * @notice Approve the intent protocol's settlement relayer for a token.
+     * @param intentProtocol The intent protocol to approve the relayer for.
+     * @param token The token to approve the relayer for.
      */
     function approveIntentRelayer(address intentProtocol, address token) external;
 
     /**
-     * @notice Cancel one or more gasless off-chain orders by invalidating them on the intent protocol's
-     *         settlement contract (owner-only). CoW's API can't soft-cancel a vault eip1271 order, so this
-     *         on-chain invalidation is how the vault cancels; afterwards no solver can settle them. Batched
-     *         so a TWAP's open parts are cancelled in one tx.
+     * @notice Cancel a gasless off-chain order.
+     * @param intentProtocol The intent protocol to cancel the order from.
+     * @param orderUid The UID of the order to cancel.
+     */
+    function cancelIntentOrder(address intentProtocol, bytes calldata orderUid) external;
+
+    /**
+     * @notice Cancel multiple gasless off-chain orders.
+     * @param intentProtocol The intent protocol to cancel the orders from.
+     * @param orderUids The UIDs of the orders to cancel.
      */
     function cancelIntentOrders(address intentProtocol, bytes[] calldata orderUids) external;
 }

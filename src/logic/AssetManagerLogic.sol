@@ -15,7 +15,8 @@ import {
     DisableRebalanceUntilTimestampTooLong,
     InvalidAMMProtocol,
     InvalidIntentProtocol,
-    ProtocolNFT
+    ProtocolNFT,
+    AssetManagerExpiryInPast
 } from "../interfaces/IBittyV1AssetManager.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -31,6 +32,13 @@ import {
     AutoYield
 } from "../interfaces/IBittyV1Vault.sol";
 import {AssetManagerStorage, AutoYieldConfig, VaultStorage} from "./Storages.sol";
+import {
+    BITTY_GUARD,
+    LENDING_INTERFACE_ID,
+    STAKING_INTERFACE_ID,
+    AMM_INTERFACE_ID,
+    INTENT_INTERFACE_ID
+} from "./Constants.sol";
 import {VaultLogic} from "./VaultLogic.sol";
 
 /**
@@ -88,14 +96,7 @@ library AssetManagerLogic {
         _;
     }
 
-    function initialize(AssetManagerStorage storage logicStorage, address guardAddress)
-        external
-        onlyNotInitialized(logicStorage)
-    {
-        if (guardAddress == address(0)) {
-            revert AddressZero();
-        }
-        logicStorage.guard = IBittyV1Guard(guardAddress);
+    function initialize(AssetManagerStorage storage logicStorage) external onlyNotInitialized(logicStorage) {
         logicStorage.isInitialized = true;
     }
 
@@ -103,31 +104,174 @@ library AssetManagerLogic {
         return logicStorage.clonedProtocols[protocol];
     }
 
-    function setMinimalBalances(
-        AssetManagerStorage storage logicStorage,
-        address[] calldata assetAddresses,
-        uint256[] calldata minimalBalances
-    ) external onlyInitialized(logicStorage) {
-        uint256 n = assetAddresses.length;
-        if (n != minimalBalances.length) revert ArrayLengthMismatch();
-        for (uint256 i; i < n; ++i) {
-            if (assetAddresses[i] == address(0)) revert AddressZero();
-            logicStorage.minimalBalances[assetAddresses[i]] = minimalBalances[i];
-        }
-    }
-
-    /**
-     * @notice Set the vault's single asset manager, replacing any previous one. The manager has full
-     * trading access, bounded only by the token allowlist and per-asset minimal-balance floors.
-     */
-    function setAssetManager(AssetManagerStorage storage logicStorage, address assetManager)
+    function initAssetManager(AssetManagerStorage storage logicStorage, address assetManager)
         external
         onlyInitialized(logicStorage)
     {
         logicStorage.assetManager = assetManager;
+        logicStorage.assetManagerExpiresAt = 0;
     }
 
-    // ============ Lending ============
+    function setAssetManager(
+        AssetManagerStorage storage logicStorage,
+        VaultStorage storage vaultStorage,
+        address assetManager,
+        uint64 expiresAt
+    ) external onlyInitialized(logicStorage) {
+        if (expiresAt != 0 && expiresAt <= block.timestamp) revert AssetManagerExpiryInPast();
+
+        // Settle first so a matured grant becomes the CURRENT one before anything is compared
+        // against it — otherwise "shortening the current manager" would be judged against the
+        // manager it already replaced.
+        _settleAssetManager(logicStorage);
+
+        if (assetManager == address(0)) {
+            _clearAssetManager(logicStorage);
+            return;
+        }
+
+        // Shortening a live grant: same manager, and an expiry that arrives sooner than the one they
+        // already have (an unset expiry never arrives, so any expiry shortens it).
+        uint64 current = logicStorage.assetManagerExpiresAt;
+        bool shortening =
+            assetManager == logicStorage.assetManager && expiresAt != 0 && (current == 0 || expiresAt < current);
+        uint64 timelock = VaultLogic.effectiveChangeTimelock(vaultStorage);
+        if (shortening || timelock == 0) {
+            logicStorage.assetManager = assetManager;
+            logicStorage.assetManagerExpiresAt = expiresAt;
+            _clearPendingAssetManager(logicStorage);
+            return;
+        }
+
+        logicStorage.pendingAssetManager = assetManager;
+        logicStorage.pendingAssetManagerExpiresAt = expiresAt;
+        logicStorage.pendingAssetManagerAt = uint64(block.timestamp) + timelock;
+    }
+
+    /**
+     * @dev Fold a matured pending grant into the live one. Read paths do not need this — they read
+     *      through — but any path that WRITES the grant must settle first, or it would compare
+     *      against or overwrite a manager that is no longer the effective one.
+     */
+    function _settleAssetManager(AssetManagerStorage storage logicStorage) private {
+        uint64 at = logicStorage.pendingAssetManagerAt;
+        if (at != 0 && block.timestamp >= at) {
+            logicStorage.assetManager = logicStorage.pendingAssetManager;
+            logicStorage.assetManagerExpiresAt = logicStorage.pendingAssetManagerExpiresAt;
+            _clearPendingAssetManager(logicStorage);
+        }
+    }
+
+    function _clearPendingAssetManager(AssetManagerStorage storage logicStorage) private {
+        delete logicStorage.pendingAssetManager;
+        delete logicStorage.pendingAssetManagerExpiresAt;
+        delete logicStorage.pendingAssetManagerAt;
+    }
+
+    function _clearAssetManager(AssetManagerStorage storage logicStorage) private {
+        delete logicStorage.assetManager;
+        delete logicStorage.assetManagerExpiresAt;
+        _clearPendingAssetManager(logicStorage);
+    }
+
+    /**
+     * @dev The grant in force right now, reading THROUGH a scheduled change that has matured. Nobody
+     *      has to send a transaction to finalise a timelock for it to take effect, which is the same
+     *      rule {TimelockedValue} follows for the risk controls.
+     */
+    function liveGrant(AssetManagerStorage storage logicStorage)
+        internal
+        view
+        returns (address manager, uint64 expiresAt)
+    {
+        uint64 at = logicStorage.pendingAssetManagerAt;
+        if (at != 0 && block.timestamp >= at) {
+            return (logicStorage.pendingAssetManager, logicStorage.pendingAssetManagerExpiresAt);
+        }
+        return (logicStorage.assetManager, logicStorage.assetManagerExpiresAt);
+    }
+
+    /**
+     * @dev Has the grant in force lapsed? Matches the convention used for every other optional bound
+     *      in the vault: 0 means unset, so an unset expiry never expires.
+     */
+    function assetManagerExpired(AssetManagerStorage storage logicStorage) internal view returns (bool) {
+        (, uint64 expiresAt) = liveGrant(logicStorage);
+        return expiresAt != 0 && expiresAt < block.timestamp;
+    }
+
+    /**
+     * @notice The manager whose authority is live right now — address(0) once the grant has lapsed.
+     * @dev Every authorization path reads this rather than the raw field, so an expired grant is
+     *      indistinguishable from no grant at all. The raw pair is {IBittyV1Vault-getAssetManagerSettings}.
+     */
+    function effectiveAssetManager(AssetManagerStorage storage logicStorage) internal view returns (address) {
+        (address manager, uint64 expiresAt) = liveGrant(logicStorage);
+        if (expiresAt != 0 && expiresAt < block.timestamp) return address(0);
+        return manager;
+    }
+
+    /**
+     * @dev address(0) can never be the manager, so an unset vault does not authorize a caller that
+     *      arrives with no sender — and an expired one authorizes nobody.
+     */
+    function isActiveAssetManager(AssetManagerStorage storage logicStorage, address account)
+        internal
+        view
+        returns (bool)
+    {
+        return account != address(0) && account == effectiveAssetManager(logicStorage);
+    }
+
+    function prepareRenounceAssetManager(
+        AssetManagerStorage storage logicStorage,
+        VaultStorage storage vaultStorage,
+        address owner
+    ) external onlyInitialized(logicStorage) returns (address remaining) {
+        _settleAssetManager(logicStorage);
+        _clearPendingAssetManager(logicStorage);
+
+        if (logicStorage.assetManager == owner || VaultLogic.effectiveChangeTimelock(vaultStorage) == 0) {
+            delete logicStorage.assetManager;
+            delete logicStorage.assetManagerExpiresAt;
+            return address(0);
+        }
+        return effectiveAssetManager(logicStorage);
+    }
+
+    function autoYieldOne(AssetManagerStorage storage logicStorage, address assetAddress)
+        external
+        onlyInitialized(logicStorage)
+    {
+        _autoYield(logicStorage, assetAddress);
+    }
+
+    function claimUnstakedOne(AssetManagerStorage storage logicStorage, address stakingProtocol, uint256 requestId)
+        external
+        onlyInitialized(logicStorage)
+    {
+        address clone = logicStorage.clonedProtocols[stakingProtocol];
+        if (clone == address(0)) revert InvalidStakingProtocol();
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = requestId;
+        IBittyV1StakingProtocol(clone).claimUnstaked(ids);
+    }
+
+    function cancelIntentOrderOne(
+        AssetManagerStorage storage logicStorage,
+        address intentProtocol,
+        bytes calldata orderUid
+    ) external {
+        _checkIntentProtocol(logicStorage, intentProtocol);
+        IIntentSettlement(IIntentRelayerSource(intentProtocol).settlement()).invalidateOrder(orderUid);
+    }
+
+    function setAutoYieldingOne(AssetManagerStorage storage logicStorage, AutoYield calldata route)
+        external
+        onlyInitialized(logicStorage)
+    {
+        _setAutoYielding(logicStorage, route.asset, route.protocol, route.isSupplying);
+    }
 
     function supply(
         AssetManagerStorage storage logicStorage,
@@ -138,18 +282,16 @@ library AssetManagerLogic {
         _supply(logicStorage, lendingProtocol, assetAddress, amount);
     }
 
-    // Shared by supply and autoYield: full validation + execution against the REGISTERED protocol
-    // address (cloned on first use).
     function _supply(
         AssetManagerStorage storage logicStorage,
         address lendingProtocol,
         address assetAddress,
         uint256 amount
     ) private {
-        if (!logicStorage.lendingProtocols.contains(lendingProtocol)) {
+        if (!protocolAllowed(logicStorage, LENDING_INTERFACE_ID, lendingProtocol)) {
             revert InvalidLendingProtocol();
         }
-        if (logicStorage.guard.isLendingProtocolDeprecated(lendingProtocol)) {
+        if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(lendingProtocol)) {
             revert Deprecated();
         }
         if (assetAddress == address(0)) {
@@ -165,13 +307,6 @@ library AssetManagerLogic {
         IBittyV1LendingProtocol(lendingProtocol).supply(assetAddress, amount);
     }
 
-    /**
-     * @notice Withdraw a supplied asset, delivered to `recipient`.
-     * @dev Pass the vault as `recipient` for a normal withdrawal, or a configured scheduledPayment for an
-     * on-behalf payment so the asset is delivered directly in a single step. The caller (the vault
-     * facade) is responsible for restricting `recipient` to the vault or a configured scheduledPayment.
-     * @return delivered The amount of `assetAddress` delivered to `recipient`.
-     */
     function withdraw(
         AssetManagerStorage storage logicStorage,
         address lendingProtocol,
@@ -199,10 +334,6 @@ library AssetManagerLogic {
         return IBittyV1LendingProtocol(lendingProtocol).withdraw(assetAddress, amount, recipient);
     }
 
-    /**
-     * @notice Supplied (lending) balances for each (lendingProtocols[i], assetAddresses[i]) pair. The
-     *         initialized check runs once for the whole batch; arrays must be equal length.
-     */
     function getSuppliedBalances(
         AssetManagerStorage storage logicStorage,
         address[] calldata lendingProtocols,
@@ -227,8 +358,6 @@ library AssetManagerLogic {
         return IBittyV1LendingProtocol(_clonedProtocol).getSuppliedBalance(assetAddress);
     }
 
-    // ============ Staking ============
-
     function stake(
         AssetManagerStorage storage logicStorage,
         address stakingProtocol,
@@ -238,18 +367,16 @@ library AssetManagerLogic {
         _stake(logicStorage, stakingProtocol, assetAddress, amount);
     }
 
-    // Shared by stake and autoYield: full validation + execution against the REGISTERED protocol
-    // address (cloned on first use).
     function _stake(
         AssetManagerStorage storage logicStorage,
         address stakingProtocol,
         address assetAddress,
         uint256 amount
     ) private {
-        if (!logicStorage.stakingProtocols.contains(stakingProtocol)) {
+        if (!protocolAllowed(logicStorage, STAKING_INTERFACE_ID, stakingProtocol)) {
             revert InvalidStakingProtocol();
         }
-        if (logicStorage.guard.isStakingProtocolDeprecated(stakingProtocol)) {
+        if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(stakingProtocol)) {
             revert Deprecated();
         }
         if (assetAddress == address(0)) {
@@ -265,14 +392,6 @@ library AssetManagerLogic {
         IBittyV1StakingProtocol(stakingProtocol).stake(assetAddress, amount);
     }
 
-    /**
-     * @notice Unstake a staked asset, delivered to `recipient`.
-     * @dev Pass the vault as `recipient` for a normal unstake, or a configured scheduledPayment for an
-     * on-behalf payment so the asset is delivered directly in a single step. The caller (the vault
-     * facade) is responsible for restricting `recipient` to the vault or a configured scheduledPayment.
-     * Reverts for staking protocols that settle asynchronously when `recipient` is not the vault.
-     * @return delivered The amount of `assetAddress` delivered to `recipient`.
-     */
     function unstake(
         AssetManagerStorage storage logicStorage,
         address stakingProtocol,
@@ -300,10 +419,6 @@ library AssetManagerLogic {
         return IBittyV1StakingProtocol(stakingProtocol).unstake(assetAddress, amount, recipient);
     }
 
-    /**
-     * @notice Staked balances for each (stakingProtocols[i], assets[i]) pair. The initialized check runs
-     *         once for the whole batch; arrays must be equal length.
-     */
     function getStakedBalances(
         AssetManagerStorage storage logicStorage,
         address[] calldata stakingProtocols,
@@ -359,14 +474,6 @@ library AssetManagerLogic {
         IBittyV1StakingProtocol(stakingProtocol).claimUnstaked(requestIds);
     }
 
-    // ============ Auto yield ============
-
-    /**
-     * @notice Set (or clear, protocol = address(0)) the default yield route for `assetAddress`.
-     * @dev The protocol must already be registered on the vault for the chosen protocolType — autoYield can
-     * never route funds anywhere the owner hasn't enabled. Re-validated again at execution time, so a
-     * later protocol removal or deprecation disables the route rather than bypassing the check.
-     */
     function setAutoYieldings(AssetManagerStorage storage logicStorage, AutoYield[] calldata routes)
         external
         onlyInitialized(logicStorage)
@@ -376,10 +483,6 @@ library AssetManagerLogic {
         }
     }
 
-    /**
-     * @dev Register an asset and yield protocol on the vault and set its default route. Used at
-     *      initialization when routes may declare assets/protocols beyond the activation arrays.
-     */
     function registerAutoYield(
         AssetManagerStorage storage logicStorage,
         VaultStorage storage vaultStorage,
@@ -387,7 +490,6 @@ library AssetManagerLogic {
     ) external onlyInitialized(logicStorage) {
         if (route.protocol == address(0)) revert AddressZero();
         VaultLogic.addAsset(vaultStorage, route.asset);
-        _addProtocol(logicStorage, route.protocol, route.isSupplying ? ProtocolType.Lending : ProtocolType.Staking);
         _setAutoYielding(logicStorage, route.asset, route.protocol, route.isSupplying);
     }
 
@@ -404,21 +506,22 @@ library AssetManagerLogic {
             delete logicStorage.autoYieldConfigs[assetAddress];
             return;
         }
-        if (isSupplying) {
-            if (!logicStorage.lendingProtocols.contains(protocol)) {
-                revert InvalidLendingProtocol();
+
+        bytes4 required = isSupplying ? LENDING_INTERFACE_ID : STAKING_INTERFACE_ID;
+        if (!_guardAllows(protocol, required)) {
+            if (isSupplying) revert InvalidLendingProtocol();
+            revert InvalidStakingProtocol();
+        }
+
+        if (!logicStorage.protocols.contains(protocol)) {
+            if (logicStorage.addingProtocolsDisabled) {
+                revert AddingProtocolsDisabled();
             }
-        } else {
-            if (!logicStorage.stakingProtocols.contains(protocol)) {
-                revert InvalidStakingProtocol();
-            }
+            _addProtocol(logicStorage, protocol);
         }
         logicStorage.autoYieldConfigs[assetAddress] = AutoYieldConfig({protocol: protocol, isSupplying: isSupplying});
     }
 
-    /**
-     * @notice Each asset's configured default yield route. protocols[i] == address(0) means no route.
-     */
     function getAutoYieldings(AssetManagerStorage storage logicStorage, address[] calldata assetAddresses)
         external
         view
@@ -433,14 +536,6 @@ library AssetManagerLogic {
         }
     }
 
-    /**
-     * @notice Sweep the vault's spendable wallet balance of each `assetAddresses[i]` into its configured
-     * default yield route (supply or stake). The initialized check runs once for the whole batch; each
-     * entry is best-effort — a no-op when no route is configured or nothing is spendable — so the vault's
-     * {receive} can call it on every deposit without ever reverting. Not exposed permissionlessly (the
-     * facade gates it), because routing funds on demand must not be triggerable by third parties (a griefer
-     * could otherwise strand the asset manager's swap liquidity in a protocol).
-     */
     function autoYield(AssetManagerStorage storage logicStorage, address[] calldata assetAddresses)
         external
         onlyInitialized(logicStorage)
@@ -450,11 +545,6 @@ library AssetManagerLogic {
         }
     }
 
-    /**
-     * @dev Route one asset's spendable balance into its yield route. Spendable excludes tokens reserved by
-     *      open intent orders (they must stay liquid to settle) and the asset's minimalBalance (the owner's
-     *      liquid buffer for payments). Returns the amount supplied/staked.
-     */
     function _autoYield(AssetManagerStorage storage logicStorage, address assetAddress)
         private
         returns (uint256 amount)
@@ -463,9 +553,7 @@ library AssetManagerLogic {
         if (cfg.protocol == address(0)) {
             return 0;
         }
-        uint256 balance = _addressBalance(assetAddress);
-        uint256 reserved = logicStorage.minimalBalances[assetAddress];
-        amount = balance > reserved ? balance - reserved : 0;
+        amount = _addressBalance(assetAddress);
         if (amount == 0) {
             return 0;
         }
@@ -475,8 +563,6 @@ library AssetManagerLogic {
             _stake(logicStorage, cfg.protocol, assetAddress, amount);
         }
     }
-
-    // ============ AMM liquidity ============
 
     function addLiquidity(
         AssetManagerStorage storage logicStorage,
@@ -489,7 +575,7 @@ library AssetManagerLogic {
         bytes memory data
     ) external onlyInitialized(logicStorage) {
         _checkAMMProtocol(logicStorage, ammProtocol);
-        if (logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)) revert Deprecated();
+        if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
 
         VaultLogic.checkAsset(vaultStorage, token0);
         VaultLogic.checkAsset(vaultStorage, token1);
@@ -536,9 +622,6 @@ library AssetManagerLogic {
         IBittyV1AMMProtocol(clone).claimAMMFees(data);
     }
 
-    /**
-     * @notice AMM liquidity for each (ammProtocols[i], data[i]) pair. Arrays must be equal length.
-     */
     function getLiquidities(
         AssetManagerStorage storage logicStorage,
         address[] calldata ammProtocols,
@@ -577,15 +660,6 @@ library AssetManagerLogic {
         logicStorage.rebalanceDisabledUntilTimestamp = uint64(timestamp);
     }
 
-    // ============ Intent protocols (limit + TWAP) ============
-
-    /**
-     * @notice Grant `intentProtocol`'s settlement relayer a max allowance of `token`. Gasless
-     *         off-chain-signed orders do no on-chain placement tx, so — unlike {limitSell}/{limitBuy},
-     *         which approve the exact sell amount per order — the relayer must be pre-approved once per
-     *         sell token for settlement to pull it. Reads the relayer from the registered protocol so a
-     *         caller can't approve an arbitrary spender.
-     */
     function approveIntentRelayer(AssetManagerStorage storage logicStorage, address intentProtocol, address token)
         external
     {
@@ -594,15 +668,6 @@ library AssetManagerLogic {
         IERC20(token).forceApprove(relayer, type(uint256).max);
     }
 
-    /**
-     * @notice Cancel one or more gasless off-chain orders by invalidating them on-chain. CoW's API only
-     *         accepts ECDSA-signed cancellations from an EOA owner, so a vault (eip1271) order can't be
-     *         soft-cancelled off-chain — the owner must invalidate it on the settlement contract. Each
-     *         `orderUid` encodes this vault as the owner, so GPv2Settlement.invalidateOrder accepts the
-     *         call (msg.sender == owner) and no solver can settle the order afterwards. Batched so a TWAP
-     *         (many part orders) is cancelled in one tx. Reads the settlement from the registered protocol
-     *         so a caller can't target an arbitrary contract.
-     */
     function cancelIntentOrders(
         AssetManagerStorage storage logicStorage,
         address intentProtocol,
@@ -615,162 +680,64 @@ library AssetManagerLogic {
         }
     }
 
-    // ============ Protocol registration ============
-
     function disableAddingProtocols(AssetManagerStorage storage logicStorage) external onlyInitialized(logicStorage) {
         logicStorage.addingProtocolsDisabled = true;
     }
 
-    // Which protocol registry an add/remove targets. Lets the four protocol protocolTypes share one
-    // add/remove implementation instead of repeating the loop + guard check four times each.
-    enum ProtocolType {
-        Lending,
-        Staking,
-        AMM,
-        Intent
+    function _guardAllows(address protocol, bytes4 categoryInterfaceId) private view returns (bool) {
+        return IBittyV1Guard(BITTY_GUARD).protocolCategory(protocol) == categoryInterfaceId;
     }
 
-    function _protocolSet(AssetManagerStorage storage logicStorage, ProtocolType protocolType)
-        private
-        view
-        returns (EnumerableSet.AddressSet storage)
-    {
-        if (protocolType == ProtocolType.Lending) return logicStorage.lendingProtocols;
-        if (protocolType == ProtocolType.Staking) return logicStorage.stakingProtocols;
-        if (protocolType == ProtocolType.AMM) return logicStorage.ammProtocols;
-        return logicStorage.intentProtocols;
-    }
-
-    function _isProtocolRegistered(IBittyV1Guard guard, address protocol, ProtocolType protocolType)
-        private
+    function protocolAllowed(AssetManagerStorage storage logicStorage, bytes4 categoryInterfaceId, address protocol)
+        internal
         view
         returns (bool)
     {
-        if (protocolType == ProtocolType.Lending) return guard.isLendingProtocolRegistered(protocol);
-        if (protocolType == ProtocolType.Staking) return guard.isStakingProtocolRegistered(protocol);
-        if (protocolType == ProtocolType.AMM) return guard.isAMMProtocolRegistered(protocol);
-        return guard.isIntentProtocolRegistered(protocol);
+        return logicStorage.protocols.contains(protocol) && _guardAllows(protocol, categoryInterfaceId);
     }
 
-    function _addProtocols(
-        AssetManagerStorage storage logicStorage,
-        address[] memory protocols,
-        ProtocolType protocolType
-    ) private {
-        for (uint256 i = 0; i < protocols.length; i++) {
-            _addProtocol(logicStorage, protocols[i], protocolType);
-        }
-    }
-
-    function _addProtocol(AssetManagerStorage storage logicStorage, address protocol, ProtocolType protocolType)
-        private
-    {
-        if (!_isProtocolRegistered(logicStorage.guard, protocol, protocolType)) {
+    function _addProtocol(AssetManagerStorage storage logicStorage, address protocol) private {
+        IBittyV1Guard guard = IBittyV1Guard(BITTY_GUARD);
+        if (!guard.isProtocolRegistered(protocol)) {
             revert NotRegistered();
         }
-        _protocolSet(logicStorage, protocolType).add(protocol);
+        logicStorage.protocols.add(protocol);
+        bytes4 category = guard.protocolCategory(protocol);
         // Intent protocols validate gasless off-chain orders through their per-vault clone
         // (owner == this vault) whenever CoW calls isValidSignature. With no on-chain trade
         // call left to lazily clone them, they must be cloned at registration or the clone
         // stays address(0) and every order fails as InvalidEip1271Signature.
-        if (protocolType == ProtocolType.Intent) {
+        if (category == INTENT_INTERFACE_ID) {
             _cloneProtocol(logicStorage, protocol);
         }
     }
 
-    function _removeProtocols(
+    function _removeProtocol(AssetManagerStorage storage logicStorage, address protocol) private {
+        logicStorage.protocols.remove(protocol);
+    }
+
+    function updateProtocols(
         AssetManagerStorage storage logicStorage,
-        address[] memory protocols,
-        ProtocolType protocolType
-    ) private {
-        EnumerableSet.AddressSet storage set = _protocolSet(logicStorage, protocolType);
-        for (uint256 i = 0; i < protocols.length; i++) {
-            set.remove(protocols[i]);
+        address[] memory addProtocolAddresses,
+        address[] memory removeProtocolAddresses
+    ) external onlyInitialized(logicStorage) {
+        for (uint256 i = 0; i < removeProtocolAddresses.length; i++) {
+            _removeProtocol(logicStorage, removeProtocolAddresses[i]);
+        }
+        if (addProtocolAddresses.length > 0) {
+            if (logicStorage.addingProtocolsDisabled) {
+                revert AddingProtocolsDisabled();
+            }
+            for (uint256 i = 0; i < addProtocolAddresses.length; i++) {
+                _addProtocol(logicStorage, addProtocolAddresses[i]);
+            }
         }
     }
 
-    function addLendingProtocols(AssetManagerStorage storage logicStorage, address[] memory lendingProtocolAddresses)
-        external
-        onlyAddingProtocolsEnabled(logicStorage)
-        onlyInitialized(logicStorage)
-    {
-        _addProtocols(logicStorage, lendingProtocolAddresses, ProtocolType.Lending);
+    function getProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
+        return logicStorage.protocols.values();
     }
 
-    function addStakingProtocols(AssetManagerStorage storage logicStorage, address[] memory stakingProtocolAddresses)
-        external
-        onlyAddingProtocolsEnabled(logicStorage)
-        onlyInitialized(logicStorage)
-    {
-        _addProtocols(logicStorage, stakingProtocolAddresses, ProtocolType.Staking);
-    }
-
-    function removeLendingProtocols(AssetManagerStorage storage logicStorage, address[] memory lendingProtocolAddresses)
-        external
-        onlyInitialized(logicStorage)
-    {
-        _removeProtocols(logicStorage, lendingProtocolAddresses, ProtocolType.Lending);
-    }
-
-    function removeStakingProtocols(AssetManagerStorage storage logicStorage, address[] memory stakingProtocolAddresses)
-        external
-        onlyInitialized(logicStorage)
-    {
-        _removeProtocols(logicStorage, stakingProtocolAddresses, ProtocolType.Staking);
-    }
-
-    function addAMMProtocols(AssetManagerStorage storage logicStorage, address[] memory ammProtocolAddresses)
-        external
-        onlyAddingProtocolsEnabled(logicStorage)
-        onlyInitialized(logicStorage)
-    {
-        _addProtocols(logicStorage, ammProtocolAddresses, ProtocolType.AMM);
-    }
-
-    function removeAMMProtocols(AssetManagerStorage storage logicStorage, address[] memory ammProtocolAddresses)
-        external
-        onlyInitialized(logicStorage)
-    {
-        _removeProtocols(logicStorage, ammProtocolAddresses, ProtocolType.AMM);
-    }
-
-    function addIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
-        external
-        onlyAddingProtocolsEnabled(logicStorage)
-        onlyInitialized(logicStorage)
-    {
-        _addProtocols(logicStorage, intentProtocolAddresses, ProtocolType.Intent);
-    }
-
-    function removeIntentProtocols(AssetManagerStorage storage logicStorage, address[] memory intentProtocolAddresses)
-        external
-        onlyInitialized(logicStorage)
-    {
-        _removeProtocols(logicStorage, intentProtocolAddresses, ProtocolType.Intent);
-    }
-
-    function getLendingProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
-        return logicStorage.lendingProtocols.values();
-    }
-
-    function getStakingProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
-        return logicStorage.stakingProtocols.values();
-    }
-
-    function getAMMProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
-        return logicStorage.ammProtocols.values();
-    }
-
-    function getIntentProtocols(AssetManagerStorage storage logicStorage) external view returns (address[] memory) {
-        return logicStorage.intentProtocols.values();
-    }
-
-    // ============ Internal helpers ============
-
-    /**
-     * @dev Deploy (once) and cache the vault's per-protocol EIP-1167 clone. Every caller is already
-     *      behind an `onlyInitialized` external, so there is no init check here.
-     */
     function _cloneProtocol(AssetManagerStorage storage logicStorage, address protocol)
         private
         returns (address clonedProtocol)
@@ -812,21 +779,21 @@ library AssetManagerLogic {
     }
 
     function _checkAMMProtocol(AssetManagerStorage storage logicStorage, address ammProtocol) private view {
-        if (!logicStorage.ammProtocols.contains(ammProtocol)) {
+        if (!protocolAllowed(logicStorage, AMM_INTERFACE_ID, ammProtocol)) {
             revert InvalidAMMProtocol();
         }
         if (
-            !logicStorage.guard.isAMMProtocolRegistered(ammProtocol)
-                && !logicStorage.guard.isAMMProtocolDeprecated(ammProtocol)
+            !_guardAllows(ammProtocol, AMM_INTERFACE_ID)
+                && !IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)
         ) {
             revert NotRegistered();
         }
     }
 
     function _checkIntentProtocol(AssetManagerStorage storage logicStorage, address intentProtocol) private view {
-        if (!logicStorage.intentProtocols.contains(intentProtocol)) revert InvalidIntentProtocol();
-        if (logicStorage.guard.isIntentProtocolDeprecated(intentProtocol)) revert Deprecated();
-        if (!logicStorage.guard.isIntentProtocolRegistered(intentProtocol)) revert NotRegistered();
+        if (!protocolAllowed(logicStorage, INTENT_INTERFACE_ID, intentProtocol)) revert InvalidIntentProtocol();
+        if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(intentProtocol)) revert Deprecated();
+        if (!_guardAllows(intentProtocol, INTENT_INTERFACE_ID)) revert NotRegistered();
     }
 
     function _approveNFTIfNeeded(address protocol) private {
@@ -841,17 +808,8 @@ library AssetManagerLogic {
         }
     }
 
-    /**
-     * @notice Reverts when `nftContract` is the position NFT (e.g. Uniswap's NonfungiblePositionManager) of
-     *         any guard-registered AMM protocol — the registered template or this vault's clone of it.
-     * @dev Deliberately checked against the guard's FULL registry rather than the vault's enabled set: the
-     *      guard only ever adds/deprecates, so removing an AMM protocol from the vault (or deprecating it in
-     *      the guard) can never turn {IBittyV1Owner.retrieve721} into an LP-position exit. Both the template
-     *      and the clone are probed so the check holds whether positionAssetManager() is an immutable
-     *      (template answers) or per-clone storage (clone answers).
-     */
     function checkNotProtocolNFT(AssetManagerStorage storage logicStorage, address nftContract) external view {
-        address[] memory protocols = logicStorage.guard.getAMMProtocols();
+        address[] memory protocols = IBittyV1Guard(BITTY_GUARD).getProtocols();
         for (uint256 i = 0; i < protocols.length; i++) {
             if (_positionNFT(protocols[i]) == nftContract) revert ProtocolNFT();
             address clone = logicStorage.clonedProtocols[protocols[i]];
@@ -859,11 +817,6 @@ library AssetManagerLogic {
         }
     }
 
-    /**
-     * @dev The protocol's position NFT, or address(0) when it has none (probe fails or returns malformed
-     *      data — the right failure direction both for {_approveNFTIfNeeded}, which then skips approval, and
-     *      for {checkNotProtocolNFT}, where a non-AMM adapter simply never matches).
-     */
     function _positionNFT(address protocol) private view returns (address) {
         (bool success, bytes memory data) = protocol.staticcall(abi.encodeWithSignature("positionAssetManager()"));
         if (!success || data.length < 32) return address(0);

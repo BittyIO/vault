@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
-import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1Vault} from "../interfaces/IBittyV1Vault.sol";
 
 struct TimelockedValue {
@@ -29,22 +28,31 @@ struct AssetManagerStorage {
     bool isInitialized;
 
     mapping(address => address) clonedProtocols;
-    mapping(address => uint256) minimalBalances;
 
     address assetManager;
 
-    EnumerableSet.AddressSet lendingProtocols;
-    EnumerableSet.AddressSet stakingProtocols;
-    EnumerableSet.AddressSet ammProtocols;
-    EnumerableSet.AddressSet intentProtocols;
+    uint64 assetManagerExpiresAt;
 
-    IBittyV1Guard guard;
+    EnumerableSet.AddressSet protocols;
     bool addingProtocolsDisabled;
     uint64 rebalanceDisabledUntilTimestamp;
 
     mapping(address => AutoYieldConfig) autoYieldConfigs;
 
-    address autoYieldTrigger;
+    /**
+     * @notice A scheduled asset-manager change, waiting out the vault's `changeTimelock`.
+     * @dev Installing a manager is the LOOSENING direction — it hands trading authority to another
+     *      key — so it waits, exactly like widening a payment limit does. Revoking, and shortening an
+     *      existing grant, stay immediate: those are the moments an owner must not be made to wait.
+     *
+     *      `pendingAssetManagerAt` is 0 when nothing is scheduled. Once `block.timestamp` reaches it
+     *      the pending grant IS the live one, whether or not anything has settled it to storage —
+     *      the same read-through rule {TimelockedValue} uses, so authority never depends on someone
+     *      having sent a transaction to finalise it.
+     */
+    address pendingAssetManager;
+    uint64 pendingAssetManagerExpiresAt;
+    uint64 pendingAssetManagerAt;
 }
 
 struct PendingSend {
@@ -54,25 +62,25 @@ struct PendingSend {
     uint256[] amounts;
 }
 
+/**
+ * @dev Shared by {BittyV1Vault} and {BittyV1VaultDeFiFacet}: the facet is delegatecalled, so it runs
+ *      its own compiled slot numbers against the vault's storage. ALWAYS APPEND new fields to the end
+ *      of this struct — inserting one shifts every later field, and the facet reads `trustedForwarder`
+ *      from here to decide whether an appended ERC-2771 sender is trustworthy. A misaligned read of
+ *      that field would not fail loudly; it would change who the vault believes is calling.
+ *      Appending keeps a mismatched (older) facet fail-closed instead.
+ */
 struct VaultStorage {
     bool isInitialized;
     mapping(uint256 => IBittyV1Vault.ScheduledPayment) scheduledPayments;
     mapping(uint256 => uint256) lastReceiveTimestamps;
     mapping(uint256 => uint256) scheduledPaymentEffectiveAt;
     mapping(uint256 => uint256) whitelistedRecipientEffectiveAt;
-    IBittyV1Guard guard;
     address weth;
     EnumerableSet.AddressSet assets;
     EnumerableSet.AddressSet stableCoins;
     bool addingAssetsDisabled;
 
-    // Reentrancy lock: native-ETH payouts are the only path that .call's an arbitrary recipient.
-    bool payingEth;
-
-    // Set once by renounceVaultOwnership: an ownerless vault pays out only its
-    // locked immutable scheduled payments (the owner's pre-committed rescue);
-    // every other payment becomes inert. Avoids a clear-everything loop at
-    // renounce, so an attacker can't grief it by inflating the payment count.
     bool renounced;
     RiskConfig riskConfig;
 
@@ -89,6 +97,17 @@ struct VaultStorage {
     uint256 nextScheduledPaymentId;
     uint256 nextWhitelistedRecipientId;
 
-    uint128 ownerSendPeriodStart;
-    uint256 ownerSentInPeriod;
+    // Packed into one slot, so the rolling-quota update is a single SSTORE. `ownerSentInPeriod` is
+    // an 18-decimal value bounded by maxSendValue * 1e18, and maxSendValue is a uint64 — so the most
+    // it can hold is ~1.8e37, well inside uint128.
+    uint64 ownerSendPeriodStart;
+    uint128 ownerSentInPeriod;
+
+    TimelockedValue gasBudgetDaily;
+    uint96 gasSpentToday;
+    uint64 gasBudgetDay;
+    bool gaslessDisabled;
+    EnumerableSet.AddressSet gaslessStableCoins;
+
+    TimelockedValue maxFeePerOp;
 }

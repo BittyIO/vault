@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {GUARD_DEPLOYER} from "./GuardDeployer.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.sol";
 import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Protocol.sol";
@@ -21,8 +22,22 @@ abstract contract ProtocolTestSetup is Test {
     LidoV2Protocol internal lidoProtocol;
     UniswapV3Protocol internal uniswapV3Protocol;
 
+    /**
+     * @dev `guard` is etched, with its roles and registry already configured, BEFORE any fork exists.
+     *      Creating a fork replaces state wholesale, so without making it persistent the freshly built
+     *      guard is discarded and every later call silently lands on the guard actually DEPLOYED on
+     *      mainnet — an older build, whose interface predates whatever is being tested here.
+     *
+     *      Re-etching after the fork instead is not an option: the deployed guard already has a
+     *      default admin in storage, and AccessControlDefaultAdminRules refuses to install a second.
+     */
     function setupMainnetForkProtocols(BittyV1Guard guard) internal {
-        vm.createSelectFork("mainnet");
+        vm.makePersistent(address(guard));
+        // Pinned. Unpinned, this follows mainnet HEAD — and since the guard was deployed to
+        // BITTY_GUARD at block 25830629 the fork now carries the real one, pre-populated with
+        // assets, so setUp could not install its own and the fixtures no longer matched.
+        // A pin below that block also makes these tests deterministic, which they were not.
+        vm.createSelectFork("mainnet", 25829629);
 
         vm.startPrank(tx.origin);
         aaveProtocol = new AaveV3Protocol(mainnet.AAVE_V3, mainnet.POOL_DATA_PROVIDER);
@@ -34,9 +49,14 @@ abstract contract ProtocolTestSetup is Test {
         uniswapV3Protocol = new UniswapV3Protocol(mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
         uniswapV3Protocol.initialize(address(this));
 
-        guard.addLendingProtocols(_single(address(aaveProtocol)));
-        guard.addStakingProtocols(_single(address(lidoProtocol)));
-        guard.addAMMProtocols(_single(address(uniswapV3Protocol)));
+        vm.stopPrank();
+
+        // Registering a protocol is a guard-admin write, and the guard's admin is its hardcoded
+        // deployer — not tx.origin, which only holds the manager roles that admin granted onward.
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guard.addProtocols(_single(address(aaveProtocol)));
+        guard.addProtocols(_single(address(lidoProtocol)));
+        guard.addProtocols(_single(address(uniswapV3Protocol)));
         vm.stopPrank();
     }
 
