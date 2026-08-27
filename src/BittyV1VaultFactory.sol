@@ -14,11 +14,6 @@ import {
     InvalidActivationSignature
 } from "./interfaces/IBittyV1VaultFactory.sol";
 
-/**
- * @title BittyV1VaultFactory
- * @notice Activates BittyV1Vault instances at an address deterministic on the owner alone, so each
- *         address has exactly one vault — and so a vault can be funded before it exists.
- */
 contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable, EIP712 {
     bytes32 private constant _ACTIVATION_TYPEHASH =
         keccak256("Activation(address owner,address stableCoinAddress,uint256 feeAmount)");
@@ -64,14 +59,6 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable, EIP712 {
         emit VaultActivated(owner);
     }
 
-    /**
-     * @dev SignatureChecker rather than plain ECDSA so an owner that is itself a contract wallet
-     *      (Safe, and anything else implementing ERC-1271) can be onboarded the same way.
-     *
-     *      No nonce: a vault activates exactly once, so a replayed signature simply hits
-     *      VaultAlreadyActivated. That saves a storage slot and a write on the one path where the
-     *      caller is paying for someone else's gas.
-     */
     function _checkActivationSignature(
         address owner,
         address stableCoinAddress,

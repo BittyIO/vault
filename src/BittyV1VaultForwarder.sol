@@ -10,43 +10,6 @@ import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptogra
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IBittyV1Vault} from "./interfaces/IBittyV1Vault.sol";
 
-/**
- * @title BittyV1VaultForwarder
- * @notice The one ERC-2771 forwarder a vault version trusts. Relays owner- and asset-manager-signed
- *         calls so the signer never needs ETH, and reclaims the gas it fronted in the vault's own
- *         stablecoin.
- *
- * @dev Nonce and deadline handling are OpenZeppelin's, used unmodified, and the signed payload is the
- *      standard `ForwardRequest` type, which wallets and viem/wagmi already know how to produce. Two
- *      things are added: the fee step, and ERC-1271 signature validation, so an owner that is itself a
- *      contract wallet can be relayed — see {_validate}.
- *
- *      The request carries NO fee fields. Consent to being charged lives on the vault instead, as the
- *      owner's `setGasBudget(dailyLimit, maxFeePerOp)` — set once, timelocked, auditable — rather than
- *      being re-approved in every signature. That keeps the signing prompt small and means the limits
- *      cannot be raised by anything the user is tricked into signing here.
- *
- *      THE FEE AMOUNT IS SUPPLIED BY THE RELAYER, NOT COMPUTED ON-CHAIN. That looks like misplaced
- *      trust until you try to compute it on an OP Stack chain: there the L1 data-availability fee is
- *      charged outside the EVM and is invisible to `gasleft()` and `tx.gasprice`, yet for a relayed
- *      call — whose signed request is ~450 bytes against ~36 for a direct call — it is the larger half
- *      of what we actually pay. An in-contract `gasUsed * tx.gasprice` would silently undercharge on
- *      Base while being correct on Arbitrum, where L1 costs are folded into gas used. Rather than fork
- *      the formula per chain and still approximate, the relayer prices the transaction off-chain where
- *      it can see every component, and the vault's own ceilings bound what it may claim.
- *
- *      Those ceilings are the actual protection: {IBittyV1Vault-payRelayerFee} rejects anything over
- *      the per-charge cap or the remaining daily budget, only accepts a stable coin the owner listed
- *      in {IBittyV1Owner-setGasless}, and pays a collector fixed in vault config. A relayer can
- *      therefore overcharge by a bounded amount but can never redirect the money, and a vault whose
- *      owner has not turned relaying on cannot be charged at all.
- *
- *      TAKES NO CONSTRUCTOR ARGUMENTS, deliberately. Constructor arguments are appended to the init
- *      code, and init code is what CREATE2 hashes — so an owner baked in there would give a different
- *      address on every chain that wanted a different owner. The EIP-712 name is a literal for the
- *      same reason. Everything variable is set afterwards by {initialize}, which leaves the deployed
- *      address a function of the bytecode and the salt alone.
- */
 contract BittyV1VaultForwarder is ERC2771Forwarder, Initializable {
     address public constant DEPLOYER = 0x12EE2de7BF086388B1D560eb95e7191Edfab9823;
 
@@ -227,10 +190,6 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, Initializable {
         if (!approvedRelayers[msg.sender]) revert NotApprovedRelayer();
         if (requests.length == 0) revert EmptyBatch();
 
-        // Shape first, and before anything touches `vault`: the budget check calls into it, so a
-        // mismatched target would surface as an unreadable low-level revert rather than saying what
-        // is wrong. Checked rather than assumed, because a request for another vault would be relayed
-        // at this one's expense — one owner's budget paying for someone else's operation.
         for (uint256 i; i < requests.length; ++i) {
             if (requests[i].to != vault) revert BatchTargetMismatch();
             if (requests[i].value != 0) revert ERC2771ForwarderMismatchedValue(requests[i].value, 0);

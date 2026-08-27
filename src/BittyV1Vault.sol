@@ -86,11 +86,6 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         }
     }
 
-    /**
-     * @notice Sweep the vault's spendable balance of each asset into its configured yield route.
-     * @dev Never permissionless — a griefer could strand swap liquidity by routing on demand. The trigger
-     *      check is done once for the whole batch.
-     */
     function autoYield(address assetAddress) external {
         _checkAutoYieldCaller();
         _assetManager.autoYieldOne(assetAddress);
@@ -101,29 +96,16 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         _assetManager.autoYield(assetAddresses);
     }
 
-    /**
-     * @notice Reimburse the trusted forwarder, in stablecoin, for gas it fronted for this vault.
-     * @dev Deliberately outside the payment-risk controls — see {VaultLogic-payRelayerFee}.
-     */
     function payRelayerFee(address stableCoinAddress, uint256 amount) external {
         address forwarder = trustedForwarder();
         if (forwarder == address(0) || msg.sender != forwarder) revert NotTrustedForwarder();
         _vault.payRelayerFee(stableCoinAddress, amount);
     }
 
-    /**
-     * @notice What the forwarder may still reclaim from this vault today, as an 18-decimal
-     *         whole-stable-coin-token value. Resets at 00:00 UTC.
-     * @dev Read before relaying: going over reverts the whole relayed call, so the relayer would burn
-     *      the gas it just spent and collect nothing.
-     */
     function gasBudgetRemaining() external view returns (uint256) {
         return _vault.gasBudgetRemaining();
     }
 
-    /**
-     * @inheritdoc IBittyV1Owner
-     */
     function setGasless(address[] calldata stableCoins, uint64 dailyLimit, uint64 maxFeePerOp_)
         external
         override
@@ -132,17 +114,10 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         _vault.setGasless(stableCoins, dailyLimit, maxFeePerOp_);
     }
 
-    /**
-     * @inheritdoc IBittyV1Owner
-     */
     function disableGasless() external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.disableGasless();
     }
 
-    /**
-     * @notice The terms on which this vault will pay for relayed gas.
-     * @dev dailyLimit of 0 means relaying is off; {gasBudgetRemaining} is the separate live figure.
-     */
     function gaslessConfig()
         external
         view
@@ -151,14 +126,6 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         return (_vault.getGaslessStableCoins(), _vault.gasBudgetDailyLimit(), _vault.maxFeePerOpValue());
     }
 
-    /**
-     * @notice Wrap any native ETH the vault is holding into WETH.
-     * @dev receive() auto-wraps incoming ETH, but ETH can still land as raw native ETH — a deposit to
-     *      the counterfactual address before the vault had code, a protocol paying out with a 2300-gas
-     *      stipend (too little for receive() to wrap), a force-send, or ETH sent with calldata. The
-     *      vault's WETH-denominated accounting can't spend raw ETH, so this converts it. Permissionless —
-     *      it only moves the vault's own ETH into its own WETH.
-     */
     function ETHToWETH() external {
         address weth = _vault.weth;
         uint256 ethBalance = address(this).balance;
@@ -268,10 +235,6 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         }
     }
 
-    /**
-     * @dev Unstake / withdraw each row's `assets[i]` from its position into the vault before a send.
-     *      No-op when all position arrays are empty; otherwise all four must equal `assets.length`.
-     */
     function _pullFromPositions(
         address[] calldata assets,
         address[] calldata stakingProtocols,
@@ -299,9 +262,6 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         }
     }
 
-    /**
-     * @dev `address(0)` protocol or `0` amount skips that leg.
-     */
     function _pullOneFromPositions(
         address assetAddress,
         address stakingProtocol,
@@ -318,9 +278,6 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         }
     }
 
-    /**
-     * @dev ETH (address(0)) payments use WETH on yield-position sourcing paths.
-     */
     function _payoutAsset(address assetAddress) private view returns (address) {
         return assetAddress == address(0) ? _vault.weth : assetAddress;
     }
@@ -391,14 +348,6 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         _vault.cancelSendOne(id, _byOwner(), _msgSender());
     }
 
-    /**
-     * @dev Three callers, for three reasons. The vault itself, so {receive} can sweep a deposit. Bitty's
-     *      keeper, which is what makes Auto Earn automatic. And the owner, so a vault is never dependent
-     *      on that keeper being up — it is their money moving into routes they already chose.
-     *
-     *      Raw msg.sender for the self-call: an identity question, not an authorisation one, so it must
-     *      never resolve to a relayed signer. The other two are authorisation, hence {_msgSender}.
-     */
     function _checkAutoYieldCaller() private view {
         if (msg.sender == address(this)) return;
         address sender = _msgSender();
@@ -458,14 +407,6 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         return _vault.getRiskConfig();
     }
 
-    /**
-     * @notice Pay each scheduled payment `ids[i]`, optionally sourcing each row's funds from yield positions
-     *         first. For row `i`, `stakingAmounts[i]` of the payment's asset is unstaked from
-     *         `stakingProtocols[i]` and `lendingAmounts[i]` withdrawn from `lendingProtocols[i]` into the
-     *         vault before the batched payout runs (`address(0)` / `0` = skip that leg). The staking and
-     *         lending pairs are independently optional: an empty pair skips that leg; a supplied pair must
-     *         equal `ids.length`. Pass empty arrays for a plain vault-balance payout.
-     */
     function payScheduleds(
         uint256[] calldata ids,
         address[] calldata stakingProtocols,
@@ -477,11 +418,6 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         _vault.payScheduled(ids, _msgSender());
     }
 
-    /**
-     * @dev Source each scheduled payment's funds from yield positions into the vault before paying. The
-     *      staking and lending pairs are independently optional — an empty pair skips that leg entirely; a
-     *      supplied pair must equal `ids.length`. Each row's asset is read from the scheduled payment config.
-     */
     function _pullScheduledFromPositions(
         uint256[] calldata ids,
         address[] calldata stakingProtocols,

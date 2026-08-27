@@ -1,4 +1,4 @@
-.PHONY: build test size fmt build-deploy lib-addr sync-libs sync-constants predict initcode initcodehash deploy verify mine-salt
+.PHONY: ci ci-submodules build test size fmt build-deploy lib-addr sync-libs sync-constants predict initcode initcodehash deploy verify mine-salt
 
 CHAIN            ?= sepolia
 CONSTANTS        := src/logic/Constants.sol
@@ -140,3 +140,51 @@ verify:
 	$$V $$FWD     src/BittyV1VaultForwarder.sol:BittyV1VaultForwarder; \
 	$$V $$KEEPER  src/BittyV1AutoYieldKeeper.sol:BittyV1AutoYieldKeeper \
 		--constructor-args $$(cast abi-encode "constructor(address)" $$OWNER)
+
+# ---------------------------------------------------------------------------------------------------
+# CI parity
+# ---------------------------------------------------------------------------------------------------
+
+# Run exactly what .github/workflows/test.yml runs, in the same order, under the same profile.
+#
+# `forge test` on the default profile is only ONE of four gates, which is how a red CI can follow a
+# green local run. Coverage especially: it compiles with the optimizer OFF, a different compilation
+# from every other target here, and the only one that surfaces stack-too-deep.
+#
+# Keep in step with the workflow - if a step is added there, add it here.
+ci: ci-submodules
+	@set -e; \
+	echo "==> forge fmt --check";   FOUNDRY_PROFILE=ci forge fmt --check; \
+	echo "==> forge build --sizes"; FOUNDRY_PROFILE=ci forge build --sizes >/dev/null; \
+	echo "==> forge test";          FOUNDRY_PROFILE=ci forge test | tail -2; \
+	echo "==> forge coverage";      FOUNDRY_PROFILE=ci forge coverage --ir-minimum \
+		--no-match-coverage 'test|node_modules|script|src/libs' --report lcov >/dev/null; \
+	echo "==> all CI gates passed"
+
+# What CI will actually check out, which is NOT your working tree.
+#
+# CI clones the submodule commit RECORDED IN GIT and fetches it from the remote, so local edits inside
+# a submodule are invisible to it and a commit that exists only here fails the checkout outright
+# ("not our ref"). Both have cost a red build: uncommitted interface edits the recorded commit lacked,
+# and a pointer bumped to an unpushed commit.
+#
+# --ignore-submodules=dirty: a NESTED submodule with a scruffy work tree is not a reproducibility
+# problem, because only its recorded commit is ever checked out. Flagging it would cry wolf on a
+# state CI cannot observe.
+ci-submodules:
+	@set -e; \
+	fail=0; \
+	for m in $$(git config -f .gitmodules --get-regexp path | awk '{print $$2}'); do \
+		dirty=$$(git -C $$m status --porcelain --ignore-submodules=dirty 2>/dev/null | wc -l | tr -d ' '); \
+		want=$$(git ls-tree HEAD $$m | awk '{print $$3}'); \
+		have=$$(git -C $$m rev-parse HEAD 2>/dev/null); \
+		url=$$(git config -f .gitmodules --get submodule.$$m.url); \
+		if [ "$$dirty" != "0" ]; then \
+			echo "  DIRTY     $$m ($$dirty file(s)) - CI will not see these edits"; fail=1; \
+		elif [ "$$want" != "$$have" ]; then \
+			echo "  DRIFTED   $$m - recorded $$want, checked out $$have"; fail=1; \
+		elif [ -z "$$(git ls-remote $$url 2>/dev/null | grep $$want)" ]; then \
+			echo "  UNPUSHED  $$m@$$want not on $$url - CI cannot fetch it"; fail=1; \
+		else echo "  ok        $$m@$$(echo $$want | cut -c1-8)"; fi; \
+	done; \
+	[ $$fail -eq 0 ] || { echo "==> submodules would not reproduce on CI"; exit 1; }

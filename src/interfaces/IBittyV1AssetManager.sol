@@ -8,8 +8,8 @@ error InvalidLendingProtocol();
 error InvalidStakingProtocol();
 error InvalidAMMProtocol();
 error InvalidIntentProtocol();
-error DisableRebalanceUntilTimestampTooEarly();
-error DisableRebalanceUntilTimestampTooLong();
+error disableTradeUntilTimestampTooEarly();
+error disableTradeUntilTimestampTooLong();
 error ProtocolNFT();
 
 /**
@@ -111,7 +111,7 @@ interface IBittyV1AssetManager {
      * @notice Disable rebalancing until a timestamp.
      * @param timestamp The timestamp when rebalancing should be disabled.
      */
-    function disableRebalanceUntilTimestamp(uint256 timestamp) external;
+    function disableTradeUntilTimestamp(uint256 timestamp) external;
 
     /**
      * @notice Approve the intent protocol's settlement relayer for a token.
