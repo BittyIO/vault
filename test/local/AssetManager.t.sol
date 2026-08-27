@@ -20,8 +20,8 @@ import {
     NotAssetManager,
     AssetManagerExpired,
     AssetManagerExpiryInPast,
-    DisableRebalanceUntilTimestampTooEarly,
-    DisableRebalanceUntilTimestampTooLong
+    disableTradeUntilTimestampTooEarly,
+    disableTradeUntilTimestampTooLong
 } from "../../src/interfaces/IBittyV1AssetManager.sol";
 import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1LendingProtocol} from "protocol-contracts/src/interfaces/IBittyV1LendingProtocol.sol";
@@ -438,32 +438,32 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.setAssetManager(assetManagerAddress, 0);
     }
 
-    function test_DisableRebalanceUntilTimestampTooEarly_RevertsWhenNewTimestampEarlier() public {
+    function test_disableTradeUntilTimestampTooEarly_RevertsWhenNewTimestampEarlier() public {
         this.doInitialize();
 
         uint256 firstDisabledUntil = block.timestamp + 200;
         vm.prank(assetManagerAddress);
-        this.disableRebalanceUntilTimestamp(firstDisabledUntil);
+        this.disableTradeUntilTimestamp(firstDisabledUntil);
 
         uint256 earlierTimestamp = block.timestamp + 100;
-        vm.expectRevert(DisableRebalanceUntilTimestampTooEarly.selector);
+        vm.expectRevert(disableTradeUntilTimestampTooEarly.selector);
         vm.prank(assetManagerAddress);
-        this.disableRebalanceUntilTimestamp(earlierTimestamp);
+        this.disableTradeUntilTimestamp(earlierTimestamp);
     }
 
-    function test_DisableRebalanceUntilTimestamp_AllowsExactlyFourYears() public {
+    function test_disableTradeUntilTimestamp_AllowsExactlyFourYears() public {
         this.doInitialize();
 
         vm.prank(assetManagerAddress);
-        this.disableRebalanceUntilTimestamp(block.timestamp + 4 * 365 days);
+        this.disableTradeUntilTimestamp(block.timestamp + 4 * 365 days);
     }
 
-    function test_DisableRebalanceUntilTimestamp_RevertsBeyondFourYears() public {
+    function test_disableTradeUntilTimestamp_RevertsBeyondFourYears() public {
         this.doInitialize();
 
-        vm.expectRevert(DisableRebalanceUntilTimestampTooLong.selector);
+        vm.expectRevert(disableTradeUntilTimestampTooLong.selector);
         vm.prank(assetManagerAddress);
-        this.disableRebalanceUntilTimestamp(block.timestamp + 4 * 365 days + 1);
+        this.disableTradeUntilTimestamp(block.timestamp + 4 * 365 days + 1);
     }
 
     function test_DisableAddingAssets_RevertsWhenNotOwnerOrAssetManager() public {
@@ -895,7 +895,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
     // ─── Fuzz Tests ───────────────────────────────────────────────────────────
 
-    function testFuzz_DisableRebalanceUntilTimestamp_cannotMovePrevTimestampEarlier(uint256 offset, uint256 reduction)
+    function testFuzz_disableTradeUntilTimestamp_cannotMovePrevTimestampEarlier(uint256 offset, uint256 reduction)
         public
     {
         offset = bound(offset, 2, 4 * 365 days);
@@ -903,10 +903,10 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         uint256 first = block.timestamp + offset;
         vm.prank(assetManagerAddress);
-        this.disableRebalanceUntilTimestamp(first);
-        vm.expectRevert(DisableRebalanceUntilTimestampTooEarly.selector);
+        this.disableTradeUntilTimestamp(first);
+        vm.expectRevert(disableTradeUntilTimestampTooEarly.selector);
         vm.prank(assetManagerAddress);
-        this.disableRebalanceUntilTimestamp(first - reduction);
+        this.disableTradeUntilTimestamp(first - reduction);
     }
 
     function test_StakeSucceedsWithPreExistingResidualAllowance() public {
@@ -1202,7 +1202,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         deal(mainnet.WETH, address(this), 1 ether);
         vm.prank(assetManagerAddress);
-        this.disableRebalanceUntilTimestamp(block.timestamp + 1 days);
+        this.disableTradeUntilTimestamp(block.timestamp + 1 days);
         assertFalse(this.isOffchainOrderAuthorized(assetManagerAddress, mainnet.WETH, WBTC, 0.5 ether));
     }
 
@@ -1712,10 +1712,10 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.addLiquidity(makeAddr("unregisteredAMM"), mainnet.WETH, 0, mainnet.USDT, 0, "");
     }
 
-    function test_DisableRebalanceUntilTimestampZeroIsNoop() public {
+    function test_disableTradeUntilTimestampZeroIsNoop() public {
         this.doInitialize();
         vm.prank(assetManagerAddress);
-        this.disableRebalanceUntilTimestamp(0);
+        this.disableTradeUntilTimestamp(0);
     }
 
     function test_ApproveIntentRelayerRevertInvalidIntentProtocol() public {

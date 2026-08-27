@@ -944,7 +944,7 @@ library VaultLogic {
             counts[paid] = count;
             ++paid;
         }
-        assembly {
+        assembly ("memory-safe") {
             mstore(paidIds, paid)
             mstore(addrs, paid)
             mstore(assetsOut, paid)
@@ -1179,29 +1179,10 @@ library VaultLogic {
         return vaultStorage.stableCoins.values();
     }
 
-    /**
-     * @dev May the vault hold or acquire this asset?
-     *
-     *      Its own list, and ONLY its own list. An empty list means nothing is allowed — a vault that
-     *      has registered nothing can hold nothing. The guard is not consulted here: {updateAssets}
-     *      already refuses anything the guard has not registered, so membership implies it, and
-     *      re-reading the registry on this path would charge every transfer for a fact established
-     *      when the asset was listed.
-     *
-     *      This replaced an "empty means anything the guard allows" default. That default made a
-     *      fresh vault maximally permissive and made narrowing something an owner had to know to opt
-     *      into; worse, adding one asset silently flipped the vault from "everything" to "only this",
-     *      which is a large change to make as a side effect of a small action.
-     */
     function assetAllowed(VaultStorage storage vaultStorage, address assetAddress) public view returns (bool) {
         return vaultStorage.assets.contains(assetAddress) || vaultStorage.stableCoins.contains(assetAddress);
     }
 
-    /**
-     * @dev Is this specifically a stable coin? Kept separate from {assetAllowed} because the callers
-     *      differ in kind: this one backs a DOLLAR cap, so the answer has to mean "one of these is
-     *      worth about a dollar", not merely "the vault may hold it".
-     */
     function stableCoinAllowed(VaultStorage storage vaultStorage, address assetAddress) public view returns (bool) {
         return vaultStorage.stableCoins.contains(assetAddress);
     }

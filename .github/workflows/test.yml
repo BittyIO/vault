@@ -44,33 +44,14 @@ jobs:
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
 
-      # Non-blocking until v0.9.5 is superseded. Coverage compiles with the optimizer off so it can
-      # map opcodes back to source lines, and in that build VaultLogic._reviewSends is one stack slot
-      # over the EVM's limit. --ir-minimum is already the "optimizer on" workaround and still misses
-      # by 1; turning optimisation up further is not offered, because inlining and reordering destroy
-      # the source mapping coverage exists to produce.
-      #
-      # The fix is a one-line memory-safe annotation on the assembly at VaultLogic.sol:947 (it only
-      # shrinks length words of arrays it allocated, so the claim is sound), which lets solc emit a
-      # memoryguard and Yul spill locals to memory. It is held back because it CHANGES VaultLogic's
-      # bytecode, and therefore its CREATE2 address: verified 0xc66aef7C… -> 0xA8C7a5A9…. That address
-      # is the deployed library on Sepolia, Base and mainnet, and every downstream address — DeFi
-      # facet, keeper, implementation, and each vault — is derived from it.
-      #
-      # TODO(v0.9.6): apply the annotation and tighten _reviewSends' scope in the same release as the
-      # next deploy, when the address change costs nothing, then drop continue-on-error here.
       - name: Run Forge coverage
         run: |
           forge coverage --ir-minimum --no-match-coverage 'test|node_modules|script|src/libs' --report lcov
         id: coverage
-        continue-on-error: true
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
 
-      # Only upload when coverage actually produced lcov.info — with fail_ci_if_error the action
-      # would otherwise fail the job on a missing file, reinstating the gate we just removed.
       - uses: codecov/codecov-action@v7.0.0
-        if: steps.coverage.outcome == 'success'
         with:
           fail_ci_if_error: true
           files: ./lcov.info

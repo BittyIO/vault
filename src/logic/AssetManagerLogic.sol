@@ -11,8 +11,8 @@ import {IBittyV1StakingProtocol} from "protocol-contracts/src/interfaces/IBittyV
 import {
     InvalidLendingProtocol,
     InvalidStakingProtocol,
-    DisableRebalanceUntilTimestampTooEarly,
-    DisableRebalanceUntilTimestampTooLong,
+    disableTradeUntilTimestampTooEarly,
+    disableTradeUntilTimestampTooLong,
     InvalidAMMProtocol,
     InvalidIntentProtocol,
     ProtocolNFT,
@@ -294,12 +294,8 @@ library AssetManagerLogic {
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(lendingProtocol)) {
             revert Deprecated();
         }
-        if (assetAddress == address(0)) {
-            revert AddressZero();
-        }
-        if (amount == 0) {
-            revert AmountIsZero();
-        }
+        if (assetAddress == address(0)) revert AddressZero();
+        if (amount == 0) revert AmountIsZero();
         lendingProtocol = _cloneProtocol(logicStorage, lendingProtocol);
         if (IERC20(assetAddress).allowance(address(this), lendingProtocol) < amount) {
             IERC20(assetAddress).forceApprove(lendingProtocol, type(uint256).max);
@@ -314,12 +310,8 @@ library AssetManagerLogic {
         uint256 amount,
         address recipient
     ) external onlyInitialized(logicStorage) returns (uint256 delivered) {
-        if (assetAddress == address(0)) {
-            revert AddressZero();
-        }
-        if (amount == 0) {
-            revert AmountIsZero();
-        }
+        if (assetAddress == address(0)) revert AddressZero();
+        if (amount == 0) revert AmountIsZero();
         lendingProtocol = logicStorage.clonedProtocols[lendingProtocol];
         if (lendingProtocol == address(0)) {
             revert InvalidLendingProtocol();
@@ -379,12 +371,8 @@ library AssetManagerLogic {
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(stakingProtocol)) {
             revert Deprecated();
         }
-        if (assetAddress == address(0)) {
-            revert AddressZero();
-        }
-        if (amount == 0) {
-            revert AmountIsZero();
-        }
+        if (assetAddress == address(0)) revert AddressZero();
+        if (amount == 0) revert AmountIsZero();
         stakingProtocol = _cloneProtocol(logicStorage, stakingProtocol);
         if (IERC20(assetAddress).allowance(address(this), stakingProtocol) < amount) {
             IERC20(assetAddress).forceApprove(stakingProtocol, type(uint256).max);
@@ -399,12 +387,8 @@ library AssetManagerLogic {
         uint256 amount,
         address recipient
     ) external onlyInitialized(logicStorage) returns (uint256 delivered) {
-        if (assetAddress == address(0)) {
-            revert AddressZero();
-        }
-        if (amount == 0) {
-            revert AmountIsZero();
-        }
+        if (assetAddress == address(0)) revert AddressZero();
+        if (amount == 0) revert AmountIsZero();
         stakingProtocol = logicStorage.clonedProtocols[stakingProtocol];
         if (stakingProtocol == address(0)) {
             revert InvalidStakingProtocol();
@@ -644,20 +628,20 @@ library AssetManagerLogic {
         return IBittyV1AMMProtocol(clone).getLiquidity(data);
     }
 
-    function disableRebalanceUntilTimestamp(AssetManagerStorage storage logicStorage, uint256 timestamp)
+    function disableTradeUntilTimestamp(AssetManagerStorage storage logicStorage, uint256 timestamp)
         external
         onlyInitialized(logicStorage)
     {
         if (timestamp == 0) {
             return;
         }
-        if (timestamp < logicStorage.rebalanceDisabledUntilTimestamp) {
-            revert DisableRebalanceUntilTimestampTooEarly();
+        if (timestamp < logicStorage.tradeDisabledUntilTimestamp) {
+            revert disableTradeUntilTimestampTooEarly();
         }
         if (timestamp > block.timestamp + REBALANCE_DISABLE_MAX_DURATION) {
-            revert DisableRebalanceUntilTimestampTooLong();
+            revert disableTradeUntilTimestampTooLong();
         }
-        logicStorage.rebalanceDisabledUntilTimestamp = uint64(timestamp);
+        logicStorage.tradeDisabledUntilTimestamp = uint64(timestamp);
     }
 
     function approveIntentRelayer(AssetManagerStorage storage logicStorage, address intentProtocol, address token)
@@ -703,11 +687,8 @@ library AssetManagerLogic {
         }
         logicStorage.protocols.add(protocol);
         bytes4 category = guard.protocolCategory(protocol);
-        // Intent protocols validate gasless off-chain orders through their per-vault clone
-        // (owner == this vault) whenever CoW calls isValidSignature. With no on-chain trade
-        // call left to lazily clone them, they must be cloned at registration or the clone
-        // stays address(0) and every order fails as InvalidEip1271Signature.
         if (category == INTENT_INTERFACE_ID) {
+            // Lazy clone not works for off-chain isValidSignature
             _cloneProtocol(logicStorage, protocol);
         }
     }

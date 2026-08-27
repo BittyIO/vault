@@ -10,30 +10,6 @@ import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
 import {BITTY_FORWARDER} from "./logic/Constants.sol";
 import {OwnershipNotTransferable} from "./interfaces/IBittyV1Vault.sol";
 
-/**
- * @title BittyV1VaultBase
- * @notice Shared roles + storage layout for {BittyV1Vault} (the core custody/payments contract) and
- *         {BittyV1VaultDeFiFacet} (the asset manager trading/yield contract reached via the vault's fallback).
- *
- *         A vault has exactly ONE, NON-TRANSFERABLE owner (the DEFAULT_ADMIN_ROLE holder). Rather than
- *         OpenZeppelin's AccessControlDefaultAdminRules (which layers a transfer/renounce DELAY we don't
- *         use), this tracks the single owner directly and disables all public role management: no second
- *         admin can be granted, ownership can never be moved, and the role can only be dropped via
- *         {BittyV1Vault-renounceVaultOwnership} — atomic, instant, and rescue-checked. DEFAULT_ADMIN_ROLE is
- *         the vault's only role.
- *
- *         Gasless (ERC-2771): because every role check here and in the facet already resolved the
- *         caller through {_msgSender}, relaying is a property of this base rather than of each
- *         function. Direct calls are unaffected, which is what lets gasless be a per-user preference
- *         rather than a mode the vault is in.
- *
- *         The forwarder lives in vault storage rather than as an ERC2771Context immutable: the test
- *         harness combines {BittyV1Vault} and {BittyV1VaultDeFiFacet}, so a constructor argument would
- *         reach this shared base twice and fail to compile. OZ supports the storage variant by
- *         overriding {trustedForwarder}. Being storage also means a new forwarder is a factory
- *         reconfiguration rather than a fresh implementation — while still unrepointable, since it is
- *         written once at initialize with no setter.
- */
 abstract contract BittyV1VaultBase is AccessControlUpgradeable, ERC2771ContextUpgradeable {
     using AssetManagerLogic for AssetManagerStorage;
     using VaultLogic for VaultStorage;
@@ -41,14 +17,10 @@ abstract contract BittyV1VaultBase is AccessControlUpgradeable, ERC2771ContextUp
     AssetManagerStorage internal _assetManager;
     VaultStorage internal _vault;
 
-    // The single vault owner (DEFAULT_ADMIN_ROLE holder); address(0) once renounced.
     address private _vaultOwner;
 
     constructor() ERC2771ContextUpgradeable(address(0)) {}
 
-    /**
-     * @inheritdoc ERC2771ContextUpgradeable
-     */
     function trustedForwarder() public view virtual override returns (address) {
         return BITTY_FORWARDER;
     }
@@ -83,11 +55,6 @@ abstract contract BittyV1VaultBase is AccessControlUpgradeable, ERC2771ContextUp
         return ERC2771ContextUpgradeable._contextSuffixLength();
     }
 
-    /**
-     * @notice Public role management is disabled: a vault's one owner is non-transferable and can only
-     *         give up the role through {BittyV1Vault-renounceVaultOwnership}. grantRole/revokeRole/renounceRole
-     *         all revert, so no second admin can be created and ownership can never be moved.
-     */
     function grantRole(bytes32, address) public virtual override {
         revert OwnershipNotTransferable();
     }
@@ -100,10 +67,6 @@ abstract contract BittyV1VaultBase is AccessControlUpgradeable, ERC2771ContextUp
         revert OwnershipNotTransferable();
     }
 
-    /**
-     * @notice The vault owner (DEFAULT_ADMIN_ROLE holder); address(0) once renounced.
-     *         Exposed as both {owner} (IERC5313) and {defaultAdmin} for reader compatibility.
-     */
     function owner() public view virtual returns (address) {
         return _vaultOwner;
     }
@@ -112,17 +75,11 @@ abstract contract BittyV1VaultBase is AccessControlUpgradeable, ERC2771ContextUp
         return _vaultOwner;
     }
 
-    /**
-     * @dev Set the sole owner at initialization.
-     */
     function _initOwner(address owner_) internal {
         _vaultOwner = owner_;
         _grantRole(DEFAULT_ADMIN_ROLE, owner_);
     }
 
-    /**
-     * @dev Drop ownership: clears the tracked owner and revokes the role (used by renounceVaultOwnership).
-     */
     function _renounceOwner() internal {
         address current = _vaultOwner;
         _vaultOwner = address(0);
