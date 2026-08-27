@@ -2,6 +2,8 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {STABLE_COIN_CATEGORY} from "../helpers/GuardRegister.sol";
+import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "../helpers/GuardRegister.sol";
 import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
@@ -47,7 +49,7 @@ contract GaslessActivationTest is Test {
         stables[0] = address(usdc);
         stables[1] = address(usdt);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        guard.addStableCoins(stables);
+        guardAddStableCoins(address(guard), stables);
 
         factory = new BittyV1VaultFactory();
         // Deploy before the prank: a `new` expression inside the argument list is a CREATE that would
@@ -74,7 +76,7 @@ contract GaslessActivationTest is Test {
     }
 
     function _activate(uint256 fee) internal {
-        factory.activateVaultByStablecoin(alice, address(usdc), fee, _sign(fee));
+        factory.activateVaultByAsset(alice, address(usdc), fee, _sign(fee));
     }
 
     /// The whole point: an owner who has never held ETH ends up with a funded, working vault.
@@ -114,9 +116,15 @@ contract GaslessActivationTest is Test {
             uint256(VaultLogic.DAILY_MAX_GAS_BUDGET) * 1e18,
             "relayable from birth, at the contract default"
         );
-        // Activation seeds the vault with the guard's stable coins, so relaying can be paid for from
-        // birth. An empty list would now mean no coin may pay, i.e. gasless off by accident.
-        assertEq(_coinsOf(v).length, 2, "seeded with the guard's stable coins");
+        // The coin list starts EMPTY, and empty means "any asset the guard registers" rather than
+        // "none". Reading it as "none" would make a fresh vault unrelayable until the owner spent
+        // their own ETH on a setGasless call — the one thing gasless exists to avoid. Proved by
+        // charging in USDT, which had nothing to do with activation.
+        assertEq(_coinsOf(v).length, 0, "nothing narrowed at birth");
+        usdt.mint(predicted, 5_000000);
+        vm.prank(forwarder);
+        v.payRelayerFee(address(usdt), 1_000000);
+        assertEq(usdt.balanceOf(collector), 1_000000, "any registered asset may pay from birth");
     }
 
     /// The owner narrows it afterwards, naming what may pay for it.
@@ -182,10 +190,11 @@ contract GaslessActivationTest is Test {
             v.gasBudgetRemaining(), uint256(VaultLogic.DAILY_MAX_GAS_BUDGET) * 1e18, "relaying on at the default budget"
         );
         assertEq(_maxFeeOf(v), VaultLogic.MAX_FEE_PER_OP, "default per-op ceiling");
-        // Activation seeds the vault with the guard's stable coins, so relaying can be paid for from
-        // birth. An empty list would now mean no coin may pay, i.e. gasless off by accident.
-        assertEq(_coinsOf(v).length, 2, "seeded with the guard's stable coins");
-        assertTrue(guard.isStableCoinRegistered(address(usdc)), "seeded from the guard's stable coins");
+        // Empty, and empty means every registered stable coin — including the one that paid the
+        // activation fee, which is deliberately NOT recorded as the vault's chosen coin. Seeding it
+        // would narrow the vault to whatever happened to pay, which is the opposite of the intent.
+        assertEq(_coinsOf(v).length, 0, "activation narrows nothing");
+        assertEq(guard.assetCategory(address(usdc)), STABLE_COIN_CATEGORY, "usdc is a stable coin asset");
     }
 
     // ============ Authorisation ============
@@ -198,7 +207,7 @@ contract GaslessActivationTest is Test {
 
         vm.prank(relayer);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByStablecoin(alice, address(usdc), 2_000000, forged);
+        factory.activateVaultByAsset(alice, address(usdc), 2_000000, forged);
     }
 
     /// Tampering with any signed field — here the fee — invalidates the signature.
@@ -208,7 +217,7 @@ contract GaslessActivationTest is Test {
 
         vm.prank(relayer);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByStablecoin(alice, address(usdc), 90_000000, sig);
+        factory.activateVaultByAsset(alice, address(usdc), 90_000000, sig);
     }
 
     /// No nonce is stored: a vault activates once, so a replay just hits VaultAlreadyActivated.
@@ -241,7 +250,7 @@ contract GaslessActivationTest is Test {
         BittyV1Vault v = BittyV1Vault(payable(factory.vaultAddress(alice)));
         address[] memory one = new address[](1);
         one[0] = address(usdc);
-        (address[] memory protocols,) = v.getAutoYieldings(one);
+        address[] memory protocols = v.getAutoYieldings(one);
         assertEq(protocols[0], address(0), "and no route either");
     }
 
@@ -264,12 +273,12 @@ contract GaslessActivationTest is Test {
     function test_CannotActivateForZeroAddress() public {
         vm.prank(relayer);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByStablecoin(address(0), address(usdc), 0, hex"deadbeef");
+        factory.activateVaultByAsset(address(0), address(usdc), 0, hex"deadbeef");
 
         // Even a well-formed 65-byte signature that recovers to nothing must not pass.
         vm.prank(relayer);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByStablecoin(address(0), address(usdc), 0, new bytes(65));
+        factory.activateVaultByAsset(address(0), address(usdc), 0, new bytes(65));
     }
 
     /// And a random third party cannot be made an owner: there is no signature for them to have made.
@@ -279,7 +288,7 @@ contract GaslessActivationTest is Test {
 
         vm.prank(relayer);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByStablecoin(stranger, address(usdc), 2_000000, _sign(2_000000));
+        factory.activateVaultByAsset(stranger, address(usdc), 2_000000, _sign(2_000000));
     }
 
     // ============ Fee bounds ============

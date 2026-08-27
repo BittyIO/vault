@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "../helpers/GuardRegister.sol";
 import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
@@ -15,7 +16,7 @@ import {
     FeeExceedsPerOpCap,
     InvalidRelayedCalldata,
     NotTrustedForwarder,
-    PaymentNotStableCoin,
+    InvalidAsset,
     AmountIsZero,
     OnlyImmutablePayableAfterRenounce
 } from "../../src/interfaces/IBittyV1Vault.sol";
@@ -116,7 +117,7 @@ contract GaslessTest is Test {
         address[] memory toAdd = new address[](1);
         toAdd[0] = address(usdc);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        guardAddStableCoins(address(BittyV1Guard(guardAddress)), toAdd);
         return address(usdc);
     }
 
@@ -241,7 +242,7 @@ contract GaslessTest is Test {
         random.mint(address(vault), 1000 ether);
 
         vm.prank(address(forwarder));
-        vm.expectRevert(PaymentNotStableCoin.selector);
+        vm.expectRevert(InvalidAsset.selector);
         vault.payRelayerFee(address(random), 1 ether);
     }
 
@@ -263,7 +264,7 @@ contract GaslessTest is Test {
         _init(address(forwarder), DAILY);
         _fundStable(1000_000000);
 
-        assertEq(vault.getStableCoins().length, 0, "vault manages nothing");
+        assertFalse(vault.isAssetAllowed(address(usdc)), "vault manages nothing");
         assertEq(_coinsOf(vault).length, 1, "but the owner allowed one for gas");
 
         vm.prank(address(forwarder));
@@ -280,11 +281,11 @@ contract GaslessTest is Test {
         address[] memory toAdd = new address[](1);
         toAdd[0] = address(other);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        guardAddStableCoins(address(BittyV1Guard(guardAddress)), toAdd);
         other.mint(address(vault), 1000_000000);
 
         vm.prank(address(forwarder));
-        vm.expectRevert(PaymentNotStableCoin.selector);
+        vm.expectRevert(InvalidAsset.selector);
         vault.payRelayerFee(address(other), 3_000000);
     }
 
@@ -525,7 +526,7 @@ contract GaslessTest is Test {
         address[] memory toAdd = new address[](1);
         toAdd[0] = address(eurc18);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        guardAddStableCoins(address(BittyV1Guard(guardAddress)), toAdd);
         vm.prank(ownerAddress);
         vault.updateAssets(toAdd, new address[](0));
         eurc18.mint(address(vault), 10_000 ether);

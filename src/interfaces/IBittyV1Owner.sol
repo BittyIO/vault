@@ -33,9 +33,9 @@ interface IBittyV1Owner {
     event SendsApproved(uint256[] ids);
     event SendApproved(uint256 indexed id);
     event Retrieved721(address indexed contractAddress, uint256 indexed tokenId, address indexed to);
-    event GaslessSet(bool enabled, address[] stableCoins, uint64 dailyLimit, uint64 maxFeePerOp);
-    event ActivationFeePaid(address indexed stableCoinAddress, uint256 amount);
-    event RelayerFeePaid(address indexed stableCoinAddress, uint256 amount, uint256 spentToday, uint256 remainingToday);
+    event GaslessSet(bool enabled, address[] assets, uint64 dailyLimit, uint64 maxFeePerOp);
+    event ActivationFeePaid(address indexed asset, uint256 amount);
+    event RelayerFeePaid(address indexed asset, uint256 amount, uint256 spentToday, uint256 remainingToday);
 
     /**
      * @notice Update the assets.
@@ -69,11 +69,11 @@ interface IBittyV1Owner {
 
     /**
      * @notice Set the gasless settings.
-     * @param stableCoins The stable coins to use for gasless operations.
+     * @param assets The assets to use for gasless operations.
      * @param dailyLimit The daily limit for gasless operations.
      * @param maxFeePerOp The maximum fee per operation for gasless operations.
      */
-    function setGasless(address[] calldata stableCoins, uint64 dailyLimit, uint64 maxFeePerOp) external;
+    function setGasless(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp) external;
 
     /**
      * @notice Disable gasless operations.
@@ -131,10 +131,10 @@ interface IBittyV1Owner {
     ) external;
 
     /**
-     * @notice Update the payment risk.
-     * @param update The payment risk to update.
+     * @notice paymentRisk the payment risk.
+     * @param paymentRisk The payment risk to update.
      */
-    function updatePaymentRisk(PaymentRisk calldata update) external;
+    function updatePaymentRisk(PaymentRisk calldata paymentRisk) external;
 
     /**
      * @notice Retrieve an ERC-721 token from the vault.
@@ -149,19 +149,15 @@ interface IBittyV1Owner {
      * @param id The id of the whitelisted recipient.
      * @param asset The asset to send.
      * @param amount The amount to send.
-     * @param stakingProtocol The staking protocol to use.
-     * @param stakingAmount The amount from staking protocol.
-     * @param lendingProtocol The lending protocol to use.
-     * @param lendingAmount The amount from lending protocol.
+     * @param withdrawProtocols The withdrawable protocols to use.
+     * @param withdrawAmounts The amounts to withdraw from the withdrawable protocols.
      */
     function sendToWhitelistedRecipient(
         uint256 id,
         address asset,
         uint256 amount,
-        address stakingProtocol,
-        uint256 stakingAmount,
-        address lendingProtocol,
-        uint256 lendingAmount
+        address[] calldata withdrawProtocols,
+        uint256[] calldata withdrawAmounts
     ) external;
 
     /**

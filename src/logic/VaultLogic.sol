@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {
     AlreadyInitialized,
     AddressZero,
+    NotRegistered,
+    AssetNotRegistered,
     AmountIsZero,
     NotInitialized,
     InsufficientBalance,
@@ -40,6 +41,7 @@ import {
     PaymentExceedsRiskCap,
     PaymentExceedsPeriodLimit,
     PaymentNotStableCoin,
+    InvalidAsset,
     PayoutOperatorNotFound,
     PayoutOperatorAlreadyRegistered,
     GasBudgetExceeded,
@@ -48,14 +50,14 @@ import {
 } from "../interfaces/IBittyV1Vault.sol";
 import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
 import {IBittyV1PayoutOperator} from "../interfaces/IBittyV1PayoutOperator.sol";
-import {IBittyV1Guard, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {VaultStorage, PendingSend, RiskConfig, TimelockedValue} from "./Storages.sol";
-import {BITTY_GUARD, BITTY_FEE_COLLECTOR} from "./Constants.sol";
+import {BITTY_GUARD, BITTY_FEE_COLLECTOR, STABLE_COIN_CATEGORY, SENTINEL} from "./Constants.sol";
 
 library VaultLogic {
     uint64 constant MAX_PAYMENT_PROTECTION = 3650 days;
@@ -66,7 +68,6 @@ library VaultLogic {
 
     uint64 constant MAX_FEE_PER_OP = 10;
 
-    using EnumerableSet for EnumerableSet.AddressSet;
     /**
      * @dev Transient slot for the native-ETH payout reentrancy lock. Transient rather than storage
      *      because the flag is only ever meaningful inside one transaction: it costs 100 gas instead of
@@ -169,20 +170,28 @@ library VaultLogic {
 
     function setGasless(
         VaultStorage storage vaultStorage,
-        address[] calldata stableCoins,
+        address[] calldata assets,
         uint64 dailyLimit,
         uint64 maxFeePerOp
     ) external onlyInitialized(vaultStorage) {
         if (dailyLimit > DAILY_MAX_GAS_BUDGET) revert GasBudgetTooHigh();
         if (maxFeePerOp > MAX_FEE_PER_OP) revert FeeExceedsPerOpCap();
 
-        EnumerableSet.AddressSet storage allowed = vaultStorage.gaslessStableCoins;
-        for (uint256 i = allowed.length(); i > 0; i--) {
-            allowed.remove(allowed.at(i - 1));
+        mapping(address => address) storage allowed = vaultStorage.gaslessAssets;
+        address entry = allowed[SENTINEL];
+        while (entry != SENTINEL && entry != address(0)) {
+            address next = allowed[entry];
+            allowed[entry] = address(0);
+            entry = next;
         }
-        for (uint256 i = 0; i < stableCoins.length; i++) {
-            if (!IBittyV1Guard(BITTY_GUARD).isStableCoinRegistered(stableCoins[i])) revert PaymentNotStableCoin();
-            allowed.add(stableCoins[i]);
+        allowed[SENTINEL] = SENTINEL;
+
+        for (uint256 i = 0; i < assets.length; i++) {
+            address asset = assets[i];
+            if (!IBittyV1Guard(BITTY_GUARD).isAssetRegistered(asset)) revert AssetNotRegistered();
+            if (asset == address(0) || asset == SENTINEL || allowed[asset] != address(0)) continue;
+            allowed[asset] = allowed[SENTINEL];
+            allowed[SENTINEL] = asset;
         }
 
         vaultStorage.gaslessDisabled = false;
@@ -192,11 +201,21 @@ library VaultLogic {
 
         _setGasBudget(vaultStorage.maxFeePerOp, maxFeePerOp, timelock);
 
-        emit IBittyV1Owner.GaslessSet(true, stableCoins, dailyLimit, maxFeePerOp);
+        emit IBittyV1Owner.GaslessSet(true, assets, dailyLimit, maxFeePerOp);
     }
 
-    function getGaslessStableCoins(VaultStorage storage vaultStorage) external view returns (address[] memory) {
-        return vaultStorage.gaslessStableCoins.values();
+    function getGaslessAssets(VaultStorage storage vaultStorage) external view returns (address[] memory) {
+        mapping(address => address) storage allowed = vaultStorage.gaslessAssets;
+        uint256 n;
+        for (address a = allowed[SENTINEL]; a != SENTINEL && a != address(0); a = allowed[a]) {
+            n++;
+        }
+        address[] memory out = new address[](n);
+        uint256 i;
+        for (address a = allowed[SENTINEL]; a != SENTINEL && a != address(0); a = allowed[a]) {
+            out[i++] = a;
+        }
+        return out;
     }
 
     function _feePerOpCap(VaultStorage storage vaultStorage) private view returns (uint64) {
@@ -219,36 +238,39 @@ library VaultLogic {
         return spent >= limit ? 0 : limit - spent;
     }
 
-    function payActivationFee(VaultStorage storage vaultStorage, address stableCoinAddress, uint256 amount)
+    function payActivationFee(VaultStorage storage vaultStorage, address asset, uint256 amount)
         external
         onlyInitialized(vaultStorage)
     {
-        if (!IBittyV1Guard(BITTY_GUARD).isStableCoinRegistered(stableCoinAddress)) {
-            revert PaymentNotStableCoin();
+        if (!IBittyV1Guard(BITTY_GUARD).isAssetRegistered(asset)) {
+            revert AssetNotRegistered();
         }
-        uint256 value =
-            Math.mulDiv(amount, 1e18, 10 ** IERC20Metadata(stableCoinAddress).decimals(), Math.Rounding.Ceil);
+        uint256 value = Math.mulDiv(amount, 1e18, 10 ** IERC20Metadata(asset).decimals(), Math.Rounding.Ceil);
         if (value > uint256(MAX_FEE_PER_OP) * 1e18) revert FeeExceedsPerOpCap();
-        if (IERC20(stableCoinAddress).balanceOf(address(this)) < amount) revert InsufficientBalance();
+        if (IERC20(asset).balanceOf(address(this)) < amount) revert InsufficientBalance();
 
-        IERC20(stableCoinAddress).safeTransfer(BITTY_FEE_COLLECTOR, amount);
-        emit IBittyV1Owner.ActivationFeePaid(stableCoinAddress, amount);
+        IERC20(asset).safeTransfer(BITTY_FEE_COLLECTOR, amount);
+        emit IBittyV1Owner.ActivationFeePaid(asset, amount);
     }
 
-    function gaslessCoinAllowed(VaultStorage storage vaultStorage, address coin) public view returns (bool) {
-        return vaultStorage.gaslessStableCoins.contains(coin);
+    function _gaslessAssetAllowed(VaultStorage storage vaultStorage, address asset) private view returns (bool) {
+        if (asset == address(0) || asset == SENTINEL) return false;
+        address head = vaultStorage.gaslessAssets[SENTINEL];
+        if (head == address(0) || head == SENTINEL) {
+            return IBittyV1Guard(BITTY_GUARD).isAssetRegistered(asset);
+        }
+        return vaultStorage.gaslessAssets[asset] != address(0);
     }
 
-    function payRelayerFee(VaultStorage storage vaultStorage, address stableCoinAddress, uint256 amount)
+    function payRelayerFee(VaultStorage storage vaultStorage, address asset, uint256 amount)
         external
         onlyInitialized(vaultStorage)
     {
         if (amount == 0) revert AmountIsZero();
         if (vaultStorage.renounced) revert OnlyImmutablePayableAfterRenounce();
-        if (!gaslessCoinAllowed(vaultStorage, stableCoinAddress)) revert PaymentNotStableCoin();
+        if (!_gaslessAssetAllowed(vaultStorage, asset)) revert InvalidAsset();
 
-        uint256 value =
-            Math.mulDiv(amount, 1e18, 10 ** IERC20Metadata(stableCoinAddress).decimals(), Math.Rounding.Ceil);
+        uint256 value = Math.mulDiv(amount, 1e18, 10 ** IERC20Metadata(asset).decimals(), Math.Rounding.Ceil);
 
         if (value > uint256(_feePerOpCap(vaultStorage)) * 1e18) revert FeeExceedsPerOpCap();
 
@@ -260,8 +282,8 @@ library VaultLogic {
         vaultStorage.gasBudgetDay = today;
         vaultStorage.gasSpentToday = uint96(spent);
 
-        IERC20(stableCoinAddress).safeTransfer(BITTY_FEE_COLLECTOR, amount);
-        emit IBittyV1Owner.RelayerFeePaid(stableCoinAddress, amount, spent, limit - spent);
+        IERC20(asset).safeTransfer(BITTY_FEE_COLLECTOR, amount);
+        emit IBittyV1Owner.RelayerFeePaid(asset, amount, spent, limit - spent);
     }
 
     function _processSendBatch(
@@ -716,18 +738,16 @@ library VaultLogic {
     {
         if (add) {
             if (payoutOperator == address(0)) revert AddressZero();
-            if (!vaultStorage.payoutOperators.add(payoutOperator)) revert PayoutOperatorAlreadyRegistered();
+            if (vaultStorage.payoutOperators[payoutOperator]) revert PayoutOperatorAlreadyRegistered();
+            vaultStorage.payoutOperators[payoutOperator] = true;
         } else {
-            if (!vaultStorage.payoutOperators.remove(payoutOperator)) revert PayoutOperatorNotFound();
+            if (!vaultStorage.payoutOperators[payoutOperator]) revert PayoutOperatorNotFound();
+            vaultStorage.payoutOperators[payoutOperator] = false;
         }
     }
 
-    function getPayoutOperators(VaultStorage storage vaultStorage) external view returns (address[] memory) {
-        return vaultStorage.payoutOperators.values();
-    }
-
     function isPayoutOperator(VaultStorage storage vaultStorage, address account) external view returns (bool) {
-        return vaultStorage.payoutOperators.contains(account);
+        return vaultStorage.payoutOperators[account];
     }
 
     function getRiskConfig(VaultStorage storage vaultStorage)
@@ -1114,15 +1134,6 @@ library VaultLogic {
         }
     }
 
-    function seedMinimalAllowList(VaultStorage storage vaultStorage, address weth) external {
-        vaultStorage.assets.add(weth);
-        address[] memory guardStableCoins = IBittyV1Guard(BITTY_GUARD).getStableCoins();
-        for (uint256 i = 0; i < guardStableCoins.length; i++) {
-            vaultStorage.stableCoins.add(guardStableCoins[i]);
-            vaultStorage.gaslessStableCoins.add(guardStableCoins[i]);
-        }
-    }
-
     function addAsset(VaultStorage storage vaultStorage, address assetAddress) external onlyInitialized(vaultStorage) {
         if (vaultStorage.addingAssetsDisabled) {
             revert AddingAssetsDisabled();
@@ -1143,12 +1154,14 @@ library VaultLogic {
     }
 
     function _addAsset(VaultStorage storage vaultStorage, address assetAddress) private {
-        if (IBittyV1Guard(BITTY_GUARD).isAssetRegistered(assetAddress)) {
-            vaultStorage.assets.add(assetAddress);
-        } else if (IBittyV1Guard(BITTY_GUARD).isStableCoinRegistered(assetAddress)) {
-            vaultStorage.stableCoins.add(assetAddress);
-        } else {
+        uint8 category = IBittyV1Guard(BITTY_GUARD).assetCategory(assetAddress);
+        if (category == 0) {
             revert NotRegistered();
+        }
+        if (category == STABLE_COIN_CATEGORY) {
+            vaultStorage.stableCoins[assetAddress] = true;
+        } else {
+            vaultStorage.assets[assetAddress] = true;
         }
     }
 
@@ -1161,30 +1174,22 @@ library VaultLogic {
         onlyInitialized(vaultStorage)
     {
         for (uint256 i = 0; i < assetAddresses.length; i++) {
-            if (vaultStorage.assets.contains(assetAddresses[i])) {
-                vaultStorage.assets.remove(assetAddresses[i]);
-            } else if (vaultStorage.stableCoins.contains(assetAddresses[i])) {
-                vaultStorage.stableCoins.remove(assetAddresses[i]);
+            if (vaultStorage.assets[assetAddresses[i]]) {
+                vaultStorage.assets[assetAddresses[i]] = false;
+            } else if (vaultStorage.stableCoins[assetAddresses[i]]) {
+                vaultStorage.stableCoins[assetAddresses[i]] = false;
             } else {
                 revert NotRegistered();
             }
         }
     }
 
-    function getAssets(VaultStorage storage vaultStorage) external view returns (address[] memory) {
-        return vaultStorage.assets.values();
-    }
-
-    function getStableCoins(VaultStorage storage vaultStorage) external view returns (address[] memory) {
-        return vaultStorage.stableCoins.values();
-    }
-
     function assetAllowed(VaultStorage storage vaultStorage, address assetAddress) public view returns (bool) {
-        return vaultStorage.assets.contains(assetAddress) || vaultStorage.stableCoins.contains(assetAddress);
+        return vaultStorage.assets[assetAddress] || vaultStorage.stableCoins[assetAddress];
     }
 
     function stableCoinAllowed(VaultStorage storage vaultStorage, address assetAddress) public view returns (bool) {
-        return vaultStorage.stableCoins.contains(assetAddress);
+        return vaultStorage.stableCoins[assetAddress];
     }
 
     function checkAsset(VaultStorage storage logicStorage, address assetAddress) external view {

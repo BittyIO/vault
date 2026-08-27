@@ -19,7 +19,6 @@ import {
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultStorage, AssetManagerStorage} from "./logic/Storages.sol";
-import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {Multicall} from "openzeppelin-contracts/contracts/utils/Multicall.sol";
 import {Context} from "openzeppelin-contracts/contracts/utils/Context.sol";
 
@@ -43,8 +42,6 @@ import {Context} from "openzeppelin-contracts/contracts/utils/Context.sol";
 contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1PayoutOperator {
     using AssetManagerLogic for AssetManagerStorage;
     using VaultLogic for VaultStorage;
-    using EnumerableSet for EnumerableSet.AddressSet;
-
     address public immutable AUTO_YIELD_KEEPER;
 
     address public immutable DEFI_FACET;
@@ -106,24 +103,20 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         return _vault.gasBudgetRemaining();
     }
 
-    function setGasless(address[] calldata stableCoins, uint64 dailyLimit, uint64 maxFeePerOp_)
+    function setGasless(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp_)
         external
         override
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
-        _vault.setGasless(stableCoins, dailyLimit, maxFeePerOp_);
+        _vault.setGasless(assets, dailyLimit, maxFeePerOp_);
     }
 
     function disableGasless() external override onlyRole(DEFAULT_ADMIN_ROLE) {
         _vault.disableGasless();
     }
 
-    function gaslessConfig()
-        external
-        view
-        returns (address[] memory stableCoins, uint256 dailyLimit, uint256 maxFeePerOp)
-    {
-        return (_vault.getGaslessStableCoins(), _vault.gasBudgetDailyLimit(), _vault.maxFeePerOpValue());
+    function gaslessConfig() external view returns (address[] memory assets, uint256 dailyLimit, uint256 maxFeePerOp) {
+        return (_vault.getGaslessAssets(), _vault.gasBudgetDailyLimit(), _vault.maxFeePerOpValue());
     }
 
     function ETHToWETH() external {
@@ -165,20 +158,15 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         }
     }
 
-    function initialize(address owner, address weth, address activationStableCoin, uint256 activationFee)
-        public
-        initializer
-    {
+    function initialize(address owner, address weth, address asset, uint256 amount) public initializer {
         _vault.weth = weth;
         __AccessControl_init();
         _initOwner(owner);
 
         _vault.initialize();
 
-        _vault.seedMinimalAllowList(weth);
-
-        if (activationStableCoin != address(0) && activationFee != 0) {
-            _vault.payActivationFee(activationStableCoin, activationFee);
+        if (asset != address(0) && amount != 0) {
+            _vault.payActivationFee(asset, amount);
         }
 
         _assetManager.initialize();
@@ -222,13 +210,11 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         address[] calldata recipients,
         address[] calldata assets,
         uint256[] calldata amounts,
-        address[] calldata stakingProtocols,
-        uint256[] calldata stakingAmounts,
-        address[] calldata lendingProtocols,
-        uint256[] calldata lendingAmounts
+        address[] calldata withdrawProtocols,
+        uint256[] calldata withdrawAmounts
     ) external override onlyOwnerOrPayoutOperator {
         if (_byOwner()) {
-            _pullFromPositions(assets, stakingProtocols, stakingAmounts, lendingProtocols, lendingAmounts);
+            _pullFromPositions(assets, withdrawProtocols, withdrawAmounts);
             _vault.send(recipients, assets, amounts);
         } else {
             _vault.proposeSend(recipients, assets, amounts, _msgSender());
@@ -237,44 +223,37 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
 
     function _pullFromPositions(
         address[] calldata assets,
-        address[] calldata stakingProtocols,
-        uint256[] calldata stakingAmounts,
-        address[] calldata lendingProtocols,
-        uint256[] calldata lendingAmounts
+        address[] calldata withdrawProtocols,
+        uint256[] calldata withdrawAmounts
     ) private {
-        if (
-            stakingProtocols.length == 0 && stakingAmounts.length == 0 && lendingProtocols.length == 0
-                && lendingAmounts.length == 0
-        ) {
+        if (withdrawProtocols.length == 0 && withdrawAmounts.length == 0) {
             return;
         }
         uint256 n = assets.length;
-        if (
-            stakingProtocols.length != n || stakingAmounts.length != n || lendingProtocols.length != n
-                || lendingAmounts.length != n
-        ) {
+        if (withdrawProtocols.length != n || withdrawAmounts.length != n) {
             revert ArrayLengthMismatch();
         }
+        address self = address(this);
         for (uint256 i = 0; i < n; i++) {
-            _pullOneFromPositions(
-                assets[i], stakingProtocols[i], stakingAmounts[i], lendingProtocols[i], lendingAmounts[i]
-            );
+            if (withdrawProtocols[i] != address(0) && withdrawAmounts[i] > 0) {
+                _assetManager.withdraw(withdrawProtocols[i], _payoutAsset(assets[i]), withdrawAmounts[i], self);
+            }
         }
     }
 
     function _pullOneFromPositions(
         address assetAddress,
-        address stakingProtocol,
-        uint256 stakingAmount,
-        address lendingProtocol,
-        uint256 lendingAmount
+        address[] calldata withdrawProtocols,
+        uint256[] calldata withdrawAmounts
     ) private {
-        address asset = _payoutAsset(assetAddress);
-        if (stakingProtocol != address(0) && stakingAmount > 0) {
-            _assetManager.unstake(stakingProtocol, asset, stakingAmount, address(this));
+        if (withdrawProtocols.length != withdrawAmounts.length) {
+            revert ArrayLengthMismatch();
         }
-        if (lendingProtocol != address(0) && lendingAmount > 0) {
-            _assetManager.withdraw(lendingProtocol, asset, lendingAmount, address(this));
+        address asset = _payoutAsset(assetAddress);
+        for (uint256 i = 0; i < withdrawProtocols.length; i++) {
+            if (withdrawProtocols[i] != address(0) && withdrawAmounts[i] > 0) {
+                _assetManager.withdraw(withdrawProtocols[i], asset, withdrawAmounts[i], address(this));
+            }
         }
     }
 
@@ -286,13 +265,11 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         address recipient,
         address asset,
         uint256 amount,
-        address stakingProtocol,
-        uint256 stakingAmount,
-        address lendingProtocol,
-        uint256 lendingAmount
+        address[] calldata withdrawProtocols,
+        uint256[] calldata withdrawAmounts
     ) external onlyOwnerOrPayoutOperator {
         if (_byOwner()) {
-            _pullOneFromPositions(asset, stakingProtocol, stakingAmount, lendingProtocol, lendingAmount);
+            _pullOneFromPositions(asset, withdrawProtocols, withdrawAmounts);
             _vault.sendOne(recipient, asset, amount);
         } else {
             _vault.proposeSendOne(recipient, asset, amount, _msgSender());
@@ -303,24 +280,18 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         uint256 id,
         address asset,
         uint256 amount,
-        address stakingProtocol,
-        uint256 stakingAmount,
-        address lendingProtocol,
-        uint256 lendingAmount
+        address[] calldata withdrawProtocols,
+        uint256[] calldata withdrawAmounts
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _pullOneFromPositions(asset, stakingProtocol, stakingAmount, lendingProtocol, lendingAmount);
+        _pullOneFromPositions(asset, withdrawProtocols, withdrawAmounts);
         _vault.sendToWhitelistedRecipientOne(id, asset, amount);
     }
 
-    function payScheduled(
-        uint256 id,
-        address stakingProtocol,
-        uint256 stakingAmount,
-        address lendingProtocol,
-        uint256 lendingAmount
-    ) external {
+    function payScheduled(uint256 id, address[] calldata withdrawProtocols, uint256[] calldata withdrawAmounts)
+        external
+    {
         address asset = _vault.scheduledPaymentAsset(id);
-        _pullOneFromPositions(asset, stakingProtocol, stakingAmount, lendingProtocol, lendingAmount);
+        _pullOneFromPositions(asset, withdrawProtocols, withdrawAmounts);
         _vault.payScheduledOne(id, _msgSender());
     }
 
@@ -409,45 +380,30 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
 
     function payScheduleds(
         uint256[] calldata ids,
-        address[] calldata stakingProtocols,
-        uint256[] calldata stakingAmounts,
-        address[] calldata lendingProtocols,
-        uint256[] calldata lendingAmounts
+        address[] calldata withdrawProtocols,
+        uint256[] calldata withdrawAmounts
     ) external {
-        _pullScheduledFromPositions(ids, stakingProtocols, stakingAmounts, lendingProtocols, lendingAmounts);
+        _pullScheduledFromPositions(ids, withdrawProtocols, withdrawAmounts);
         _vault.payScheduled(ids, _msgSender());
     }
 
     function _pullScheduledFromPositions(
         uint256[] calldata ids,
-        address[] calldata stakingProtocols,
-        uint256[] calldata stakingAmounts,
-        address[] calldata lendingProtocols,
-        uint256[] calldata lendingAmounts
+        address[] calldata withdrawProtocols,
+        uint256[] calldata withdrawAmounts
     ) private {
-        _pullScheduledLeg(ids, stakingProtocols, stakingAmounts, true);
-        _pullScheduledLeg(ids, lendingProtocols, lendingAmounts, false);
-    }
-
-    function _pullScheduledLeg(
-        uint256[] calldata ids,
-        address[] calldata protocols,
-        uint256[] calldata amounts,
-        bool isStaking
-    ) private {
-        if (protocols.length == 0 && amounts.length == 0) {
+        if (withdrawProtocols.length == 0 && withdrawAmounts.length == 0) {
             return;
         }
         uint256 n = ids.length;
-        if (protocols.length != n || amounts.length != n) {
+        if (withdrawProtocols.length != n || withdrawAmounts.length != n) {
             revert ArrayLengthMismatch();
         }
+        address self = address(this);
         for (uint256 i = 0; i < n; i++) {
-            address asset = _vault.scheduledPaymentAsset(ids[i]);
-            if (isStaking) {
-                _pullOneFromPositions(asset, protocols[i], amounts[i], address(0), 0);
-            } else {
-                _pullOneFromPositions(asset, address(0), 0, protocols[i], amounts[i]);
+            if (withdrawProtocols[i] != address(0) && withdrawAmounts[i] > 0) {
+                address asset = _payoutAsset(_vault.scheduledPaymentAsset(ids[i]));
+                _assetManager.withdraw(withdrawProtocols[i], asset, withdrawAmounts[i], self);
             }
         }
     }
@@ -488,11 +444,7 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         _assetManager.setAutoYieldings(routes);
     }
 
-    function getAutoYieldings(address[] calldata assetAddresses)
-        external
-        view
-        returns (address[] memory protocols, bool[] memory isSupplyings)
-    {
+    function getAutoYieldings(address[] calldata assetAddresses) external view returns (address[] memory protocols) {
         return _assetManager.getAutoYieldings(assetAddresses);
     }
 
@@ -516,8 +468,12 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         emit PayoutOperatorUpdated(payoutOperator, add);
     }
 
-    function getPayoutOperators() external view returns (address[] memory) {
-        return _vault.getPayoutOperators();
+    function isAssetAllowed(address assetAddress) external view returns (bool) {
+        return _vault.assetAllowed(assetAddress);
+    }
+
+    function isStableCoinAllowed(address assetAddress) external view returns (bool) {
+        return _vault.stableCoinAllowed(assetAddress);
     }
 
     function isPayoutOperator(address account) external view returns (bool) {
@@ -546,13 +502,5 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
 
     function wethAddress() external view returns (address) {
         return _vault.weth;
-    }
-
-    function getAssets() external view returns (address[] memory) {
-        return _vault.getAssets();
-    }
-
-    function getStableCoins() external view returns (address[] memory) {
-        return _vault.getStableCoins();
     }
 }

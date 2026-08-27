@@ -112,13 +112,9 @@ new keeper address would strand every vault already live.
 `msg.sender` — which stops another chain's squatter from claiming the address, and also means these two
 calls cannot be relayed or sent from a multisig.
 
-```shell
-source .env
-make deploy CHAIN=sepolia
-```
-
-`make deploy` runs `sync-constants` first and then broadcasts under `FOUNDRY_PROFILE=deploy`. **Every
-deploy must use that profile** — see [Build profiles](#build-profiles) below. The equivalent by hand:
+**Every deploy must use `FOUNDRY_PROFILE=deploy`** — see [Build profiles](#build-profiles) below. That
+profile pins the logic library addresses and drops metadata, so the default profile builds the same
+source to different bytecode and therefore different CREATE2 addresses.
 
 ```shell
 source .env
@@ -177,21 +173,20 @@ numbers no deploy will produce.
 
 ### Predicting addresses
 
-`script/predict.sh` resolves the whole chain from `out-deploy/` and reports every address the next
-deploy will produce, with init code lengths and hashes. It has to be a script rather than a test
-because the implementation's constructor arguments are the facet and keeper *addresses*, which are
-themselves CREATE2 results of this build.
-
-```shell
-make predict CHAIN=sepolia               # addresses, hashes, drift checks
-make predict CHAIN=sepolia INITCODE=1    # the same, plus the implementation init code hex
-make initcode                            # just BittyV1Vault's init code hex, pipeable into a miner
-make initcode CONTRACT=BittyV1VaultFactory
-```
-
-It also flags the ways a mined salt or a hardcoded constant goes stale silently: the two library pins
-in `foundry.toml`, `BITTY_FORWARDER` in `Constants.sol`, and `IMPLEMENTATION_SALT` drifting between
-`Deploy.s.sol` and `ImplSalt.t.sol`.
+> **No tooling for this right now.** Predicting the addresses has to resolve a chain — the pinned
+> library addresses, then the facet, then the keeper, then the implementation whose constructor
+> arguments are the facet and keeper *addresses* — and it cannot be a forge test, because `forge test`
+> links libraries at ephemeral addresses rather than the pinned ones, so anything computed inside a
+> test hashes to something no deploy will ever produce.
+>
+> It therefore has to read `out-deploy/` from outside Solidity. That script is not in the repo. Until
+> it is, derive the addresses by hand from the artifacts: link each contract's `linkReferences` at the
+> pinned library addresses, append the constructor arguments, and take
+> `keccak256(0xff ‖ factory ‖ salt ‖ keccak256(initCode))[12:]`.
+>
+> The same gap covers the drift checks that used to live here: the two library pins in `foundry.toml`,
+> `BITTY_FORWARDER` in `Constants.sol`, and `IMPLEMENTATION_SALT` differing between `Deploy.s.sol` and
+> `ImplSalt.t.sol`. Each of those goes stale silently, so check them by eye before mining or deploying.
 
 ### Deterministic addresses and salt mining
 
@@ -219,16 +214,12 @@ once at `initialize` and has no setter, so vaults already deployed cannot be poi
 and must be re-activated under a new factory. Print what a miner needs with:
 
 ```shell
-make mine-salt
+FOUNDRY_PROFILE=deploy forge test --match-test test_printInitCodeHashForSaltMining -vv
 ```
 
-Mine against the init code **hash**:
-
-```shell
-make initcodehash CONTRACT=BittyV1VaultForwarder
-make initcodehash                                  # BittyV1Vault, the implementation
-make initcode    CONTRACT=BittyV1Vault             # the bytes, if a miner wants those instead
-```
+That prints the forwarder's init code hash, which is the input a miner wants. The forwarder can do
+this from a test because it links no library and takes no constructor arguments — its creation code is
+the same everywhere. The implementation and the facet cannot, for the reason in the note above.
 
 Only the trailing 12 bytes of the salt are free; the leading 20 must stay the DEPLOYER address or
 `ImmutableCreate2Factory` rejects it — so a miner has to be told the caller, not just the hash.
@@ -250,20 +241,25 @@ both logic libraries, so the pinned addresses are baked into their creation code
 `Constants.sol`, so `BITTY_FORWARDER` is too. Move any of those three and the implementation's init
 code changes — a salt mined earlier lands on an address the deploy can never reach.
 
-Steps 1–2 are what `make sync-libs` does, in that order, rebuilding between them because
-`AssetManagerLogic`'s bytecode carries `VaultLogic`'s pinned address and is only meaningful once that
-pin is final. Step 3 is `make sync-constants`, which runs `sync-libs` first for the same reason.
+Steps 1–2 are the two library pins in `foundry.toml` under `[profile.deploy]`. Re-pin them in that
+order, rebuilding between them: `AssetManagerLogic`'s bytecode carries `VaultLogic`'s pinned address,
+so it is only meaningful once that pin is final. `test/local/LibAddr.t.sol` derives both addresses
+independently as a cross-check:
 
 ```shell
-make sync-libs                                     # steps 1-2
-make initcodehash CONTRACT=BittyV1VaultForwarder   # mine, put the salt in Deploy.s.sol...
-make sync-constants                                # step 3
-make initcodehash                                  # step 4 - the implementation
+FOUNDRY_PROFILE=deploy forge test --match-path test/local/LibAddr.t.sol -vv
 ```
 
-`make initcodehash` refuses to print the implementation's or the facet's hash while any of those
-inputs is stale, naming the one that moved and the command that settles it, rather than handing over a
-number that looks fine.
+Step 3 re-derives `BITTY_FORWARDER` in `Constants.sol` from `FORWARDER_SALT` in `Deploy.s.sol` and the
+forwarder's init code hash. There is no circularity: the forwarder imports nothing from
+`Constants.sol`, so editing the constant cannot change the forwarder's bytecode, and the value
+converges in one pass.
+
+Step 4 is the implementation, mined last and only when the release is otherwise frozen.
+
+**Nothing enforces this order.** A stale library pin or a stale `BITTY_FORWARDER` produces an
+implementation salt that lands on an address the deploy can never reach, and the failure is silent —
+the numbers all look fine. Re-check each input before mining the implementation.
 
 The implementation is also the least durable of the three: ANY edit to `BittyV1Vault`, the facet, the
 keeper, either logic library or `Constants.sol` moves it again. Mine it last, and mine it only when the

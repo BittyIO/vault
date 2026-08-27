@@ -37,7 +37,7 @@ contract MulticallTest is BittyV1VaultFactoryTest {
         vm.prank(batchOwner);
         v.multicall(calls);
 
-        assertEq(v.getAssets().length, 1, "asset added");
+        assertTrue(v.isAssetAllowed(wethAddress), "asset added");
         assertEq(effectiveAssetManager(address(v)), mgr, "manager set, in the same transaction");
     }
 
@@ -65,12 +65,10 @@ contract MulticallTest is BittyV1VaultFactoryTest {
         // Not guard-registered, so _addAsset reverts NotRegistered.
         calls[1] = abi.encodeCall(IBittyV1Owner.updateAssets, (_one(address(0xDEAD)), new address[](0)));
 
-        uint256 before = v.getAssets().length;
-
         vm.prank(batchOwner);
         vm.expectRevert();
         v.multicall(calls);
 
-        assertEq(v.getAssets().length, before, "the first call was rolled back too");
+        assertFalse(v.isAssetAllowed(wethAddress), "the first call was rolled back too");
     }
 }

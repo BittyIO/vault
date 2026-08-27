@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {IBittyV1Vault} from "../interfaces/IBittyV1Vault.sol";
 
 struct TimelockedValue {
@@ -19,9 +18,10 @@ struct RiskConfig {
     TimelockedValue changeTimelock;
 }
 
+// Just the protocol. The flag that used to sit here said whether the route supplied or staked, which
+// stopped meaning anything once both became one deposit call through IBittyV1Depositable.
 struct AutoYieldConfig {
     address protocol;
-    bool isSupplying;
 }
 
 struct AssetManagerStorage {
@@ -33,7 +33,7 @@ struct AssetManagerStorage {
 
     uint64 assetManagerExpiresAt;
 
-    EnumerableSet.AddressSet protocols;
+    mapping(address => bool) protocols;
     bool addingProtocolsDisabled;
     uint64 tradeDisabledUntilTimestamp;
 
@@ -52,20 +52,23 @@ struct PendingSend {
 }
 
 struct VaultStorage {
+    // One slot for the address and every flag beside it: 20 + 1 + 1 + 1 + 1 = 24 of 32 bytes. These
+    // were spread over three slots, so a vault paid two extra cold SSTOREs at initialization to store
+    // 4 bytes of state, and `weth` - read on every native-asset payout - was a slot of its own.
+    address weth;
     bool isInitialized;
+    bool addingAssetsDisabled;
+    bool renounced;
+
     mapping(uint256 => IBittyV1Vault.ScheduledPayment) scheduledPayments;
     mapping(uint256 => uint256) lastReceiveTimestamps;
     mapping(uint256 => uint256) scheduledPaymentEffectiveAt;
     mapping(uint256 => uint256) whitelistedRecipientEffectiveAt;
-    address weth;
-    EnumerableSet.AddressSet assets;
-    EnumerableSet.AddressSet stableCoins;
-    bool addingAssetsDisabled;
-
-    bool renounced;
+    mapping(address => bool) assets;
+    mapping(address => bool) stableCoins;
     RiskConfig riskConfig;
 
-    EnumerableSet.AddressSet payoutOperators;
+    mapping(address => bool) payoutOperators;
 
     mapping(uint256 => IBittyV1Vault.WhitelistedRecipient) whitelistedRecipients;
 
@@ -88,7 +91,8 @@ struct VaultStorage {
     uint96 gasSpentToday;
     uint64 gasBudgetDay;
     bool gaslessDisabled;
-    EnumerableSet.AddressSet gaslessStableCoins;
+    // A singly linked list keyed entry -> next, circular through SENTINEL
+    mapping(address => address) gaslessAssets;
 
     TimelockedValue maxFeePerOp;
 }

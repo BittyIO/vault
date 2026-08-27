@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "../helpers/GuardRegister.sol";
 import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
 import {console2} from "forge-std/console2.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
@@ -59,7 +60,7 @@ contract BittyV1ForwarderTest is Test {
         address[] memory add = new address[](1);
         add[0] = address(usdc);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        guard.addStableCoins(add);
+        guardAddStableCoins(address(guard), add);
         usdc.mint(address(vault), 10_000_000000);
 
         // Relaying is off until the owner turns it on and names what may pay for it.

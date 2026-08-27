@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "../helpers/GuardRegister.sol";
 import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
 import {VmSafe} from "forge-std/Vm.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -84,11 +85,8 @@ contract VaultForKidsForkTest is Test {
         guard = BittyV1Guard(BITTY_GUARD);
         vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
         guard.grantRole(guard.ASSET_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.STABLE_COIN_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.LENDING_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.STAKING_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.AMM_MANAGER_ROLE(), tx.origin);
-        guard.addAssets(assetAddresses);
+        guard.grantRole(guard.PROTOCOL_MANAGER_ROLE(), tx.origin);
+        guardAddAssets(address(guard), assetAddresses);
         vm.stopPrank();
 
         vaultImpl = new BittyV1Vault(address(new BittyV1VaultDeFiFacet()), address(0xA07E1D));
@@ -155,7 +153,7 @@ contract VaultForKidsForkTest is Test {
         deal(mainnet.WETH, address(vault), totalWETHBalance);
 
         vm.expectRevert(ScheduledPaymentNotStartYet.selector);
-        vault.payScheduleds(_u1(wbtcId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+        vault.payScheduleds(_u1(wbtcId), new address[](0), new uint256[](0));
 
         // Step 3: parent gives up vault admin in one atomic renounceVaultOwnership().
         // The immutable gifts must be locked (past their lock window, capped at
@@ -171,13 +169,13 @@ contract VaultForKidsForkTest is Test {
         // Step 4: after age 18, the scheduled gifts pay out to the kids' configured addresses.
         vm.warp(EIGHTEEN_TIMESTAMP);
 
-        vault.payScheduleds(_u1(wbtcId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
-        vault.payScheduleds(_u1(wethId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+        vault.payScheduleds(_u1(wbtcId), new address[](0), new uint256[](0));
+        vault.payScheduleds(_u1(wethId), new address[](0), new uint256[](0));
 
         for (uint256 i = 1; i <= PAY_COUNT; i++) {
             vm.warp(EIGHTEEN_TIMESTAMP + i * PAY_INTERVAL);
-            vault.payScheduleds(_u1(wbtcId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
-            vault.payScheduleds(_u1(wethId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+            vault.payScheduleds(_u1(wbtcId), new address[](0), new uint256[](0));
+            vault.payScheduleds(_u1(wethId), new address[](0), new uint256[](0));
         }
         assertEq(IERC20(WBTC).balanceOf(ALICE_ADDRESS), totalWBTCBalance);
         assertEq(IERC20(mainnet.WETH).balanceOf(ALICE_ADDRESS), totalWETHBalance);

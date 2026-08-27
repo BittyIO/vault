@@ -2,6 +2,8 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {vaultProtocols} from "../helpers/VaultSets.sol";
+import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "../helpers/GuardRegister.sol";
 import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
 import {VmSafe} from "forge-std/Vm.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
@@ -90,24 +92,21 @@ contract TestVaultFork is Test {
         guard = BittyV1Guard(BITTY_GUARD);
         vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
         guard.grantRole(guard.ASSET_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.STABLE_COIN_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.LENDING_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.STAKING_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.AMM_MANAGER_ROLE(), tx.origin);
-        guard.addAssets(_arr(mainnet.WETH, WBTC));
-        guard.addStableCoins(_arr(mainnet.USDC, mainnet.USDT));
+        guard.grantRole(guard.PROTOCOL_MANAGER_ROLE(), tx.origin);
+        guardAddAssets(address(guard), _arr(mainnet.WETH, WBTC));
+        guardAddStableCoins(address(guard), _arr(mainnet.USDC, mainnet.USDT));
 
         aaveProtocol = new AaveV3Protocol(mainnet.AAVE_V3, mainnet.POOL_DATA_PROVIDER);
         aaveProtocol.initialize(address(this));
-        guard.addProtocols(_arr(address(aaveProtocol)));
+        guardAddProtocols(address(guard), _arr(address(aaveProtocol)));
 
         lidoProtocol = new LidoV2Protocol(mainnet.STETH, mainnet.UNSTETH, mainnet.WETH);
         lidoProtocol.initialize(address(this));
-        guard.addProtocols(_arr(address(lidoProtocol)));
+        guardAddProtocols(address(guard), _arr(address(lidoProtocol)));
 
         uniswapV3Protocol = new UniswapV3Protocol(mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
         uniswapV3Protocol.initialize(address(this));
-        guard.addProtocols(_arr(address(uniswapV3Protocol)));
+        guardAddProtocols(address(guard), _arr(address(uniswapV3Protocol)));
         vm.stopPrank();
 
         assets = _arr(mainnet.WETH, WBTC);
@@ -169,7 +168,7 @@ contract TestVaultFork is Test {
         // membership rather than a per-category length. The two reads this replaced both called
         // getProtocols and then asserted length 1 with element 0 being a different protocol each
         // time — left over from the per-category getters, and impossible for one list to satisfy.
-        address[] memory protocols = IVaultFull(payable(address(vault))).getProtocols();
+        address[] memory protocols = vaultProtocols(address(guard), address(vault));
         assertEq(protocols.length, 3);
         assertTrue(_has(protocols, address(aaveProtocol)));
         assertTrue(_has(protocols, address(lidoProtocol)));
@@ -181,13 +180,13 @@ contract TestVaultFork is Test {
         deal(mainnet.WETH, address(vault), amount);
 
         uint256 balanceBefore =
-            IVaultFull(payable(address(vault))).getSuppliedBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
+            IVaultFull(payable(address(vault))).getBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
         assertEq(balanceBefore, 0);
 
-        IVaultFull(payable(address(vault))).supply(address(aaveProtocol), mainnet.WETH, amount);
+        IVaultFull(payable(address(vault))).deposit(address(aaveProtocol), mainnet.WETH, amount);
 
         uint256 balanceAfter =
-            IVaultFull(payable(address(vault))).getSuppliedBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
+            IVaultFull(payable(address(vault))).getBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
         assertApproxEqAbs(balanceAfter, amount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
     }
@@ -195,7 +194,7 @@ contract TestVaultFork is Test {
     function test_WithdrawFromAave() public {
         uint256 supplyAmount = 1 ether;
         deal(mainnet.WETH, address(vault), supplyAmount);
-        IVaultFull(payable(address(vault))).supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
+        IVaultFull(payable(address(vault))).deposit(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
         uint256 withdrawAmount = 0.5 ether;
         uint256 vaultBalanceBefore = IERC20(mainnet.WETH).balanceOf(address(vault));
@@ -206,7 +205,7 @@ contract TestVaultFork is Test {
         assertApproxEqAbs(vaultBalanceAfter - vaultBalanceBefore, withdrawAmount, 5);
 
         uint256 remaining =
-            IVaultFull(payable(address(vault))).getSuppliedBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
+            IVaultFull(payable(address(vault))).getBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
         assertApproxEqAbs(remaining, supplyAmount - withdrawAmount, 10);
     }
 
@@ -215,12 +214,12 @@ contract TestVaultFork is Test {
         deal(mainnet.WETH, address(vault), stakeAmount);
 
         uint256 stakingBalanceBefore =
-            IVaultFull(payable(address(vault))).getStakedBalances(_a1(address(lidoProtocol)), _a1(mainnet.WETH))[0];
+            IVaultFull(payable(address(vault))).getBalances(_a1(address(lidoProtocol)), _a1(mainnet.WETH))[0];
 
-        IVaultFull(payable(address(vault))).stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
+        IVaultFull(payable(address(vault))).deposit(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
         uint256 stakingBalanceAfter =
-            IVaultFull(payable(address(vault))).getStakedBalances(_a1(address(lidoProtocol)), _a1(mainnet.WETH))[0];
+            IVaultFull(payable(address(vault))).getBalances(_a1(address(lidoProtocol)), _a1(mainnet.WETH))[0];
         assertGt(stakingBalanceAfter, stakingBalanceBefore);
         assertApproxEqAbs(stakingBalanceAfter - stakingBalanceBefore, stakeAmount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
@@ -229,29 +228,29 @@ contract TestVaultFork is Test {
     function test_UnstakeFromLido() public {
         uint256 stakeAmount = 0.1 ether;
         deal(mainnet.WETH, address(vault), stakeAmount);
-        IVaultFull(payable(address(vault))).stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
+        IVaultFull(payable(address(vault))).deposit(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
         uint256 unstakeAmount = 0.05 ether;
-        IVaultFull(payable(address(vault))).unstake(address(lidoProtocol), mainnet.WETH, unstakeAmount);
+        IVaultFull(payable(address(vault))).withdraw(address(lidoProtocol), mainnet.WETH, unstakeAmount);
 
-        uint256[] memory ids = IVaultFull(payable(address(vault))).getUnstakeRequestIds(address(lidoProtocol));
+        uint256[] memory ids = IVaultFull(payable(address(vault))).getPendingWithdrawalIds(address(lidoProtocol));
         assertEq(ids.length, 1);
     }
 
     function test_ClaimFromLido() public {
         uint256 stakeAmount = 0.1 ether;
         deal(mainnet.WETH, address(vault), stakeAmount);
-        IVaultFull(payable(address(vault))).stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
+        IVaultFull(payable(address(vault))).deposit(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
         uint256 unstakeAmount = 0.05 ether;
-        IVaultFull(payable(address(vault))).unstake(address(lidoProtocol), mainnet.WETH, unstakeAmount);
+        IVaultFull(payable(address(vault))).withdraw(address(lidoProtocol), mainnet.WETH, unstakeAmount);
 
-        uint256[] memory ids = IVaultFull(payable(address(vault))).getUnstakeRequestIds(address(lidoProtocol));
+        uint256[] memory ids = IVaultFull(payable(address(vault))).getPendingWithdrawalIds(address(lidoProtocol));
         assertEq(ids.length, 1);
 
-        IVaultFull(payable(address(vault))).claimUnstakeds(address(lidoProtocol), ids);
+        IVaultFull(payable(address(vault))).claimWithdrawals(address(lidoProtocol), ids);
         // On mainnet fork, Lido withdrawals are not finalized immediately, so request ids remain
-        uint256[] memory remaining = IVaultFull(payable(address(vault))).getUnstakeRequestIds(address(lidoProtocol));
+        uint256[] memory remaining = IVaultFull(payable(address(vault))).getPendingWithdrawalIds(address(lidoProtocol));
         assertEq(remaining.length, 1);
     }
 
@@ -259,16 +258,14 @@ contract TestVaultFork is Test {
         uint256 amount = 1 ether;
         deal(mainnet.WETH, address(vault), amount);
 
-        IVaultFull(payable(address(vault))).supply(address(aaveProtocol), mainnet.WETH, amount);
+        IVaultFull(payable(address(vault))).deposit(address(aaveProtocol), mainnet.WETH, amount);
 
         uint256 lendingBalance =
-            IVaultFull(payable(address(vault))).getSuppliedBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
+            IVaultFull(payable(address(vault))).getBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
         IVaultFull(payable(address(vault))).withdraw(address(aaveProtocol), mainnet.WETH, lendingBalance);
 
         assertApproxEqAbs(IERC20(mainnet.WETH).balanceOf(address(vault)), amount, 5);
-        assertEq(
-            IVaultFull(payable(address(vault))).getSuppliedBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0], 0
-        );
+        assertEq(IVaultFull(payable(address(vault))).getBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0], 0);
     }
 
     /**
@@ -293,7 +290,7 @@ contract TestVaultFork is Test {
         deal(mainnet.WETH, address(vault), 1 ether);
         vm.prank(makeAddr("random"));
         vm.expectRevert();
-        IVaultFull(payable(address(vault))).supply(address(aaveProtocol), mainnet.WETH, 1 ether);
+        IVaultFull(payable(address(vault))).deposit(address(aaveProtocol), mainnet.WETH, 1 ether);
     }
 
     function test_FactoryVaultAddress() public view {
@@ -328,7 +325,7 @@ contract TestVaultFork is Test {
         vm.warp(block.timestamp + 8 days);
 
         uint256 balanceBefore = IERC20(mainnet.USDC).balanceOf(address(this));
-        vault.payScheduleds(_u1(testId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+        vault.payScheduleds(_u1(testId), new address[](0), new uint256[](0));
         uint256 balanceAfter = IERC20(mainnet.USDC).balanceOf(address(this));
         assertEq(balanceAfter - balanceBefore, 100e6);
     }
@@ -339,7 +336,7 @@ contract TestVaultFork is Test {
         address scheduledPaymentAddr = makeAddr("scheduledPaymentBeneficiary");
 
         deal(mainnet.WETH, address(vault), supplyAmount);
-        IVaultFull(payable(address(vault))).supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
+        IVaultFull(payable(address(vault))).deposit(address(aaveProtocol), mainnet.WETH, supplyAmount);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(vault)), 0);
 
         IBittyV1Vault.ScheduledPayment memory scheduledPayment = IBittyV1Vault.ScheduledPayment({
@@ -360,13 +357,13 @@ contract TestVaultFork is Test {
         uint256 scheduledPaymentBefore = IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr);
 
         IVaultFull(payable(address(vault))).withdraw(address(aaveProtocol), mainnet.WETH, payAmount);
-        vault.payScheduleds(_u1(salaryId), new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+        vault.payScheduleds(_u1(salaryId), new address[](0), new uint256[](0));
 
         uint256 scheduledPaymentAfter = IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr);
         assertEq(scheduledPaymentAfter - scheduledPaymentBefore, payAmount);
 
         uint256 remaining =
-            IVaultFull(payable(address(vault))).getSuppliedBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
+            IVaultFull(payable(address(vault))).getBalances(_a1(address(aaveProtocol)), _a1(mainnet.WETH))[0];
         assertGe(remaining, supplyAmount - payAmount);
     }
 

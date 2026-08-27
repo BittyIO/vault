@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-address constant BITTY_GUARD = 0x00D4000023b177003fb1bF1d3160BaefF5c60000;
+address constant BITTY_GUARD = 0x0000000020AD2d18e3c27a273b7B0efb3A46e46a;
 
 address constant BITTY_FORWARDER = 0x00006758bf1BbB6155ae007E00DE0037df390076;
 
 address constant BITTY_FEE_COLLECTOR = 0x76dC42C2E0ef4FB02600430CB0d3A68d015C30AA;
 
-bytes4 constant LENDING_INTERFACE_ID = 0xb9f16a0c;
+address constant SENTINEL = address(0x1);
 
-bytes4 constant STAKING_INTERFACE_ID = 0xc8ada217;
+uint8 constant STABLE_COIN_CATEGORY = 1;
 
-bytes4 constant AMM_INTERFACE_ID = 0x932722bd;
+uint8 constant AMM_CATEGORY = 3;
 
-bytes4 constant INTENT_INTERFACE_ID = 0x1626ba7e;
+uint8 constant INTENT_CATEGORY = 4;
