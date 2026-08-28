@@ -39,23 +39,21 @@ contract BittyV1VaultFactory is IBittyV1VaultFactory, Initializable, EIP712 {
         _deploy(msg.sender, address(0), 0);
     }
 
-    function activateVaultByStablecoin(
-        address owner,
-        address stableCoinAddress,
-        uint256 feeAmount,
-        bytes calldata signature
-    ) external override {
-        _checkActivationSignature(owner, stableCoinAddress, feeAmount, signature);
-        _deploy(owner, stableCoinAddress, feeAmount);
+    function activateVaultByAsset(address owner, address asset, uint256 amount, bytes calldata signature)
+        external
+        override
+    {
+        _checkActivationSignature(owner, asset, amount, signature);
+        _deploy(owner, asset, amount);
     }
 
-    function _deploy(address owner, address stableCoinAddress, uint256 feeAmount) private {
+    function _deploy(address owner, address asset, uint256 amount) private {
         bytes32 salt = keccak256(abi.encodePacked(owner));
         address vault = Clones.predictDeterministicAddress(vaultImplementation, salt, address(this));
         if (vault.code.length > 0) revert VaultAlreadyActivated();
 
         Clones.cloneDeterministic(vaultImplementation, salt);
-        BittyV1Vault(payable(vault)).initialize(owner, wethAddress, stableCoinAddress, feeAmount);
+        BittyV1Vault(payable(vault)).initialize(owner, wethAddress, asset, amount);
         emit VaultActivated(owner);
     }
 

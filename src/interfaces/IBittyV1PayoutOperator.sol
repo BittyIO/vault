@@ -14,8 +14,8 @@ interface IBittyV1PayoutOperator {
     event ScheduledPaymentAdded(uint256 indexed id, IBittyV1Vault.ScheduledPayment scheduledPayment);
     event ScheduledPaymentsUpdated(uint256[] ids, IBittyV1Vault.ScheduledPayment[] scheduledPayments);
     event ScheduledPaymentsRemoved(uint256[] ids);
-    event WhitelistedRecipientsSet(uint256[] ids, address[] recipients, address[] allowedAssets);
-    event WhitelistedRecipientSet(uint256 indexed id, address recipient, address allowedAsset);
+    event WhitelistedRecipientsSet(uint256[] ids, address[] recipients, address[] assets);
+    event WhitelistedRecipientSet(uint256 indexed id, address recipient, address asset);
     event WhitelistedRecipientsRemoved(uint256[] ids);
     event SendProposed(
         uint256 indexed id, address indexed proposer, address[] recipients, address[] assets, uint256[] amounts
@@ -43,12 +43,12 @@ interface IBittyV1PayoutOperator {
      * @notice Update one or more whitelisted recipients.
      * @param ids The IDs of the whitelisted recipients to update.
      * @param recipients The addresses of the recipients to update.
-     * @param allowedAssets The assets that the recipients are allowed to receive.
+     * @param assets The assets that the recipients are allowed to receive.
      */
     function updateWhitelistedRecipients(
         uint256[] calldata ids,
         address[] calldata recipients,
-        address[] calldata allowedAssets
+        address[] calldata assets
     ) external;
 
     /**
@@ -62,19 +62,15 @@ interface IBittyV1PayoutOperator {
      * @param recipients The addresses of the recipients to send to.
      * @param assets The assets to send.
      * @param amounts The amounts to send.
-     * @param stakingProtocols The staking protocols to use.
-     * @param stakingAmounts The amounts from staking protocols.
-     * @param lendingProtocols The lending protocols to use.
-     * @param lendingAmounts The amounts from lending protocols.
+     * @param withdrawProtocols The withdrawable protocols to use.
+     * @param withdrawAmounts The amounts to withdraw from the withdrawable protocols.
      */
     function batchSend(
         address[] calldata recipients,
         address[] calldata assets,
         uint256[] calldata amounts,
-        address[] calldata stakingProtocols,
-        uint256[] calldata stakingAmounts,
-        address[] calldata lendingProtocols,
-        uint256[] calldata lendingAmounts
+        address[] calldata withdrawProtocols,
+        uint256[] calldata withdrawAmounts
     ) external;
 
     /**
@@ -88,19 +84,15 @@ interface IBittyV1PayoutOperator {
      * @param recipient The address of the recipient.
      * @param asset The asset to send.
      * @param amount The amount to send.
-     * @param stakingProtocol The staking protocol to use.
-     * @param stakingAmount The amount from staking protocol.
-     * @param lendingProtocol The lending protocol to use.
-     * @param lendingAmount The amount from lending protocol.
+     * @param withdrawProtocols The withdrawable protocols to use.
+     * @param withdrawAmounts The amounts to withdraw from the withdrawable protocols.
      */
     function send(
         address recipient,
         address asset,
         uint256 amount,
-        address stakingProtocol,
-        uint256 stakingAmount,
-        address lendingProtocol,
-        uint256 lendingAmount
+        address[] calldata withdrawProtocols,
+        uint256[] calldata withdrawAmounts
     ) external;
 
     /**
@@ -113,10 +105,10 @@ interface IBittyV1PayoutOperator {
     /**
      * @notice Add a whitelisted recipient.
      * @param recipient The address of the recipient.
-     * @param allowedAsset The asset that the recipient is allowed to receive.
+     * @param asset The asset that the recipient is allowed to receive.
      * @return id The id of the whitelisted recipient.
      */
-    function addWhitelistedRecipient(address recipient, address allowedAsset) external returns (uint256 id);
+    function addWhitelistedRecipient(address recipient, address asset) external returns (uint256 id);
 
     /**
      * @notice Cancel a send.

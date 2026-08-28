@@ -2,6 +2,8 @@
 pragma solidity ^0.8.34;
 
 import "forge-std/console.sol";
+import {vaultProtocols} from "../helpers/VaultSets.sol";
+import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "../helpers/GuardRegister.sol";
 import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
 import {Test} from "forge-std/Test.sol";
 import {VmSafe} from "forge-std/Vm.sol";
@@ -87,15 +89,12 @@ contract BittyV1VaultFactoryTest is Test {
         vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
         BittyV1Guard wl = BittyV1Guard(guardAddress);
         wl.grantRole(wl.ASSET_MANAGER_ROLE(), tx.origin);
-        wl.grantRole(wl.STABLE_COIN_MANAGER_ROLE(), tx.origin);
-        wl.grantRole(wl.LENDING_MANAGER_ROLE(), tx.origin);
-        wl.grantRole(wl.STAKING_MANAGER_ROLE(), tx.origin);
-        wl.grantRole(wl.AMM_MANAGER_ROLE(), tx.origin);
-        IBittyV1Guard(guardAddress).addAssets(assetAddresses);
-        IBittyV1Guard(guardAddress).addStableCoins(stableCoinAddresses);
-        IBittyV1Guard(guardAddress).addProtocols(lendingProtocols);
-        IBittyV1Guard(guardAddress).addProtocols(ammProtocols);
-        IBittyV1Guard(guardAddress).addProtocols(stakingProtocols);
+        wl.grantRole(wl.PROTOCOL_MANAGER_ROLE(), tx.origin);
+        guardAddAssets(address(IBittyV1Guard(guardAddress)), assetAddresses);
+        guardAddStableCoins(address(IBittyV1Guard(guardAddress)), stableCoinAddresses);
+        guardAddProtocols(address(IBittyV1Guard(guardAddress)), lendingProtocols);
+        guardAddProtocols(address(IBittyV1Guard(guardAddress)), ammProtocols);
+        guardAddProtocols(address(IBittyV1Guard(guardAddress)), stakingProtocols);
         vaultAssetAddresses = new address[](4);
         vaultAssetAddresses[0] = wbtcAddress;
         vaultAssetAddresses[1] = wethAddress;
@@ -246,10 +245,10 @@ contract BittyV1VaultFactoryTest is Test {
 
         // Membership, not position: activation seeds WETH and the guard's stable coins before the
         // caller's own list is applied, so the order these arrive in is not part of the contract.
-        assertTrue(_contains(vault.getAssets(), wbtcAddress), "WBTC address should be set");
-        assertTrue(_contains(vault.getAssets(), wethAddress), "WETH address should be set");
-        assertTrue(_contains(vault.getStableCoins(), usdtAddress), "USDT address should be set");
-        assertTrue(_contains(vault.getStableCoins(), usdcAddress), "USDC address should be set");
+        assertTrue(vault.isAssetAllowed(wbtcAddress), "WBTC address should be set");
+        assertTrue(vault.isAssetAllowed(wethAddress), "WETH address should be set");
+        assertTrue(vault.isStableCoinAllowed(usdtAddress), "USDT address should be set");
+        assertTrue(vault.isStableCoinAllowed(usdcAddress), "USDC address should be set");
     }
 
     function test_ActivateVaultRevertsIfVaultAlreadyExistsAtComputedAddress() public {
@@ -282,8 +281,9 @@ contract BittyV1VaultFactoryTest is Test {
         address[] memory selectedIntentProtocols = new address[](1);
         selectedIntentProtocols[0] = intentProtocol;
 
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        IBittyV1Guard(guardAddress).addProtocols(selectedIntentProtocols);
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(IBittyV1Guard(guardAddress)), selectedIntentProtocols);
+        vm.stopPrank();
 
         vm.prank(owner1);
         factory.activateVault();
@@ -293,7 +293,7 @@ contract BittyV1VaultFactoryTest is Test {
         IVaultFull(payable(vault)).updateProtocols(selectedIntentProtocols, new address[](0));
 
         assertTrue(vault.code.length > 0, "Vault should be activated");
-        address[] memory activatedIntentProtocols = IVaultFull(payable(vault)).getProtocols();
+        address[] memory activatedIntentProtocols = vaultProtocols(guardAddress, vault);
         assertEq(activatedIntentProtocols.length, 1);
         assertEq(activatedIntentProtocols[0], intentProtocol);
     }
@@ -307,8 +307,9 @@ contract BittyV1VaultFactoryTest is Test {
         address[] memory selectedIntentProtocols = new address[](1);
         selectedIntentProtocols[0] = intentProtocol;
 
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        IBittyV1Guard(guardAddress).addProtocols(selectedIntentProtocols);
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(IBittyV1Guard(guardAddress)), selectedIntentProtocols);
+        vm.stopPrank();
 
         vm.prank(owner1);
         factory.activateVault();
@@ -334,8 +335,9 @@ contract BittyV1VaultFactoryTest is Test {
         address[] memory sel = new address[](1);
         sel[0] = intentProtocol;
 
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        IBittyV1Guard(guardAddress).addProtocols(sel);
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(IBittyV1Guard(guardAddress)), sel);
+        vm.stopPrank();
 
         vm.prank(owner1);
         factory.activateVault();
@@ -357,6 +359,37 @@ contract BittyV1VaultFactoryTest is Test {
         vm.prank(makeAddr("stranger"));
         vm.expectRevert();
         IVaultFull(payable(vault)).cancelIntentOrders(intentProtocol, uids);
+    }
+
+    function test_CancelIntentOrderScalarInvalidatesOnSettlement() public {
+        _initFactory();
+        MockSettlement settlement = new MockSettlement();
+        MockIntentProtocol intent = new MockIntentProtocol();
+        intent.setEndpoints(address(settlement), makeAddr("relayer"));
+        address intentProtocol = address(intent);
+        address[] memory sel = new address[](1);
+        sel[0] = intentProtocol;
+
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(IBittyV1Guard(guardAddress)), sel);
+        vm.stopPrank();
+
+        vm.prank(owner1);
+        factory.activateVault();
+        address vault = factory.vaultAddress(owner1);
+        vm.prank(owner1);
+        IVaultFull(payable(vault)).updateProtocols(sel, new address[](0));
+
+        bytes memory uid = abi.encodePacked(keccak256("single"), vault, uint32(7));
+
+        vm.prank(owner1);
+        IVaultFull(payable(vault)).cancelIntentOrder(intentProtocol, uid);
+        assertEq(settlement.invalidatedCount(), 1, "the one order is invalidated");
+        assertEq(settlement.invalidated(0), uid);
+
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert();
+        IVaultFull(payable(vault)).cancelIntentOrder(intentProtocol, uid);
     }
 
     function test_ActivateVaultWithEmptyArrays() public {
@@ -404,7 +437,7 @@ contract BittyV1VaultFactoryTest is Test {
         address[] memory newAsset = new address[](1);
         newAsset[0] = multipleAssets[2];
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        IBittyV1Guard(guardAddress).addAssets(newAsset);
+        guardAddAssets(address(IBittyV1Guard(guardAddress)), newAsset);
 
         vm.prank(owner1);
         factory.activateVault();
@@ -422,7 +455,7 @@ contract BittyV1VaultFactoryTest is Test {
         address[] memory newStableCoin = new address[](1);
         newStableCoin[0] = multipleStableCoins[2];
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        IBittyV1Guard(guardAddress).addStableCoins(newStableCoin);
+        guardAddStableCoins(address(IBittyV1Guard(guardAddress)), newStableCoin);
 
         address[] memory activationAssets = new address[](assetAddresses.length + multipleStableCoins.length);
         for (uint256 i = 0; i < assetAddresses.length; i++) {
@@ -446,8 +479,9 @@ contract BittyV1VaultFactoryTest is Test {
         multipleLendingProtocols[0] = LendingProtocol1;
         multipleLendingProtocols[1] = LendingProtocol2;
 
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        IBittyV1Guard(guardAddress).addProtocols(multipleLendingProtocols);
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(IBittyV1Guard(guardAddress)), multipleLendingProtocols);
+        vm.stopPrank();
 
         address vault = _newVaultFor(owner1);
 
@@ -462,8 +496,9 @@ contract BittyV1VaultFactoryTest is Test {
         multipleAMMProtocols[0] = swapProtocol1;
         multipleAMMProtocols[1] = swapProtocol2;
 
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        IBittyV1Guard(guardAddress).addProtocols(multipleAMMProtocols);
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(IBittyV1Guard(guardAddress)), multipleAMMProtocols);
+        vm.stopPrank();
 
         vm.prank(owner1);
         factory.activateVault();
@@ -584,10 +619,10 @@ contract BittyV1VaultFactoryTest is Test {
         BittyV1Vault vault = BittyV1Vault(payable(_newVaultFor(owner1)));
 
         assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), owner1));
-        assertTrue(_contains(vault.getAssets(), wbtcAddress));
-        assertTrue(_contains(vault.getAssets(), wethAddress));
-        assertTrue(_contains(vault.getStableCoins(), usdtAddress));
-        assertTrue(_contains(vault.getStableCoins(), usdcAddress));
+        assertTrue(vault.isAssetAllowed(wbtcAddress));
+        assertTrue(vault.isAssetAllowed(wethAddress));
+        assertTrue(vault.isStableCoinAllowed(usdtAddress));
+        assertTrue(vault.isStableCoinAllowed(usdcAddress));
     }
 
     function test_ActivatedVault_ownerSetsAssetManager() public {
@@ -722,11 +757,10 @@ contract ActivateVaultWithAssetsTest is Test {
         guard = BittyV1Guard(BITTY_GUARD);
         vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
         guard.grantRole(guard.ASSET_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.STABLE_COIN_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.LENDING_MANAGER_ROLE(), tx.origin);
-        guard.addAssets(_assets(address(weth), address(wbtc)));
-        guard.addStableCoins(_assets(address(usdc), address(usdt)));
-        guard.addProtocols(_single(address(lending)));
+        guard.grantRole(guard.PROTOCOL_MANAGER_ROLE(), tx.origin);
+        guardAddAssets(address(guard), _assets(address(weth), address(wbtc)));
+        guardAddStableCoins(address(guard), _assets(address(usdc), address(usdt)));
+        guardAddProtocols(address(guard), _single(address(lending)));
         vm.stopPrank();
 
         address vaultImpl = address(new BittyV1Vault(address(new BittyV1VaultDeFiFacet()), address(0xA07E1D)));

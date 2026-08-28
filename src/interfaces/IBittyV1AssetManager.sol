@@ -4,8 +4,8 @@ pragma solidity ^0.8.34;
 error NotAssetManager();
 error AssetManagerExpired();
 error AssetManagerExpiryInPast();
-error InvalidLendingProtocol();
-error InvalidStakingProtocol();
+error InvalidDepositableProtocol();
+error InvalidWithdrawableProtocol();
 error InvalidAMMProtocol();
 error InvalidIntentProtocol();
 error disableTradeUntilTimestampTooEarly();
@@ -16,57 +16,46 @@ error ProtocolNFT();
  * @title IBittyV1AssetManager
  * @notice Only the vault asset manager's trading/yield functions and their events. Implemented by
  *         {BittyV1VaultDeFiFacet}. Owner-only asset manager config (setAssetManager, protocol
- *         add/remove) lives in {IBittyV1Owner}; asset manager read functions (getSuppliedBalance,
+ *         add/remove) lives in {IBittyV1Owner}; asset manager read functions (getBalances,
  *         getLiquidity, protocol getters, …) live in {IBittyV1Vault}.
  */
 interface IBittyV1AssetManager {
-    event RebalanceDisabledUntil(uint256 timestamp);
+    event TradingDisabledUntil(uint256 timestamp);
 
     /**
-     * @notice Supply assets to a lending protocol.
-     * @param lendingProtocol The lending protocol to supply assets to.
-     * @param assetAddress The address of the asset to supply.
-     * @param amount The amount of the asset to supply.
+     * @notice Put an asset into a depositable protocol.
+     * @dev One entry for every protocol the vault can deposit into. Supply and stake were the same
+     *      call under two names, and the adapters expose it as {IBittyV1Depositable-deposit}, so the
+     *      vault does not distinguish the kinds - nor will it have to for kinds added later.
+     * @param depositProtocol The protocol to deposit into.
+     * @param assetAddress The address of the asset to deposit.
+     * @param amount The amount of the asset to deposit.
      */
-    function supply(address lendingProtocol, address assetAddress, uint256 amount) external;
+    function deposit(address depositProtocol, address assetAddress, uint256 amount) external;
 
     /**
-     * @notice Withdraw assets from a lending protocol.
-     * @param lendingProtocol The lending protocol to withdraw assets from.
+     * @notice Withdraw assets from any protocol the vault holds a position in.
+     * @param withdrawProtocol The withdrawable protocol to withdraw assets from.
      * @param assetAddress The address of the asset to withdraw.
      * @param amount The amount of the asset to withdraw.
      */
-    function withdraw(address lendingProtocol, address assetAddress, uint256 amount) external;
+    function withdraw(address withdrawProtocol, address assetAddress, uint256 amount) external;
 
     /**
-     * @notice Stake assets to a staking protocol.
-     * @param stakingProtocol The staking protocol to stake assets to.
-     * @param asset The asset to stake.
-     * @param amount The amount of the asset to stake.
+     * @notice Claim one finalized withdrawal.
+     * @dev For protocols whose exit is asynchronous - a staking queue, a redemption delay - where
+     *      {withdraw} only opens the request and the assets arrive on a later claim.
+     * @param withdrawProtocol The protocol to claim from.
+     * @param id A pending withdrawal id, as listed by {IBittyV1Vault-getPendingWithdrawalIds}.
      */
-    function stake(address stakingProtocol, address asset, uint256 amount) external;
+    function claimWithdrawal(address withdrawProtocol, uint256 id) external;
 
     /**
-     * @notice Unstake assets from a staking protocol.
-     * @param stakingProtocol The staking protocol to unstake assets from.
-     * @param asset The asset to unstake.
-     * @param amount The amount of the asset to unstake.
+     * @notice Claim several finalized withdrawals.
+     * @param withdrawProtocol The protocol to claim from.
+     * @param ids The pending withdrawal ids to claim.
      */
-    function unstake(address stakingProtocol, address asset, uint256 amount) external;
-
-    /**
-     * @notice Claim a finalized unstake request.
-     * @param stakingProtocol The staking protocol to claim the unstake request from.
-     * @param requestId The ID of the unstake request to claim.
-     */
-    function claimUnstaked(address stakingProtocol, uint256 requestId) external;
-
-    /**
-     * @notice Claim unstaked assets from a staking protocol.
-     * @param stakingProtocol The staking protocol to claim unstaked assets from.
-     * @param requestIds The IDs of the unstaked requests to claim.
-     */
-    function claimUnstakeds(address stakingProtocol, uint256[] memory requestIds) external;
+    function claimWithdrawals(address withdrawProtocol, uint256[] memory ids) external;
 
     /**
      * @notice Add liquidity to an AMM protocol.
@@ -108,8 +97,8 @@ interface IBittyV1AssetManager {
     function claimAMMFees(address ammProtocol, bytes memory data) external;
 
     /**
-     * @notice Disable rebalancing until a timestamp.
-     * @param timestamp The timestamp when rebalancing should be disabled.
+     * @notice Disable trading until a timestamp.
+     * @param timestamp The timestamp when trading should be disabled.
      */
     function disableTradeUntilTimestamp(uint256 timestamp) external;
 

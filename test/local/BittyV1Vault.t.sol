@@ -2,6 +2,8 @@
 pragma solidity ^0.8.34;
 
 import "forge-std/console.sol";
+import {vaultProtocols} from "../helpers/VaultSets.sol";
+import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "../helpers/GuardRegister.sol";
 import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -45,6 +47,7 @@ import {
     TransferFailed,
     PaymentExceedsRiskCap,
     PaymentNotStableCoin,
+    InvalidAsset,
     PayoutOperatorAlreadyRegistered,
     PayoutOperatorNotFound,
     OwnershipNotTransferable,
@@ -57,14 +60,14 @@ import {
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockERC721} from "solmate/test/utils/mocks/MockERC721.sol";
-import {InvalidLendingProtocol, NotAssetManager, ProtocolNFT} from "../../src/interfaces/IBittyV1AssetManager.sol";
+import {InvalidDepositableProtocol, NotAssetManager, ProtocolNFT} from "../../src/interfaces/IBittyV1AssetManager.sol";
 import {IBittyV1AMMProtocol} from "protocol-contracts/src/interfaces/IBittyV1AMMProtocol.sol";
 import {MockStakingProtocol} from "../helpers/MockStakingProtocol.sol";
 import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {MockAMMProtocol} from "../helpers/MockAMMProtocol.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
-import {NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {NotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {Initializable} from "openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
 import {effectiveAssetManager} from "../helpers/AssetManagerView.sol";
@@ -89,8 +92,7 @@ contract ReentrantEthReceiver {
             armed = false;
             uint256[] memory ids = new uint256[](1);
             ids[0] = scheduledPaymentId;
-            try vault.payScheduleds(ids, new address[](0), new uint256[](0), new address[](0), new uint256[](0)) {}
-                catch {}
+            try vault.payScheduleds(ids, new address[](0), new uint256[](0)) {} catch {}
         }
     }
 }
@@ -536,7 +538,6 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vault.updatePayoutOperator(op, false);
         assertFalse(vault.isPayoutOperator(op));
-        assertEq(vault.getPayoutOperators().length, 0);
 
         vm.prank(ownerAddress);
         vm.expectRevert(PayoutOperatorNotFound.selector);
@@ -552,7 +553,7 @@ contract BittyV1VaultTest is Test {
         vm.startPrank(ownerAddress);
         vault.updatePayoutOperator(op1, true);
         vault.updatePayoutOperator(op2, true);
-        assertEq(vault.getPayoutOperators().length, 2);
+        assertTrue(vault.isPayoutOperator(op1) && vault.isPayoutOperator(op2), "both registered");
 
         vault.updatePayoutOperator(op3, true);
         vault.updatePayoutOperator(op1, false);
@@ -561,20 +562,19 @@ contract BittyV1VaultTest is Test {
         assertFalse(vault.isPayoutOperator(op1));
         assertTrue(vault.isPayoutOperator(op2));
         assertTrue(vault.isPayoutOperator(op3));
-        assertEq(vault.getPayoutOperators().length, 2);
     }
 
-    function test_getPayoutOperators() public {
+    /// @dev The list getter is gone - PayoutOperatorUpdated carries changes - so this asserts the
+    ///      thing the list was standing in for: each operator is registered, and a stranger is not.
+    function test_payoutOperatorMembership() public {
         _initializeVault();
         address op1 = makeAddr("op1");
         address op2 = makeAddr("op2");
         _addPayoutOperator(op1);
         _addPayoutOperator(op2);
-        address[] memory ops = vault.getPayoutOperators();
-        assertEq(ops.length, 2);
-        assertTrue(ops[0] == op1 || ops[0] == op2);
-        assertTrue(ops[1] == op1 || ops[1] == op2);
-        assertTrue(ops[0] != ops[1]);
+        assertTrue(vault.isPayoutOperator(op1));
+        assertTrue(vault.isPayoutOperator(op2));
+        assertFalse(vault.isPayoutOperator(makeAddr("stranger")));
     }
 
     function test_GrantRoleRevertsIfAssetManagerGrantedAdminRole() public {
@@ -1715,7 +1715,7 @@ contract BittyV1VaultTest is Test {
         address payee = makeAddr("payee");
         deal(address(weth), address(vault), 5 ether);
         vm.prank(ownerAddress);
-        vault.send(payee, address(weth), 2 ether, address(0), 0, address(0), 0);
+        vault.send(payee, address(weth), 2 ether, new address[](0), new uint256[](0));
         assertEq(weth.balanceOf(payee), 2 ether);
     }
 
@@ -1726,8 +1726,24 @@ contract BittyV1VaultTest is Test {
         address payee = makeAddr("payee");
         _setupSuppliedReserve(usdc, impl, 1_000e6);
         vm.prank(ownerAddress);
-        vault.send(payee, address(usdc), 400e6, address(0), 0, address(impl), 400e6);
+        vault.send(payee, address(usdc), 400e6, _oneAddr(address(impl)), _oneU(400e6));
         assertEq(usdc.balanceOf(payee), 400e6);
+    }
+
+    function test_scalar_send_revertsOnMismatchedWithdrawSources() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        address payee = makeAddr("payee");
+        _setupSuppliedReserve(usdc, impl, 1_000e6);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(ArrayLengthMismatch.selector);
+        vault.send(payee, address(usdc), 400e6, _oneAddr(address(impl)), new uint256[](0));
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(ArrayLengthMismatch.selector);
+        vault.send(payee, address(usdc), 400e6, new address[](0), _oneU(400e6));
     }
 
     function test_scalar_scheduledPayment_addPayRemove() public {
@@ -1738,13 +1754,13 @@ contract BittyV1VaultTest is Test {
         uint256 id = vault.addScheduledPayment(
             _makeScheduledPayment(payee, address(0), address(weth), 1 ether, 2, block.timestamp, 0, false)
         );
-        vault.payScheduled(id, address(0), 0, address(0), 0);
+        vault.payScheduled(id, new address[](0), new uint256[](0));
         assertEq(weth.balanceOf(payee), 1 ether, "scalar payScheduled paid");
 
         vm.prank(ownerAddress);
         vault.removeScheduledPayments(_oneU(id));
         vm.expectRevert();
-        vault.payScheduled(id, address(0), 0, address(0), 0);
+        vault.payScheduled(id, new address[](0), new uint256[](0));
     }
 
     function test_scalar_whitelistedRecipient_addPaySendRemove() public {
@@ -1754,14 +1770,14 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         uint256 id = vault.addWhitelistedRecipient(payee, address(weth));
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(id, address(weth), 1 ether, address(0), 0, address(0), 0);
+        vault.sendToWhitelistedRecipient(id, address(weth), 1 ether, new address[](0), new uint256[](0));
         assertEq(weth.balanceOf(payee), 1 ether);
 
         vm.prank(ownerAddress);
         vault.removeWhitelistedRecipients(_oneU(id));
         vm.prank(ownerAddress);
         vm.expectRevert();
-        vault.sendToWhitelistedRecipient(id, address(weth), 1 ether, address(0), 0, address(0), 0);
+        vault.sendToWhitelistedRecipient(id, address(weth), 1 ether, new address[](0), new uint256[](0));
     }
 
     function test_scalar_approveSend_executesOperatorProposal() public {
@@ -1771,7 +1787,7 @@ contract BittyV1VaultTest is Test {
         address payee = makeAddr("payee");
         deal(address(weth), address(vault), 5 ether);
         vm.prank(op);
-        vault.send(payee, address(weth), 1 ether, address(0), 0, address(0), 0);
+        vault.send(payee, address(weth), 1 ether, new address[](0), new uint256[](0));
         assertEq(weth.balanceOf(payee), 0, "operator proposal does not pay yet");
         vm.prank(ownerAddress);
         vault.approveSend(0);
@@ -1784,7 +1800,7 @@ contract BittyV1VaultTest is Test {
         _addPayoutOperator(op);
         deal(address(weth), address(vault), 5 ether);
         vm.prank(op);
-        vault.send(makeAddr("payee"), address(weth), 1 ether, address(0), 0, address(0), 0);
+        vault.send(makeAddr("payee"), address(weth), 1 ether, new address[](0), new uint256[](0));
         vm.prank(ownerAddress);
         vault.cancelSend(0);
         vm.prank(ownerAddress);
@@ -1804,7 +1820,7 @@ contract BittyV1VaultTest is Test {
         address[] memory toAdd = new address[](1);
         toAdd[0] = address(usdc);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        guardAddStableCoins(address(BittyV1Guard(guardAddress)), toAdd);
         vm.prank(ownerAddress);
         vault.updateAssets(toAdd, new address[](0));
     }
@@ -1879,6 +1895,39 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vm.expectRevert(PaymentExceedsRiskCap.selector);
         _send(makeAddr("payee"), address(usdc), 1_001 * 1e6);
+    }
+
+    // The tests above go through batchSend. The scalar send validates separately, so the same policy
+    // has to be proven on that path too — a cap that only binds the array form is not a cap.
+    function test_Risk_scalarSend_RevertsForNonStableCoin() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        _setMaxSendValue(1_000);
+        vm.prank(ownerAddress);
+        vm.expectRevert(PaymentNotStableCoin.selector);
+        vault.send(makeAddr("payee"), address(weth), 1, new address[](0), new uint256[](0));
+    }
+
+    function test_Risk_scalarSend_RevertsOverCap() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        vm.prank(ownerAddress);
+        _setMaxSendValue(1_000);
+        vm.prank(ownerAddress);
+        vm.expectRevert(PaymentExceedsRiskCap.selector);
+        vault.send(makeAddr("payee"), address(usdc), 1_001 * 1e6, new address[](0), new uint256[](0));
+    }
+
+    function test_Risk_scalarSend_SucceedsWithinCap() public {
+        _initializeVault();
+        MockERC20 usdc = _addStableCoin(6);
+        address payee = makeAddr("payee");
+        deal(address(usdc), address(vault), 2_000e6);
+        vm.prank(ownerAddress);
+        _setMaxSendValue(1_000);
+        vm.prank(ownerAddress);
+        vault.send(payee, address(usdc), 900e6, new address[](0), new uint256[](0));
+        assertEq(usdc.balanceOf(payee), 900e6);
     }
 
     function test_Risk_Send_SucceedsWithinCap() public {
@@ -2366,7 +2415,7 @@ contract BittyV1VaultTest is Test {
         address[] memory toAdd = new address[](1);
         toAdd[0] = address(usdc);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        guardAddStableCoins(address(BittyV1Guard(guardAddress)), toAdd);
         vm.prank(ownerAddress);
         vault.updateAssets(toAdd, new address[](0));
 
@@ -2385,7 +2434,7 @@ contract BittyV1VaultTest is Test {
         address[] memory toAdd = new address[](1);
         toAdd[0] = address(usdc);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        guardAddStableCoins(address(BittyV1Guard(guardAddress)), toAdd);
         vm.prank(ownerAddress);
         vault.updateAssets(toAdd, new address[](0));
         address wl = makeAddr("wl");
@@ -2442,17 +2491,14 @@ contract BittyV1VaultTest is Test {
         toAdd[0] = address(usdc);
 
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addStableCoins(toAdd);
-
-        uint256 stableBefore = vault.getStableCoins().length;
-        uint256 assetsBefore = vault.getAssets().length;
+        guardAddStableCoins(address(BittyV1Guard(guardAddress)), toAdd);
 
         vm.prank(ownerAddress);
         vault.updateAssets(toAdd, new address[](0));
 
-        assertEq(vault.getStableCoins().length, stableBefore + 1);
-        assertTrue(_contains(vault.getStableCoins(), address(usdc)));
-        assertEq(vault.getAssets().length, assetsBefore, "a stable coin does not touch the asset list");
+        // Routing is exclusive, so landing in stable coins IS the assertion that it did not land in
+        // assets - which is what the old before/after counts were standing in for.
+        assertTrue(vault.isStableCoinAllowed(address(usdc)), "a stable coin lands in stable coins");
     }
 
     function test_AddAssets_addsRegisteredAssetToAssetsSet() public {
@@ -2462,19 +2508,16 @@ contract BittyV1VaultTest is Test {
         toAdd[0] = address(dai);
 
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addAssets(toAdd);
+        guardAddAssets(address(BittyV1Guard(guardAddress)), toAdd);
 
         // Relative to what activation seeded (WETH plus the guard's stable coins), because the
         // list is no longer empty at birth — an empty list would now permit nothing at all.
-        uint256 assetsBefore = vault.getAssets().length;
-        uint256 stableBefore = vault.getStableCoins().length;
 
         vm.prank(ownerAddress);
         vault.updateAssets(toAdd, new address[](0));
 
-        assertEq(vault.getAssets().length, assetsBefore + 1);
-        assertTrue(_contains(vault.getAssets(), address(dai)));
-        assertEq(vault.getStableCoins().length, stableBefore, "a plain asset does not touch stable coins");
+        assertTrue(vault.isAssetAllowed(address(dai)), "a plain asset is allowed");
+        assertFalse(vault.isStableCoinAllowed(address(dai)), "a plain asset does not touch stable coins");
     }
 
     function test_RemoveAssets_removesStableCoinFromStableCoinsSet() public {
@@ -2484,14 +2527,14 @@ contract BittyV1VaultTest is Test {
         toAdd[0] = address(usdc);
 
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        guardAddStableCoins(address(BittyV1Guard(guardAddress)), toAdd);
         vm.prank(ownerAddress);
         vault.updateAssets(toAdd, new address[](0));
 
         vm.prank(ownerAddress);
         vault.updateAssets(new address[](0), toAdd);
 
-        assertEq(vault.getStableCoins().length, 0);
+        assertFalse(vault.isStableCoinAllowed(address(usdc)), "nothing listed as a stable coin");
     }
 
     function test_RemoveAssets_removesAssetFromAssetsSet() public {
@@ -2501,8 +2544,7 @@ contract BittyV1VaultTest is Test {
         toAdd[0] = address(dai);
 
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addAssets(toAdd);
-        uint256 assetsBefore = vault.getAssets().length;
+        guardAddAssets(address(BittyV1Guard(guardAddress)), toAdd);
 
         vm.prank(ownerAddress);
         vault.updateAssets(toAdd, new address[](0));
@@ -2510,8 +2552,7 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vault.updateAssets(new address[](0), toAdd);
 
-        assertEq(vault.getAssets().length, assetsBefore, "back to what activation seeded");
-        assertFalse(_contains(vault.getAssets(), address(dai)));
+        assertFalse(vault.isAssetAllowed(address(dai)), "back to what activation seeded");
     }
 
     function test_AddAssets_revertsWhenNotRegisteredOnGuard() public {
@@ -2554,42 +2595,42 @@ contract BittyV1VaultTest is Test {
 
     // Whitelisted-recipient send from vault balance (no yield-position sourcing).
     function _sendWl(uint256 id, address asset, uint256 amount) internal {
-        vault.sendToWhitelistedRecipient(id, asset, amount, address(0), 0, address(0), 0);
+        vault.sendToWhitelistedRecipient(id, asset, amount, new address[](0), new uint256[](0));
     }
 
     // Plain vault-balance send (empty position arrays) — most tests don't source from positions.
     function _send(address[] memory recipients, address[] memory assets, uint256[] memory amounts) internal {
-        vault.batchSend(
-            recipients, assets, amounts, new address[](0), new uint256[](0), new address[](0), new uint256[](0)
-        );
+        vault.batchSend(recipients, assets, amounts, new address[](0), new uint256[](0));
     }
 
     /**
      * @dev Registers a staking mock in the guard + vault, funds the vault, and stakes it.
      */
     function _setupStakedReserve(MockERC20 usdc, MockStakingProtocol impl, uint256 stakeAmount) internal {
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_arr(address(impl)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _arr(address(impl)));
+        vm.stopPrank();
         vm.prank(ownerAddress);
         IVaultFull(payable(address(vault))).updateProtocols(_arr(address(impl)), new address[](0));
 
         usdc.mint(address(vault), stakeAmount);
         vm.prank(assetManagerAddress);
-        IVaultFull(payable(address(vault))).stake(address(impl), address(usdc), stakeAmount);
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(usdc), stakeAmount);
     }
 
     /**
      * @dev Registers a lending mock in the guard + vault, funds the vault, and supplies it.
      */
     function _setupSuppliedReserve(MockERC20 usdc, MockLendingProtocol impl, uint256 supplyAmount) internal {
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_arr(address(impl)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _arr(address(impl)));
+        vm.stopPrank();
         vm.prank(ownerAddress);
         IVaultFull(payable(address(vault))).updateProtocols(_arr(address(impl)), new address[](0));
 
         usdc.mint(address(vault), supplyAmount);
         vm.prank(assetManagerAddress);
-        IVaultFull(payable(address(vault))).supply(address(impl), address(usdc), supplyAmount);
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(usdc), supplyAmount);
     }
 
     function test_payScheduledFromStaking_deliversToPayee() public {
@@ -2608,7 +2649,7 @@ contract BittyV1VaultTest is Test {
         // Triggerless → callable by anyone; the payment amount is unstaked from the staked
         // reserve into the vault and then paid out to the payee in the same call.
         vm.prank(makeAddr("caller"));
-        vault.payScheduleds(_oneU(id), _arr(address(impl)), _amounts(payAmount), new address[](0), new uint256[](0));
+        vault.payScheduleds(_oneU(id), _arr(address(impl)), _amounts(payAmount));
 
         assertEq(usdc.balanceOf(payee), payAmount, "payee received the scheduled amount");
         // The pulled funds transit the vault but are fully paid out, so its net balance ends at 0.
@@ -2631,7 +2672,7 @@ contract BittyV1VaultTest is Test {
         // The payment amount is withdrawn from the lending position into the vault and then paid
         // out to the payee in the same call.
         vm.prank(makeAddr("caller"));
-        vault.payScheduleds(_oneU(id), new address[](0), new uint256[](0), _arr(address(impl)), _amounts(payAmount));
+        vault.payScheduleds(_oneU(id), _arr(address(impl)), _amounts(payAmount));
 
         assertEq(usdc.balanceOf(payee), payAmount, "payee received the scheduled amount");
         // The pulled funds transit the vault but are fully paid out, so its net balance ends at 0.
@@ -2648,15 +2689,7 @@ contract BittyV1VaultTest is Test {
 
         uint256 amount = 400e6;
         vm.prank(ownerAddress);
-        vault.batchSend(
-            _arr(payee),
-            _arr(address(usdc)),
-            _amounts(amount),
-            new address[](1),
-            _amounts(0),
-            _arr(address(impl)),
-            _amounts(amount)
-        );
+        vault.batchSend(_arr(payee), _arr(address(usdc)), _amounts(amount), _arr(address(impl)), _amounts(amount));
 
         assertEq(usdc.balanceOf(payee), amount, "payee paid from the lending position");
         assertEq(usdc.balanceOf(address(vault)), 0, "no residual in the vault");
@@ -2672,15 +2705,7 @@ contract BittyV1VaultTest is Test {
 
         uint256 amount = 250e6;
         vm.prank(ownerAddress);
-        vault.batchSend(
-            _arr(payee),
-            _arr(address(usdc)),
-            _amounts(amount),
-            _arr(address(impl)),
-            _amounts(amount),
-            new address[](1),
-            _amounts(0)
-        );
+        vault.batchSend(_arr(payee), _arr(address(usdc)), _amounts(amount), _arr(address(impl)), _amounts(amount));
 
         assertEq(usdc.balanceOf(payee), amount, "payee paid from the staked position");
         assertEq(usdc.balanceOf(address(vault)), 0, "no residual in the vault");
@@ -2695,7 +2720,7 @@ contract BittyV1VaultTest is Test {
             _makeScheduledPayment(payee, address(0), address(usdc), 100e6, 1, block.timestamp, 0, false)
         );
         vm.expectRevert(ArrayLengthMismatch.selector);
-        vault.payScheduleds(_oneU(id), _arr(makeAddr("staking")), new uint256[](0), new address[](0), new uint256[](0));
+        vault.payScheduleds(_oneU(id), _arr(makeAddr("staking")), new uint256[](0));
     }
 
     function test_fallback_delegatesViewCallsToDeFiFacet() public {
@@ -2703,16 +2728,14 @@ contract BittyV1VaultTest is Test {
         MockERC20 usdc = _addStableCoin(6);
         MockLendingProtocol impl = new MockLendingProtocol();
         _setupSuppliedReserve(usdc, impl, 100e6);
-        assertEq(
-            IVaultFull(payable(address(vault))).getSuppliedBalances(_arr(address(impl)), _arr(address(usdc)))[0], 100e6
-        );
+        assertEq(IVaultFull(payable(address(vault))).getBalances(_arr(address(impl)), _arr(address(usdc)))[0], 100e6);
     }
 
     function test_fallback_bubblesRevertFromDeFiFacet() public {
         _initializeVault();
         vm.prank(assetManagerAddress);
-        vm.expectRevert(InvalidLendingProtocol.selector);
-        IVaultFull(payable(address(vault))).supply(makeAddr("unknownLending"), address(weth), 1);
+        vm.expectRevert(InvalidDepositableProtocol.selector);
+        IVaultFull(payable(address(vault))).deposit(makeAddr("unknownLending"), address(weth), 1);
     }
 
     // ─── Owner-as-manager one-tx yield (simple*) ───────────────────────────────
@@ -2722,13 +2745,9 @@ contract BittyV1VaultTest is Test {
         vault.setAssetManager(ownerAddress, 0);
     }
 
-    function _autoYieldRoute(address asset, address protocol, bool isSupplying)
-        internal
-        pure
-        returns (AutoYield[] memory routes)
-    {
+    function _autoYieldRoute(address asset, address protocol) internal pure returns (AutoYield[] memory routes) {
         routes = new AutoYield[](1);
-        routes[0] = AutoYield({asset: asset, protocol: protocol, isSupplying: isSupplying});
+        routes[0] = AutoYield({asset: asset, protocol: protocol});
     }
 
     function test_supply_requiresTheProtocolToBeListed() public {
@@ -2736,30 +2755,29 @@ contract BittyV1VaultTest is Test {
         _grantOwnerAsAssetManager();
         MockERC20 usdc = _addStableCoin(6);
         MockLendingProtocol impl = new MockLendingProtocol();
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_arr(address(impl)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _arr(address(impl)));
+        vm.stopPrank();
 
         uint256 amount = 500e6;
         usdc.mint(address(vault), amount);
-        assertEq(IVaultFull(payable(address(vault))).getProtocols().length, 0);
+        assertEq(vaultProtocols(guardAddress, address(vault)).length, 0);
 
         // Supplying into a protocol this vault has not listed is refused: an empty list permits
         // nothing, and `supply` is an ASSET MANAGER path, so it must not be able to widen the list.
         vm.prank(ownerAddress);
-        vm.expectRevert(InvalidLendingProtocol.selector);
-        IVaultFull(payable(address(vault))).supply(address(impl), address(usdc), amount);
+        vm.expectRevert(InvalidDepositableProtocol.selector);
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(usdc), amount);
 
         // The owner lists it, and only then does the supply go through.
         vm.prank(ownerAddress);
         IVaultFull(payable(address(vault))).updateProtocols(_arr(address(impl)), new address[](0));
 
         vm.prank(ownerAddress);
-        IVaultFull(payable(address(vault))).supply(address(impl), address(usdc), amount);
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(usdc), amount);
 
-        assertEq(IVaultFull(payable(address(vault))).getProtocols().length, 1, "listed, and only that");
-        assertEq(
-            IVaultFull(payable(address(vault))).getSuppliedBalances(_arr(address(impl)), _arr(address(usdc)))[0], amount
-        );
+        assertEq(vaultProtocols(guardAddress, address(vault)).length, 1, "listed, and only that");
+        assertEq(IVaultFull(payable(address(vault))).getBalances(_arr(address(impl)), _arr(address(usdc)))[0], amount);
     }
 
     function test_stake_requiresTheProtocolToBeListed() public {
@@ -2767,21 +2785,22 @@ contract BittyV1VaultTest is Test {
         _grantOwnerAsAssetManager();
         MockERC20 usdc = _addStableCoin(6);
         MockStakingProtocol impl = new MockStakingProtocol();
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_arr(address(impl)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _arr(address(impl)));
+        vm.stopPrank();
 
         uint256 amount = 300e6;
         usdc.mint(address(vault), amount);
-        assertEq(IVaultFull(payable(address(vault))).getProtocols().length, 0);
+        assertEq(vaultProtocols(guardAddress, address(vault)).length, 0);
 
         vm.prank(ownerAddress);
         IVaultFull(payable(address(vault))).updateProtocols(_arr(address(impl)), new address[](0));
 
         vm.prank(ownerAddress);
-        IVaultFull(payable(address(vault))).stake(address(impl), address(usdc), amount);
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(usdc), amount);
 
-        assertEq(IVaultFull(payable(address(vault))).getProtocols().length, 1, "listed, and only that");
-        assertGt(IVaultFull(payable(address(vault))).getStakedBalances(_arr(address(impl)), _arr(address(usdc)))[0], 0);
+        assertEq(vaultProtocols(guardAddress, address(vault)).length, 1, "listed, and only that");
+        assertGt(IVaultFull(payable(address(vault))).getBalances(_arr(address(impl)), _arr(address(usdc)))[0], 0);
     }
 
     function test_clearRouteThenWithdraw() public {
@@ -2789,8 +2808,9 @@ contract BittyV1VaultTest is Test {
         _grantOwnerAsAssetManager();
         MockERC20 usdc = _addStableCoin(6);
         MockLendingProtocol impl = new MockLendingProtocol();
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_arr(address(impl)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _arr(address(impl)));
+        vm.stopPrank();
         // The vault must LIST the protocol before it may be used — an empty list permits nothing.
         vm.prank(ownerAddress);
         IVaultFull(payable(address(vault))).updateProtocols(_arr(address(impl)), new address[](0));
@@ -2798,14 +2818,14 @@ contract BittyV1VaultTest is Test {
         uint256 amount = 1_000e6;
         usdc.mint(address(vault), amount);
         vm.startPrank(ownerAddress);
-        IVaultFull(payable(address(vault))).supply(address(impl), address(usdc), amount);
-        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(impl), true));
-        (address[] memory routed,) = vault.getAutoYieldings(_arr(address(usdc)));
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(usdc), amount);
+        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(impl)));
+        address[] memory routed = vault.getAutoYieldings(_arr(address(usdc)));
         assertEq(routed[0], address(impl));
 
-        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(0), false));
+        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(0)));
         IVaultFull(payable(address(vault))).withdraw(address(impl), address(usdc), 400e6);
-        (routed,) = vault.getAutoYieldings(_arr(address(usdc)));
+        routed = vault.getAutoYieldings(_arr(address(usdc)));
         assertEq(routed[0], address(0));
         vm.stopPrank();
 
@@ -2817,8 +2837,9 @@ contract BittyV1VaultTest is Test {
         _grantOwnerAsAssetManager();
         MockERC20 usdc = _addStableCoin(6);
         MockStakingProtocol impl = new MockStakingProtocol();
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_arr(address(impl)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _arr(address(impl)));
+        vm.stopPrank();
         // The vault must LIST the protocol before it may be used — an empty list permits nothing.
         vm.prank(ownerAddress);
         IVaultFull(payable(address(vault))).updateProtocols(_arr(address(impl)), new address[](0));
@@ -2826,14 +2847,14 @@ contract BittyV1VaultTest is Test {
         uint256 amount = 800e6;
         usdc.mint(address(vault), amount);
         vm.startPrank(ownerAddress);
-        IVaultFull(payable(address(vault))).stake(address(impl), address(usdc), amount);
-        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(impl), false));
-        (address[] memory routed,) = vault.getAutoYieldings(_arr(address(usdc)));
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(usdc), amount);
+        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(impl)));
+        address[] memory routed = vault.getAutoYieldings(_arr(address(usdc)));
         assertEq(routed[0], address(impl));
 
-        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(0), false));
-        IVaultFull(payable(address(vault))).unstake(address(impl), address(usdc), 250e6);
-        (routed,) = vault.getAutoYieldings(_arr(address(usdc)));
+        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(0)));
+        IVaultFull(payable(address(vault))).withdraw(address(impl), address(usdc), 250e6);
+        routed = vault.getAutoYieldings(_arr(address(usdc)));
         assertEq(routed[0], address(0));
         vm.stopPrank();
 
@@ -2844,12 +2865,13 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         MockERC20 usdc = _addStableCoin(6);
         MockLendingProtocol impl = new MockLendingProtocol();
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_arr(address(impl)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _arr(address(impl)));
+        vm.stopPrank();
         usdc.mint(address(vault), 100e6);
         vm.prank(ownerAddress);
         vm.expectRevert(NotAssetManager.selector);
-        IVaultFull(payable(address(vault))).supply(address(impl), address(usdc), 100e6);
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(usdc), 100e6);
     }
 
     function test_supply_repeatsOnceListed() public {
@@ -2857,22 +2879,21 @@ contract BittyV1VaultTest is Test {
         _grantOwnerAsAssetManager();
         MockERC20 usdc = _addStableCoin(6);
         MockLendingProtocol impl = new MockLendingProtocol();
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_arr(address(impl)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _arr(address(impl)));
+        vm.stopPrank();
         // The vault must LIST the protocol before it may be used — an empty list permits nothing.
         vm.prank(ownerAddress);
         IVaultFull(payable(address(vault))).updateProtocols(_arr(address(impl)), new address[](0));
 
         usdc.mint(address(vault), 700e6);
         vm.startPrank(ownerAddress);
-        IVaultFull(payable(address(vault))).supply(address(impl), address(usdc), 500e6);
-        assertEq(IVaultFull(payable(address(vault))).getProtocols().length, 1, "listing once is enough for repeats");
-        IVaultFull(payable(address(vault))).supply(address(impl), address(usdc), 200e6);
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(usdc), 500e6);
+        assertEq(vaultProtocols(guardAddress, address(vault)).length, 1, "listing once is enough for repeats");
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(usdc), 200e6);
         vm.stopPrank();
 
-        assertEq(
-            IVaultFull(payable(address(vault))).getSuppliedBalances(_arr(address(impl)), _arr(address(usdc)))[0], 700e6
-        );
+        assertEq(IVaultFull(payable(address(vault))).getBalances(_arr(address(impl)), _arr(address(usdc)))[0], 700e6);
     }
 
     function test_withdrawLeavesTheRouteAlone() public {
@@ -2880,18 +2901,19 @@ contract BittyV1VaultTest is Test {
         _grantOwnerAsAssetManager();
         MockERC20 usdc = _addStableCoin(6);
         MockLendingProtocol impl = new MockLendingProtocol();
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_arr(address(impl)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _arr(address(impl)));
+        vm.stopPrank();
         // The vault must LIST the protocol before it may be used — an empty list permits nothing.
         vm.prank(ownerAddress);
         IVaultFull(payable(address(vault))).updateProtocols(_arr(address(impl)), new address[](0));
 
         usdc.mint(address(vault), 1_000e6);
         vm.startPrank(ownerAddress);
-        IVaultFull(payable(address(vault))).supply(address(impl), address(usdc), 1_000e6);
-        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(impl), true));
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(usdc), 1_000e6);
+        vault.setAutoYieldings(_autoYieldRoute(address(usdc), address(impl)));
         IVaultFull(payable(address(vault))).withdraw(address(impl), address(usdc), 200e6);
-        (address[] memory routed,) = vault.getAutoYieldings(_arr(address(usdc)));
+        address[] memory routed = vault.getAutoYieldings(_arr(address(usdc)));
         assertEq(routed[0], address(impl));
         vm.stopPrank();
     }
@@ -2912,17 +2934,16 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         MockERC20 usdc = _addStableCoin(6);
         MockLendingProtocol impl = new MockLendingProtocol();
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_arr(address(impl)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _arr(address(impl)));
+        vm.stopPrank();
         vm.prank(ownerAddress);
         IVaultFull(payable(address(vault))).updateProtocols(_arr(address(impl)), new address[](0));
 
         usdc.mint(address(vault), 50e6);
         vm.prank(assetManagerAddress);
-        IVaultFull(payable(address(vault))).supply(address(impl), address(usdc), 50e6);
-        assertEq(
-            IVaultFull(payable(address(vault))).getSuppliedBalances(_arr(address(impl)), _arr(address(usdc)))[0], 50e6
-        );
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(usdc), 50e6);
+        assertEq(IVaultFull(payable(address(vault))).getBalances(_arr(address(impl)), _arr(address(usdc)))[0], 50e6);
     }
 
     // ─── Unlimited scheduled payment ───────────────────────────────────────────
@@ -3032,8 +3053,8 @@ contract BittyV1VaultTest is Test {
         amounts[0] = 1 ether;
         amounts[1] = 5_000e6;
 
-        vault.sendToWhitelistedRecipient(ids[0], assets[0], amounts[0], address(0), 0, address(0), 0);
-        vault.sendToWhitelistedRecipient(ids[1], assets[1], amounts[1], address(0), 0, address(0), 0);
+        vault.sendToWhitelistedRecipient(ids[0], assets[0], amounts[0], new address[](0), new uint256[](0));
+        vault.sendToWhitelistedRecipient(ids[1], assets[1], amounts[1], new address[](0), new uint256[](0));
         vm.stopPrank();
 
         assertEq(weth.balanceOf(a), 1 ether);
@@ -3052,7 +3073,7 @@ contract BittyV1VaultTest is Test {
 
         uint256 amount = 400e6;
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(wId, address(usdc), amount, address(0), 0, address(impl), amount);
+        vault.sendToWhitelistedRecipient(wId, address(usdc), amount, _oneAddr(address(impl)), _oneU(amount));
 
         assertEq(usdc.balanceOf(to), amount, "recipient paid from the lending position");
         assertEq(usdc.balanceOf(address(vault)), 0, "no residual in the vault");
@@ -3070,7 +3091,7 @@ contract BittyV1VaultTest is Test {
 
         uint256 amount = 250e6;
         vm.prank(ownerAddress);
-        vault.sendToWhitelistedRecipient(wId, address(usdc), amount, address(impl), amount, address(0), 0);
+        vault.sendToWhitelistedRecipient(wId, address(usdc), amount, _oneAddr(address(impl)), _oneU(amount));
 
         assertEq(usdc.balanceOf(to), amount, "recipient paid from the staked position");
         assertEq(usdc.balanceOf(address(vault)), 0, "no residual in the vault");
@@ -3305,7 +3326,7 @@ contract BittyV1VaultTest is Test {
 
     // Plain vault-balance payScheduled (no yield-position sourcing).
     function _payScheduled(uint256[] memory ids) internal {
-        vault.payScheduleds(ids, new address[](0), new uint256[](0), new address[](0), new uint256[](0));
+        vault.payScheduleds(ids, new address[](0), new uint256[](0));
     }
 
     function _oneB(bytes32 v) internal pure returns (bytes32[] memory arr) {
@@ -3419,6 +3440,20 @@ contract BittyV1VaultTest is Test {
         // ids is empty when a vm.expectRevert swallows the call; guard so those sites don't OOB-panic.
         uint256[] memory ids = _oneU(vault.addWhitelistedRecipient(recipient, allowedAsset));
         return ids.length == 0 ? 0 : ids[0];
+    }
+
+    function test_updateWhitelistedRecipients_revertsOnMismatchedArrays() public {
+        _initializeVault();
+        address payee = makeAddr("payee");
+        vm.startPrank(ownerAddress);
+        uint256 id = _addWhitelistedRecipient(payee, address(weth));
+
+        vm.expectRevert(ArrayLengthMismatch.selector);
+        vault.updateWhitelistedRecipients(_oneU(id), new address[](0), _oneAddr(address(weth)));
+
+        vm.expectRevert(ArrayLengthMismatch.selector);
+        vault.updateWhitelistedRecipients(_oneU(id), _oneAddr(payee), new address[](0));
+        vm.stopPrank();
     }
 
     function _updateWhitelistedRecipient(uint256 id, address recipient, address allowedAsset) internal {
@@ -4026,18 +4061,42 @@ contract BittyV1VaultTest is Test {
         vault.retrieve721(address(nft), 1, address(0));
     }
 
+    /**
+     * Removing a protocol does not remove the position it holds, so its NFT must stay unretrievable
+     * afterwards — otherwise the owner could unregister a protocol and walk the LP position out.
+     *
+     * Recognised from the guard's protocol list, so registration there is enough and the vault keeps
+     * no list of its own — the check is rare and a per-vault set would cost more in aggregate than
+     * one list in the guard.
+     */
     function test_Retrieve721_blocksProtocolPositionNFT_evenAfterProtocolRemoval() public {
         MockERC721 positionNft = new MockERC721("UniV3 Positions", "UNI-V3-POS");
         MockAMMWithPositionNFT amm = new MockAMMWithPositionNFT(address(positionNft));
         address[] memory amms = new address[](1);
         amms[0] = address(amm);
+        MockERC20 t0 = new MockERC20("Token0", "T0", 18);
+        MockERC20 t1 = new MockERC20("Token1", "T1", 18);
+        address[] memory assets = new address[](2);
+        assets[0] = address(t0);
+        assets[1] = address(t1);
 
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(amms);
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), amms);
+        guardAddAssets(address(BittyV1Guard(guardAddress)), assets);
+        vm.stopPrank();
 
         vault.initialize(ownerAddress, address(weth), address(0), 0);
-        positionNft.mint(address(vault), 42);
+        vm.startPrank(ownerAddress);
+        vault.updateAssets(assets, new address[](0));
+        vault.updateProtocols(amms, new address[](0));
+        vm.stopPrank();
+        _grantAssetManager(assetManagerAddress);
 
+        // Opening the position is what clones the protocol, and the clone is what outlives removal.
+        vm.prank(assetManagerAddress);
+        IVaultFull(payable(address(vault))).addLiquidity(address(amm), address(t0), 0, address(t1), 0, "");
+
+        positionNft.mint(address(vault), 42);
         vm.prank(ownerAddress);
         vm.expectRevert(ProtocolNFT.selector);
         vault.retrieve721(address(positionNft), 42, ownerAddress);
@@ -4062,8 +4121,8 @@ contract BittyV1VaultTest is Test {
         assets[0] = address(t0);
         assets[1] = address(t1);
         vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(amms);
-        BittyV1Guard(guardAddress).addAssets(assets);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), amms);
+        guardAddAssets(address(BittyV1Guard(guardAddress)), assets);
         vm.stopPrank();
 
         vault.initialize(ownerAddress, address(weth), address(0), 0);

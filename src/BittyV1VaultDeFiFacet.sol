@@ -8,15 +8,15 @@ import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1
 import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
 import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
-import {BITTY_GUARD, INTENT_INTERFACE_ID} from "./logic/Constants.sol";
+import {BITTY_GUARD, INTENT_CATEGORY} from "./logic/Constants.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
 contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
+    /// @dev ERC-1271 "signature is valid".
+    bytes4 internal constant ERC1271_MAGIC_VALUE = 0x1626ba7e;
+
     using AssetManagerLogic for AssetManagerStorage;
     using VaultLogic for VaultStorage;
-    using EnumerableSet for EnumerableSet.AddressSet;
-
     modifier onlyAssetManager() {
         _checkAssetManager();
         _;
@@ -76,61 +76,45 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         return _assetManager.getClone(intentProtocol);
     }
 
-    function supply(address lendingProtocol, address assetAddress, uint256 amount) external override onlyAssetManager {
-        _assetManager.supply(lendingProtocol, assetAddress, amount);
+    function deposit(address depositProtocol, address assetAddress, uint256 amount) external override onlyAssetManager {
+        _assetManager.deposit(depositProtocol, assetAddress, amount);
     }
 
-    function withdraw(address lendingProtocol, address assetAddress, uint256 amount)
+    function withdraw(address withdrawProtocol, address assetAddress, uint256 amount)
         external
         override
         onlyAssetManager
     {
-        _assetManager.withdraw(lendingProtocol, assetAddress, amount, address(this));
+        _assetManager.withdraw(withdrawProtocol, assetAddress, amount, address(this));
     }
 
-    function getSuppliedBalances(address[] calldata lendingProtocols, address[] calldata assetAddresses)
+    function getBalances(address[] calldata withdrawProtocols, address[] calldata assetAddresses)
         external
         view
         returns (uint256[] memory balances)
     {
-        return _assetManager.getSuppliedBalances(lendingProtocols, assetAddresses);
+        return _assetManager.getBalances(withdrawProtocols, assetAddresses);
     }
 
-    function stake(address stakingProtocol, address asset, uint256 amount) external override onlyAssetManager {
-        _assetManager.stake(stakingProtocol, asset, amount);
+    function getPendingWithdrawalIds(address withdrawProtocol) external view returns (uint256[] memory) {
+        return _assetManager.getPendingWithdrawalIds(withdrawProtocol);
     }
 
-    function unstake(address stakingProtocol, address asset, uint256 amount) external override onlyAssetManager {
-        _assetManager.unstake(stakingProtocol, asset, amount, address(this));
+    function claimWithdrawal(address withdrawProtocol, uint256 id) external onlyAssetManager {
+        _assetManager.claimWithdrawalOne(withdrawProtocol, id);
     }
 
-    function getStakedBalances(address[] calldata stakingProtocols, address[] calldata assets)
-        external
-        view
-        returns (uint256[] memory balances)
-    {
-        return _assetManager.getStakedBalances(stakingProtocols, assets);
-    }
-
-    function getUnstakeRequestIds(address stakingProtocol) external view returns (uint256[] memory) {
-        return _assetManager.getUnstakeRequestIds(stakingProtocol);
-    }
-
-    function claimUnstaked(address stakingProtocol, uint256 requestId) external onlyAssetManager {
-        _assetManager.claimUnstakedOne(stakingProtocol, requestId);
-    }
-
-    function claimUnstakeds(address stakingProtocol, uint256[] memory requestIds) external override onlyAssetManager {
-        _assetManager.claimUnstaked(stakingProtocol, requestIds);
+    function claimWithdrawals(address withdrawProtocol, uint256[] memory ids) external override onlyAssetManager {
+        _assetManager.claimWithdrawals(withdrawProtocol, ids);
     }
 
     function disableTradeUntilTimestamp(uint256 timestamp) external override onlyAssetManager {
         _assetManager.disableTradeUntilTimestamp(timestamp);
-        emit RebalanceDisabledUntil(timestamp);
+        emit TradingDisabledUntil(timestamp);
     }
 
-    function getProtocols() external view returns (address[] memory) {
-        return _assetManager.getProtocols();
+    function isProtocolAllowed(address protocol) external view returns (bool) {
+        return _assetManager.protocols[protocol];
     }
 
     function guard() external pure returns (IBittyV1Guard) {
@@ -138,13 +122,23 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
     }
 
     function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4) {
-        address[] memory protocols = _assetManager.getProtocols();
+        bytes4 result = _validateThrough(IBittyV1Guard(BITTY_GUARD).getProtocols(), hash, signature);
+        if (result == ERC1271_MAGIC_VALUE) return result;
+        return _validateThrough(IBittyV1Guard(BITTY_GUARD).getDeprecatedProtocols(), hash, signature);
+    }
+
+    function _validateThrough(address[] memory protocols, bytes32 hash, bytes memory signature)
+        private
+        view
+        returns (bytes4)
+    {
         for (uint256 i = 0; i < protocols.length; i++) {
-            if (IBittyV1Guard(BITTY_GUARD).protocolCategory(protocols[i]) != INTENT_INTERFACE_ID) continue;
+            if (!_assetManager.protocols[protocols[i]]) continue;
+            if (IBittyV1Guard(BITTY_GUARD).protocolCategory(protocols[i]) != INTENT_CATEGORY) continue;
             address clone = _assetManager.clonedProtocols[protocols[i]];
             if (clone == address(0)) continue;
             try IBittyV1IntentProtocol(clone).isValidSignature(hash, signature) returns (bytes4 result) {
-                if (result == 0x1626ba7e) return result;
+                if (result == ERC1271_MAGIC_VALUE) return result;
             } catch {}
         }
         return 0xffffffff;

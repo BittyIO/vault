@@ -17,8 +17,15 @@ jobs:
         with:
           submodules: recursive
 
+      # Pinned, not "stable". Foundry v1.8.0 (2026-08-27) added network-family detection for the
+      # Monad/Tempo work, and it probes the fork endpoint with anvil_nodeInfo. Alchemy answers that
+      # with HTTP 400 rather than a 200 carrying a JSON-RPC error, which forge treats as fatal — so
+      # every vm.createSelectFork test failed the day that release landed, with no change on our side.
+      # Raise this deliberately once a release is confirmed to fork against Alchemy.
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.5.1
 
       - name: Install forge-std
         run: forge install foundry-rs/forge-std

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "./GuardRegister.sol";
 import {GUARD_DEPLOYER} from "./GuardDeployer.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.sol";
@@ -54,9 +55,9 @@ abstract contract ProtocolTestSetup is Test {
         // Registering a protocol is a guard-admin write, and the guard's admin is its hardcoded
         // deployer — not tx.origin, which only holds the manager roles that admin granted onward.
         vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        guard.addProtocols(_single(address(aaveProtocol)));
-        guard.addProtocols(_single(address(lidoProtocol)));
-        guard.addProtocols(_single(address(uniswapV3Protocol)));
+        guardAddProtocols(address(guard), _single(address(aaveProtocol)));
+        guardAddProtocols(address(guard), _single(address(lidoProtocol)));
+        guardAddProtocols(address(guard), _single(address(uniswapV3Protocol)));
         vm.stopPrank();
     }
 

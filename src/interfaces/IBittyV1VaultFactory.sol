@@ -30,16 +30,11 @@ interface IBittyV1VaultFactory {
      *
      * @dev The only path by which an owner holding no ETH can obtain a vault.
      * @param owner The address of the owner.
-     * @param stableCoinAddress The address of the stable coin.
-     * @param feeAmount The amount of stable coin to pay for the activation.
+     * @param asset The address of the assset.
+     * @param amount The amount of asset to pay for the activation.
      * @param signature The signature of the owner.
      */
-    function activateVaultByStablecoin(
-        address owner,
-        address stableCoinAddress,
-        uint256 feeAmount,
-        bytes calldata signature
-    ) external;
+    function activateVaultByAsset(address owner, address asset, uint256 amount, bytes calldata signature) external;
 
     /**
      * @notice Get the vault address for a given owner.

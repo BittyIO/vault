@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
+import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "../helpers/GuardRegister.sol";
 import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
 import {console2} from "forge-std/console2.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
@@ -70,10 +71,9 @@ contract ScalingTest is Test {
         lending = new MockLendingProtocol();
 
         vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        guard.grantRole(guard.STABLE_COIN_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.LENDING_MANAGER_ROLE(), tx.origin);
-        guard.addStableCoins(_two(address(usdc), address(usdt)));
-        guard.addProtocols(_one(address(lending)));
+        guard.grantRole(guard.PROTOCOL_MANAGER_ROLE(), tx.origin);
+        guardAddStableCoins(address(guard), _two(address(usdc), address(usdt)));
+        guardAddProtocols(address(guard), _one(address(lending)));
         vm.stopPrank();
 
         deployCodeTo("BittyV1VaultForwarder.sol:BittyV1VaultForwarder", BITTY_FORWARDER);
@@ -107,7 +107,7 @@ contract ScalingTest is Test {
             // Funds the relayer fee. USDT has no route, so the sweep leaves it alone.
             usdt.mint(address(v), FEE_FUNDING);
             vm.startPrank(o);
-            v.setAutoYielding(AutoYield({asset: address(usdc), protocol: address(lending), isSupplying: true}));
+            v.setAutoYielding(AutoYield({asset: address(usdc), protocol: address(lending)}));
             vm.stopPrank();
         }
     }
@@ -177,8 +177,8 @@ contract ScalingTest is Test {
         address[] memory p = _one(address(lending));
         address[] memory a = _one(address(usdc));
         (bool ok, bytes memory ret) =
-            address(v).staticcall(abi.encodeWithSignature("getSuppliedBalances(address[],address[])", p, a));
-        require(ok, "getSuppliedBalances failed");
+            address(v).staticcall(abi.encodeWithSignature("getBalances(address[],address[])", p, a));
+        require(ok, "getBalances failed");
         uint256[] memory balances = abi.decode(ret, (uint256[]));
         return balances[0];
     }
@@ -339,7 +339,7 @@ contract ScalingTest is Test {
         BittyV1Vault v = BittyV1Vault(payable(factory.vaultAddress(o)));
         usdc.mint(address(v), 1_000_000000);
         vm.prank(o);
-        v.setAutoYielding(AutoYield({asset: address(usdc), protocol: address(lending), isSupplying: true}));
+        v.setAutoYielding(AutoYield({asset: address(usdc), protocol: address(lending)}));
 
         vaults.push(v);
         ERC2771Forwarder.ForwardRequestData memory r = _sweepRequest(vaults.length - 1);

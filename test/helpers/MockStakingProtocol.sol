@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {IBittyV1StakingProtocol} from "protocol-contracts/src/interfaces/IBittyV1StakingProtocol.sol";
+import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
+import {IBittyV1Depositable} from "protocol-contracts/src/interfaces/IBittyV1Depositable.sol";
+import {IBittyV1Withdrawable} from "protocol-contracts/src/interfaces/IBittyV1Withdrawable.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
@@ -12,7 +14,7 @@ import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initia
  * asset 1:1 and records the recipient of the last on-behalf unstake so tests can assert
  * funds are delivered only to the configured scheduledPayment.
  */
-contract MockStakingProtocol is IBittyV1StakingProtocol, Ownable, Initializable {
+contract MockStakingProtocol is IBittyV1Protocol, IBittyV1Depositable, IBittyV1Withdrawable, Ownable, Initializable {
     using SafeERC20 for IERC20;
 
     address public lastUnstakeRecipient;
@@ -32,15 +34,15 @@ contract MockStakingProtocol is IBittyV1StakingProtocol, Ownable, Initializable 
         return "1.0.0";
     }
 
-    function stake(address asset, uint256 amount) external payable override onlyOwner {
+    function deposit(address asset, uint256 amount) external override onlyOwner {
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    function getStakedBalance(address asset) external view override returns (uint256) {
+    function getBalance(address asset) external view override returns (uint256) {
         return IERC20(asset).balanceOf(address(this));
     }
 
-    function unstake(address asset, uint256 amount, address recipient) external override onlyOwner returns (uint256) {
+    function withdraw(address asset, uint256 amount, address recipient) external override onlyOwner returns (uint256) {
         return _unstake(asset, amount, recipient);
     }
 
@@ -54,11 +56,11 @@ contract MockStakingProtocol is IBittyV1StakingProtocol, Ownable, Initializable 
         return amount;
     }
 
-    function getUnstakeRequestIds() external pure override returns (uint256[] memory) {
+    function getPendingWithdrawalIds() external pure override returns (uint256[] memory) {
         return new uint256[](0);
     }
 
-    function claimUnstaked(uint256[] memory) external override onlyOwner {}
+    function claimWithdrawals(uint256[] memory) external override onlyOwner {}
 
     /**
      * @dev No separate receipt token — tells the vault's approval helper there is nothing to approve.
@@ -67,8 +69,13 @@ contract MockStakingProtocol is IBittyV1StakingProtocol, Ownable, Initializable 
         return address(0);
     }
 
-    /// @dev Declares its category so the guard will register it; `virtual` so subclasses can differ.
+    /**
+     * @dev Answers the id the guard used to probe for, purely so {detectCategory} files this mock
+     *      under the staking category. Nothing in the vault reads that category any more - it is a
+     *      label for whoever reads the guard - and the mock is otherwise a plain depositable.
+     *      `virtual` so subclasses can differ.
+     */
     function supportsInterface(bytes4 interfaceId) public pure virtual returns (bool) {
-        return interfaceId == type(IBittyV1StakingProtocol).interfaceId || interfaceId == 0x01ffc9a7;
+        return interfaceId == 0xc8ada217 || interfaceId == 0x01ffc9a7;
     }
 }

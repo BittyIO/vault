@@ -11,10 +11,12 @@ import {
     AddingProtocolsDisabled
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
+import {vaultProtocols} from "../helpers/VaultSets.sol";
+import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "../helpers/GuardRegister.sol";
 import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
 import {
-    InvalidLendingProtocol,
-    InvalidStakingProtocol,
+    InvalidDepositableProtocol,
+    InvalidWithdrawableProtocol,
     InvalidAMMProtocol,
     InvalidIntentProtocol,
     NotAssetManager,
@@ -23,9 +25,8 @@ import {
     disableTradeUntilTimestampTooEarly,
     disableTradeUntilTimestampTooLong
 } from "../../src/interfaces/IBittyV1AssetManager.sol";
-import {Deprecated, NotRegistered} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {IBittyV1LendingProtocol} from "protocol-contracts/src/interfaces/IBittyV1LendingProtocol.sol";
-import {IBittyV1StakingProtocol} from "protocol-contracts/src/interfaces/IBittyV1StakingProtocol.sol";
+import {Deprecated, NotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
+import {IBittyV1Withdrawable} from "protocol-contracts/src/interfaces/IBittyV1Withdrawable.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -73,12 +74,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
         guard.grantRole(guard.ASSET_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.STABLE_COIN_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.LENDING_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.STAKING_MANAGER_ROLE(), tx.origin);
-        guard.grantRole(guard.AMM_MANAGER_ROLE(), tx.origin);
-        guard.addAssets(_two(mainnet.WETH, WBTC));
-        guard.addStableCoins(_two(mainnet.USDT, mainnet.USDC));
+        guard.grantRole(guard.PROTOCOL_MANAGER_ROLE(), tx.origin);
+        guardAddAssets(address(guard), _two(mainnet.WETH, WBTC));
+        guardAddStableCoins(address(guard), _two(mainnet.USDT, mainnet.USDC));
         vm.stopPrank();
 
         setupMainnetForkProtocols(guard);
@@ -126,7 +124,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
     function _initializeWithMockAMM(MockAMMProtocol mockAmm) internal {
         vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_single(address(mockAmm)));
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _single(address(mockAmm)));
         vm.stopPrank();
 
         this.initialize(ownerAddress, mainnet.WETH, address(0), 0);
@@ -189,8 +187,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
     function test_DisableAddingProtocols_BlocksAllProtocolTypesIncludingIntent() public {
         address intentProto = address(new MockCategoryProtocol(0x1626ba7e));
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_single(intentProto));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _single(intentProto));
+        vm.stopPrank();
 
         this.doInitialize();
 
@@ -215,8 +214,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
     function test_DisableAddingProtocols_BlocksIntentEvenForRegisteredProtocol() public {
         address intentProto = address(new MockCategoryProtocol(0x1626ba7e));
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_single(intentProto));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _single(intentProto));
+        vm.stopPrank();
 
         this.doInitialize();
 
@@ -248,28 +248,27 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         arr[0] = b;
     }
 
-    function _getAutoYieldingOne(address asset) internal returns (address protocol, bool isSupplying) {
-        (address[] memory protocols, bool[] memory isSupplyings) = this.getAutoYieldings(_one(asset));
-        return (protocols[0], isSupplyings[0]);
+    function _getAutoYieldingOne(address asset) internal returns (address protocol) {
+        return this.getAutoYieldings(_one(asset))[0];
     }
 
-    function _route(address asset, address protocol, bool isSupplying) private pure returns (AutoYield[] memory arr) {
+    function _route(address asset, address protocol) private pure returns (AutoYield[] memory arr) {
         arr = new AutoYield[](1);
-        arr[0] = AutoYield({asset: asset, protocol: protocol, isSupplying: isSupplying});
+        arr[0] = AutoYield({asset: asset, protocol: protocol});
     }
 
     function test_SupplyRevertAddressZero() public {
         this.doInitialize();
         vm.expectRevert(AddressZero.selector);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), address(0), 1 ether);
+        this.deposit(address(aaveProtocol), address(0), 1 ether);
     }
 
     function test_SupplyRevertAmountIsZero() public {
         this.doInitialize();
         vm.expectRevert(AmountIsZero.selector);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), address(mainnet.WETH), 0);
+        this.deposit(address(aaveProtocol), address(mainnet.WETH), 0);
     }
 
     function test_WithdrawRevertAmountIsZero() public {
@@ -307,12 +306,12 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)) - wethBefore, amount);
     }
 
-    function test_SupplyRevertInvalidLendingProtocol() public {
+    function test_SupplyRevertInvalidDepositableProtocol() public {
         this.doInitialize();
         address invalidLendingProtocol = address(new AaveV3Protocol(mainnet.AAVE_V3, mainnet.POOL_DATA_PROVIDER));
-        vm.expectRevert(InvalidLendingProtocol.selector);
+        vm.expectRevert(InvalidDepositableProtocol.selector);
         vm.prank(assetManagerAddress);
-        this.supply(invalidLendingProtocol, address(mainnet.WETH), 1 ether);
+        this.deposit(invalidLendingProtocol, address(mainnet.WETH), 1 ether);
     }
 
     function test_SupplySuccess() public {
@@ -321,12 +320,12 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 supplyAmount = 1 ether;
         deal(mainnet.WETH, address(this), supplyAmount);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
+        this.deposit(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
         address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
         require(clonedProtocol != address(0), "Provider should be cloned");
 
-        uint256 balanceAfter = IBittyV1LendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH);
+        uint256 balanceAfter = IBittyV1Withdrawable(clonedProtocol).getBalance(mainnet.WETH);
         assertApproxEqAbs(balanceAfter, supplyAmount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
@@ -339,7 +338,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         deal(mainnet.WETH, address(this), supplyAmount);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
+        this.deposit(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
         address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
         uint256 balanceBefore = IERC20(mainnet.WETH).balanceOf(address(this));
@@ -350,7 +349,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 balanceAfter = IERC20(mainnet.WETH).balanceOf(address(this));
         assertApproxEqAbs(balanceAfter - balanceBefore, withdrawAmount, 5);
 
-        uint256 remaining = IBittyV1LendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH);
+        uint256 remaining = IBittyV1Withdrawable(clonedProtocol).getBalance(mainnet.WETH);
         assertApproxEqAbs(remaining, supplyAmount - withdrawAmount, 10);
     }
 
@@ -358,9 +357,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
 
         address invalidLendingProtocol = makeAddr("InvalidLendingProtocol");
-        vm.expectRevert(InvalidLendingProtocol.selector);
+        vm.expectRevert(InvalidDepositableProtocol.selector);
         vm.prank(assetManagerAddress);
-        this.supply(invalidLendingProtocol, address(mainnet.WETH), 1 ether);
+        this.deposit(invalidLendingProtocol, address(mainnet.WETH), 1 ether);
     }
 
     function test_SupplyFromDeprecatedLendingProvider() public {
@@ -369,17 +368,17 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         BittyV1Guard(guardAddress).deprecateProtocols(lendingProtocols);
         vm.expectRevert(Deprecated.selector);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), address(mainnet.WETH), 1 ether);
+        this.deposit(address(aaveProtocol), address(mainnet.WETH), 1 ether);
     }
 
     function test_WithdrawMoneySuccessFromDeprecateLendingProvider() public {
         this.doInitialize();
         deal(address(mainnet.WETH), address(this), 1 ether);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), address(mainnet.WETH), 1 ether);
+        this.deposit(address(aaveProtocol), address(mainnet.WETH), 1 ether);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
         BittyV1Guard(guardAddress).deprecateProtocols(lendingProtocols);
-        uint256 supplied = this.getSuppliedBalances(_one(address(aaveProtocol)), _one(address(mainnet.WETH)))[0];
+        uint256 supplied = this.getBalances(_one(address(aaveProtocol)), _one(address(mainnet.WETH)))[0];
         vm.prank(assetManagerAddress);
         this.withdraw(address(aaveProtocol), address(mainnet.WETH), supplied);
     }
@@ -389,7 +388,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 amount = 1 ether;
         deal(mainnet.WETH, address(this), amount);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), mainnet.WETH, amount);
+        this.deposit(address(aaveProtocol), mainnet.WETH, amount);
 
         vm.prank(ownerAddress);
         this.updateProtocols(new address[](0), _single(address(aaveProtocol)));
@@ -404,29 +403,29 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         uint256 depositAmount = 5 ether;
 
-        uint256 balance = this.getSuppliedBalances(_one(address(aaveProtocol)), _one(address(mainnet.WETH)))[0];
+        uint256 balance = this.getBalances(_one(address(aaveProtocol)), _one(address(mainnet.WETH)))[0];
         assertEq(balance, 0);
 
         deal(address(mainnet.WETH), address(this), depositAmount);
         IERC20(mainnet.WETH).approve(address(this), depositAmount);
 
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), address(mainnet.WETH), depositAmount);
+        this.deposit(address(aaveProtocol), address(mainnet.WETH), depositAmount);
 
-        balance = this.getSuppliedBalances(_one(address(aaveProtocol)), _one(address(mainnet.WETH)))[0];
+        balance = this.getBalances(_one(address(aaveProtocol)), _one(address(mainnet.WETH)))[0];
         assertApproxEqAbs(balance, depositAmount, 10);
     }
 
     function test_GetBalance_UnusedLendingProtocol_ReturnsZero() public {
         this.doInitialize();
-        assertEq(this.getSuppliedBalances(_one(makeAddr("UnusedLendingProtocol")), _one(address(mainnet.WETH)))[0], 0);
+        assertEq(this.getBalances(_one(makeAddr("UnusedLendingProtocol")), _one(address(mainnet.WETH)))[0], 0);
     }
 
     function test_GetBalanceFromDeprecatedLendingProvider() public {
         this.doInitialize();
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
         BittyV1Guard(guardAddress).deprecateProtocols(lendingProtocols);
-        uint256 balance = this.getSuppliedBalances(_one(address(aaveProtocol)), _one(address(mainnet.WETH)))[0];
+        uint256 balance = this.getBalances(_one(address(aaveProtocol)), _one(address(mainnet.WETH)))[0];
         assertEq(balance, 0);
     }
 
@@ -485,13 +484,14 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         toAdd[0] = address(usdc);
 
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addStableCoins(toAdd);
+        guardAddStableCoins(address(BittyV1Guard(guardAddress)), toAdd);
 
         vm.prank(ownerAddress);
         this.updateAssets(toAdd, new address[](0));
 
-        assertTrue(_listed(this.getStableCoins(), address(usdc)), "added via the unified path");
-        assertEq(this.getAssets().length, 2, "the asset list is untouched by a stable coin");
+        // Routing is exclusive, so "it is a stable coin" is also the assertion that it is not a
+        // plain asset - which is what the old asset-count line was standing in for.
+        assertTrue(this.isStableCoinAllowed(address(usdc)), "added via the unified path");
     }
 
     function test_DisableAddingAssets_SucceedsAndAddAssetsReverts() public {
@@ -501,7 +501,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         address[] memory newAssets = new address[](1);
         newAssets[0] = address(mockDAI);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addAssets(newAssets);
+        guardAddAssets(address(BittyV1Guard(guardAddress)), newAssets);
 
         vm.prank(ownerAddress);
         this.disableAddingAssets();
@@ -517,22 +517,22 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         address stranger = makeAddr("subscribedStranger");
         vm.prank(stranger);
         vm.expectRevert(NotAssetManager.selector);
-        this.stake(address(lidoProtocol), mainnet.WETH, 1 ether);
+        this.deposit(address(lidoProtocol), mainnet.WETH, 1 ether);
     }
 
-    function test_StakeRevertInvalidStakingProtocol() public {
+    function test_StakeRevertInvalidDepositableProtocol() public {
         this.doInitialize();
         address invalidStakingProvider = makeAddr("InvalidStakingProtocol");
-        vm.expectRevert(InvalidStakingProtocol.selector);
+        vm.expectRevert(InvalidDepositableProtocol.selector);
         vm.prank(assetManagerAddress);
-        this.stake(invalidStakingProvider, mainnet.WETH, 1 ether);
+        this.deposit(invalidStakingProvider, mainnet.WETH, 1 ether);
     }
 
     function test_StakeRevertAmountIsZero() public {
         this.doInitialize();
         vm.expectRevert(AmountIsZero.selector);
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProtocol), mainnet.WETH, 0);
+        this.deposit(address(lidoProtocol), mainnet.WETH, 0);
     }
 
     function test_StakeSuccess() public {
@@ -540,33 +540,33 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 stakeAmount = 0.1 ether;
         deal(mainnet.WETH, address(this), stakeAmount);
 
-        assertEq(this.getStakedBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 0);
+        assertEq(this.getBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 0);
 
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
+        this.deposit(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
         address clonedProtocol = this.getClonedProvider(address(lidoProtocol));
         assertTrue(clonedProtocol != address(0));
-        assertApproxEqAbs(IBittyV1StakingProtocol(clonedProtocol).getStakedBalance(mainnet.WETH), stakeAmount, 10);
-        assertApproxEqAbs(this.getStakedBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], stakeAmount, 10);
+        assertApproxEqAbs(IBittyV1Withdrawable(clonedProtocol).getBalance(mainnet.WETH), stakeAmount, 10);
+        assertApproxEqAbs(this.getBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], stakeAmount, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
 
     function test_GetStakingBalance() public {
         this.doInitialize();
-        assertEq(this.getStakedBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 0);
+        assertEq(this.getBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 0);
 
         uint256 stakeAmount = 2 ether;
         deal(mainnet.WETH, address(this), stakeAmount);
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
+        this.deposit(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
-        assertApproxEqAbs(this.getStakedBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], stakeAmount, 10);
+        assertApproxEqAbs(this.getBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], stakeAmount, 10);
     }
 
     function test_GetStakingBalance_UnusedStakingProtocol_ReturnsZero() public {
         this.doInitialize();
-        assertEq(this.getStakedBalances(_one(makeAddr("UnusedStakingProtocol")), _one(mainnet.WETH))[0], 0);
+        assertEq(this.getBalances(_one(makeAddr("UnusedStakingProtocol")), _one(mainnet.WETH))[0], 0);
     }
 
     function test_UnstakeSuccess() public {
@@ -576,20 +576,20 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         deal(mainnet.WETH, address(this), stakeAmount);
 
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
-        assertApproxEqAbs(this.getStakedBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], stakeAmount, 10);
+        this.deposit(address(lidoProtocol), mainnet.WETH, stakeAmount);
+        assertApproxEqAbs(this.getBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], stakeAmount, 10);
 
         vm.prank(assetManagerAddress);
-        this.unstake(address(lidoProtocol), mainnet.WETH, unstakeAmount);
+        this.withdraw(address(lidoProtocol), mainnet.WETH, unstakeAmount);
         assertApproxEqAbs(
-            this.getStakedBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], stakeAmount - unstakeAmount, 10
+            this.getBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], stakeAmount - unstakeAmount, 10
         );
 
-        uint256[] memory requestIds = this.getUnstakeRequestIds(address(lidoProtocol));
+        uint256[] memory requestIds = this.getPendingWithdrawalIds(address(lidoProtocol));
         assertEq(requestIds.length, 1);
 
         vm.prank(assetManagerAddress);
-        this.claimUnstakeds(address(lidoProtocol), requestIds);
+        this.claimWithdrawals(address(lidoProtocol), requestIds);
     }
 
     function test_ClaimSuccess() public {
@@ -599,17 +599,17 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         deal(mainnet.WETH, address(this), stakeAmount);
 
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
+        this.deposit(address(lidoProtocol), mainnet.WETH, stakeAmount);
         vm.prank(assetManagerAddress);
-        this.unstake(address(lidoProtocol), mainnet.WETH, unstakeAmount);
+        this.withdraw(address(lidoProtocol), mainnet.WETH, unstakeAmount);
 
-        uint256[] memory requestIds = this.getUnstakeRequestIds(address(lidoProtocol));
+        uint256[] memory requestIds = this.getPendingWithdrawalIds(address(lidoProtocol));
         assertEq(requestIds.length, 1);
 
         vm.prank(assetManagerAddress);
-        this.claimUnstakeds(address(lidoProtocol), requestIds);
+        this.claimWithdrawals(address(lidoProtocol), requestIds);
         // Lido withdrawals are not finalized immediately on a mainnet fork.
-        assertEq(this.getUnstakeRequestIds(address(lidoProtocol)).length, 1);
+        assertEq(this.getPendingWithdrawalIds(address(lidoProtocol)).length, 1);
     }
 
     function test_ClaimRevertOnlyAssetManager() public {
@@ -618,7 +618,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         address stranger = makeAddr("subscribedStranger");
         vm.prank(stranger);
         vm.expectRevert(NotAssetManager.selector);
-        this.claimUnstakeds(address(lidoProtocol), requestIds);
+        this.claimWithdrawals(address(lidoProtocol), requestIds);
     }
 
     function test_RemoveLiquidityWorksAfterAMMProtocolRemoved() public {
@@ -641,14 +641,14 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         uint256[] memory requestIds = new uint256[](0);
         vm.prank(assetManagerAddress);
-        this.claimUnstakeds(address(lidoProtocol), requestIds);
+        this.claimWithdrawals(address(lidoProtocol), requestIds);
     }
 
     function test_UnstakeRevertAmountIsZero() public {
         this.doInitialize();
         vm.expectRevert(AmountIsZero.selector);
         vm.prank(assetManagerAddress);
-        this.unstake(address(lidoProtocol), mainnet.WETH, 0);
+        this.withdraw(address(lidoProtocol), mainnet.WETH, 0);
     }
 
     function test_UnstakeWorksAfterStakingProtocolRemoved() public {
@@ -656,37 +656,37 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 amount = 1 ether;
         deal(mainnet.WETH, address(this), amount);
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProtocol), mainnet.WETH, amount);
+        this.deposit(address(lidoProtocol), mainnet.WETH, amount);
 
         vm.prank(ownerAddress);
         this.updateProtocols(new address[](0), _single(address(lidoProtocol)));
 
         vm.prank(assetManagerAddress);
-        this.unstake(address(lidoProtocol), mainnet.WETH, amount / 2);
+        this.withdraw(address(lidoProtocol), mainnet.WETH, amount / 2);
 
         uint256[] memory ids =
-            IBittyV1StakingProtocol(this.getClonedProvider(address(lidoProtocol))).getUnstakeRequestIds();
+            IBittyV1Withdrawable(this.getClonedProvider(address(lidoProtocol))).getPendingWithdrawalIds();
         assertEq(ids.length, 1, "unstake request created after removal");
     }
 
     function test_GetUnstakeRequestIds() public {
         this.doInitialize();
-        uint256[] memory ids = this.getUnstakeRequestIds(address(lidoProtocol));
+        uint256[] memory ids = this.getPendingWithdrawalIds(address(lidoProtocol));
         assertEq(ids.length, 0);
 
         deal(mainnet.WETH, address(this), 1 ether);
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProtocol), mainnet.WETH, 1 ether);
+        this.deposit(address(lidoProtocol), mainnet.WETH, 1 ether);
         vm.prank(assetManagerAddress);
-        this.unstake(address(lidoProtocol), mainnet.WETH, 0.5 ether);
+        this.withdraw(address(lidoProtocol), mainnet.WETH, 0.5 ether);
 
-        ids = this.getUnstakeRequestIds(address(lidoProtocol));
+        ids = this.getPendingWithdrawalIds(address(lidoProtocol));
         assertEq(ids.length, 1);
     }
 
     function test_GetUnstakeRequestIds_UnusedStakingProtocol_ReturnsEmpty() public {
         this.doInitialize();
-        assertEq(this.getUnstakeRequestIds(makeAddr("UnusedStakingProtocol")).length, 0);
+        assertEq(this.getPendingWithdrawalIds(makeAddr("UnusedStakingProtocol")).length, 0);
     }
 
     function test_SupplyAllowanceIsMaxAfterFirstApproval() public {
@@ -696,7 +696,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         deal(mainnet.WETH, address(this), supplyAmount * 2);
 
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
+        this.deposit(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
         address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
         assertEq(
@@ -707,7 +707,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         // Second supply must not revert — allowance guard skips re-approval when allowance >= amount
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
+        this.deposit(address(aaveProtocol), mainnet.WETH, supplyAmount);
     }
 
     function test_SupplySucceedsWithPreExistingResidualAllowance() public {
@@ -722,9 +722,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProtocol), 1);
 
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
+        this.deposit(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
-        assertApproxEqAbs(IBittyV1LendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH), supplyAmount, 10);
+        assertApproxEqAbs(IBittyV1Withdrawable(clonedProtocol).getBalance(mainnet.WETH), supplyAmount, 10);
     }
 
     // ─── AMM: deprecated protocol and decreaseLiquidity ───────────────────────
@@ -784,7 +784,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
     function _initWithMockAMMNoClone(MockAMMProtocol mockAmm) internal {
         vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_single(address(mockAmm)));
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _single(address(mockAmm)));
         vm.stopPrank();
 
         this.initialize(ownerAddress, mainnet.WETH, address(0), 0);
@@ -867,10 +867,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         vm.startPrank(assetManagerAddress);
         vm.expectRevert(InvalidAMMProtocol.selector);
         this.removeLiquidity(attacker, abi.encode(uint256(1)));
-        vm.expectRevert(InvalidLendingProtocol.selector);
+        // One exit for every protocol now, so there is one call and one answer. The exit does not ask
+        // the guard anything: it looks for a clone, and a clone only exists for a protocol that passed
+        // the guard when it was listed, so an address nobody listed has nothing to withdraw from.
+        vm.expectRevert(InvalidWithdrawableProtocol.selector);
         this.withdraw(attacker, mainnet.WETH, 1 ether);
-        vm.expectRevert(InvalidStakingProtocol.selector);
-        this.unstake(attacker, mainnet.WETH, 1 ether);
         vm.stopPrank();
     }
 
@@ -921,9 +922,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(IERC20(mainnet.WETH).allowance(address(this), clonedProtocol), 1);
 
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProtocol), mainnet.WETH, stakeAmount);
+        this.deposit(address(lidoProtocol), mainnet.WETH, stakeAmount);
 
-        assertApproxEqAbs(IBittyV1StakingProtocol(clonedProtocol).getStakedBalance(mainnet.WETH), stakeAmount, 10);
+        assertApproxEqAbs(IBittyV1Withdrawable(clonedProtocol).getBalance(mainnet.WETH), stakeAmount, 10);
     }
 
     // ============ Auto yield ============
@@ -933,44 +934,55 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         address stranger = makeAddr("stranger");
         vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
         vm.prank(stranger);
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true));
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol)));
     }
 
     function test_SetAutoYieldingRevertAssetAddressZero() public {
         this.doInitialize();
         vm.expectRevert(AddressZero.selector);
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(address(0), address(aaveProtocol), true));
+        this.setAutoYieldings(_route(address(0), address(aaveProtocol)));
     }
 
-    function test_SetAutoYieldingRevertUnregisteredLendingProtocol() public {
-        this.doInitialize();
-        // A staking protocol is not a valid supply route (and vice versa below).
-        vm.expectRevert(InvalidLendingProtocol.selector);
-        vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), true));
+    /**
+     * @dev There used to be a pair of tests here asserting that a staking protocol was not a valid
+     *      supply route and vice versa. The vault no longer knows lending from staking - it routes to
+     *      anything depositable - so both of those routes are legal now and the pair asserted a rule
+     *      that no longer exists - test_AutoYieldSupplyOnDeposit and test_AutoYieldStakeOnDeposit
+     *      already show both routes carrying a deposit. What still constrains a route is the guard: a
+     *      protocol it has never registered cannot be yielded into, whatever it claims to be.
+     */
+    /// @dev A route to an unlisted protocol normally lists it as a side effect. Once the owner has
+    ///      locked the protocol set that side effect is exactly what must not happen, so the route is
+    ///      refused rather than quietly widening a list the owner sealed.
+    function test_SetAutoYieldingRevertsWhenAddingProtocolsDisabled() public {
+        this.doInitializeWithoutProtocols();
+        vm.startPrank(ownerAddress);
+        this.disableAddingProtocols();
+        vm.expectRevert(AddingProtocolsDisabled.selector);
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol)));
+        vm.stopPrank();
     }
 
-    function test_SetAutoYieldingRevertUnregisteredStakingProtocol() public {
+    function test_SetAutoYieldingRevertUnregisteredProtocol() public {
         this.doInitialize();
-        vm.expectRevert(InvalidStakingProtocol.selector);
+        vm.expectRevert(NotRegistered.selector);
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), false));
+        this.setAutoYieldings(_route(mainnet.WETH, makeAddr("unregisteredProtocol")));
     }
 
     function test_SetAutoYieldings_batchSetsMultipleRoutes() public {
         this.doInitialize();
         AutoYield[] memory routes = new AutoYield[](2);
-        routes[0] = AutoYield({asset: mainnet.WETH, protocol: address(aaveProtocol), isSupplying: true});
-        routes[1] = AutoYield({asset: WBTC, protocol: address(aaveProtocol), isSupplying: true});
+        routes[0] = AutoYield({asset: mainnet.WETH, protocol: address(aaveProtocol)});
+        routes[1] = AutoYield({asset: WBTC, protocol: address(aaveProtocol)});
 
         vm.prank(ownerAddress);
         this.setAutoYieldings(routes);
 
-        (address p0, bool s0) = _getAutoYieldingOne(mainnet.WETH);
+        address p0 = _getAutoYieldingOne(mainnet.WETH);
         assertEq(p0, address(aaveProtocol));
-        assertTrue(s0);
-        (address p1,) = _getAutoYieldingOne(WBTC);
+        address p1 = _getAutoYieldingOne(WBTC);
         assertEq(p1, address(aaveProtocol));
     }
 
@@ -979,35 +991,34 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_SetAutoYieldings_setsRoutes() public {
         this.doInitialize();
         AutoYield[] memory routes = new AutoYield[](1);
-        routes[0] = AutoYield({asset: mainnet.WETH, protocol: address(aaveProtocol), isSupplying: true});
+        routes[0] = AutoYield({asset: mainnet.WETH, protocol: address(aaveProtocol)});
 
         vm.prank(ownerAddress);
         this.setAutoYieldings(routes);
 
-        (address p,) = _getAutoYieldingOne(mainnet.WETH);
+        address p = _getAutoYieldingOne(mainnet.WETH);
         assertEq(p, address(aaveProtocol));
 
         // An empty array is now simply a no-op rather than a trigger-only update.
         vm.prank(ownerAddress);
         this.setAutoYieldings(new AutoYield[](0));
-        (p,) = _getAutoYieldingOne(mainnet.WETH);
+        p = _getAutoYieldingOne(mainnet.WETH);
         assertEq(p, address(aaveProtocol), "routes untouched");
     }
 
     function test_SetAndGetAutoYielding() public {
         this.doInitialize();
-        (address protocol, bool isSupplying) = _getAutoYieldingOne(mainnet.WETH);
+        address protocol = _getAutoYieldingOne(mainnet.WETH);
         assertEq(protocol, address(0));
 
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true));
-        (protocol, isSupplying) = _getAutoYieldingOne(mainnet.WETH);
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol)));
+        protocol = _getAutoYieldingOne(mainnet.WETH);
         assertEq(protocol, address(aaveProtocol));
-        assertTrue(isSupplying);
 
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(0), true));
-        (protocol,) = _getAutoYieldingOne(mainnet.WETH);
+        this.setAutoYieldings(_route(mainnet.WETH, address(0)));
+        protocol = _getAutoYieldingOne(mainnet.WETH);
         assertEq(protocol, address(0));
     }
 
@@ -1031,7 +1042,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldKeeperCanSweep() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true));
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol)));
 
         // The vault holds WETH (not from an ETH deposit) — the keeper sweeps it into the route.
         deal(mainnet.WETH, address(this), 1 ether);
@@ -1039,7 +1050,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.autoYields(_one(mainnet.WETH));
 
         address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
-        assertApproxEqAbs(IBittyV1LendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH), 1 ether, 10);
+        assertApproxEqAbs(IBittyV1Withdrawable(clonedProtocol).getBalance(mainnet.WETH), 1 ether, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
 
@@ -1047,14 +1058,14 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldOwnerCanSweep() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true));
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol)));
         deal(mainnet.WETH, address(this), 1 ether);
 
         vm.prank(ownerAddress);
         this.autoYields(_one(mainnet.WETH));
 
         address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
-        assertApproxEqAbs(IBittyV1LendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH), 1 ether, 10);
+        assertApproxEqAbs(IBittyV1Withdrawable(clonedProtocol).getBalance(mainnet.WETH), 1 ether, 10);
     }
 
     function test_AutoYieldNoRouteKeepsWeth() public {
@@ -1067,23 +1078,23 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldSupplyOnDeposit() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true));
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol)));
 
         _depositEth(1 ether);
 
         address clonedProtocol = this.getClonedProvider(address(aaveProtocol));
-        assertApproxEqAbs(IBittyV1LendingProtocol(clonedProtocol).getSuppliedBalance(mainnet.WETH), 1 ether, 10);
+        assertApproxEqAbs(IBittyV1Withdrawable(clonedProtocol).getBalance(mainnet.WETH), 1 ether, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
 
     function test_AutoYieldStakeOnDeposit() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false));
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol)));
 
         _depositEth(0.5 ether);
 
-        assertApproxEqAbs(this.getStakedBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 0.5 ether, 10);
+        assertApproxEqAbs(this.getBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 0.5 ether, 10);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
 
@@ -1100,12 +1111,12 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_DepositIntoARoutedAssetIsSweptInFull() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false));
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol)));
 
         _depositEth(1 ether);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0, "nothing left liquid");
         assertApproxEqAbs(
-            this.getStakedBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 1 ether, 10, "all of it staked"
+            this.getBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 1 ether, 10, "all of it staked"
         );
     }
 
@@ -1120,7 +1131,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldStopsWhenProtocolIsUnlisted() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false));
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol)));
         vm.prank(ownerAddress);
         this.updateProtocols(new address[](0), stakingProtocols);
 
@@ -1136,9 +1147,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldClearedRouteIsSkipped() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false));
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol)));
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(0), false));
+        this.setAutoYieldings(_route(mainnet.WETH, address(0)));
 
         _depositEth(1 ether);
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 1 ether, "no route, nothing swept");
@@ -1147,7 +1158,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AutoYieldSkippedForDeprecatedProtocol() public {
         this.doInitialize();
         vm.prank(ownerAddress);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false));
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol)));
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
         BittyV1Guard(guardAddress).deprecateProtocols(stakingProtocols);
 
@@ -1229,8 +1240,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
     function test_IsValidSignature_MatchViaIntentClone() public {
         MockIntentProtocol intent = new MockIntentProtocol();
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_single(address(intent)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _single(address(intent)));
+        vm.stopPrank();
 
         this.doInitialize();
         vm.prank(ownerAddress);
@@ -1239,20 +1251,40 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertTrue(this.isValidSignature(keccak256("order"), hex"abcd") == bytes4(0x1626ba7e));
     }
 
+    /**
+     * @notice A deprecated intent adapter must STILL validate signatures.
+     * @dev Deprecation is exit-only, and validating is an exit. An order signed while the adapter was
+     *      live still has to settle, and cancelling one still has to be provable — so validation
+     *      cannot stop the moment the guard deprecates the protocol, or every pending order is
+     *      stranded with no way to settle it and no way to cancel it.
+     */
+    function test_IsValidSignature_StillWorksAfterTheAdapterIsDeprecated() public {
+        MockIntentProtocol intent = new MockIntentProtocol();
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _single(address(intent)));
+        vm.stopPrank();
+
+        this.doInitialize();
+        vm.prank(ownerAddress);
+        this.updateProtocols(_single(address(intent)), new address[](0));
+        assertTrue(this.isValidSignature(keccak256("order"), hex"abcd") == bytes4(0x1626ba7e), "live");
+
+        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        BittyV1Guard(guardAddress).deprecateProtocols(_single(address(intent)));
+        assertFalse(BittyV1Guard(guardAddress).isProtocolRegistered(address(intent)), "no longer active");
+
+        assertTrue(
+            this.isValidSignature(keccak256("order"), hex"abcd") == bytes4(0x1626ba7e),
+            "a pending order must still settle after deprecation"
+        );
+    }
+
     // ============ Intent trade setup (composed from updateAssets / approveIntentRelayer) ============
 
     // Allow-listed either as a plain asset or a stablecoin — the Guard decides which set a token
     // lands in, and a restricted vault must treat both as "already added".
     function _hasAsset(address token) internal view returns (bool) {
-        address[] memory assetList = this.getAssets();
-        for (uint256 i; i < assetList.length; ++i) {
-            if (assetList[i] == token) return true;
-        }
-        address[] memory stableList = this.getStableCoins();
-        for (uint256 i; i < stableList.length; ++i) {
-            if (stableList[i] == token) return true;
-        }
-        return false;
+        return this.isAssetAllowed(token);
     }
 
     // A first gasless trade on a RESTRICTED vault needs the buy asset allow-listed and the relayer
@@ -1262,22 +1294,25 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         MockIntentProtocol intent = new MockIntentProtocol();
         address relayer = makeAddr("vaultRelayer");
         intent.setEndpoints(makeAddr("settlement"), relayer);
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_single(address(intent)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _single(address(intent)));
+        vm.stopPrank();
 
         // A token the Guard knows but this vault has NOT added — exactly the
         // case a first buy of a new asset hits.
         MockERC20 newToken = new MockERC20("NEW", "NEW", 18);
         address newAsset = address(newToken);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addAssets(_single(newAsset));
+        guardAddAssets(address(BittyV1Guard(guardAddress)), _single(newAsset));
 
         this.doInitialize();
         vm.prank(ownerAddress);
         this.updateProtocols(_single(address(intent)), new address[](0));
 
         // Nothing is set up yet: no intent protocol, the asset isn't allow-listed.
-        assertEq(this.getProtocols().length, ENABLED_AT_INIT + 1, "the intent protocol is listed");
+        assertEq(
+            vaultProtocols(guardAddress, address(this)).length, ENABLED_AT_INIT + 1, "the intent protocol is listed"
+        );
         assertFalse(_hasAsset(newAsset), "asset not allow-listed yet");
 
         address[] memory assets = _single(newAsset);
@@ -1286,7 +1321,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         // The trade adds no protocol of its own: the owner listed the intent protocol up front, and
         // preparing a trade must not quietly extend that list as a side effect.
-        assertEq(this.getProtocols().length, ENABLED_AT_INIT + 1, "the trade listed nothing further");
+        assertEq(
+            vaultProtocols(guardAddress, address(this)).length, ENABLED_AT_INIT + 1, "the trade listed nothing further"
+        );
         // The ASSET list is a different matter — this vault registered assets at init, so it IS
         // restricted for assets, and the buy token has to be added to it.
         assertTrue(_hasAsset(newAsset), "buy asset added to the restricted asset list");
@@ -1354,15 +1391,15 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         // in one transaction — which is what {Multicall} is for.
         vm.prank(ownerAddress);
         this.updateProtocols(_single(address(aaveProtocol)), new address[](0));
-        assertEq(this.getProtocols().length, 1, "listed by the owner");
+        assertEq(vaultProtocols(guardAddress, address(this)).length, 1, "listed by the owner");
 
         uint256 amount = 1 ether;
         deal(mainnet.WETH, address(this), amount);
         vm.prank(ownerAddress);
-        this.supply(address(aaveProtocol), mainnet.WETH, amount);
+        this.deposit(address(aaveProtocol), mainnet.WETH, amount);
 
-        assertEq(this.getProtocols().length, 1, "supplying did not list anything further");
-        assertApproxEqAbs(this.getSuppliedBalances(_one(address(aaveProtocol)), _one(mainnet.WETH))[0], amount, 10);
+        assertEq(vaultProtocols(guardAddress, address(this)).length, 1, "supplying did not list anything further");
+        assertApproxEqAbs(this.getBalances(_one(address(aaveProtocol)), _one(mainnet.WETH))[0], amount, 10);
     }
 
     function test_SimpleStake_registersProtocolAndStakes() public {
@@ -1372,15 +1409,15 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         // in one transaction — which is what {Multicall} is for.
         vm.prank(ownerAddress);
         this.updateProtocols(_single(address(lidoProtocol)), new address[](0));
-        assertEq(this.getProtocols().length, 1, "listed by the owner");
+        assertEq(vaultProtocols(guardAddress, address(this)).length, 1, "listed by the owner");
 
         uint256 amount = 0.1 ether;
         deal(mainnet.WETH, address(this), amount);
         vm.prank(ownerAddress);
-        this.stake(address(lidoProtocol), mainnet.WETH, amount);
+        this.deposit(address(lidoProtocol), mainnet.WETH, amount);
 
-        assertEq(this.getProtocols().length, 1, "supplying did not list anything further");
-        assertGt(this.getStakedBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 0);
+        assertEq(vaultProtocols(guardAddress, address(this)).length, 1, "supplying did not list anything further");
+        assertGt(this.getBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 0);
     }
 
     // Already-registered protocol: no re-add (which would revert once adding is
@@ -1388,7 +1425,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_SimpleSupply_skipsRegistrationWhenAlreadyEnabled() public {
         this.doInitialize();
         _grantAssetManagerRole(ownerAddress);
-        assertEq(this.getProtocols().length, ENABLED_AT_INIT);
+        assertEq(vaultProtocols(guardAddress, address(this)).length, ENABLED_AT_INIT);
 
         vm.prank(ownerAddress);
         this.disableAddingProtocols();
@@ -1396,9 +1433,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 amount = 1 ether;
         deal(mainnet.WETH, address(this), amount);
         vm.prank(ownerAddress);
-        this.supply(address(aaveProtocol), mainnet.WETH, amount);
+        this.deposit(address(aaveProtocol), mainnet.WETH, amount);
 
-        assertEq(this.getProtocols().length, ENABLED_AT_INIT, "no extra registration");
+        assertEq(vaultProtocols(guardAddress, address(this)).length, ENABLED_AT_INIT, "no extra registration");
     }
 
     // An owner who is NOT the asset manager can't move funds this way — they
@@ -1410,7 +1447,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         deal(mainnet.WETH, address(this), 1 ether);
         vm.prank(ownerAddress);
         vm.expectRevert(NotAssetManager.selector);
-        this.supply(address(aaveProtocol), mainnet.WETH, 1 ether);
+        this.deposit(address(aaveProtocol), mainnet.WETH, 1 ether);
     }
 
     /**
@@ -1422,13 +1459,13 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AssetManagerMayNotStakeIntoAnUnlistedProtocol() public {
         this.doInitializeWithoutProtocols();
         deal(mainnet.WETH, address(this), 1 ether);
-        assertEq(this.getProtocols().length, 0, "nothing listed, so nothing usable");
+        assertEq(vaultProtocols(guardAddress, address(this)).length, 0, "nothing listed, so nothing usable");
 
         vm.prank(assetManagerAddress);
-        vm.expectRevert(InvalidStakingProtocol.selector);
-        this.stake(address(lidoProtocol), mainnet.WETH, 1 ether);
+        vm.expectRevert(InvalidDepositableProtocol.selector);
+        this.deposit(address(lidoProtocol), mainnet.WETH, 1 ether);
 
-        assertEq(this.getProtocols().length, 0, "and the attempt did not list it either");
+        assertEq(vaultProtocols(guardAddress, address(this)).length, 0, "and the attempt did not list it either");
     }
 
     // ---- Exiting a position: clear the route, then withdraw/unstake ----
@@ -1442,17 +1479,17 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 amount = 1 ether;
         deal(mainnet.WETH, address(this), amount);
         vm.startPrank(ownerAddress);
-        this.supply(address(aaveProtocol), mainnet.WETH, amount);
+        this.deposit(address(aaveProtocol), mainnet.WETH, amount);
         // Route set: without clearing it the keeper would re-supply the funds.
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true));
-        (address routed,) = _getAutoYieldingOne(mainnet.WETH);
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol)));
+        address routed = _getAutoYieldingOne(mainnet.WETH);
         assertEq(routed, address(aaveProtocol), "route is set");
 
         _clearRoute(mainnet.WETH);
         this.withdraw(address(aaveProtocol), mainnet.WETH, 0.5 ether);
         vm.stopPrank();
 
-        (address after_,) = _getAutoYieldingOne(mainnet.WETH);
+        address after_ = _getAutoYieldingOne(mainnet.WETH);
         assertEq(after_, address(0), "route cleared");
         assertGe(IERC20(mainnet.WETH).balanceOf(address(this)), 0.5 ether, "funds back in the vault");
     }
@@ -1465,12 +1502,12 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         deal(mainnet.WETH, address(this), 1 ether);
         vm.startPrank(ownerAddress);
-        this.supply(address(aaveProtocol), mainnet.WETH, 1 ether);
-        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol), true));
+        this.deposit(address(aaveProtocol), mainnet.WETH, 1 ether);
+        this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol)));
         this.withdraw(address(aaveProtocol), mainnet.WETH, 0.25 ether);
         vm.stopPrank();
 
-        (address routed,) = _getAutoYieldingOne(mainnet.WETH);
+        address routed = _getAutoYieldingOne(mainnet.WETH);
         assertEq(routed, address(aaveProtocol), "route untouched");
     }
 
@@ -1481,14 +1518,14 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 amount = 0.2 ether;
         deal(mainnet.WETH, address(this), amount);
         vm.startPrank(ownerAddress);
-        this.stake(address(lidoProtocol), mainnet.WETH, amount);
-        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol), false));
+        this.deposit(address(lidoProtocol), mainnet.WETH, amount);
+        this.setAutoYieldings(_route(mainnet.WETH, address(lidoProtocol)));
 
         _clearRoute(mainnet.WETH);
-        this.unstake(address(lidoProtocol), mainnet.WETH, 0.1 ether);
+        this.withdraw(address(lidoProtocol), mainnet.WETH, 0.1 ether);
         vm.stopPrank();
 
-        (address routed,) = _getAutoYieldingOne(mainnet.WETH);
+        address routed = _getAutoYieldingOne(mainnet.WETH);
         assertEq(routed, address(0), "route cleared");
     }
 
@@ -1510,7 +1547,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(NotAssetManager.selector);
-        this.unstake(address(lidoProtocol), mainnet.WETH, 1);
+        this.withdraw(address(lidoProtocol), mainnet.WETH, 1);
     }
 
     function test_ClearRouteIsOwnerGated() public {
@@ -1530,8 +1567,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         MockIntentProtocol intent = new MockIntentProtocol();
         intent.setEndpoints(makeAddr("settlement"), makeAddr("vaultRelayer"));
         vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addAssets(_single(address(newToken)));
-        BittyV1Guard(guardAddress).addProtocols(_single(address(intent)));
+        guardAddAssets(address(BittyV1Guard(guardAddress)), _single(address(newToken)));
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _single(address(intent)));
         vm.stopPrank();
 
         this.doInitialize();
@@ -1563,7 +1600,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         deal(mainnet.WETH, address(this), 1 ether);
         vm.prank(ownerAddress);
         vm.expectRevert(NotAssetManager.selector);
-        this.stake(address(lidoProtocol), mainnet.WETH, 1 ether);
+        this.deposit(address(lidoProtocol), mainnet.WETH, 1 ether);
     }
 
     /**
@@ -1580,29 +1617,29 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_AssetManagerMayNotSupplyIntoAnUnlistedProtocol() public {
         this.doInitializeWithoutProtocols();
         deal(mainnet.WETH, address(this), 1 ether);
-        assertEq(this.getProtocols().length, 0, "nothing listed, so nothing usable");
+        assertEq(vaultProtocols(guardAddress, address(this)).length, 0, "nothing listed, so nothing usable");
 
         vm.prank(assetManagerAddress);
-        vm.expectRevert(InvalidLendingProtocol.selector);
-        this.supply(address(aaveProtocol), mainnet.WETH, 1 ether);
+        vm.expectRevert(InvalidDepositableProtocol.selector);
+        this.deposit(address(aaveProtocol), mainnet.WETH, 1 ether);
 
-        assertEq(this.getProtocols().length, 0, "and the attempt did not list it either");
+        assertEq(vaultProtocols(guardAddress, address(this)).length, 0, "and the attempt did not list it either");
     }
 
     function test_SimpleStake_skipsRegistrationWhenAlreadyEnabled() public {
         this.doInitialize();
         _grantAssetManagerRole(ownerAddress);
-        assertEq(this.getProtocols().length, ENABLED_AT_INIT);
+        assertEq(vaultProtocols(guardAddress, address(this)).length, ENABLED_AT_INIT);
 
         vm.prank(ownerAddress);
         this.disableAddingProtocols();
 
         deal(mainnet.WETH, address(this), 0.1 ether);
         vm.prank(ownerAddress);
-        this.stake(address(lidoProtocol), mainnet.WETH, 0.1 ether);
+        this.deposit(address(lidoProtocol), mainnet.WETH, 0.1 ether);
 
-        assertEq(this.getProtocols().length, ENABLED_AT_INIT, "no extra registration");
-        assertGt(this.getStakedBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 0);
+        assertEq(vaultProtocols(guardAddress, address(this)).length, ENABLED_AT_INIT, "no extra registration");
+        assertGt(this.getBalances(_one(address(lidoProtocol)), _one(mainnet.WETH))[0], 0);
     }
 
     // address(0) = "don't touch the intent protocol", so the call can be used to
@@ -1610,12 +1647,14 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_PrepareIntentTrade_zeroProtocolOnlyAddsAssets() public {
         MockERC20 newToken = new MockERC20("NEW2", "NEW2", 18);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addAssets(_single(address(newToken)));
+        guardAddAssets(address(BittyV1Guard(guardAddress)), _single(address(newToken)));
         this.doInitialize();
 
         _prepareTrade(address(0), _single(address(newToken)), new address[](0));
 
-        assertEq(this.getProtocols().length, ENABLED_AT_INIT, "no protocol registered by the trade");
+        assertEq(
+            vaultProtocols(guardAddress, address(this)).length, ENABLED_AT_INIT, "no protocol registered by the trade"
+        );
         assertTrue(_hasAsset(address(newToken)), "asset still allow-listed");
     }
 
@@ -1624,7 +1663,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_PrepareIntentTrade_addsOnlyMissingAssets() public {
         MockERC20 newToken = new MockERC20("NEW3", "NEW3", 18);
         vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addAssets(_single(address(newToken)));
+        guardAddAssets(address(BittyV1Guard(guardAddress)), _single(address(newToken)));
         this.doInitialize();
 
         // WETH is already on the vault; the mock token is not.
@@ -1641,7 +1680,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_PrepareIntentTrade_emptyArraysIsNoOp() public {
         this.doInitialize();
         _prepareTrade(address(0), new address[](0), new address[](0));
-        assertEq(this.getProtocols().length, ENABLED_AT_INIT);
+        assertEq(vaultProtocols(guardAddress, address(this)).length, ENABLED_AT_INIT);
     }
 
     // ============ AssetManagerLogic revert / branch coverage ============
@@ -1651,7 +1690,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         uint256 supplyAmount = 1 ether;
         deal(mainnet.WETH, address(this), supplyAmount);
         vm.prank(assetManagerAddress);
-        this.supply(address(aaveProtocol), mainnet.WETH, supplyAmount);
+        this.deposit(address(aaveProtocol), mainnet.WETH, supplyAmount);
 
         vm.prank(assetManagerAddress);
         vm.expectRevert(InsufficientBalance.selector);
@@ -1662,40 +1701,74 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         vm.prank(assetManagerAddress);
         vm.expectRevert(AddressZero.selector);
-        this.stake(address(lidoProtocol), address(0), 1 ether);
+        this.deposit(address(lidoProtocol), address(0), 1 ether);
     }
 
     function test_UnstakeRevertAddressZero() public {
         this.doInitialize();
         vm.prank(assetManagerAddress);
         vm.expectRevert(AddressZero.selector);
-        this.unstake(address(lidoProtocol), address(0), 1 ether);
+        this.withdraw(address(lidoProtocol), address(0), 1 ether);
     }
 
     function test_UnstakeRevertInsufficientBalance() public {
         this.doInitialize();
         deal(mainnet.WETH, address(this), 1 ether);
         vm.prank(assetManagerAddress);
-        this.stake(address(lidoProtocol), mainnet.WETH, 1 ether);
+        this.deposit(address(lidoProtocol), mainnet.WETH, 1 ether);
 
         vm.prank(assetManagerAddress);
         vm.expectRevert(InsufficientBalance.selector);
-        this.unstake(address(lidoProtocol), mainnet.WETH, 100 ether);
+        this.withdraw(address(lidoProtocol), mainnet.WETH, 100 ether);
     }
 
     function test_GetStakedBalanceRevertAddressZero() public {
         this.doInitialize();
         vm.expectRevert(AddressZero.selector);
-        this.getStakedBalances(_one(address(lidoProtocol)), _one(address(0)));
+        this.getBalances(_one(address(lidoProtocol)), _one(address(0)));
     }
 
-    function test_ClaimUnstakedRevertInvalidStakingProtocol() public {
+    function test_ClaimWithdrawalsRevertInvalidWithdrawableProtocol() public {
         this.doInitialize();
         uint256[] memory ids = new uint256[](1);
         ids[0] = 1;
         vm.prank(assetManagerAddress);
-        vm.expectRevert(InvalidStakingProtocol.selector);
-        this.claimUnstakeds(address(lidoProtocol), ids);
+        vm.expectRevert(InvalidWithdrawableProtocol.selector);
+        this.claimWithdrawals(address(lidoProtocol), ids);
+    }
+
+    function test_ClaimWithdrawalScalarRevertInvalidWithdrawableProtocol() public {
+        this.doInitialize();
+        vm.prank(assetManagerAddress);
+        vm.expectRevert(InvalidWithdrawableProtocol.selector);
+        this.claimWithdrawal(address(lidoProtocol), 1);
+    }
+
+    function test_ClaimWithdrawalScalarSuccess() public {
+        this.doInitialize();
+        uint256 stakeAmount = 0.1 ether;
+        uint256 unstakeAmount = 0.05 ether;
+        deal(mainnet.WETH, address(this), stakeAmount);
+
+        vm.startPrank(assetManagerAddress);
+        this.deposit(address(lidoProtocol), mainnet.WETH, stakeAmount);
+        this.withdraw(address(lidoProtocol), mainnet.WETH, unstakeAmount);
+        vm.stopPrank();
+
+        uint256[] memory requestIds = this.getPendingWithdrawalIds(address(lidoProtocol));
+        assertEq(requestIds.length, 1);
+
+        vm.prank(assetManagerAddress);
+        this.claimWithdrawal(address(lidoProtocol), requestIds[0]);
+        // Lido withdrawals are not finalized immediately on a mainnet fork.
+        assertEq(this.getPendingWithdrawalIds(address(lidoProtocol)).length, 1);
+    }
+
+    function test_ClaimWithdrawalScalarRevertOnlyAssetManager() public {
+        this.doInitialize();
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(NotAssetManager.selector);
+        this.claimWithdrawal(address(lidoProtocol), 1);
     }
 
     function test_AddStakingProtocolsRevertNotRegistered() public {
@@ -1727,8 +1800,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
     function test_ApproveIntentRelayerRevertDeprecated() public {
         MockIntentProtocol intent = new MockIntentProtocol();
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_single(address(intent)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _single(address(intent)));
+        vm.stopPrank();
 
         this.doInitialize();
         vm.prank(ownerAddress);
@@ -1773,7 +1847,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_Facet_ViewGetters() public {
         this.doInitialize();
         assertEq(address(this.guard()), guardAddress);
-        assertEq(this.getProtocols().length, ENABLED_AT_INIT);
+        assertEq(vaultProtocols(guardAddress, address(this)).length, ENABLED_AT_INIT);
     }
 
     // ============ Vault owner surface (BittyV1Vault + logic passthroughs) ============
@@ -1815,7 +1889,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         vm.prank(assetManagerAddress);
         vm.expectRevert(AssetManagerExpired.selector);
-        this.supply(address(aaveProtocol), mainnet.WETH, 1 ether);
+        this.deposit(address(aaveProtocol), mainnet.WETH, 1 ether);
     }
 
     /// A lapsed grant must read as "renew me", not as "wrong key".
@@ -1828,11 +1902,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         vm.prank(assetManagerAddress);
         vm.expectRevert(AssetManagerExpired.selector);
-        this.stake(address(lidoProtocol), mainnet.WETH, 1 ether);
+        this.deposit(address(lidoProtocol), mainnet.WETH, 1 ether);
 
         vm.prank(makeAddr("stranger"));
         vm.expectRevert(NotAssetManager.selector);
-        this.stake(address(lidoProtocol), mainnet.WETH, 1 ether);
+        this.deposit(address(lidoProtocol), mainnet.WETH, 1 ether);
     }
 
     /// The gasless CoW path must lapse with everything else, or an expired key could still settle.
@@ -1950,30 +2024,32 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         vm.prank(ownerAddress);
         this.updateProtocols(_single(address(uniswapV3Protocol)), new address[](0));
         // Already listed by doInitialize, so re-adding it changes nothing.
-        assertEq(this.getProtocols().length, ENABLED_AT_INIT);
+        assertEq(vaultProtocols(guardAddress, address(this)).length, ENABLED_AT_INIT);
     }
 
     function test_RemoveIntentProtocols() public {
         MockIntentProtocol intent = new MockIntentProtocol();
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_single(address(intent)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _single(address(intent)));
+        vm.stopPrank();
 
         this.doInitialize();
         vm.prank(ownerAddress);
         this.updateProtocols(_single(address(intent)), new address[](0));
-        assertEq(this.getProtocols().length, ENABLED_AT_INIT + 1);
+        assertEq(vaultProtocols(guardAddress, address(this)).length, ENABLED_AT_INIT + 1);
 
         vm.prank(ownerAddress);
         this.updateProtocols(new address[](0), _single(address(intent)));
-        assertEq(this.getProtocols().length, ENABLED_AT_INIT);
+        assertEq(vaultProtocols(guardAddress, address(this)).length, ENABLED_AT_INIT);
     }
 
     function test_ApproveIntentRelayerSuccess() public {
         MockIntentProtocol intent = new MockIntentProtocol();
         address relayer = makeAddr("relayer");
         intent.setEndpoints(makeAddr("settlement"), relayer);
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_single(address(intent)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _single(address(intent)));
+        vm.stopPrank();
 
         this.doInitialize();
         vm.prank(ownerAddress);
@@ -1997,7 +2073,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         vm.prank(ownerAddress);
         vm.expectRevert(ArrayLengthMismatch.selector);
-        this.batchSend(recipients, sendAssets, amounts, stakingProtos, stakingAmounts, emptyAddrs, emptyAmounts);
+        this.batchSend(recipients, sendAssets, amounts, stakingProtos, stakingAmounts);
     }
 
     // addLiquidity to an AMM whose clone exposes positionAssetManager() (Uniswap
@@ -2027,8 +2103,8 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
      */
 
     /// @dev Has this vault narrowed `categoryId`? Derived, because the vault no longer answers it.
-    function _hasProtocolOfCategory(bytes4 categoryId) internal view returns (bool) {
-        address[] memory listed = this.getProtocols();
+    function _hasProtocolOfCategory(uint8 categoryId) internal view returns (bool) {
+        address[] memory listed = vaultProtocols(guardAddress, address(this));
         for (uint256 i; i < listed.length; ++i) {
             if (BittyV1Guard(guardAddress).protocolCategory(listed[i]) == categoryId) return true;
         }
@@ -2070,7 +2146,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
      */
     function _clearRoute(address assetAddress) internal {
         AutoYield[] memory routes = new AutoYield[](1);
-        routes[0] = AutoYield({asset: assetAddress, protocol: address(0), isSupplying: false});
+        routes[0] = AutoYield({asset: assetAddress, protocol: address(0)});
         this.setAutoYieldings(routes);
     }
 
@@ -2085,16 +2161,17 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
 
         // Register a SECOND staking protocol with the guard, but narrow the vault to Lido only.
         MockStakingProtocol other = new MockStakingProtocol();
-        vm.prank(GUARD_DEPLOYER, GUARD_DEPLOYER);
-        BittyV1Guard(guardAddress).addProtocols(_single(address(other)));
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _single(address(other)));
+        vm.stopPrank();
 
         vm.prank(ownerAddress);
         this.updateProtocols(_single(address(lidoProtocol)), new address[](0));
 
         deal(mainnet.WETH, address(this), 0.1 ether);
         vm.prank(assetManagerAddress);
-        vm.expectRevert(InvalidStakingProtocol.selector);
-        this.stake(address(other), mainnet.WETH, 0.1 ether);
+        vm.expectRevert(InvalidDepositableProtocol.selector);
+        this.deposit(address(other), mainnet.WETH, 0.1 ether);
     }
 
     function _listed(address[] memory list, address a) internal pure returns (bool) {
@@ -2151,6 +2228,30 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(effectiveAssetManager(address(this)), hot, "in force, with nobody having settled it");
     }
 
+    /// @dev {effectiveAssetManager} reads a matured grant through without writing it. The write is
+    ///      what the NEXT setAssetManager does before it schedules anything, so the grant it is about
+    ///      to replace is the matured one rather than the stale slot it superseded.
+    function test_AMaturedInstallIsPromotedByTheNextSet() public {
+        this.doInitialize();
+        _setChangeTimelock(3 days);
+
+        address first = makeAddr("firstHotKey");
+        vm.prank(ownerAddress);
+        this.setAssetManager(first, 0);
+        (,,, uint64 pendingAt) = this.getAssetManagerSettings();
+        vm.warp(pendingAt);
+
+        address second = makeAddr("secondHotKey");
+        vm.prank(ownerAddress);
+        this.setAssetManager(second, 0);
+
+        (address manager,, address pending, uint64 nextAt) = this.getAssetManagerSettings();
+        assertEq(manager, first, "the matured grant was written to the live slot");
+        assertEq(pending, second, "and the new one took the pending slot it vacated");
+        assertEq(nextAt, uint64(block.timestamp) + 3 days, "serving its own full delay");
+        assertEq(effectiveAssetManager(address(this)), first, "the promoted manager holds authority");
+    }
+
     /// @dev The point of the delay: a stolen owner key cannot install a manager and trade at once.
     function test_ScheduledManagerCannotTradeBeforeItMatures() public {
         this.doInitialize();
@@ -2163,7 +2264,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         deal(mainnet.WETH, address(this), 1 ether);
         vm.prank(hot);
         vm.expectRevert();
-        this.supply(address(aaveProtocol), mainnet.WETH, 1 ether);
+        this.deposit(address(aaveProtocol), mainnet.WETH, 1 ether);
     }
 
     function test_RevokingIsImmediateAndCancelsAScheduledInstall() public {

@@ -3,6 +3,11 @@ pragma solidity ^0.8.34;
 
 // common errors
 error AddressZero();
+// Moved here from the guard's interface, which stopped exporting them: these are the VAULT refusing
+// because the guard said no, so they belong to the vault's own error set.
+error NotRegistered();
+error Deprecated();
+error AssetNotRegistered();
 error AmountIsZero();
 error ArrayLengthMismatch();
 error EmptyArray();
@@ -53,6 +58,7 @@ error GasBudgetExceeded();
 error GasBudgetTooHigh();
 error FeeExceedsPerOpCap();
 error InvalidRelayedCalldata();
+error InvalidAsset();
 
 // payment risk-control errors
 error PaymentExceedsRiskCap();
@@ -81,7 +87,6 @@ struct RiskSettings {
 struct AutoYield {
     address asset;
     address protocol;
-    bool isSupplying;
 }
 
 /**
@@ -98,15 +103,11 @@ struct AutoYield {
  */
 interface IBittyV1Vault {
     event ScheduledPaymentsPaid(
-        uint256[] ids,
-        address[] recipients,
-        address[] assetAddresses,
-        uint256[] amounts,
-        uint256[] remainingPaymentCounts
+        uint256[] ids, address[] recipients, address[] assets, uint256[] amounts, uint256[] remainingPaymentCounts
     );
 
     event ScheduledPaymentPaid(
-        uint256 indexed id, address recipient, address assetAddress, uint256 amount, uint256 remainingPaymentCount
+        uint256 indexed id, address recipient, address asset, uint256 amount, uint256 remainingPaymentCount
     );
 
     struct ScheduledPayment {
@@ -134,31 +135,14 @@ interface IBittyV1Vault {
     }
 
     /**
-     * @notice The vault's assets.
-     */
-    function getAssets() external view returns (address[] memory);
-
-    /**
-     * @notice The vault's stablecoins.
-     */
-    function getStableCoins() external view returns (address[] memory);
-
-    /**
      * @notice The vault's WETH address.
      */
     function wethAddress() external view returns (address);
 
     /**
-     * @notice The asset manager grant: the one in force, and any change still waiting out the
-     *         vault's `changeTimelock`.
-     * @dev The pending fields are part of the answer rather than a second getter, because "who may
-     *      trade here" is not answerable without them — a scheduled install is invisible otherwise,
-     *      and the delay only protects an owner who can see what it is delaying.
-     * @return assetManager The granted manager. NOT filtered by expiry — a lapsed grant still
-     *         reports its manager, and a caller asking "who may trade" applies the expiry itself.
-     *         It IS read through the timelock: once a scheduled change matures it is the grant, so
-     *         this never reports a manager the vault has already stopped honouring.
-     * @return expiresAt When that grant lapses; 0 = never.
+     * @notice Get the asset manager settings.
+     * @return assetManager The asset manager.
+     * @return expiresAt When the asset manager grant lapses; 0 = never.
      * @return pendingAssetManager A scheduled manager, or address(0) if nothing is scheduled.
      * @return pendingAt When the scheduled change takes effect; 0 = nothing scheduled.
      */
@@ -178,22 +162,27 @@ interface IBittyV1Vault {
      * @notice Get the auto yieldings.
      * @param assetAddresses The addresses of the assets to get the auto yieldings for.
      * @return protocols The protocols for the assets.
-     * @return isSupplyings Whether the assets are being supplied.
      */
-    function getAutoYieldings(address[] calldata assetAddresses)
-        external
-        view
-        returns (address[] memory protocols, bool[] memory isSupplyings);
+    function getAutoYieldings(address[] calldata assetAddresses) external view returns (address[] memory protocols);
 
     /**
-     * @notice Registered payout operators. Each may propose payments pending owner approval.
+     * @notice Is this asset allowed?
+     * @param asset The address of the asset to check.
+     * @return isAllowed Whether the asset is allowed.
      */
-    function getPayoutOperators() external view returns (address[] memory);
+    function isAssetAllowed(address asset) external view returns (bool);
 
     /**
-     * @notice Check if an address is a payout operator.
-     * @param account The address to check.
-     * @return Whether the address is a payout operator.
+     * @notice Is this protocol enabled on the vault?
+     * @param protocol The address of the protocol to check.
+     * @return isAllowed Whether the protocol is allowed.
+     */
+    function isProtocolAllowed(address protocol) external view returns (bool);
+
+    /**
+     * @notice Is this account a payout operator?
+     * @param account The address of the account to check.
+     * @return isPayoutOperator Whether the account is a payout operator.
      */
     function isPayoutOperator(address account) external view returns (bool);
 
@@ -210,39 +199,25 @@ interface IBittyV1Vault {
         returns (uint64 newPaymentProtection, uint64 maxSendValue, uint64 changeTimelock, uint64 maxSendInterval);
 
     /**
-     * @notice Get the protocols.
-     * @return protocols The protocols.
-     */
-    function getProtocols() external view returns (address[] memory);
-
-    /**
-     * @notice Get the supplied balances.
-     * @param lendingProtocols The lending protocols to get the balances for.
+     * @notice Get what the vault holds in withdrawable protocols.
+     * @dev One getter for every protocol the vault can exit, whatever it does with the asset while
+     *      it holds it - lending, staking, or anything later that speaks the same interface.
+     * @param withdrawProtocols The protocols to get the balances for, one per asset.
      * @param assetAddresses The addresses of the assets to get the balances for.
      * @return balances The balances.
      */
-    function getSuppliedBalances(address[] calldata lendingProtocols, address[] calldata assetAddresses)
+    function getBalances(address[] calldata withdrawProtocols, address[] calldata assetAddresses)
         external
         view
         returns (uint256[] memory balances);
 
     /**
-     * @notice Get the staked balances.
-     * @param stakingProtocols The staking protocols to get the balances for.
-     * @param assets The addresses of the assets to get the balances for.
-     * @return balances The balances.
+     * @notice Get the withdrawals awaiting a claim.
+     * @dev Empty for protocols that settle {IBittyV1AssetManager-withdraw} in the same call.
+     * @param withdrawProtocol The protocol to get the pending withdrawal ids for.
+     * @return ids The pending withdrawal ids.
      */
-    function getStakedBalances(address[] calldata stakingProtocols, address[] calldata assets)
-        external
-        view
-        returns (uint256[] memory balances);
-
-    /**
-     * @notice Get the unstake request ids.
-     * @param stakingProtocol The staking protocol to get the unstake request ids for.
-     * @return requestIds The unstake request ids.
-     */
-    function getUnstakeRequestIds(address stakingProtocol) external view returns (uint256[] memory);
+    function getPendingWithdrawalIds(address withdrawProtocol) external view returns (uint256[] memory ids);
 
     /**
      * @notice Get the AMM liquidity.
@@ -257,24 +232,20 @@ interface IBittyV1Vault {
 
     /**
      * @notice Auto yield the assets.
-     * @param assetAddresses The addresses of the assets to auto yield.
+     * @param assets The addresses of the assets to auto yield.
      */
-    function autoYields(address[] calldata assetAddresses) external;
+    function autoYields(address[] calldata assets) external;
 
     /**
      * @notice Pay scheduled payments.
      * @param ids The ids of the scheduled payments to pay.
-     * @param stakingProtocols The staking protocols to use.
-     * @param stakingAmounts The amounts to stake.
-     * @param lendingProtocols The lending protocols to use.
-     * @param lendingAmounts The amounts to lend.
+     * @param withdrawProtocols The withdrawable protocols to use.
+     * @param withdrawAmounts The amounts to withdraw from the withdrawable protocols.
      */
     function payScheduleds(
         uint256[] calldata ids,
-        address[] calldata stakingProtocols,
-        uint256[] calldata stakingAmounts,
-        address[] calldata lendingProtocols,
-        uint256[] calldata lendingAmounts
+        address[] calldata withdrawProtocols,
+        uint256[] calldata withdrawAmounts
     ) external;
 
     /**
@@ -312,44 +283,37 @@ interface IBittyV1Vault {
      * @dev One call rather than three, since no caller wants a subset. Deliberately does NOT repeat
      *      {gasBudgetRemaining} — that is live state with its own getter, read on-chain by the
      *      forwarder — nor an `enabled` flag, which `dailyLimit` already carries.
-     * @return stableCoins The coins that may pay for relayed gas. Activation seeds this with the
+     * @return assets The assets that may pay for relayed gas. Activation seeds this with the
      *         guard's stable coins; EMPTY means NOTHING may pay, so relaying cannot be charged and
      *         no relayed call will go through.
      * @return dailyLimit Per-UTC-day ceiling in whole tokens, as in force. ZERO means relaying is
      *         off: when it is on this is either the owner's figure or DAILY_MAX_GAS_BUDGET, never 0.
      * @return maxFeePerOp Ceiling on a single charge, in whole tokens. Never zero.
      */
-    function gaslessConfig()
-        external
-        view
-        returns (address[] memory stableCoins, uint256 dailyLimit, uint256 maxFeePerOp);
+    function gaslessConfig() external view returns (address[] memory assets, uint256 dailyLimit, uint256 maxFeePerOp);
 
     /**
      * @notice Reimburse the trusted forwarder, in stablecoin, for gas it fronted for this vault.
      * @dev Not subject to the payment-risk controls: this is the vault settling its own gas bill, and
      *      an owner able to block it with maxSendValue = 0 would just be relaying for free. The daily
      *      budget and per-charge ceiling are the controls that apply instead.
-     * @param stableCoinAddress A stablecoin registered on this vault.
-     * @param amount The amount to reclaim, in `stableCoinAddress` units. The payee is vault config, not an
+     * @param asset The asset to use for the relayer fee.
+     * @param amount The amount to reclaim, in `asset` units. The payee is vault config, not an
      *        argument.
      */
-    function payRelayerFee(address stableCoinAddress, uint256 amount) external;
+    function payRelayerFee(address asset, uint256 amount) external;
 
     /**
      * @notice Pay a scheduled payment.
      * @param id The id of the scheduled payment.
-     * @param stakingProtocol The staking protocol to use.
-     * @param stakingAmount The amount to stake.
-     * @param lendingProtocol The lending protocol to use.
-     * @param lendingAmount The amount to lend.
+     * @param withdrawProtocols The withdrawable protocols to use.
+     * @param withdrawAmounts The amounts to withdraw from the withdrawable protocols.
      */
-    function payScheduled(
-        uint256 id,
-        address stakingProtocol,
-        uint256 stakingAmount,
-        address lendingProtocol,
-        uint256 lendingAmount
-    ) external;
+    function payScheduled(uint256 id, address[] calldata withdrawProtocols, uint256[] calldata withdrawAmounts) external;
 
-    function autoYield(address assetAddress) external;
+    /**
+     * @notice Auto yield the assets.
+     * @param asset The address of the asset to auto yield.
+     */
+    function autoYield(address asset) external;
 }
