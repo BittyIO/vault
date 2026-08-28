@@ -161,7 +161,7 @@ contract TestVaultFork is Test {
     }
 
     function test_VaultDeployAndInitialize() public view {
-        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), tx.origin));
+        assertTrue(vault.owner() == tx.origin);
         assertEq(IVaultFull(payable(address(vault))).wethAddress(), mainnet.WETH);
 
         // ONE category-free list: getProtocols returns every registered protocol, so this asserts
@@ -382,7 +382,7 @@ contract TestVaultFork is Test {
         vm.stopPrank();
 
         BittyV1Vault customVault = BittyV1Vault(payable(vaultAddr));
-        assertTrue(customVault.hasRole(customVault.DEFAULT_ADMIN_ROLE(), customOwner));
+        assertTrue(customVault.owner() == customOwner);
         assertEq(effectiveAssetManager(address(customVault)), customAssetManager);
         assertEq(factory.vaultAddress(customOwner), vaultAddr);
     }

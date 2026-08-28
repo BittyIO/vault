@@ -10,7 +10,7 @@ import {
     AddingAssetsDisabled,
     AddingProtocolsDisabled
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
+import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {vaultProtocols} from "../helpers/VaultSets.sol";
 import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "../helpers/GuardRegister.sol";
 import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
@@ -141,8 +141,10 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         BittyV1Guard(guardAddress).deprecateProtocols(ammProtocols);
     }
 
-    function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
-        return abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, account, role);
+    /// @dev The vault expresses ownership through Ownable now, so `role` is vestigial — kept so the
+    ///      call sites still read as "this caller lacks that authority".
+    function _roleError(address account, bytes32) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, account);
     }
 
     /// Neither assets nor protocols are initialize parameters any more, so add them the way
@@ -433,7 +435,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        vm.expectRevert(_roleError(stranger, bytes32(0)));
         this.setAssetManager(assetManagerAddress, 0);
     }
 
@@ -469,7 +471,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        vm.expectRevert(_roleError(stranger, bytes32(0)));
         this.disableAddingAssets();
     }
 
@@ -932,7 +934,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_SetAutoYieldingRevertNotOwner() public {
         this.doInitialize();
         address stranger = makeAddr("stranger");
-        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        vm.expectRevert(_roleError(stranger, bytes32(0)));
         vm.prank(stranger);
         this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol)));
     }
@@ -1374,7 +1376,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        vm.expectRevert(_roleError(stranger, bytes32(0)));
         this.updateAssets(_single(WBTC), new address[](0));
     }
 
@@ -1554,7 +1556,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        vm.expectRevert(_roleError(stranger, bytes32(0)));
         _clearRoute(mainnet.WETH);
     }
 

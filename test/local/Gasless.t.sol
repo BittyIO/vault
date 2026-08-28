@@ -24,7 +24,7 @@ import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR} from "../../src/logic/Constants.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
+import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {effectiveAssetManager} from "../helpers/AssetManagerView.sol";
 
 /**
@@ -183,9 +183,7 @@ contract GaslessTest is Test {
         _init(address(forwarder), 0);
         address stranger = makeAddr("stranger");
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, bytes32(0))
-        );
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, stranger));
         forwarder.relay(address(vault), abi.encodeCall(IBittyV1Owner.setAssetManager, (stranger, 0)), stranger);
     }
 
@@ -200,9 +198,7 @@ contract GaslessTest is Test {
         MockForwarder rogue = new MockForwarder();
 
         vm.prank(attacker);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, address(rogue), bytes32(0))
-        );
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(rogue)));
         rogue.relay(address(vault), abi.encodeCall(IBittyV1Owner.setAssetManager, (attacker, 0)), ownerAddress);
     }
 
@@ -398,9 +394,7 @@ contract GaslessTest is Test {
         address stranger = makeAddr("stranger");
 
         vm.prank(stranger);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, bytes32(0))
-        );
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, stranger));
         vault.setGasless(_coins(), DAILY, 0);
     }
 

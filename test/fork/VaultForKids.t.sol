@@ -136,7 +136,7 @@ contract VaultForKidsForkTest is Test {
     function test_vaultForKids_fullLifecycle() public {
         // Step 1: factory deploys a vault with only WBTC and WETH
         _deployKidsVaultViaFactory();
-        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner));
+        assertTrue(vault.owner() == parentOwner);
 
         // Step 2: scheduled gifts at 18th birthday
         IBittyV1Vault.ScheduledPayment memory wbtcScheduledPayment =
@@ -161,7 +161,7 @@ contract VaultForKidsForkTest is Test {
         vm.warp(block.timestamp + 7 days + 1);
         vm.prank(parentOwner);
         vault.renounceVaultOwnership(wbtcId);
-        assertFalse(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner));
+        assertFalse(vault.owner() == parentOwner);
 
         vm.expectRevert();
         _addScheduledPayment(wbtcScheduledPayment);

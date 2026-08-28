@@ -14,7 +14,8 @@ import {IVaultFull} from "../helpers/IVaultFull.sol";
 import {MockIntentProtocol} from "../helpers/MockIntentProtocol.sol";
 import {MockSettlement} from "../helpers/MockSettlement.sol";
 import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
-import {AddressZero, OwnershipNotTransferable, NoRescueTarget, AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
+import {AddressZero, OwnershipNotRenounceable, NoRescueTarget, AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
+import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {VaultAlreadyActivated, NotDeployer} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
@@ -146,33 +147,34 @@ contract BittyV1VaultFactoryTest is Test {
         BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
 
         assertEq(vaultInstance.owner(), owner1);
-        assertTrue(vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), owner1));
+        assertTrue(vaultInstance.owner() == owner1);
     }
 
-    function test_activatedVault_ownershipNotTransferable() public {
+    /// @dev A vault has exactly one owner structurally now — there is no role to hand a second party.
+    ///      Moving it requires the recipient to accept, and dropping it requires a proven escape route.
+    function test_activatedVault_ownershipMovesOnlyByAcceptance() public {
         _initFactory();
         BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
-        bytes32 adminRole = vaultInstance.DEFAULT_ADMIN_ROLE();
 
         vm.prank(owner1);
-        vm.expectRevert(OwnershipNotTransferable.selector);
-        vaultInstance.grantRole(adminRole, owner2);
+        vaultInstance.transferOwnership(owner2);
+        assertEq(vaultInstance.owner(), owner1, "nomination alone changes nothing");
 
-        assertEq(vaultInstance.owner(), owner1);
+        vm.prank(owner2);
+        vaultInstance.acceptOwnership();
+        assertEq(vaultInstance.owner(), owner2);
     }
 
     function test_activatedVault_delayedRenounceDisabled() public {
         _initFactory();
         BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
-        bytes32 adminRole = vaultInstance.DEFAULT_ADMIN_ROLE();
 
-        // Renounce is only via renounceVaultOwnership(); renounceRole is disabled.
+        // Dropping ownership is only via renounceVaultOwnership(), which proves an escape route first.
         vm.prank(owner1);
-        vm.expectRevert(OwnershipNotTransferable.selector);
-        vaultInstance.renounceRole(adminRole, owner1);
+        vm.expectRevert(OwnershipNotRenounceable.selector);
+        vaultInstance.renounceOwnership();
 
         assertEq(vaultInstance.owner(), owner1);
-        assertTrue(vaultInstance.hasRole(adminRole, owner1));
     }
 
     function test_activatedVault_renounceVaultOwnershipRequiresRescue() public {
@@ -241,7 +243,7 @@ contract BittyV1VaultFactoryTest is Test {
         address vaultAddr = _newVault();
         BittyV1Vault vault = BittyV1Vault(payable(vaultAddr));
 
-        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), tx.origin), "Owner should hold DEFAULT_ADMIN_ROLE");
+        assertTrue(vault.owner() == tx.origin, "Owner should hold DEFAULT_ADMIN_ROLE");
 
         // Membership, not position: activation seeds WETH and the guard's stable coins before the
         // caller's own list is applied, so the order these arrive in is not part of the contract.
@@ -412,9 +414,7 @@ contract BittyV1VaultFactoryTest is Test {
         assertTrue(vault.code.length > 0, "Vault should be activated");
 
         BittyV1Vault vaultInstance = BittyV1Vault(payable(vault));
-        assertTrue(
-            vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), tx.origin), "Owner should hold DEFAULT_ADMIN_ROLE"
-        );
+        assertTrue(vaultInstance.owner() == tx.origin, "Owner should hold DEFAULT_ADMIN_ROLE");
     }
 
     function test_VaultAddressForDifferentOwners() public {
@@ -555,9 +555,7 @@ contract BittyV1VaultFactoryTest is Test {
 
         assertTrue(vault.code.length > 0, "Vault should be activated");
         BittyV1Vault vaultInstance = BittyV1Vault(payable(vault));
-        assertTrue(
-            vaultInstance.hasRole(vaultInstance.DEFAULT_ADMIN_ROLE(), tx.origin), "Owner should hold DEFAULT_ADMIN_ROLE"
-        );
+        assertTrue(vaultInstance.owner() == tx.origin, "Owner should hold DEFAULT_ADMIN_ROLE");
     }
 
     function test_InitializeSetsStateVariables() public {
@@ -572,7 +570,7 @@ contract BittyV1VaultFactoryTest is Test {
     function test_ActivateVaultFor_setsOwner() public {
         _initFactory();
         address vault = _newVaultFor(owner1);
-        assertTrue(BittyV1Vault(payable(vault)).hasRole(BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE(), owner1));
+        assertTrue(BittyV1Vault(payable(vault)).owner() == owner1);
     }
 
     function test_ActivateVault_ownerIsAlwaysCaller() public {
@@ -590,8 +588,8 @@ contract BittyV1VaultFactoryTest is Test {
         assertTrue(attackerVault != victimVault, "attacker cannot occupy victim's vault address");
 
         BittyV1Vault av = BittyV1Vault(payable(attackerVault));
-        assertTrue(av.hasRole(av.DEFAULT_ADMIN_ROLE(), attacker), "caller is owner");
-        assertFalse(av.hasRole(av.DEFAULT_ADMIN_ROLE(), owner1), "victim is not owner");
+        assertTrue(av.owner() == attacker, "caller is owner");
+        assertFalse(av.owner() == owner1, "victim is not owner");
     }
 
     function test_ActivateVaultFor_revertVaultAlreadyActivated() public {
@@ -618,7 +616,7 @@ contract BittyV1VaultFactoryTest is Test {
         _initFactory();
         BittyV1Vault vault = BittyV1Vault(payable(_newVaultFor(owner1)));
 
-        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), owner1));
+        assertTrue(vault.owner() == owner1);
         assertTrue(vault.isAssetAllowed(wbtcAddress));
         assertTrue(vault.isAssetAllowed(wethAddress));
         assertTrue(vault.isStableCoinAllowed(usdtAddress));
@@ -628,7 +626,7 @@ contract BittyV1VaultFactoryTest is Test {
     function test_ActivatedVault_ownerSetsAssetManager() public {
         _initFactory();
         BittyV1Vault vault = BittyV1Vault(payable(_newVaultFor(owner1)));
-        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), owner1));
+        assertTrue(vault.owner() == owner1);
         assertEq(effectiveAssetManager(address(vault)), assetManagerAddress);
     }
 
@@ -648,14 +646,14 @@ contract BittyV1VaultFactoryTest is Test {
         assertEq(effectiveAssetManager(address(vaultInstance)), assetManager2);
     }
 
-    function test_ActivateVaultFor_nonOwnerCannotGrantRoles() public {
+    function test_ActivateVaultFor_nonOwnerCannotTakeOwnership() public {
         _initFactory();
         BittyV1Vault vault = BittyV1Vault(payable(_newVaultFor(owner1)));
 
-        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
         vm.prank(owner2);
-        vm.expectRevert(OwnershipNotTransferable.selector);
-        vault.grantRole(adminRole, owner2);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, owner2));
+        vault.transferOwnership(owner2);
+        assertEq(vault.owner(), owner1);
     }
 
     function test_ActivateVault_withTxOriginOwner() public {
@@ -663,7 +661,7 @@ contract BittyV1VaultFactoryTest is Test {
         address expected = factory.vaultAddress(tx.origin);
         address vault = _newVault();
         assertEq(vault, expected);
-        assertTrue(BittyV1Vault(payable(vault)).hasRole(BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE(), tx.origin));
+        assertTrue(BittyV1Vault(payable(vault)).owner() == tx.origin);
         assertEq(effectiveAssetManager(vault), assetManagerAddress);
     }
 
@@ -673,14 +671,11 @@ contract BittyV1VaultFactoryTest is Test {
         address vault = _activateVault(multisigOwner, assetManagerAddress);
 
         assertEq(factory.vaultAddress(multisigOwner), vault);
-        assertTrue(
-            BittyV1Vault(payable(vault)).hasRole(BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE(), multisigOwner)
-        );
+        assertTrue(BittyV1Vault(payable(vault)).owner() == multisigOwner);
 
-        bytes32 adminRole = BittyV1Vault(payable(vault)).DEFAULT_ADMIN_ROLE();
         vm.prank(owner1);
-        vm.expectRevert(OwnershipNotTransferable.selector);
-        BittyV1Vault(payable(vault)).grantRole(adminRole, makeAddr("other"));
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, owner1));
+        BittyV1Vault(payable(vault)).transferOwnership(makeAddr("other"));
     }
 
     // ============ One vault per owner ============
@@ -691,8 +686,8 @@ contract BittyV1VaultFactoryTest is Test {
         address vault2 = _activateVault(owner2, assetManagerAddress);
 
         assertTrue(vault1 != vault2);
-        assertTrue(BittyV1Vault(payable(vault1)).hasRole(BittyV1Vault(payable(vault1)).DEFAULT_ADMIN_ROLE(), owner1));
-        assertTrue(BittyV1Vault(payable(vault2)).hasRole(BittyV1Vault(payable(vault2)).DEFAULT_ADMIN_ROLE(), owner2));
+        assertTrue(BittyV1Vault(payable(vault1)).owner() == owner1);
+        assertTrue(BittyV1Vault(payable(vault2)).owner() == owner2);
     }
 
     function test_secondActivationSameOwnerReverts() public {

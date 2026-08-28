@@ -5,7 +5,7 @@ import {AutoYield} from "./IBittyV1Vault.sol";
 
 /**
  * @title IBittyV1Owner
- * @notice The owner-only (DEFAULT_ADMIN_ROLE) vault surface: config, asset manager guardrails, payout operator
+ * @notice The owner-only vault surface: config, asset manager guardrails, payout operator
  *         guardrails, approval of payout operator proposals, and the whitelisted-recipient payout. Implemented
  *         by {BittyV1Vault}. Payment creation (callable by owner or payout operator) lives in
  *         {IBittyV1PayoutOperator}; reads/permissionless in {IBittyV1Vault}; asset manager trading/yield in
