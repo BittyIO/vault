@@ -14,6 +14,7 @@ import {AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR} from "../../src/logic/Constants.sol";
 import {ERC2771Forwarder} from "openzeppelin-contracts/contracts/metatx/ERC2771Forwarder.sol";
+import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ECDSA} from "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -222,8 +223,91 @@ contract BittyV1ForwarderTest is Test {
     function test_OwnerCannotBeZero() public {
         BittyV1VaultForwarder fresh = new BittyV1VaultForwarder();
         vm.prank(fresh.DEPLOYER(), fresh.DEPLOYER());
-        vm.expectRevert(BittyV1VaultForwarder.AddressZero.selector);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableInvalidOwner.selector, address(0)));
         fresh.initialize(address(0));
+    }
+
+    // ============ Ownership transfer ============
+
+    function test_OwnershipTransferIsTwoStep() public {
+        address next = makeAddr("nextOwner");
+
+        vm.prank(deployer);
+        fwd.transferOwnership(next);
+        assertEq(fwd.owner(), deployer, "nomination alone does not move authority");
+        assertEq(fwd.pendingOwner(), next);
+
+        vm.prank(next);
+        fwd.acceptOwnership();
+        assertEq(fwd.owner(), next, "authority moves only once the nominee accepts");
+        assertEq(fwd.pendingOwner(), address(0), "and the nomination is consumed");
+    }
+
+    function test_OnlyOwnerCanNominate() public {
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, stranger));
+        fwd.transferOwnership(makeAddr("nextOwner"));
+    }
+
+    function test_OnlyNomineeCanAccept() public {
+        vm.prank(deployer);
+        fwd.transferOwnership(makeAddr("nextOwner"));
+
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, stranger));
+        fwd.acceptOwnership();
+        assertEq(fwd.owner(), deployer, "a rejected accept leaves the owner untouched");
+    }
+
+    function test_NominationCanBeCancelled() public {
+        vm.startPrank(deployer);
+        fwd.transferOwnership(makeAddr("nextOwner"));
+        fwd.transferOwnership(address(0));
+        vm.stopPrank();
+        assertEq(fwd.pendingOwner(), address(0), "the nomination is withdrawn");
+    }
+
+    /// @dev Renouncing would strand the relayer allowlist on a forwarder no vault can be pointed away
+    ///      from, so the inherited entry point is closed off.
+    function test_OwnershipCannotBeRenounced() public {
+        vm.prank(deployer);
+        vm.expectRevert(BittyV1VaultForwarder.OwnershipNotRenounceable.selector);
+        fwd.renounceOwnership();
+        assertEq(fwd.owner(), deployer, "the allowlist keeps an owner");
+    }
+
+    function test_NewOwnerControlsTheRelayerAllowlist() public {
+        address next = makeAddr("nextOwner");
+        address newRelayer = makeAddr("newRelayer");
+
+        vm.prank(deployer);
+        fwd.transferOwnership(next);
+        vm.prank(next);
+        fwd.acceptOwnership();
+
+        vm.prank(next);
+        fwd.setRelayerApproval(newRelayer, true);
+        assertTrue(fwd.approvedRelayers(newRelayer), "the new owner can approve");
+
+        vm.prank(deployer);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, deployer));
+        fwd.setRelayerApproval(newRelayer, false);
+    }
+
+    /// @dev The reason this exists: a contract nominee proves it can call, which is what lets the
+    ///      allowlist move to a multisig now and to a non-ECDSA account later.
+    function test_OwnershipCanMoveToAContract() public {
+        BittyV1VaultForwarder nominee = new BittyV1VaultForwarder();
+
+        vm.prank(deployer);
+        fwd.transferOwnership(address(nominee));
+        vm.prank(address(nominee));
+        fwd.acceptOwnership();
+
+        assertEq(fwd.owner(), address(nominee), "a contract holds the allowlist");
+        assertGt(address(nominee).code.length, 0, "and it is genuinely a contract");
     }
 
     // ============ Batched relay, one fee ============
@@ -295,7 +379,7 @@ contract BittyV1ForwarderTest is Test {
     function test_RelayerApprovalIsOwnerOnly() public {
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(BittyV1VaultForwarder.NotOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, stranger));
         fwd.setRelayerApproval(stranger, true);
     }
 

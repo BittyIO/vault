@@ -3,33 +3,30 @@ pragma solidity ^0.8.34;
 
 import {ERC2771Forwarder} from "openzeppelin-contracts/contracts/metatx/ERC2771Forwarder.sol";
 import {ERC2771Context} from "openzeppelin-contracts/contracts/metatx/ERC2771Context.sol";
-import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptography/SignatureChecker.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IBittyV1Vault} from "./interfaces/IBittyV1Vault.sol";
+import {Ownable2StepUpgradeable} from "openzeppelin-contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 
-contract BittyV1VaultForwarder is ERC2771Forwarder, Initializable {
+/**
+ * @dev Ownership is the UPGRADEABLE OpenZeppelin variant purely so it initializes instead of taking a
+ *      constructor argument. This forwarder must have no constructor arguments at all — they would be
+ *      appended to the init code and give it a different address on every chain, which is the one
+ *      property the whole deployment depends on.
+ */
+contract BittyV1VaultForwarder is ERC2771Forwarder, Ownable2StepUpgradeable {
     address public constant DEPLOYER = 0x12EE2de7BF086388B1D560eb95e7191Edfab9823;
-
-    address public owner;
 
     error FeeExceedsVaultBudget();
     error NotApprovedRelayer();
     error EmptyBatch();
     error BatchTargetMismatch();
     error NotDeployer();
-    error NotOwner();
-    error AddressZero();
+    error OwnershipNotRenounceable();
 
     event RelayerApprovalSet(address indexed relayer, bool approved);
-    event OwnerSet(address indexed owner);
-
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
-        _;
-    }
 
     /**
      * @dev Plain {execute} stays permissionless, as ERC-2771 intends: anyone may relay a signed request
@@ -122,9 +119,16 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, Initializable {
      */
     function initialize(address owner_) external initializer {
         if (tx.origin != DEPLOYER) revert NotDeployer();
-        if (owner_ == address(0)) revert AddressZero();
-        owner = owner_;
-        emit OwnerSet(owner_);
+        __Ownable_init(owner_);
+    }
+
+    /**
+     * @dev Renouncing would leave the relayer allowlist frozen forever: this forwarder is a
+     *      compile-time constant in every vault of the generation, so there is no replacing it and no
+     *      recovering from an owner of zero.
+     */
+    function renounceOwnership() public pure override {
+        revert OwnershipNotRenounceable();
     }
 
     function setRelayerApproval(address relayer, bool approved) external onlyOwner {
