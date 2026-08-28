@@ -5,6 +5,22 @@ import {Test} from "forge-std/Test.sol";
 import {BittyV1AutoYieldKeeper} from "../../src/BittyV1AutoYieldKeeper.sol";
 import {BITTY_FORWARDER} from "../../src/logic/Constants.sol";
 
+/**
+ * @dev An ERC-1271 signer that vouches for exactly one hash — the smallest thing that proves a
+ * contract can now hold a keeper slot, which recovery made impossible.
+ */
+contract MockContractSigner {
+    bytes32 private immutable APPROVED;
+
+    constructor(bytes32 approved) {
+        APPROVED = approved;
+    }
+
+    function isValidSignature(bytes32 hash, bytes memory) external view returns (bytes4) {
+        return hash == APPROVED ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+    }
+}
+
 contract AutoYieldKeeperTest is Test {
     BittyV1AutoYieldKeeper internal keeper;
 
@@ -25,9 +41,12 @@ contract AutoYieldKeeperTest is Test {
         vm.stopPrank();
     }
 
+    /**
+     * @dev The keeper names its signer rather than recovering one, so a payload carries both.
+     */
     function _sig(uint256 key, bytes32 hash) internal pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, hash);
-        return abi.encodePacked(r, s, v);
+        return abi.encode(vm.addr(key), abi.encodePacked(r, s, v));
     }
 
     function _ask(bytes32 hash, bytes memory sig) internal returns (bytes4) {
@@ -40,7 +59,73 @@ contract AutoYieldKeeperTest is Test {
         assertEq(_ask(h, _sig(signerPk, h)), MAGIC);
     }
 
-    /// The whole point of the msg.sender gate: this key set is not a general-purpose identity.
+    /**
+     * @dev The reason the signer is named rather than recovered. Recovery yields an EOA address by
+     * construction, so no contract could ever have held a slot here — not a multisig today, and
+     * not an account that verifies without ECDSA later.
+     */
+    function test_acceptsAContractSigner() public {
+        bytes32 h = keccak256("sweep");
+        MockContractSigner cs = new MockContractSigner(h);
+
+        vm.prank(owner);
+        keeper.setSigner(address(cs), uint64(block.timestamp + 30 days));
+
+        assertEq(_ask(h, abi.encode(address(cs), bytes(""))), MAGIC, "a contract can sign sweeps");
+        assertEq(_ask(keccak256("other"), abi.encode(address(cs), bytes(""))), INVALID, "only what it vouches for");
+    }
+
+    function test_contractSignerStillNeedsRegistering() public {
+        bytes32 h = keccak256("sweep");
+        MockContractSigner cs = new MockContractSigner(h);
+        assertEq(_ask(h, abi.encode(address(cs), bytes(""))), INVALID, "vouching for itself is not enough");
+    }
+
+    /**
+     * @dev The named address is attacker-chosen, so the pairing has to be enforced: naming a signer
+     * that IS active while supplying someone else's signature must fail.
+     */
+    function test_cannotBorrowAnActiveSignersName() public {
+        (, uint256 strangerPk) = makeAddrAndKey("stranger");
+        bytes32 h = keccak256("sweep");
+        (uint8 v, bytes32 r, bytes32 sr) = vm.sign(strangerPk, h);
+        bytes memory forged = abi.encode(signer, abi.encodePacked(r, sr, v));
+        assertEq(_ask(h, forged), INVALID, "the name does not carry the signature");
+    }
+
+    /**
+     * @dev A raw 65-byte signature is the old format. One format, deliberately: the keeper address is
+     * frozen into every vault at activation, so an ambiguity here could never be revised.
+     */
+    function test_rejectsTheLegacyUnwrappedSignature() public {
+        bytes32 h = keccak256("sweep");
+        (uint8 v, bytes32 r, bytes32 sr) = vm.sign(signerPk, h);
+        assertEq(_ask(h, abi.encodePacked(r, sr, v)), INVALID);
+    }
+
+    function test_malformedPayloadsAreRejectedNotReverted() public {
+        bytes32 h = keccak256("sweep");
+        assertEq(_ask(h, ""), INVALID, "empty");
+        assertEq(_ask(h, hex"deadbeef"), INVALID, "too short");
+        // A well-formed head pointing past the end of the payload.
+        assertEq(
+            _ask(h, abi.encodePacked(bytes32(uint256(uint160(signer))), bytes32(uint256(1 << 200)), bytes32(0))),
+            INVALID,
+            "offset out of range"
+        );
+        // A length that runs past the end.
+        assertEq(
+            _ask(
+                h, abi.encodePacked(bytes32(uint256(uint160(signer))), bytes32(uint256(64)), bytes32(uint256(1 << 200)))
+            ),
+            INVALID,
+            "length out of range"
+        );
+    }
+
+    /**
+     * The whole point of the msg.sender gate: this key set is not a general-purpose identity.
+     */
     function test_rejectsAnyoneOtherThanATrustedForwarder() public {
         bytes32 h = keccak256("sweep");
         bytes memory sig = _sig(signerPk, h);
@@ -54,7 +139,9 @@ contract AutoYieldKeeperTest is Test {
         assertEq(_ask(h, _sig(strangerPk, h)), INVALID);
     }
 
-    /// A leak nobody notices stops mattering on its own.
+    /**
+     * A leak nobody notices stops mattering on its own.
+     */
     function test_keyStopsWorkingWhenItExpires() public {
         bytes32 h = keccak256("sweep");
         uint64 expiry = uint64(block.timestamp + 30 days);
@@ -86,7 +173,9 @@ contract AutoYieldKeeperTest is Test {
         assertEq(_ask(h, _sig(signerPk, h)), INVALID, "old key does not");
     }
 
-    /// A forwarder upgrade leaves two generations of vaults live, so the keeper must serve both.
+    /**
+     * A forwarder upgrade leaves two generations of vaults live, so the keeper must serve both.
+     */
     function test_servesTwoForwarderGenerationsAtOnce() public {
         address forwarderV2 = makeAddr("forwarderV2");
         vm.prank(owner);

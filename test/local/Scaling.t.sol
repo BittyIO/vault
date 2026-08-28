@@ -28,7 +28,9 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 contract ScalingTest is Test {
     uint256 internal constant N = 2000;
 
-    /// Stable coin each vault holds back so it can still pay for the relay that swept it.
+    /**
+     * Stable coin each vault holds back so it can still pay for the relay that swept it.
+     */
     uint256 internal constant FEE_FUNDING = 50_000000;
 
     BittyV1Guard internal guard;
@@ -158,7 +160,8 @@ contract ScalingTest is Test {
         );
         (uint8 v, bytes32 rr, bytes32 ss) =
             vm.sign(hotKeyPk, keccak256(abi.encodePacked("\x19\x01", domain, structHash)));
-        r.signature = abi.encodePacked(rr, ss, v);
+        // The keeper names its signer rather than recovering one.
+        r.signature = abi.encode(vm.addr(hotKeyPk), abi.encodePacked(rr, ss, v));
     }
 
     /**
@@ -172,7 +175,9 @@ contract ScalingTest is Test {
         fwd.executeWithFee(r, address(usdt), fee);
     }
 
-    /// Reads through the fallback into the DeFi facet, which is how the balance getter is reached.
+    /**
+     * Reads through the fallback into the DeFi facet, which is how the balance getter is reached.
+     */
     function _supplied(BittyV1Vault v) internal view returns (uint256) {
         address[] memory p = _one(address(lending));
         address[] memory a = _one(address(usdc));
@@ -227,7 +232,9 @@ contract ScalingTest is Test {
         }
     }
 
-    /// One vault that cannot be swept must not hold up the other forty-nine.
+    /**
+     * One vault that cannot be swept must not hold up the other forty-nine.
+     */
     function test_oneBrokenVaultDoesNotStallTheFleet() public {
         uint256 broken = 7;
         vm.prank(owners[broken]);
@@ -255,7 +262,9 @@ contract ScalingTest is Test {
         assertEq(fwd.nonceFor(address(keeper), address(vaults[broken])), 0, "and its lane never advanced");
     }
 
-    /// Rotating the hot key is ONE transaction and reaches every vault, with no owner action anywhere.
+    /**
+     * Rotating the hot key is ONE transaction and reaches every vault, with no owner action anywhere.
+     */
     function test_keyRotationReachesEveryVaultAtOnce() public {
         _relay(0, 0);
 
@@ -280,7 +289,9 @@ contract ScalingTest is Test {
         }
     }
 
-    /// Budgets are per vault: draining one must not reduce what any other can pay.
+    /**
+     * Budgets are per vault: draining one must not reduce what any other can pay.
+     */
     function test_gasBudgetsAreIsolatedPerVault() public {
         uint256 before1 = vaults[1].gasBudgetRemaining();
 
@@ -349,7 +360,9 @@ contract ScalingTest is Test {
         fwd.executeWithFee(r, address(usdc), 1_000000);
     }
 
-    /// Owners, vaults — the factory's one-vault-per-owner rule holds at scale.
+    /**
+     * Owners, vaults — the factory's one-vault-per-owner rule holds at scale.
+     */
     function test_everyVaultIsADistinctAddress() public {
         for (uint256 i; i < N; ++i) {
             assertFalse(_seen[address(vaults[i])], "no address collision");

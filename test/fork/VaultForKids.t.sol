@@ -19,7 +19,9 @@ import {mainnet} from "protocol-contracts/script/addresses.sol";
  * schedule gifts at age 18, renounce admin, and kids claim through gift wallets.
  */
 contract VaultForKidsForkTest is Test {
-    /// The address that will actually be msg.sender for the next call, honouring an active prank.
+    /**
+     * The address that will actually be msg.sender for the next call, honouring an active prank.
+     */
     function _self() internal view returns (address) {
         (VmSafe.CallerMode mode, address sender,) = vm.readCallers();
         return mode == VmSafe.CallerMode.None ? address(this) : sender;

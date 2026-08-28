@@ -174,7 +174,9 @@ contract BittyV1ForwarderTest is Test {
         assertEq(usdc.balanceOf(collector), 0, "fee 0 relays without charging");
     }
 
-    /// Plain execute stays permissionless, as ERC-2771 intends — it just cannot charge.
+    /**
+     * Plain execute stays permissionless, as ERC-2771 intends — it just cannot charge.
+     */
     function test_PlainExecuteIsPermissionlessAndFree() public {
         address mgr = makeAddr("mgr");
         address bystander = makeAddr("bystander");
@@ -269,8 +271,10 @@ contract BittyV1ForwarderTest is Test {
         assertEq(fwd.pendingOwner(), address(0), "the nomination is withdrawn");
     }
 
-    /// @dev Renouncing would strand the relayer allowlist on a forwarder no vault can be pointed away
-    ///      from, so the inherited entry point is closed off.
+    /**
+     * @dev Renouncing would strand the relayer allowlist on a forwarder no vault can be pointed away
+     * from, so the inherited entry point is closed off.
+     */
     function test_OwnershipCannotBeRenounced() public {
         vm.prank(deployer);
         vm.expectRevert(BittyV1VaultForwarder.OwnershipNotRenounceable.selector);
@@ -296,8 +300,10 @@ contract BittyV1ForwarderTest is Test {
         fwd.setRelayerApproval(newRelayer, false);
     }
 
-    /// @dev The reason this exists: a contract nominee proves it can call, which is what lets the
-    ///      allowlist move to a multisig now and to a non-ECDSA account later.
+    /**
+     * @dev The reason this exists: a contract nominee proves it can call, which is what lets the
+     * allowlist move to a multisig now and to a non-ECDSA account later.
+     */
     function test_OwnershipCanMoveToAContract() public {
         BittyV1VaultForwarder nominee = new BittyV1VaultForwarder();
 
@@ -395,7 +401,9 @@ contract BittyV1ForwarderTest is Test {
 
     // ============ Budget bounds ============
 
-    /// The pre-check exists so a relay that could never be paid for fails before the work is done.
+    /**
+     * The pre-check exists so a relay that could never be paid for fails before the work is done.
+     */
     function test_FeeOverRemainingBudgetIsRejectedBeforeExecuting() public {
         address mgr = makeAddr("mgr");
         ERC2771Forwarder.ForwardRequestData memory r = _req(_setManagerCall(mgr));
@@ -423,8 +431,10 @@ contract BittyV1ForwarderTest is Test {
         fwd.executeWithFee(r, address(usdc), 1_000000);
     }
 
-    /// A vault with gasless switched off cannot be relayed-and-charged at all.
-    /// @dev Off is {disableGasless}. setGasless with an empty list would ENABLE on guard defaults.
+    /**
+     * A vault with gasless switched off cannot be relayed-and-charged at all.
+     * @dev Off is {disableGasless}. setGasless with an empty list would ENABLE on guard defaults.
+     */
     function test_GaslessOffVaultRejectsCharging() public {
         ERC2771Forwarder.ForwardRequestData memory r = _req(_setManagerCall(makeAddr("mgr")));
         vm.prank(alice);
@@ -469,7 +479,9 @@ contract BittyV1ForwarderTest is Test {
         fwd.executeWithFee(r, address(usdc), 1_000000);
     }
 
-    /// A relayed call still has to satisfy the vault's own roles — relaying is not authorisation.
+    /**
+     * A relayed call still has to satisfy the vault's own roles — relaying is not authorisation.
+     */
     function test_RelayedCallStillSubjectToVaultRoles() public {
         (address mallory, uint256 mpk) = makeAddrAndKey("mallory");
         ERC2771Forwarder.ForwardRequestData memory r = ERC2771Forwarder.ForwardRequestData({
@@ -528,9 +540,13 @@ contract BittyV1ForwarderTest is Test {
         assertEq(vault.gasBudgetRemaining(), (uint256(VaultLogic.MAX_FEE_PER_OP) - 2) * 1e18);
     }
 
-    /// Naming a keeper re-enables relaying, so even a vault whose owner switched it off can repay the
+    /**
+     * Naming a keeper re-enables relaying, so even a vault whose owner switched it off can repay the
+     */
 
-    /// Clearing the trigger must NOT switch relaying back off — the owner may want it for their own calls.
+    /**
+     * Clearing the trigger must NOT switch relaying back off — the owner may want it for their own calls.
+     */
     function test_ClearingTheTriggerLeavesGaslessOn() public {
         vm.prank(alice);
         vault.setAutoYieldings(new AutoYield[](0));
@@ -541,7 +557,9 @@ contract BittyV1ForwarderTest is Test {
         assertGt(dailyLimit, 0, "relaying stayed on after the keeper was removed");
     }
 
-    /// Relaying is on from birth, so the property the trigger guard actually controls is the reverse:
+    /**
+     * Relaying is on from birth, so the property the trigger guard actually controls is the reverse:
+     */
 
     function _reqSigned(address from, uint256 key, address to, bytes memory data)
         internal
@@ -636,7 +654,9 @@ contract BittyV1ForwarderTest is Test {
         assertEq(fwd.nonceFor(alice, address(v2)), 1, "vault B lane advanced independently");
     }
 
-    /// A lane that cannot progress must not hold up any other lane.
+    /**
+     * A lane that cannot progress must not hold up any other lane.
+     */
     function test_lanes_aStalledLaneDoesNotBlockAnother() public {
         BittyV1Vault v2 = _secondVault();
 
@@ -655,7 +675,9 @@ contract BittyV1ForwarderTest is Test {
         assertEq(effectiveAssetManager(address(v2)), makeAddr("y"), "other lane progressed regardless");
     }
 
-    /// Within one lane the sequence still binds — replay is still impossible.
+    /**
+     * Within one lane the sequence still binds — replay is still impossible.
+     */
     function test_lanes_replayWithinALaneStillRejected() public {
         ERC2771Forwarder.ForwardRequestData memory r =
             _reqSigned(alice, pk, address(vault), _setManagerCall(makeAddr("mgr")));
@@ -666,7 +688,9 @@ contract BittyV1ForwarderTest is Test {
         fwd.executeWithFee(r, address(usdc), 0);
     }
 
-    /// OpenZeppelin's non-atomic batch is disabled; executeBatchWithFee is the supported batch.
+    /**
+     * OpenZeppelin's non-atomic batch is disabled; executeBatchWithFee is the supported batch.
+     */
     function test_lanes_openZeppelinBatchIsDisabled() public {
         ERC2771Forwarder.ForwardRequestData[] memory one = new ERC2771Forwarder.ForwardRequestData[](1);
         one[0] = _reqSigned(alice, pk, address(vault), _setManagerCall(makeAddr("mgr")));
@@ -793,7 +817,9 @@ contract BittyV1ForwarderTest is Test {
         assertTrue(fwd.verify(r), "verify() must agree with what execute will accept");
     }
 
-    /// One good signature and one stranger's: the wallet rejects it, so the forwarder must too.
+    /**
+     * One good signature and one stranger's: the wallet rejects it, so the forwarder must too.
+     */
     function test_ERC1271RejectsSignatureTheWalletDoesNotAccept() public {
         (BittyV1Vault v, MockMultisigWallet wallet, uint256 k0,) = _walletOwnedVault();
         (, uint256 strangerKey) = makeAddrAndKey("stranger");
@@ -845,7 +871,9 @@ contract BittyV1ForwarderTest is Test {
         assertEq(effectiveAssetManager(address(vault)), alice, "asset manager untouched");
     }
 
-    /// The nonce is burned against `request.from`, which is the wallet — so a replay cannot land.
+    /**
+     * The nonce is burned against `request.from`, which is the wallet — so a replay cannot land.
+     */
     function test_ERC1271RequestCannotBeReplayed() public {
         (BittyV1Vault v, MockMultisigWallet wallet, uint256 k0, uint256 k1) = _walletOwnedVault();
         ERC2771Forwarder.ForwardRequestData memory r = _walletReq(v, wallet, _setManagerCall(makeAddr("mgr")), k0, k1);
@@ -860,7 +888,9 @@ contract BittyV1ForwarderTest is Test {
         fwd.executeWithFee(r, address(usdc), 0);
     }
 
-    /// The ECDSA path is tried first and must be untouched by any of the above.
+    /**
+     * The ECDSA path is tried first and must be untouched by any of the above.
+     */
     function test_EOAOwnerStillRelaysAfterERC1271Support() public {
         address mgr = makeAddr("mgrEOA");
         ERC2771Forwarder.ForwardRequestData memory r = _req(_setManagerCall(mgr));

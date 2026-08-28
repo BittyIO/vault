@@ -27,7 +27,9 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {effectiveAssetManager} from "../helpers/AssetManagerView.sol";
 
 contract BittyV1VaultFactoryTest is Test {
-    /// The address that will actually be msg.sender for the next call, honouring an active prank.
+    /**
+     * The address that will actually be msg.sender for the next call, honouring an active prank.
+     */
     function _self() internal view returns (address) {
         (VmSafe.CallerMode mode, address sender,) = vm.readCallers();
         return mode == VmSafe.CallerMode.None ? address(this) : sender;
@@ -150,8 +152,10 @@ contract BittyV1VaultFactoryTest is Test {
         assertTrue(vaultInstance.owner() == owner1);
     }
 
-    /// @dev A vault has exactly one owner structurally now — there is no role to hand a second party.
-    ///      Moving it requires the recipient to accept, and dropping it requires a proven escape route.
+    /**
+     * @dev A vault has exactly one owner structurally now — there is no role to hand a second party.
+     * Moving it requires the recipient to accept, and dropping it requires a proven escape route.
+     */
     function test_activatedVault_ownershipMovesOnlyByAcceptance() public {
         _initFactory();
         BittyV1Vault vaultInstance = BittyV1Vault(payable(_activateVault(owner1, assetManagerAddress)));
@@ -715,7 +719,9 @@ contract BittyV1VaultFactoryTest is Test {
 }
 
 contract ActivateVaultWithAssetsTest is Test {
-    /// The address that will actually be msg.sender for the next call, honouring an active prank.
+    /**
+     * The address that will actually be msg.sender for the next call, honouring an active prank.
+     */
     function _self() internal view returns (address) {
         (VmSafe.CallerMode mode, address sender,) = vm.readCallers();
         return mode == VmSafe.CallerMode.None ? address(this) : sender;
@@ -812,8 +818,10 @@ contract ActivateVaultWithAssetsTest is Test {
         factory.activateVault();
     }
 
-    /// ETH sent to the predicted address before deploy is wrapped by initialize; a WETH that reverts
-    /// on deposit must take the whole activation down rather than silently strand the ETH.
+    /**
+     * ETH sent to the predicted address before deploy is wrapped by initialize; a WETH that reverts
+     * on deposit must take the whole activation down rather than silently strand the ETH.
+     */
     function test_revertsWhenEthWrapFails() public {
         RevertingWeth badWeth = new RevertingWeth();
         BittyV1VaultFactory badFactory = new BittyV1VaultFactory();
@@ -828,7 +836,9 @@ contract ActivateVaultWithAssetsTest is Test {
         badFactory.activateVault();
     }
 
-    /// The only way ETH reaches a vault at activation now: sent to the predicted address beforehand.
+    /**
+     * The only way ETH reaches a vault at activation now: sent to the predicted address beforehand.
+     */
     function test_ethDepositBeforeDeployWrapsToWeth() public {
         uint256 ethAmount = 1 ether;
         address vault = factory.vaultAddress(user);

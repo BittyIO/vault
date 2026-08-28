@@ -111,7 +111,9 @@ contract GaslessTest is Test {
         vault.setGasless(coins, dailyGasBudget, 0);
     }
 
-    /// Guard-registers a stable coin so it can be listed before any test has funded one.
+    /**
+     * Guard-registers a stable coin so it can be listed before any test has funded one.
+     */
     function _ensureStable() internal returns (address) {
         usdc = new MockERC20("USD Coin", "USDC", 6);
         address[] memory toAdd = new address[](1);
@@ -202,7 +204,9 @@ contract GaslessTest is Test {
         rogue.relay(address(vault), abi.encodeCall(IBittyV1Owner.setAssetManager, (attacker, 0)), ownerAddress);
     }
 
-    /// The direct path must be completely untouched — this is a preference, not a mode.
+    /**
+     * The direct path must be completely untouched — this is a preference, not a mode.
+     */
     function test_DirectCallStillWorksAlongsideRelaying() public {
         _init(address(forwarder), 0);
         address newManager = makeAddr("manager");
@@ -268,7 +272,9 @@ contract GaslessTest is Test {
         assertEq(usdc.balanceOf(collector), 3_000000);
     }
 
-    /// A stable coin the owner did not list cannot be taken, even though the guard knows it.
+    /**
+     * A stable coin the owner did not list cannot be taken, even though the guard knows it.
+     */
     function test_PayRelayerFee_RejectsUnlistedStableCoin() public {
         _init(address(forwarder), DAILY);
         _fundStable(1000_000000);
@@ -544,7 +550,9 @@ contract GaslessTest is Test {
         assertEq(vault.gasBudgetRemaining(), (uint256(DAILY) - charge) * 1e18);
     }
 
-    /// The owner may tighten below the constant, but never above it.
+    /**
+     * The owner may tighten below the constant, but never above it.
+     */
     function test_OwnerCannotRaisePerOpCapAboveTheConstant() public {
         _init(address(forwarder), DAILY);
 
@@ -572,7 +580,9 @@ contract GaslessTest is Test {
         assertEq(_maxFeeOf(vault), VaultLogic.MAX_FEE_PER_OP);
     }
 
-    /// Even after the timelock, relaxing lands on the constant rather than on "no limit".
+    /**
+     * Even after the timelock, relaxing lands on the constant rather than on "no limit".
+     */
     function test_MaxFeePerOp_ClearingRelaxesOnlyToTheConstant() public {
         _initWithRisk(address(forwarder), DAILY, RiskSettings(0, 0, 0, 1 days));
 
@@ -620,7 +630,9 @@ contract GaslessTest is Test {
         forwarder.relay(address(vault), "", ownerAddress);
     }
 
-    /// A full selector plus the suffix is exactly the 24-byte minimum and must still be accepted.
+    /**
+     * A full selector plus the suffix is exactly the 24-byte minimum and must still be accepted.
+     */
     function test_MinimumLengthRelayedCallIsAccepted() public {
         _init(address(forwarder), 0);
 

@@ -14,7 +14,9 @@ pragma solidity ^0.8.34;
  *      will fail loudly against this one rather than quietly pass.
  */
 contract MockCategoryProtocol {
-    /// @dev ERC-165's own id: `bytes4(keccak256("supportsInterface(bytes4)"))`.
+    /**
+     * @dev ERC-165's own id: `bytes4(keccak256("supportsInterface(bytes4)"))`.
+     */
     bytes4 private constant ERC165_ID = 0x01ffc9a7;
 
     bytes4 private immutable _categoryId;
@@ -23,10 +25,14 @@ contract MockCategoryProtocol {
         _categoryId = categoryId;
     }
 
-    /// @dev No-op: the clone has no state worth setting, and registration only needs the call to pass.
+    /**
+     * @dev No-op: the clone has no state worth setting, and registration only needs the call to pass.
+     */
     function initialize(address) external {}
 
-    /// @dev Answers false for 0xffffffff, as ERC-165 requires — {ERC165Checker} checks exactly that.
+    /**
+     * @dev Answers false for 0xffffffff, as ERC-165 requires — {ERC165Checker} checks exactly that.
+     */
     function supportsInterface(bytes4 interfaceId) external view returns (bool) {
         return interfaceId == _categoryId || interfaceId == ERC165_ID;
     }

@@ -7,7 +7,9 @@ import {BittyV1VaultBase} from "../../src/BittyV1VaultBase.sol";
 import {Ownable2StepUpgradeable} from "openzeppelin-contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 
 abstract contract BittyV1VaultHarness is BittyV1Vault, BittyV1VaultDeFiFacet {
-    /// The harness IS the vault, so it is its own facet — the fallback never fires here.
+    /**
+     * The harness IS the vault, so it is its own facet — the fallback never fires here.
+     */
     constructor(address autoYieldKeeper) BittyV1Vault(address(0), autoYieldKeeper) {}
 
     // Inheriting both halves means acceptOwnership has two bases. Resolved to the vault's, which is

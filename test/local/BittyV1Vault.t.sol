@@ -159,7 +159,9 @@ contract MockAMMWithCloneNFT is IBittyV1AMMProtocol {
         return 0;
     }
 
-    /// @dev Declares its category so the guard will register it as an AMM protocol.
+    /**
+     * @dev Declares its category so the guard will register it as an AMM protocol.
+     */
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
         return interfaceId == type(IBittyV1AMMProtocol).interfaceId || interfaceId == 0x01ffc9a7;
     }
@@ -190,8 +192,10 @@ contract BittyV1VaultTest is Test {
         vault.setAssetManager(assetManager, 0);
     }
 
-    /// @dev The vault expresses ownership through Ownable now, so `role` is vestigial — kept so the
-    ///      call sites still read as "this caller lacks that authority".
+    /**
+     * @dev The vault expresses ownership through Ownable now, so `role` is vestigial — kept so the
+     * call sites still read as "this caller lacks that authority".
+     */
     function _roleError(address account, bytes32) internal pure returns (bytes memory) {
         return abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, account);
     }
@@ -568,8 +572,10 @@ contract BittyV1VaultTest is Test {
         assertTrue(vault.isPayoutOperator(op3));
     }
 
-    /// @dev The list getter is gone - PayoutOperatorUpdated carries changes - so this asserts the
-    ///      thing the list was standing in for: each operator is registered, and a stranger is not.
+    /**
+     * @dev The list getter is gone - PayoutOperatorUpdated carries changes - so this asserts the
+     * thing the list was standing in for: each operator is registered, and a stranger is not.
+     */
     function test_payoutOperatorMembership() public {
         _initializeVault();
         address op1 = makeAddr("op1");
@@ -2111,8 +2117,10 @@ contract BittyV1VaultTest is Test {
         vault.acceptOwnership();
     }
 
-    /// @dev Dropping ownership must go through renounceVaultOwnership, which first proves a locked
-    ///      escape route exists; the inherited entry point would skip that proof entirely.
+    /**
+     * @dev Dropping ownership must go through renounceVaultOwnership, which first proves a locked
+     * escape route exists; the inherited entry point would skip that proof entirely.
+     */
     function test_vaultOwnershipCannotBeRenouncedDirectly() public {
         _initializeVault();
         vm.prank(ownerAddress);
@@ -2121,8 +2129,10 @@ contract BittyV1VaultTest is Test {
         assertEq(vault.owner(), ownerAddress);
     }
 
-    /// @dev Owner and payout operator are required to differ; accepting is the other direction from
-    ///      which that invariant could be broken.
+    /**
+     * @dev Owner and payout operator are required to differ; accepting is the other direction from
+     * which that invariant could be broken.
+     */
     function test_vaultOwnershipNomineeCannotBeAPayoutOperator() public {
         _initializeVault();
         address op = makeAddr("payoutOperator");
@@ -2154,8 +2164,10 @@ contract BittyV1VaultTest is Test {
         vault.setAssetManager(makeAddr("other"), 0);
     }
 
-    /// @dev The reason this exists: the vault can move to an account that does not verify with ECDSA,
-    ///      without a single asset moving.
+    /**
+     * @dev The reason this exists: the vault can move to an account that does not verify with ECDSA,
+     * without a single asset moving.
+     */
     function test_vaultOwnershipCanMoveToAContract() public {
         _initializeVault();
         address nominee = address(new MockLendingProtocol());
@@ -2373,9 +2385,11 @@ contract BittyV1VaultTest is Test {
      * @dev That grant is the owner's own authority wearing another hat, so it goes with the rest of
      *      it — otherwise renouncing would leave the very key being disowned still able to trade.
      */
-    /// @dev Renouncing routes through _transferOwnership, which deletes any pending owner. Without
-    ///      that, a nomination made before the owner walked away would still be claimable afterwards —
-    ///      handing the vault to someone the escape route was never meant to involve.
+    /**
+     * @dev Renouncing routes through _transferOwnership, which deletes any pending owner. Without
+     * that, a nomination made before the owner walked away would still be claimable afterwards —
+     * handing the vault to someone the escape route was never meant to involve.
+     */
     function test_renounceVaultOwnership_voidsAnInFlightNomination() public {
         _initializeVault();
         (, uint256 escapeId) = _armRescue();
@@ -2396,8 +2410,10 @@ contract BittyV1VaultTest is Test {
         assertEq(vault.owner(), address(0), "the vault stays ownerless");
     }
 
-    /// @dev Nothing can re-own a renounced vault: transferOwnership is owner-gated and the owner is
-    ///      now an address nobody can transact from.
+    /**
+     * @dev Nothing can re-own a renounced vault: transferOwnership is owner-gated and the owner is
+     * now an address nobody can transact from.
+     */
     function test_renounceVaultOwnership_cannotBeReversed() public {
         _initializeVault();
         (, uint256 escapeId) = _armRescue();
@@ -3031,13 +3047,17 @@ contract BittyV1VaultTest is Test {
         vm.stopPrank();
     }
 
-    /// The facet is published by the vault itself now that the factory no longer keeps a copy.
+    /**
+     * The facet is published by the vault itself now that the factory no longer keeps a copy.
+     */
     function test_vaultPublishesItsOwnFacet() public {
         _initializeVault();
         assertEq(vault.DEFI_FACET(), defiFacet, "readable from the vault, never stale");
     }
 
-    /// The trigger is baked into the implementation, so every vault of a generation reports the same one.
+    /**
+     * The trigger is baked into the implementation, so every vault of a generation reports the same one.
+     */
     function test_getAutoYieldTrigger_returnsTheImplementationKeeper() public {
         _initializeVault();
         assertEq(vault.AUTO_YIELD_KEEPER(), address(0xA07E1D));

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {ECDSA} from "openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
+import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptography/SignatureChecker.sol";
 
 /**
  * @title BittyV1AutoYieldKeeper
@@ -102,16 +102,54 @@ contract BittyV1AutoYieldKeeper {
     }
 
     /**
+     * @notice The signature format this keeper accepts: `abi.encode(signer, innerSignature)`.
+     * @dev The signer is NAMED rather than recovered. Recovery can only ever produce the address of an
+     *      EOA, so it made a contract signer structurally impossible — not merely unsupported — and a
+     *      key set that can never include a multisig is a key set that can never stop depending on one
+     *      secp256k1 secret.
+     *
+     *      Naming it costs nothing in authority: the address is attacker-chosen input, but it only
+     *      passes if the owner already registered it AND a signature valid for it is supplied.
+     *      {SignatureChecker} then tries ECDSA first and falls back to ERC-1271, so an EOA signer
+     *      behaves exactly as before and a contract signer — a multisig today, an account that does not
+     *      verify with ECDSA later — works with no further change here. That matters more than usual:
+     *      vaults freeze AUTO_YIELD_KEEPER at activation, so this format cannot be revised for a
+     *      generation once deployed.
+     */
+    function decodeSignature(bytes calldata signature) public pure returns (address signer, bytes calldata inner) {
+        // abi.encode(address,bytes) lays out: [signer][offset to inner][inner length][inner data].
+        // Every read is bounds-checked before it happens so a malformed payload returns "no signer"
+        // instead of reverting, and each check short-circuits before any arithmetic can overflow.
+        if (signature.length < 96) return (address(0), signature[0:0]);
+
+        signer = address(uint160(uint256(bytes32(signature[0:32]))));
+
+        uint256 innerOffset = uint256(bytes32(signature[32:64]));
+        if (innerOffset > signature.length - 32) return (address(0), signature[0:0]);
+
+        uint256 innerLength = uint256(bytes32(signature[innerOffset:innerOffset + 32]));
+        uint256 start = innerOffset + 32;
+        if (innerLength > signature.length - start) return (address(0), signature[0:0]);
+
+        inner = signature[start:start + innerLength];
+    }
+
+    /**
      * @dev Only a trusted forwarder may ask. Without that check this keeper is a general-purpose
      *      ERC-1271 identity that anything accepting contract signatures would honour, which is far
      *      more authority than sweeping vaults needs.
+     *
+     *      Malformed input returns INVALID_VALUE rather than reverting. A revert would be caught by the
+     *      caller's staticcall and read the same way, but only by accident; answering explicitly keeps
+     *      that from being load-bearing.
      */
     function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
         if (!trustedForwarders[msg.sender]) return INVALID_VALUE;
 
-        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(hash, signature);
-        if (err != ECDSA.RecoverError.NoError) return INVALID_VALUE;
+        (address signer, bytes calldata inner) = decodeSignature(signature);
+        if (signer == address(0)) return INVALID_VALUE;
+        if (!isActiveSigner(signer)) return INVALID_VALUE;
 
-        return isActiveSigner(recovered) ? MAGIC_VALUE : INVALID_VALUE;
+        return SignatureChecker.isValidSignatureNow(signer, hash, inner) ? MAGIC_VALUE : INVALID_VALUE;
     }
 }
