@@ -23,9 +23,9 @@ contract Deploy is DeployScript {
     address constant DEPLOYER = 0x12EE2de7BF086388B1D560eb95e7191Edfab9823;
 
     address constant SIMPLE_CREATE2 = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
-    bytes32 constant FORWARDER_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab9823bc58ad2dd698a0001df7d38f;
-    bytes32 constant FACTORY_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab98230140b1536d17a8000bc17540;
-    bytes32 constant IMPLEMENTATION_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab9823836bdb26bc391800001c1dbe;
+    bytes32 constant FORWARDER_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab9823f81fb600688d6000a43d75f0;
+    bytes32 constant FACTORY_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab98230b0822a4ede42c0145a1e0ab;
+    bytes32 constant IMPLEMENTATION_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab982389b154b0ba1204002d5beccd;
 
     function deploy() public virtual override {
         _deployLogicLibraries();
@@ -105,6 +105,7 @@ contract Deploy is DeployScript {
         bytes memory initCode = abi.encodePacked(type(BittyV1Vault).creationCode, abi.encode(defiFacet, keeper));
         console2.log("implementation initCode hash (mine against this):");
         console2.logBytes32(keccak256(initCode));
+
         vaultImpl = _create2Address(IMPLEMENTATION_SALT, initCode);
         if (vaultImpl.code.length == 0) {
             IMMUTABLE_CREATE2.safeCreate2(IMPLEMENTATION_SALT, initCode);
@@ -152,6 +153,7 @@ contract Deploy is DeployScript {
         bytes memory initCode = type(BittyV1VaultFactory).creationCode;
         console2.log("factory initCode hash (mine against this):");
         console2.logBytes32(keccak256(initCode));
+
         address factory = _create2Address(FACTORY_SALT, initCode);
         if (factory.code.length == 0) {
             IMMUTABLE_CREATE2.safeCreate2(FACTORY_SALT, initCode);
