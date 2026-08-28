@@ -10,7 +10,7 @@ import {
     AddingAssetsDisabled,
     AddingProtocolsDisabled
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
+import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {vaultProtocols} from "../helpers/VaultSets.sol";
 import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "../helpers/GuardRegister.sol";
 import {GUARD_DEPLOYER} from "../helpers/GuardDeployer.sol";
@@ -141,12 +141,18 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         BittyV1Guard(guardAddress).deprecateProtocols(ammProtocols);
     }
 
-    function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
-        return abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, account, role);
+    /**
+     * @dev The vault expresses ownership through Ownable now, so `role` is vestigial — kept so the
+     * call sites still read as "this caller lacks that authority".
+     */
+    function _roleError(address account, bytes32) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, account);
     }
 
-    /// Neither assets nor protocols are initialize parameters any more, so add them the way
-    /// production does: lazily, by the owner, once the vault exists.
+    /**
+     * Neither assets nor protocols are initialize parameters any more, so add them the way
+     * production does: lazily, by the owner, once the vault exists.
+     */
     function _enableAssets() internal {
         vm.prank(ownerAddress);
         this.updateAssets(vaultAssets, new address[](0));
@@ -176,9 +182,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         _grantAssetManagerRole(assetManagerAddress);
     }
 
-    /// @dev Same vault, but with NO yield protocols enabled — the state a fresh
-    ///      minimal activation leaves behind, which the simple* entry points
-    ///      are built for.
+    /**
+     * @dev Same vault, but with NO yield protocols enabled — the state a fresh
+     * minimal activation leaves behind, which the simple* entry points
+     * are built for.
+     */
     function doInitializeWithoutProtocols() public {
         this.initialize(ownerAddress, mainnet.WETH, address(0), 0);
         _enableAssets();
@@ -433,7 +441,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        vm.expectRevert(_roleError(stranger, bytes32(0)));
         this.setAssetManager(assetManagerAddress, 0);
     }
 
@@ -469,7 +477,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        vm.expectRevert(_roleError(stranger, bytes32(0)));
         this.disableAddingAssets();
     }
 
@@ -932,7 +940,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     function test_SetAutoYieldingRevertNotOwner() public {
         this.doInitialize();
         address stranger = makeAddr("stranger");
-        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        vm.expectRevert(_roleError(stranger, bytes32(0)));
         vm.prank(stranger);
         this.setAutoYieldings(_route(mainnet.WETH, address(aaveProtocol)));
     }
@@ -952,9 +960,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
      *      already show both routes carrying a deposit. What still constrains a route is the guard: a
      *      protocol it has never registered cannot be yielded into, whatever it claims to be.
      */
-    /// @dev A route to an unlisted protocol normally lists it as a side effect. Once the owner has
-    ///      locked the protocol set that side effect is exactly what must not happen, so the route is
-    ///      refused rather than quietly widening a list the owner sealed.
+    /**
+     * @dev A route to an unlisted protocol normally lists it as a side effect. Once the owner has
+     * locked the protocol set that side effect is exactly what must not happen, so the route is
+     * refused rather than quietly widening a list the owner sealed.
+     */
     function test_SetAutoYieldingRevertsWhenAddingProtocolsDisabled() public {
         this.doInitializeWithoutProtocols();
         vm.startPrank(ownerAddress);
@@ -987,7 +997,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
     }
 
     // The merged setter: routes AND the keeper land in ONE transaction, and an
-    /// The trigger is no longer a per-vault setting, so this only writes routes.
+    /**
+     * The trigger is no longer a per-vault setting, so this only writes routes.
+     */
     function test_SetAutoYieldings_setsRoutes() public {
         this.doInitialize();
         AutoYield[] memory routes = new AutoYield[](1);
@@ -1054,7 +1066,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(IERC20(mainnet.WETH).balanceOf(address(this)), 0);
     }
 
-    /// The owner can always sweep their own vault, so Auto Earn survives the keeper being down.
+    /**
+     * The owner can always sweep their own vault, so Auto Earn survives the keeper being down.
+     */
     function test_AutoYieldOwnerCanSweep() public {
         this.doInitialize();
         vm.prank(ownerAddress);
@@ -1143,7 +1157,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         );
     }
 
-    /// The direct way to stop a route, and the one that does not depend on list semantics.
+    /**
+     * The direct way to stop a route, and the one that does not depend on list semantics.
+     */
     function test_AutoYieldClearedRouteIsSkipped() public {
         this.doInitialize();
         vm.prank(ownerAddress);
@@ -1374,7 +1390,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        vm.expectRevert(_roleError(stranger, bytes32(0)));
         this.updateAssets(_single(WBTC), new address[](0));
     }
 
@@ -1554,7 +1570,7 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.doInitialize();
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
-        vm.expectRevert(_roleError(stranger, DEFAULT_ADMIN_ROLE));
+        vm.expectRevert(_roleError(stranger, bytes32(0)));
         _clearRoute(mainnet.WETH);
     }
 
@@ -1892,7 +1908,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.deposit(address(aaveProtocol), mainnet.WETH, 1 ether);
     }
 
-    /// A lapsed grant must read as "renew me", not as "wrong key".
+    /**
+     * A lapsed grant must read as "renew me", not as "wrong key".
+     */
     function test_ExpiredManagerAndStrangerGetDifferentErrors() public {
         this.doInitialize();
         uint64 expiresAt = uint64(block.timestamp + 1 days);
@@ -1909,7 +1927,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         this.deposit(address(lidoProtocol), mainnet.WETH, 1 ether);
     }
 
-    /// The gasless CoW path must lapse with everything else, or an expired key could still settle.
+    /**
+     * The gasless CoW path must lapse with everything else, or an expired key could still settle.
+     */
     function test_ExpiredManagerCannotAuthorizeOffchainOrders() public {
         this.doInitialize();
         deal(mainnet.WETH, address(this), 1 ether);
@@ -1964,7 +1984,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(effectiveAssetManager(address(this)), assetManagerAddress, "an unset expiry never arrives");
     }
 
-    /// Storage keeps the lapsed grant so a UI can say who it was; only authority is withdrawn.
+    /**
+     * Storage keeps the lapsed grant so a UI can say who it was; only authority is withdrawn.
+     */
     function test_SettingsStillReportTheManagerAfterExpiry() public {
         this.doInitialize();
         uint64 expiresAt = uint64(block.timestamp + 1 days);
@@ -2102,7 +2124,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
      *      and the contract cannot.
      */
 
-    /// @dev Has this vault narrowed `categoryId`? Derived, because the vault no longer answers it.
+    /**
+     * @dev Has this vault narrowed `categoryId`? Derived, because the vault no longer answers it.
+     */
     function _hasProtocolOfCategory(uint8 categoryId) internal view returns (bool) {
         address[] memory listed = vaultProtocols(guardAddress, address(this));
         for (uint256 i; i < listed.length; ++i) {
@@ -2228,9 +2252,11 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(effectiveAssetManager(address(this)), hot, "in force, with nobody having settled it");
     }
 
-    /// @dev {effectiveAssetManager} reads a matured grant through without writing it. The write is
-    ///      what the NEXT setAssetManager does before it schedules anything, so the grant it is about
-    ///      to replace is the matured one rather than the stale slot it superseded.
+    /**
+     * @dev {effectiveAssetManager} reads a matured grant through without writing it. The write is
+     * what the NEXT setAssetManager does before it schedules anything, so the grant it is about
+     * to replace is the matured one rather than the stale slot it superseded.
+     */
     function test_AMaturedInstallIsPromotedByTheNextSet() public {
         this.doInitialize();
         _setChangeTimelock(3 days);
@@ -2252,7 +2278,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(effectiveAssetManager(address(this)), first, "the promoted manager holds authority");
     }
 
-    /// @dev The point of the delay: a stolen owner key cannot install a manager and trade at once.
+    /**
+     * @dev The point of the delay: a stolen owner key cannot install a manager and trade at once.
+     */
     function test_ScheduledManagerCannotTradeBeforeItMatures() public {
         this.doInitialize();
         _setChangeTimelock(3 days);
@@ -2305,7 +2333,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertEq(effectiveAssetManager(address(this)), address(0), "and it lapses when it said it would");
     }
 
-    /// @dev EXTENDING is loosening, so it waits — otherwise "shortening" would be a way in.
+    /**
+     * @dev EXTENDING is loosening, so it waits — otherwise "shortening" would be a way in.
+     */
     function test_ExtendingTheCurrentGrantWaits() public {
         this.doInitialize();
         _setChangeTimelock(3 days);
@@ -2322,7 +2352,9 @@ contract TestAssetManager is ProtocolTestSetup, BittyV1VaultHarness {
         assertGt(pendingAt, 0, "the extension is scheduled");
     }
 
-    /// @dev A vault with no delay configured applies the change at once — there is nothing to wait.
+    /**
+     * @dev A vault with no delay configured applies the change at once — there is nothing to wait.
+     */
     function test_NoTimelockAppliesImmediately() public {
         this.doInitialize();
         address hot = makeAddr("hotKey3");

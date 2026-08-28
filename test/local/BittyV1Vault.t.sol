@@ -50,7 +50,8 @@ import {
     InvalidAsset,
     PayoutOperatorAlreadyRegistered,
     PayoutOperatorNotFound,
-    OwnershipNotTransferable,
+    OwnershipNotRenounceable,
+    PendingOwnerIsPayoutOperator,
     ImmutableScheduledPaymentLocked,
     NoRescueTarget,
     OnlyImmutablePayableAfterRenounce,
@@ -70,6 +71,7 @@ import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 import {NotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {Initializable} from "openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {effectiveAssetManager} from "../helpers/AssetManagerView.sol";
 
 /**
@@ -157,7 +159,9 @@ contract MockAMMWithCloneNFT is IBittyV1AMMProtocol {
         return 0;
     }
 
-    /// @dev Declares its category so the guard will register it as an AMM protocol.
+    /**
+     * @dev Declares its category so the guard will register it as an AMM protocol.
+     */
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
         return interfaceId == type(IBittyV1AMMProtocol).interfaceId || interfaceId == 0x01ffc9a7;
     }
@@ -188,8 +192,12 @@ contract BittyV1VaultTest is Test {
         vault.setAssetManager(assetManager, 0);
     }
 
-    function _roleError(address account, bytes32 role) internal pure returns (bytes memory) {
-        return abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, account, role);
+    /**
+     * @dev The vault expresses ownership through Ownable now, so `role` is vestigial — kept so the
+     * call sites still read as "this caller lacks that authority".
+     */
+    function _roleError(address account, bytes32) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, account);
     }
 
     function _makeScheduledPayment(
@@ -307,7 +315,7 @@ contract BittyV1VaultTest is Test {
         vm.prank(ownerAddress);
         vault.setAssetManager(ownerAddress, 0);
         assertEq(effectiveAssetManager(address(vault)), ownerAddress);
-        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
+        assertTrue(vault.owner() == ownerAddress);
     }
 
     function test_SetPayoutOperatorRevertsWhenOwner() public {
@@ -564,8 +572,10 @@ contract BittyV1VaultTest is Test {
         assertTrue(vault.isPayoutOperator(op3));
     }
 
-    /// @dev The list getter is gone - PayoutOperatorUpdated carries changes - so this asserts the
-    ///      thing the list was standing in for: each operator is registered, and a stranger is not.
+    /**
+     * @dev The list getter is gone - PayoutOperatorUpdated carries changes - so this asserts the
+     * thing the list was standing in for: each operator is registered, and a stranger is not.
+     */
     function test_payoutOperatorMembership() public {
         _initializeVault();
         address op1 = makeAddr("op1");
@@ -575,16 +585,6 @@ contract BittyV1VaultTest is Test {
         assertTrue(vault.isPayoutOperator(op1));
         assertTrue(vault.isPayoutOperator(op2));
         assertFalse(vault.isPayoutOperator(makeAddr("stranger")));
-    }
-
-    function test_GrantRoleRevertsIfAssetManagerGrantedAdminRole() public {
-        address assetMgr = makeAddr("assetMgr");
-        vault.initialize(ownerAddress, address(weth), address(0), 0);
-        _grantAssetManager(assetMgr);
-        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
-        vm.prank(ownerAddress);
-        vm.expectRevert(OwnershipNotTransferable.selector);
-        vault.grantRole(adminRole, assetMgr);
     }
 
     function test_InitErrorWithAlreadyInitialized() public {
@@ -900,7 +900,7 @@ contract BittyV1VaultTest is Test {
 
     function test_SetScheduledPaymentProtectionRevertUnauthorized() public {
         _initializeVault();
-        bytes32 _adminRole = vault.DEFAULT_ADMIN_ROLE();
+        bytes32 _adminRole = bytes32(0);
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, _adminRole));
@@ -2042,12 +2042,12 @@ contract BittyV1VaultTest is Test {
     function test_ownerGetter_resolvesToTheOwner() public {
         _initializeVault();
         assertEq(vault.owner(), ownerAddress);
-        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
+        assertTrue(vault.owner() == ownerAddress);
     }
 
     function test_owner_ownerCanActInstantly() public {
         _initializeVault();
-        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), ownerAddress));
+        assertTrue(vault.owner() == ownerAddress);
 
         address newAssetManager = makeAddr("instantAssetManager");
         vm.prank(ownerAddress);
@@ -2064,33 +2064,121 @@ contract BittyV1VaultTest is Test {
         vault.setAssetManager(newAssetManager, 0);
     }
 
-    function test_ownershipNotTransferable_grantAndRevokeBlocked() public {
+    // ============ Ownership transfer ============
+
+    function test_vaultOwnershipTransferIsTwoStep() public {
         _initializeVault();
-        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
-
-        // No second admin can be granted, and the role can't be revoked — a vault
-        // has exactly one, non-transferable owner.
-        vm.prank(ownerAddress);
-        vm.expectRevert(OwnershipNotTransferable.selector);
-        vault.grantRole(adminRole, makeAddr("newAdmin"));
+        address next = makeAddr("nextOwner");
 
         vm.prank(ownerAddress);
-        vm.expectRevert(OwnershipNotTransferable.selector);
-        vault.revokeRole(adminRole, ownerAddress);
+        vault.transferOwnership(next);
+        assertEq(vault.owner(), ownerAddress, "nomination alone moves nothing");
+        assertEq(vault.pendingOwner(), next);
+        assertTrue(vault.owner() == ownerAddress, "old owner still admin");
 
-        assertEq(vault.owner(), ownerAddress);
+        vm.prank(next);
+        vault.acceptOwnership();
+        assertEq(vault.owner(), next, "authority moves on acceptance");
+        assertEq(vault.pendingOwner(), address(0), "the nomination is consumed");
+        assertTrue(vault.owner() == next, "and the role follows owner()");
+        assertFalse(vault.owner() == ownerAddress, "the old owner loses it");
+    }
+
+    function test_vaultOwnershipOnlyOwnerCanNominate() public {
+        _initializeVault();
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert();
+        vault.transferOwnership(makeAddr("nextOwner"));
+    }
+
+    function test_vaultOwnershipOnlyNomineeCanAccept() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vault.transferOwnership(makeAddr("nextOwner"));
+
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, stranger));
+        vault.acceptOwnership();
+        assertEq(vault.owner(), ownerAddress, "a rejected accept leaves the owner untouched");
+    }
+
+    function test_vaultOwnershipNominationCanBeWithdrawn() public {
+        _initializeVault();
+        address next = makeAddr("nextOwner");
+        vm.startPrank(ownerAddress);
+        vault.transferOwnership(next);
+        vault.transferOwnership(address(0));
+        vm.stopPrank();
+        assertEq(vault.pendingOwner(), address(0));
+
+        vm.prank(next);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, next));
+        vault.acceptOwnership();
+    }
+
+    /**
+     * @dev Dropping ownership must go through renounceVaultOwnership, which first proves a locked
+     * escape route exists; the inherited entry point would skip that proof entirely.
+     */
+    function test_vaultOwnershipCannotBeRenouncedDirectly() public {
+        _initializeVault();
+        vm.prank(ownerAddress);
+        vm.expectRevert(OwnershipNotRenounceable.selector);
+        vault.renounceOwnership();
         assertEq(vault.owner(), ownerAddress);
     }
 
-    function test_renounceRoleBlocked_useRenounceOwnership() public {
+    /**
+     * @dev Owner and payout operator are required to differ; accepting is the other direction from
+     * which that invariant could be broken.
+     */
+    function test_vaultOwnershipNomineeCannotBeAPayoutOperator() public {
         _initializeVault();
-        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
-
-        // renounceRole is disabled — dropping ownership only via renounceVaultOwnership().
+        address op = makeAddr("payoutOperator");
+        _addPayoutOperator(op);
         vm.prank(ownerAddress);
-        vm.expectRevert(OwnershipNotTransferable.selector);
-        vault.renounceRole(adminRole, ownerAddress);
+        vault.transferOwnership(op);
+
+        vm.prank(op);
+        vm.expectRevert(PendingOwnerIsPayoutOperator.selector);
+        vault.acceptOwnership();
         assertEq(vault.owner(), ownerAddress);
+    }
+
+    function test_vaultOwnershipNewOwnerHoldsOwnerPowers() public {
+        _initializeVault();
+        address next = makeAddr("nextOwner");
+        vm.prank(ownerAddress);
+        vault.transferOwnership(next);
+        vm.prank(next);
+        vault.acceptOwnership();
+
+        address mgr = makeAddr("mgr");
+        vm.prank(next);
+        vault.setAssetManager(mgr, 0);
+        assertEq(effectiveAssetManager(address(vault)), mgr, "the new owner governs");
+
+        vm.prank(ownerAddress);
+        vm.expectRevert();
+        vault.setAssetManager(makeAddr("other"), 0);
+    }
+
+    /**
+     * @dev The reason this exists: the vault can move to an account that does not verify with ECDSA,
+     * without a single asset moving.
+     */
+    function test_vaultOwnershipCanMoveToAContract() public {
+        _initializeVault();
+        address nominee = address(new MockLendingProtocol());
+
+        vm.prank(ownerAddress);
+        vault.transferOwnership(nominee);
+        vm.prank(nominee);
+        vault.acceptOwnership();
+
+        assertEq(vault.owner(), nominee);
+        assertGt(nominee.code.length, 0, "the owner is genuinely a contract");
     }
 
     // ─── Immutable scheduled payment lock ─────────────────────────────────────
@@ -2240,7 +2328,7 @@ contract BittyV1VaultTest is Test {
         _initializeVault();
         address coldWallet = makeAddr("coldWallet");
         address hackerWallet = makeAddr("hackerWallet");
-        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        bytes32 adminRole = bytes32(0);
         uint256 start = block.timestamp;
 
         // Day 0: the pre-compromise immutable rescue payment to the cold wallet.
@@ -2297,6 +2385,47 @@ contract BittyV1VaultTest is Test {
      * @dev That grant is the owner's own authority wearing another hat, so it goes with the rest of
      *      it — otherwise renouncing would leave the very key being disowned still able to trade.
      */
+    /**
+     * @dev Renouncing routes through _transferOwnership, which deletes any pending owner. Without
+     * that, a nomination made before the owner walked away would still be claimable afterwards —
+     * handing the vault to someone the escape route was never meant to involve.
+     */
+    function test_renounceVaultOwnership_voidsAnInFlightNomination() public {
+        _initializeVault();
+        (, uint256 escapeId) = _armRescue();
+        address nominee = makeAddr("nominee");
+
+        vm.startPrank(ownerAddress);
+        vault.transferOwnership(nominee);
+        assertEq(vault.pendingOwner(), nominee, "a transfer is in flight");
+        vault.renounceVaultOwnership(escapeId);
+        vm.stopPrank();
+
+        assertEq(vault.owner(), address(0), "ownerless");
+        assertEq(vault.pendingOwner(), address(0), "and the nomination went with it");
+
+        vm.prank(nominee);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, nominee));
+        vault.acceptOwnership();
+        assertEq(vault.owner(), address(0), "the vault stays ownerless");
+    }
+
+    /**
+     * @dev Nothing can re-own a renounced vault: transferOwnership is owner-gated and the owner is
+     * now an address nobody can transact from.
+     */
+    function test_renounceVaultOwnership_cannotBeReversed() public {
+        _initializeVault();
+        (, uint256 escapeId) = _armRescue();
+        vm.prank(ownerAddress);
+        vault.renounceVaultOwnership(escapeId);
+
+        vm.prank(ownerAddress);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, ownerAddress));
+        vault.transferOwnership(ownerAddress);
+        assertEq(vault.owner(), address(0));
+    }
+
     function test_renounceVaultOwnership_stripsTheOwnerAsManager() public {
         _initializeVault();
         (address coldWallet, uint256 escapeId) = _armRescue();
@@ -2918,13 +3047,17 @@ contract BittyV1VaultTest is Test {
         vm.stopPrank();
     }
 
-    /// The facet is published by the vault itself now that the factory no longer keeps a copy.
+    /**
+     * The facet is published by the vault itself now that the factory no longer keeps a copy.
+     */
     function test_vaultPublishesItsOwnFacet() public {
         _initializeVault();
         assertEq(vault.DEFI_FACET(), defiFacet, "readable from the vault, never stale");
     }
 
-    /// The trigger is baked into the implementation, so every vault of a generation reports the same one.
+    /**
+     * The trigger is baked into the implementation, so every vault of a generation reports the same one.
+     */
     function test_getAutoYieldTrigger_returnsTheImplementationKeeper() public {
         _initializeVault();
         assertEq(vault.AUTO_YIELD_KEEPER(), address(0xA07E1D));
@@ -3163,7 +3296,7 @@ contract BittyV1VaultTest is Test {
     function test_WhitelistedRecipient_onlyOwnerOrPayoutOperator() public {
         _initializeVault();
         address stranger = makeAddr("stranger");
-        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        bytes32 adminRole = bytes32(0);
 
         vm.startPrank(stranger);
         vm.expectRevert(NotPayoutOperator.selector);
@@ -3715,7 +3848,7 @@ contract BittyV1VaultTest is Test {
         vm.prank(pm);
         uint256 pId = _addScheduledPayment(_spTo(makeAddr("payee")));
 
-        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        bytes32 adminRole = bytes32(0);
         vm.prank(pm);
         vm.expectRevert(_roleError(pm, adminRole));
         _approveScheduledPayment(pId, bytes32(0));
@@ -4044,7 +4177,7 @@ contract BittyV1VaultTest is Test {
         MockERC721 nft = new MockERC721("Stray", "STRAY");
         nft.mint(address(vault), 1);
 
-        bytes32 adminRole = vault.DEFAULT_ADMIN_ROLE();
+        bytes32 adminRole = bytes32(0);
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(_roleError(stranger, adminRole));

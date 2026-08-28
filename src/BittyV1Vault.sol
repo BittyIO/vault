@@ -14,6 +14,7 @@ import {
     NotPayoutOperator,
     NotTrustedForwarder,
     InvalidRelayedCalldata,
+    PendingOwnerIsPayoutOperator,
     AutoYield
 } from "./interfaces/IBittyV1Vault.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
@@ -54,17 +55,30 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
     }
 
     modifier onlyOwnerOrPayoutOperator() {
-        if (!hasRole(DEFAULT_ADMIN_ROLE, _msgSender()) && !_vault.isPayoutOperator(_msgSender())) {
+        if (_msgSender() != owner() && !_vault.isPayoutOperator(_msgSender())) {
             revert NotPayoutOperator();
         }
         _;
     }
 
     function _byOwner() private view returns (bool) {
-        return hasRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        return _msgSender() == owner();
     }
 
-    function renounceVaultOwnership(uint256 rescueScheduledPaymentId) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    /**
+     * @dev Two steps come from OpenZeppelin; the extra check does not. Owner and payout operator are
+     *      required to differ, and acceptance is the direction that invariant could otherwise be
+     *      broken from — {updatePayoutOperator} only guards the other one.
+     *
+     *      The nominee may be a contract, which is the point: a vault can move to a multisig now and
+     *      to an account that does not verify with ECDSA later, without the assets moving at all.
+     */
+    function acceptOwnership() public virtual override {
+        if (_vault.isPayoutOperator(_msgSender())) revert PendingOwnerIsPayoutOperator();
+        super.acceptOwnership();
+    }
+
+    function renounceVaultOwnership(uint256 rescueScheduledPaymentId) external override onlyOwner {
         _vault.prepareRenounce(rescueScheduledPaymentId);
         address formerOwner = _msgSender();
 
@@ -103,15 +117,11 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         return _vault.gasBudgetRemaining();
     }
 
-    function setGasless(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp_)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function setGasless(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp_) external override onlyOwner {
         _vault.setGasless(assets, dailyLimit, maxFeePerOp_);
     }
 
-    function disableGasless() external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function disableGasless() external override onlyOwner {
         _vault.disableGasless();
     }
 
@@ -160,7 +170,6 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
 
     function initialize(address owner, address weth, address asset, uint256 amount) public initializer {
         _vault.weth = weth;
-        __AccessControl_init();
         _initOwner(owner);
 
         _vault.initialize();
@@ -178,17 +187,13 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         }
     }
 
-    function updateAssets(address[] memory addAssets, address[] memory removeAssets)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function updateAssets(address[] memory addAssets, address[] memory removeAssets) external override onlyOwner {
         _vault.addAssets(addAssets);
         _vault.removeAssets(removeAssets);
         emit AssetsUpdated(addAssets, removeAssets);
     }
 
-    function disableAddingAssets() external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function disableAddingAssets() external override onlyOwner {
         _vault.disableAddingAssets();
         emit AssetsLocked();
     }
@@ -197,7 +202,7 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         return _vault.addingAssetsDisabled;
     }
 
-    function disableAddingProtocols() external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function disableAddingProtocols() external override onlyOwner {
         _assetManager.disableAddingProtocols();
         emit ProtocolsLocked();
     }
@@ -282,7 +287,7 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         uint256 amount,
         address[] calldata withdrawProtocols,
         uint256[] calldata withdrawAmounts
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) external onlyOwner {
         _pullOneFromPositions(asset, withdrawProtocols, withdrawAmounts);
         _vault.sendToWhitelistedRecipientOne(id, asset, amount);
     }
@@ -295,7 +300,7 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         _vault.payScheduledOne(id, _msgSender());
     }
 
-    function approveSend(uint256 id) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function approveSend(uint256 id) external onlyOwner {
         _vault.approveSendOne(id);
     }
 
@@ -323,19 +328,15 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         if (msg.sender == address(this)) return;
         address sender = _msgSender();
         if (sender == AUTO_YIELD_KEEPER) return;
-        if (hasRole(DEFAULT_ADMIN_ROLE, sender)) return;
+        if (sender == owner()) return;
         revert NotAutoYieldTrigger();
     }
 
-    function setAutoYielding(AutoYield calldata route) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setAutoYielding(AutoYield calldata route) external override onlyOwner {
         _assetManager.setAutoYieldingOne(route);
     }
 
-    function reviewSends(uint256[] calldata approveIds, uint256[] calldata cancelIds)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function reviewSends(uint256[] calldata approveIds, uint256[] calldata cancelIds) external override onlyOwner {
         _vault.reviewSends(approveIds, cancelIds, _msgSender());
     }
 
@@ -358,15 +359,11 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         uint256[] calldata approveIds,
         bytes32[] calldata expectedHashes,
         uint256[] calldata cancelIds
-    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) external override onlyOwner {
         _vault.reviewScheduledPayments(approveIds, expectedHashes, cancelIds, _msgSender());
     }
 
-    function updatePaymentRisk(IBittyV1Owner.PaymentRisk calldata paymentRisk)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function updatePaymentRisk(IBittyV1Owner.PaymentRisk calldata paymentRisk) external override onlyOwner {
         _vault.updatePaymentRisk(paymentRisk);
     }
 
@@ -428,7 +425,7 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         uint256[] calldata approveIds,
         bytes32[] calldata expectedHashes,
         uint256[] calldata cancelIds
-    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) external override onlyOwner {
         _vault.reviewWhitelistedRecipients(approveIds, expectedHashes, cancelIds, _msgSender());
     }
 
@@ -440,7 +437,7 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         return _vault.getWhitelistedRecipients(ids);
     }
 
-    function setAutoYieldings(AutoYield[] calldata routes) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setAutoYieldings(AutoYield[] calldata routes) external override onlyOwner {
         _assetManager.setAutoYieldings(routes);
     }
 
@@ -448,7 +445,7 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         return _assetManager.getAutoYieldings(assetAddresses);
     }
 
-    function setAssetManager(address assetManager, uint64 expiresAt) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setAssetManager(address assetManager, uint64 expiresAt) external override onlyOwner {
         _assetManager.setAssetManager(_vault, assetManager, expiresAt);
         emit AssetManagerSet(assetManager, expiresAt);
     }
@@ -462,8 +459,8 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         return (granted, grantedExpiresAt, _assetManager.pendingAssetManager, _assetManager.pendingAssetManagerAt);
     }
 
-    function updatePayoutOperator(address payoutOperator, bool add) external override onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (add && hasRole(DEFAULT_ADMIN_ROLE, payoutOperator)) revert OwnerAndPayoutOperatorMustDiffer();
+    function updatePayoutOperator(address payoutOperator, bool add) external override onlyOwner {
+        if (add && payoutOperator == owner()) revert OwnerAndPayoutOperatorMustDiffer();
         _vault.updatePayoutOperatorOne(payoutOperator, add);
         emit PayoutOperatorUpdated(payoutOperator, add);
     }
@@ -483,17 +480,13 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
     function updateProtocols(address[] memory addProtocols, address[] memory removeProtocols)
         external
         override
-        onlyRole(DEFAULT_ADMIN_ROLE)
+        onlyOwner
     {
         _assetManager.updateProtocols(addProtocols, removeProtocols);
         emit ProtocolsUpdated(addProtocols, removeProtocols);
     }
 
-    function retrieve721(address contractAddress, uint256 tokenId, address to)
-        external
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function retrieve721(address contractAddress, uint256 tokenId, address to) external override onlyOwner {
         if (to == address(0)) revert AddressZero();
         _assetManager.checkNotProtocolNFT(contractAddress);
         IERC721(contractAddress).safeTransferFrom(address(this), to, tokenId);

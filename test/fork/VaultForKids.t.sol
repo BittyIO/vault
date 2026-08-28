@@ -19,7 +19,9 @@ import {mainnet} from "protocol-contracts/script/addresses.sol";
  * schedule gifts at age 18, renounce admin, and kids claim through gift wallets.
  */
 contract VaultForKidsForkTest is Test {
-    /// The address that will actually be msg.sender for the next call, honouring an active prank.
+    /**
+     * The address that will actually be msg.sender for the next call, honouring an active prank.
+     */
     function _self() internal view returns (address) {
         (VmSafe.CallerMode mode, address sender,) = vm.readCallers();
         return mode == VmSafe.CallerMode.None ? address(this) : sender;
@@ -136,7 +138,7 @@ contract VaultForKidsForkTest is Test {
     function test_vaultForKids_fullLifecycle() public {
         // Step 1: factory deploys a vault with only WBTC and WETH
         _deployKidsVaultViaFactory();
-        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner));
+        assertTrue(vault.owner() == parentOwner);
 
         // Step 2: scheduled gifts at 18th birthday
         IBittyV1Vault.ScheduledPayment memory wbtcScheduledPayment =
@@ -161,7 +163,7 @@ contract VaultForKidsForkTest is Test {
         vm.warp(block.timestamp + 7 days + 1);
         vm.prank(parentOwner);
         vault.renounceVaultOwnership(wbtcId);
-        assertFalse(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), parentOwner));
+        assertFalse(vault.owner() == parentOwner);
 
         vm.expectRevert();
         _addScheduledPayment(wbtcScheduledPayment);

@@ -63,7 +63,9 @@ contract MockLendingProtocol is IBittyV1Protocol, IBittyV1Depositable, IBittyV1W
         return address(0);
     }
 
-    /// @dev Settles in the same call, so nothing is ever pending.
+    /**
+     * @dev Settles in the same call, so nothing is ever pending.
+     */
     function getPendingWithdrawalIds() external pure override returns (uint256[] memory) {
         return new uint256[](0);
     }

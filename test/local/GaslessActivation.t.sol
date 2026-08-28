@@ -79,7 +79,9 @@ contract GaslessActivationTest is Test {
         factory.activateVaultByAsset(alice, address(usdc), fee, _sign(fee));
     }
 
-    /// The whole point: an owner who has never held ETH ends up with a funded, working vault.
+    /**
+     * The whole point: an owner who has never held ETH ends up with a funded, working vault.
+     */
     function test_OwnerWithNoEthGetsAVault() public {
         address predicted = factory.vaultAddress(alice);
         usdc.mint(predicted, 500_000000); // deposited straight to the code-less address
@@ -97,7 +99,9 @@ contract GaslessActivationTest is Test {
         assertEq(alice.balance, 0);
     }
 
-    /// Every vault activates at the hard ceiling, so the owner's very next action is already gasless.
+    /**
+     * Every vault activates at the hard ceiling, so the owner's very next action is already gasless.
+     */
     /**
      * The forwarder and collector are wired from factory config, so an owner can never point at
      * someone else's — and relaying is on from birth, because a user with no ETH cannot otherwise turn
@@ -127,7 +131,9 @@ contract GaslessActivationTest is Test {
         assertEq(usdt.balanceOf(collector), 1_000000, "any registered asset may pay from birth");
     }
 
-    /// The owner narrows it afterwards, naming what may pay for it.
+    /**
+     * The owner narrows it afterwards, naming what may pay for it.
+     */
     function test_OwnerEnablesGaslessAfterActivation() public {
         address predicted = factory.vaultAddress(alice);
         usdc.mint(predicted, 100_000000);
@@ -210,7 +216,9 @@ contract GaslessActivationTest is Test {
         factory.activateVaultByAsset(alice, address(usdc), 2_000000, forged);
     }
 
-    /// Tampering with any signed field — here the fee — invalidates the signature.
+    /**
+     * Tampering with any signed field — here the fee — invalidates the signature.
+     */
     function test_TamperedFeeRejected() public {
         usdc.mint(factory.vaultAddress(alice), 100_000000);
         bytes memory sig = _sign(2_000000);
@@ -220,7 +228,9 @@ contract GaslessActivationTest is Test {
         factory.activateVaultByAsset(alice, address(usdc), 90_000000, sig);
     }
 
-    /// No nonce is stored: a vault activates once, so a replay just hits VaultAlreadyActivated.
+    /**
+     * No nonce is stored: a vault activates once, so a replay just hits VaultAlreadyActivated.
+     */
     function test_ReplayHitsAlreadyActivated() public {
         usdc.mint(factory.vaultAddress(alice), 100_000000);
         vm.prank(relayer);
@@ -254,7 +264,9 @@ contract GaslessActivationTest is Test {
         assertEq(protocols[0], address(0), "and no route either");
     }
 
-    /// Anyone may submit a valid signature — that is the point — and the result is what the owner signed.
+    /**
+     * Anyone may submit a valid signature — that is the point — and the result is what the owner signed.
+     */
     function test_AnyoneMaySubmitAValidSignature() public {
         usdc.mint(factory.vaultAddress(alice), 100_000000);
         vm.prank(makeAddr("randomStranger"));
@@ -281,7 +293,9 @@ contract GaslessActivationTest is Test {
         factory.activateVaultByAsset(address(0), address(usdc), 0, new bytes(65));
     }
 
-    /// And a random third party cannot be made an owner: there is no signature for them to have made.
+    /**
+     * And a random third party cannot be made an owner: there is no signature for them to have made.
+     */
     function test_CannotActivateForAnAddressThatDidNotSign() public {
         address stranger = makeAddr("strangerWhoNeverSigned");
         usdc.mint(factory.vaultAddress(stranger), 100_000000);
@@ -293,7 +307,9 @@ contract GaslessActivationTest is Test {
 
     // ============ Fee bounds ============
 
-    /// Even with a valid signature, the contract refuses a fee above the hard constant.
+    /**
+     * Even with a valid signature, the contract refuses a fee above the hard constant.
+     */
     function test_FeeAboveHardCapRejected() public {
         usdc.mint(factory.vaultAddress(alice), 10_000_000000);
         vm.prank(relayer);
@@ -301,7 +317,9 @@ contract GaslessActivationTest is Test {
         _activate((uint256(VaultLogic.MAX_FEE_PER_OP) + 1) * 1e6);
     }
 
-    /// A signature with no deposit behind it is inert rather than dangerous.
+    /**
+     * A signature with no deposit behind it is inert rather than dangerous.
+     */
     function test_UnfundedVaultCannotBeActivatedForAFee() public {
         vm.prank(relayer);
         vm.expectRevert(InsufficientBalance.selector);

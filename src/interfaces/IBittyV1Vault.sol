@@ -36,7 +36,8 @@ error AddingAssetsDisabled();
 error AddingProtocolsDisabled();
 error OwnerAndPayoutOperatorMustDiffer();
 
-error OwnershipNotTransferable();
+error OwnershipNotRenounceable();
+error PendingOwnerIsPayoutOperator();
 // Emergency renounce needs a surviving, trustworthy rescue path — a locked
 // immutable scheduled payment (the only entry an attacker with the same key
 // cannot forge/remove, and the only one that still pays out permissionlessly in

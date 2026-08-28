@@ -25,7 +25,9 @@ contract MulticallTest is BittyV1VaultFactoryTest {
         arr[0] = a;
     }
 
-    /// The ordinary path: owner pays gas from their own wallet, no forwarder involved.
+    /**
+     * The ordinary path: owner pays gas from their own wallet, no forwarder involved.
+     */
     function test_ownerBatchesFromTheirOwnWallet() public {
         BittyV1Vault v = _vault();
         address mgr = makeAddr("mgr");
@@ -41,7 +43,9 @@ contract MulticallTest is BittyV1VaultFactoryTest {
         assertEq(effectiveAssetManager(address(v)), mgr, "manager set, in the same transaction");
     }
 
-    /// Batching cannot be used to act as someone else: a stranger's batch is refused per call.
+    /**
+     * Batching cannot be used to act as someone else: a stranger's batch is refused per call.
+     */
     function test_batchDoesNotEscalate() public {
         BittyV1Vault v = _vault();
         address stranger = makeAddr("stranger");
@@ -56,7 +60,9 @@ contract MulticallTest is BittyV1VaultFactoryTest {
         assertEq(effectiveAssetManager(address(v)), batchOwner, "unchanged");
     }
 
-    /// A failing entry reverts the whole batch — no partial application.
+    /**
+     * A failing entry reverts the whole batch — no partial application.
+     */
     function test_batchIsAllOrNothing() public {
         BittyV1Vault v = _vault();
 

@@ -27,7 +27,9 @@ import {effectiveAssetManager} from "../helpers/AssetManagerView.sol";
  * @notice Mainnet fork integration tests for BittyV1Vault with real Aave and Lido providers.
  */
 contract TestVaultFork is Test {
-    /// The address that will actually be msg.sender for the next call, honouring an active prank.
+    /**
+     * The address that will actually be msg.sender for the next call, honouring an active prank.
+     */
     function _self() internal view returns (address) {
         (VmSafe.CallerMode mode, address sender,) = vm.readCallers();
         return mode == VmSafe.CallerMode.None ? address(this) : sender;
@@ -161,7 +163,7 @@ contract TestVaultFork is Test {
     }
 
     function test_VaultDeployAndInitialize() public view {
-        assertTrue(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), tx.origin));
+        assertTrue(vault.owner() == tx.origin);
         assertEq(IVaultFull(payable(address(vault))).wethAddress(), mainnet.WETH);
 
         // ONE category-free list: getProtocols returns every registered protocol, so this asserts
@@ -382,7 +384,7 @@ contract TestVaultFork is Test {
         vm.stopPrank();
 
         BittyV1Vault customVault = BittyV1Vault(payable(vaultAddr));
-        assertTrue(customVault.hasRole(customVault.DEFAULT_ADMIN_ROLE(), customOwner));
+        assertTrue(customVault.owner() == customOwner);
         assertEq(effectiveAssetManager(address(customVault)), customAssetManager);
         assertEq(factory.vaultAddress(customOwner), vaultAddr);
     }

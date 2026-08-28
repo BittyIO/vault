@@ -4,10 +4,19 @@ pragma solidity ^0.8.34;
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1VaultBase} from "../../src/BittyV1VaultBase.sol";
+import {Ownable2StepUpgradeable} from "openzeppelin-contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 
 abstract contract BittyV1VaultHarness is BittyV1Vault, BittyV1VaultDeFiFacet {
-    /// The harness IS the vault, so it is its own facet — the fallback never fires here.
+    /**
+     * The harness IS the vault, so it is its own facet — the fallback never fires here.
+     */
     constructor(address autoYieldKeeper) BittyV1Vault(address(0), autoYieldKeeper) {}
+
+    // Inheriting both halves means acceptOwnership has two bases. Resolved to the vault's, which is
+    // the one carrying the payout-operator check.
+    function acceptOwnership() public override(BittyV1Vault, Ownable2StepUpgradeable) {
+        BittyV1Vault.acceptOwnership();
+    }
 
     // Inheriting both halves means each context hook has two bases again. Resolved to the vault's,
     // which are the ERC-2771 ones — the same resolution production gets.

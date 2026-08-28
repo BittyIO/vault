@@ -68,7 +68,9 @@ function guardAddAssets(address guard, address[] memory assets) {
     IBittyV1Guard(guard).addAssets(assets, _fill(assets.length, CRYPTO_CATEGORY));
 }
 
-/// @dev Stable coins are ordinary assets carrying the stable coin category now.
+/**
+ * @dev Stable coins are ordinary assets carrying the stable coin category now.
+ */
 function guardAddStableCoins(address guard, address[] memory coins) {
     IBittyV1Guard(guard).addAssets(coins, _fill(coins.length, STABLE_COIN_CATEGORY));
 }

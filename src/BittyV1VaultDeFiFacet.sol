@@ -12,7 +12,9 @@ import {BITTY_GUARD, INTENT_CATEGORY} from "./logic/Constants.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
-    /// @dev ERC-1271 "signature is valid".
+    /**
+     * @dev ERC-1271 "signature is valid".
+     */
     bytes4 internal constant ERC1271_MAGIC_VALUE = 0x1626ba7e;
 
     using AssetManagerLogic for AssetManagerStorage;
