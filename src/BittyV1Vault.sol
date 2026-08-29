@@ -15,6 +15,7 @@ import {
     NotTrustedForwarder,
     InvalidRelayedCalldata,
     PendingOwnerIsPayoutOperator,
+    InsufficientBalance,
     AutoYield
 } from "./interfaces/IBittyV1Vault.sol";
 import {VaultLogic} from "./logic/VaultLogic.sol";
@@ -65,14 +66,6 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         return _msgSender() == owner();
     }
 
-    /**
-     * @dev Two steps come from OpenZeppelin; the extra check does not. Owner and payout operator are
-     *      required to differ, and acceptance is the direction that invariant could otherwise be
-     *      broken from — {updatePayoutOperator} only guards the other one.
-     *
-     *      The nominee may be a contract, which is the point: a vault can move to a multisig now and
-     *      to an account that does not verify with ECDSA later, without the assets moving at all.
-     */
     function acceptOwnership() public virtual override {
         if (_vault.isPayoutOperator(_msgSender())) revert PendingOwnerIsPayoutOperator();
         super.acceptOwnership();
@@ -292,12 +285,48 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         _vault.sendToWhitelistedRecipientOne(id, asset, amount);
     }
 
-    function payScheduled(uint256 id, address[] calldata withdrawProtocols, uint256[] calldata withdrawAmounts)
-        external
+    function payScheduled(uint256 id, address[] calldata withdrawProtocols) external {
+        (
+            bool skipped,
+            address recipient,
+            address asset,
+            address payoutToken,
+            uint256 needed,
+            uint256 have,
+            bool allowPartial,
+            uint256 count
+        ) = _vault.accrueScheduled(id, _msgSender(), withdrawProtocols.length > 0);
+        if (skipped) return;
+
+        bool native = asset == address(0);
+        // ETH must land in the vault cos we can not withdraw ETH from protocol, others go to the recipient
+        uint256 covered = have >= needed
+            ? 0
+            : _coverShortfall(withdrawProtocols, payoutToken, native ? address(this) : recipient, needed - have);
+
+        uint256 raw = (have < needed ? have : needed) + covered;
+        uint256 delivered = raw < needed ? raw : needed;
+        if (delivered < needed && !allowPartial) revert InsufficientBalance();
+
+        _vault.payScheduledOut(asset, recipient, native ? delivered : (have < needed ? have : needed));
+
+        emit IBittyV1Vault.ScheduledPaymentPaid(id, recipient, asset, delivered, count);
+    }
+
+    function _coverShortfall(address[] calldata withdrawProtocols, address payoutToken, address sink, uint256 shortfall)
+        private
+        returns (uint256 covered)
     {
-        address asset = _vault.scheduledPaymentAsset(id);
-        _pullOneFromPositions(asset, withdrawProtocols, withdrawAmounts);
-        _vault.payScheduledOne(id, _msgSender());
+        for (uint256 i = 0; i < withdrawProtocols.length && covered < shortfall; i++) {
+            address protocol = withdrawProtocols[i];
+            if (protocol == address(0)) continue;
+            uint256 available = _assetManager.protocolBalance(protocol, payoutToken);
+            if (available == 0) continue;
+            uint256 remaining = shortfall - covered;
+            covered += _assetManager.withdraw(
+                protocol, payoutToken, available < remaining ? available : remaining, sink
+            );
+        }
     }
 
     function approveSend(uint256 id) external onlyOwner {
@@ -373,36 +402,6 @@ contract BittyV1Vault is BittyV1VaultBase, Multicall, IBittyV1Owner, IBittyV1Pay
         returns (uint64 newPaymentProtection, uint64 maxSendValue, uint64 changeTimelock, uint64 maxSendInterval)
     {
         return _vault.getRiskConfig();
-    }
-
-    function payScheduleds(
-        uint256[] calldata ids,
-        address[] calldata withdrawProtocols,
-        uint256[] calldata withdrawAmounts
-    ) external {
-        _pullScheduledFromPositions(ids, withdrawProtocols, withdrawAmounts);
-        _vault.payScheduled(ids, _msgSender());
-    }
-
-    function _pullScheduledFromPositions(
-        uint256[] calldata ids,
-        address[] calldata withdrawProtocols,
-        uint256[] calldata withdrawAmounts
-    ) private {
-        if (withdrawProtocols.length == 0 && withdrawAmounts.length == 0) {
-            return;
-        }
-        uint256 n = ids.length;
-        if (withdrawProtocols.length != n || withdrawAmounts.length != n) {
-            revert ArrayLengthMismatch();
-        }
-        address self = address(this);
-        for (uint256 i = 0; i < n; i++) {
-            if (withdrawProtocols[i] != address(0) && withdrawAmounts[i] > 0) {
-                address asset = _payoutAsset(_vault.scheduledPaymentAsset(ids[i]));
-                _assetManager.withdraw(withdrawProtocols[i], asset, withdrawAmounts[i], self);
-            }
-        }
     }
 
     function payScheduledAmount(uint256 id, uint256 amount) external {
