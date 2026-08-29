@@ -19,8 +19,8 @@ import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptogra
  *
  *      It deliberately does NOT inspect what is being signed. ERC-1271 receives only a hash, so it
  *      could not anyway — but it does not need to: with `request.from` set to this keeper, the vault
- *      sees a caller that is not its owner, asset manager or payout operator, and {IBittyV1Vault-
- *      autoYield} is the only function that check passes for. The vault does the authorisation; this
+ *      sees a caller that is neither its owner nor a payout operator, and {IBittyV1Vault-autoYield}
+ *      is the only function that check passes for. The vault does the authorisation; this
  *      contract only does authentication.
  */
 contract BittyV1AutoYieldKeeper {
@@ -41,10 +41,8 @@ contract BittyV1AutoYieldKeeper {
     /**
      * @dev Unix second the key stops signing. 0 = not a signer.
      *
-     *      There is deliberately no "never expires" here, unlike the asset-manager grant where 0 means
-     *      exactly that. An asset manager is often a person, frequently the owner themselves; this is
-     *      always a machine key living in a signing service, and a leak nobody notices should stop
-     *      mattering on its own.
+     *      There is deliberately no "never expires" here. A signer is always a machine key living in a
+     *      signing service, never a person, so a leak nobody notices should stop mattering on its own.
      */
     mapping(address signer => uint64 expiresAt) public signerExpiresAt;
 
@@ -112,9 +110,10 @@ contract BittyV1AutoYieldKeeper {
      *      passes if the owner already registered it AND a signature valid for it is supplied.
      *      {SignatureChecker} then tries ECDSA first and falls back to ERC-1271, so an EOA signer
      *      behaves exactly as before and a contract signer — a multisig today, an account that does not
-     *      verify with ECDSA later — works with no further change here. That matters more than usual:
-     *      vaults freeze AUTO_YIELD_KEEPER at activation, so this format cannot be revised for a
-     *      generation once deployed.
+     *      verify with ECDSA later — works with no further change here. That matters because this
+     *      contract is immutable: the format is fixed for the life of a deployed keeper. Rotating to a
+     *      new one is possible — a vault names its trigger in storage — but it is a per-vault migration,
+     *      so the format wants to outlast the signing scheme rather than assume one.
      */
     function decodeSignature(bytes calldata signature) public pure returns (address signer, bytes calldata inner) {
         // abi.encode(address,bytes) lays out: [signer][offset to inner][inner length][inner data].

@@ -1,71 +1,60 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {BittyV1AccountBase} from "./BittyV1AccountBase.sol";
 import {ContextUpgradeable} from "openzeppelin-contracts-upgradeable/utils/ContextUpgradeable.sol";
-import {ERC2771ContextUpgradeable} from "openzeppelin-contracts-upgradeable/metatx/ERC2771ContextUpgradeable.sol";
-import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
-import {VaultLogic} from "./logic/VaultLogic.sol";
-import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
-import {BITTY_FORWARDER} from "./logic/Constants.sol";
-import {OwnershipNotRenounceable} from "./interfaces/IBittyV1Vault.sol";
+import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "openzeppelin-contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {BittyStorage} from "./logic/BittyStorage.sol";
+import {OwnershipNotRenounceable, ImplementationNotRegistered} from "./interfaces/IBittyV1Vault.sol";
+import {BITTY_GUARD} from "./logic/Constants.sol";
+import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 
-abstract contract BittyV1VaultBase is ERC2771ContextUpgradeable, Ownable2StepUpgradeable {
-    using AssetManagerLogic for AssetManagerStorage;
-    using VaultLogic for VaultStorage;
-
-    AssetManagerStorage internal _assetManager;
-    VaultStorage internal _vault;
-
-    constructor() ERC2771ContextUpgradeable(address(0)) {}
-
-    function trustedForwarder() public view virtual override returns (address) {
-        return BITTY_FORWARDER;
+/**
+ * @title BittyV1VaultBase
+ * @notice The main vault's base: 2-step ownership (a mistake is terminal — no backstop) and
+ *         owner-controlled UUPS upgrades. The upgrade target must be a guard-blessed implementation; the
+ *         guard timelocks the blessing globally, so there is no per-vault delay. A vault stays upgradeable
+ *         for life — there is no opt-out, so a bug found later is always patchable.
+ */
+abstract contract BittyV1VaultBase is BittyV1AccountBase, Ownable2StepUpgradeable, UUPSUpgradeable {
+    function upgrade(address newImpl) external {
+        upgradeToAndCall(newImpl, "");
     }
 
-    function _msgSender()
-        internal
-        view
-        virtual
-        override(ContextUpgradeable, ERC2771ContextUpgradeable)
-        returns (address)
+    function _authorizeUpgrade(address newImpl) internal view override {
+        _checkOwner();
+        if (!IBittyV1Guard(BITTY_GUARD).isImplementationRegistered(newImpl)) {
+            revert ImplementationNotRegistered();
+        }
+    }
+
+    function _msgSender() internal view override(BittyV1AccountBase, ContextUpgradeable) returns (address) {
+        return BittyV1AccountBase._msgSender();
+    }
+
+    function _msgData() internal view override(BittyV1AccountBase, ContextUpgradeable) returns (bytes calldata) {
+        return BittyV1AccountBase._msgData();
+    }
+
+    function _contextSuffixLength() internal view override(BittyV1AccountBase, ContextUpgradeable) returns (uint256) {
+        return BittyV1AccountBase._contextSuffixLength();
+    }
+
+    function transferOwnership(address newOwner)
+        public
+        override(OwnableUpgradeable, Ownable2StepUpgradeable)
+        onlyOwner
     {
-        return ERC2771ContextUpgradeable._msgSender();
+        Ownable2StepUpgradeable.transferOwnership(newOwner);
     }
 
-    function _msgData()
-        internal
-        view
-        virtual
-        override(ContextUpgradeable, ERC2771ContextUpgradeable)
-        returns (bytes calldata)
-    {
-        return ERC2771ContextUpgradeable._msgData();
+    function _transferOwnership(address newOwner) internal override(OwnableUpgradeable, Ownable2StepUpgradeable) {
+        Ownable2StepUpgradeable._transferOwnership(newOwner);
     }
 
-    function _contextSuffixLength()
-        internal
-        view
-        virtual
-        override(ContextUpgradeable, ERC2771ContextUpgradeable)
-        returns (uint256)
-    {
-        return ERC2771ContextUpgradeable._contextSuffixLength();
-    }
-
-    /**
-     * @dev Dropping ownership goes through {IBittyV1Owner-renounceVaultOwnership}, which first proves
-     *      a locked escape route exists. This inherited entry point would skip that proof.
-     */
     function renounceOwnership() public pure override {
         revert OwnershipNotRenounceable();
-    }
-
-    function _initOwner(address owner_) internal {
-        __Ownable_init(owner_);
-    }
-
-    function _renounceOwner() internal {
-        _transferOwnership(address(0));
     }
 }

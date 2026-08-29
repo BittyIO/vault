@@ -16,3 +16,6 @@
 [submodule "lib/protocol-contracts"]
 	path = lib/protocol-contracts
 	url = https://github.com/BittyIO/protocol-store.git
+[submodule "lib/safe-smart-account"]
+	path = lib/safe-smart-account
+	url = https://github.com/safe-global/safe-smart-account

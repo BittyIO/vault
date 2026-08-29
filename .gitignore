@@ -27,5 +27,6 @@ lcov.info
 # ABI files
 abi/
 
-# Build output for the deterministic deploy profile.
+# Build output for the non-default profiles.
 out-deploy/
+out-safe/

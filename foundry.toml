@@ -1,6 +1,7 @@
 [profile.default]
 src = "src"
 out = "out"
+test = "test/local"
 libs = ["lib"]
 solc_version = "0.8.34"
 evm_version = "prague"
@@ -18,6 +19,7 @@ remappings = [
     "guard-contracts/=lib/guard-contracts/",
     "protocol-contracts/=lib/protocol-contracts/",
     "solmate/=lib/solmate/src/",
+    "safe-contracts/=lib/safe-smart-account/contracts/",
 ]
 
 fs_permissions = [{ access = "read-write", path = "./deployments" }]
@@ -57,6 +59,7 @@ remappings = [
     "guard-contracts/=lib/guard-contracts/",
     "protocol-contracts/=lib/protocol-contracts/",
     "solmate/=lib/solmate/src/",
+    "safe-contracts/=lib/safe-smart-account/contracts/",
 ]
 
 fs_permissions = [{ access = "read-write", path = "./deployments" }]
@@ -70,3 +73,36 @@ sepolia = { key = "${ETHERSCAN_API_KEY}" }
 mainnet = { key = "${ETHERSCAN_API_KEY}" }
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
+# The Gnosis Safe integration suite, walled off in its own profile and its own artifact directory.
+#
+# Safe will not compile under `via_ir = true` — its assembly predates the memory-safe annotation, so
+# the IR pipeline hits stack-too-deep inside execTransaction. Compiling it in-tree with a per-path
+# exemption does work, but it drags every Bitty source the suite touches into a SECOND compilation:
+# two artifacts both named BittyV1Vault, `forge build --sizes` reporting the wrong one at 26KB, and
+# `forge inspect` / `forge verify-contract` newly ambiguous.
+#
+# So this suite gets its own everything. Nothing here can reach the artifacts that get deployed, and
+# the default build is byte-for-byte what it was before Safe was ever added.
+#
+#   FOUNDRY_PROFILE=safe forge test
+[profile.safe]
+src = "src"
+out = "out-safe"
+test = "test/safe"
+libs = ["lib"]
+solc_version = "0.8.34"
+evm_version = "prague"
+optimizer = true
+optimizer_runs = 10000
+via_ir = false
+
+remappings = [
+    "forge-std/=lib/forge-std/src/",
+    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+    "openzeppelin-contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+    "guard-contracts/=lib/guard-contracts/",
+    "protocol-contracts/=lib/protocol-contracts/",
+    "solmate/=lib/solmate/src/",
+    "safe-contracts/=lib/safe-smart-account/contracts/",
+]

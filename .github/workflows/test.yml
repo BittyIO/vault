@@ -47,6 +47,10 @@ jobs:
       - name: Run Forge tests
         run: |
           forge test -vvv
+
+      - name: Safe integration suite
+        run: |
+          FOUNDRY_PROFILE=safe forge test -vvv
         id: test
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}

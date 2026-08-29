@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-error NotAssetManager();
-error AssetManagerExpired();
-error AssetManagerExpiryInPast();
 error InvalidDepositableProtocol();
 error InvalidWithdrawableProtocol();
 error InvalidAMMProtocol();
@@ -11,15 +8,20 @@ error InvalidIntentProtocol();
 error disableTradeUntilTimestampTooEarly();
 error disableTradeUntilTimestampTooLong();
 error ProtocolNFT();
+error GrantTooLong();
+error AssetManagerExpiryInPast();
+error AssetManagerNotForSubVault();
 
 /**
- * @title IBittyV1AssetManager
- * @notice Only the vault asset manager's trading/yield functions and their events. Implemented by
- *         {BittyV1VaultDeFiFacet}. Owner-only asset manager config (setAssetManager, protocol
- *         add/remove) lives in {IBittyV1Owner}; asset manager read functions (getBalances,
- *         getLiquidity, protocol getters, …) live in {IBittyV1Vault}.
+ * @title IBittyV1DeFi
+ * @notice The trading/yield surface. Named for the capability, not a caller: it is written once in
+ *         {BittyV1VaultDeFiFacet} and answered identically by a main vault and by every sub vault,
+ *         because the facet authorises on `owner()` and `owner()` is whoever owns the host account.
+ *         There is no manager role left to name — a delegated manager IS a sub vault owned by someone
+ *         else. Owner-only config (protocol add/remove) lives in {IBittyV1Owner}; the read functions
+ *         (getBalances, getLiquidity, protocol getters, …) live in {IBittyV1Vault}.
  */
-interface IBittyV1AssetManager {
+interface IBittyV1DeFi {
     event TradingDisabledUntil(uint256 timestamp);
 
     /**

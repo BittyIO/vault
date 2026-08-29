@@ -5,11 +5,11 @@ import {AutoYield} from "./IBittyV1Vault.sol";
 
 /**
  * @title IBittyV1Owner
- * @notice The owner-only vault surface: config, asset manager guardrails, payout operator
- *         guardrails, approval of payout operator proposals, and the whitelisted-recipient payout. Implemented
- *         by {BittyV1Vault}. Payment creation (callable by owner or payout operator) lives in
- *         {IBittyV1PayoutOperator}; reads/permissionless in {IBittyV1Vault}; asset manager trading/yield in
- *         {IBittyV1AssetManager}.
+ * @notice The owner-only vault surface: config, sub account and payout operator guardrails, approval of
+ *         payout operator proposals, and the whitelisted-recipient payout. Implemented by
+ *         {BittyV1Vault}. Payment creation (callable by owner or payout operator) lives in
+ *         {IBittyV1PayoutOperator}; reads/permissionless in {IBittyV1Vault}; trading/yield in
+ *         {IBittyV1DeFi}.
  */
 interface IBittyV1Owner {
     struct PaymentRisk {
@@ -23,7 +23,6 @@ interface IBittyV1Owner {
     event AssetsLocked();
     event ProtocolsLocked();
     event ProtocolsUpdated(address[] addProtocols, address[] removeProtocols);
-    event AssetManagerSet(address indexed assetManager, uint64 expiresAt);
     event OwnershipRenounced(address indexed formerOwner);
     event PayoutOperatorUpdated(address indexed payoutOperator, bool added);
     event PaymentRiskUpdated(PaymentRisk paymentRisk);
@@ -43,16 +42,6 @@ interface IBittyV1Owner {
      * @param removeAssets The assets to remove.
      */
     function updateAssets(address[] memory addAssets, address[] memory removeAssets) external;
-
-    /**
-     * @notice Disable adding assets.
-     */
-    function disableAddingAssets() external;
-
-    /**
-     * @notice Disable adding protocols.
-     */
-    function disableAddingProtocols() external;
 
     /**
      * @notice Renounce the vault ownership.
@@ -85,13 +74,6 @@ interface IBittyV1Owner {
      * @param routes The auto yieldings to set.
      */
     function setAutoYieldings(AutoYield[] calldata routes) external;
-
-    /**
-     * @notice Set the asset manager.
-     * @param assetManager The address of the asset manager.
-     * @param expiresAt The timestamp when the asset manager's grant expires.
-     */
-    function setAssetManager(address assetManager, uint64 expiresAt) external;
 
     /**
      * @notice Update the payout operator.

@@ -174,8 +174,8 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, Ownable2StepUpgradeable {
      *      once, so three settings changes cost far less than three relays of one change each.
      *
      *      Every request must target the same `vault`, since the fee is charged there and the budget
-     *      is per-vault. They need not share a signer: an owner's change and their asset manager's
-     *      trade can ride together, each proven by its own signature.
+     *      is per-vault. They need not share a signer: an owner's change and a sub owner's trade can
+     *      ride together, each proven by its own signature.
      *
      *      Atomic. OZ's non-atomic mode exists to refund unspent ETH on partial failure, which cannot
      *      arise here — these requests carry no value — and partial success would leave the owner

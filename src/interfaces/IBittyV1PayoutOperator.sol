@@ -62,15 +62,16 @@ interface IBittyV1PayoutOperator {
      * @param recipients The addresses of the recipients to send to.
      * @param assets The assets to send.
      * @param amounts The amounts to send.
-     * @param withdrawProtocols The withdrawable protocols to use.
-     * @param withdrawAmounts The amounts to withdraw from the withdrawable protocols.
+     * @param withdrawProtocols Per send, the withdrawable protocols to fund it from. One inner list
+     *        per entry in `assets`, or an empty outer array to fund nothing from positions.
+     * @param withdrawAmounts Per send, the amount to take from each of its protocols.
      */
     function batchSend(
         address[] calldata recipients,
         address[] calldata assets,
         uint256[] calldata amounts,
-        address[] calldata withdrawProtocols,
-        uint256[] calldata withdrawAmounts
+        address[][] calldata withdrawProtocols,
+        uint256[][] calldata withdrawAmounts
     ) external;
 
     /**
