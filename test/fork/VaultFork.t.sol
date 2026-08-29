@@ -327,7 +327,7 @@ contract TestVaultFork is Test {
         vm.warp(block.timestamp + 8 days);
 
         uint256 balanceBefore = IERC20(mainnet.USDC).balanceOf(address(this));
-        vault.payScheduleds(_u1(testId), new address[](0), new uint256[](0));
+        vault.payScheduled(testId, new address[](0));
         uint256 balanceAfter = IERC20(mainnet.USDC).balanceOf(address(this));
         assertEq(balanceAfter - balanceBefore, 100e6);
     }
@@ -359,7 +359,7 @@ contract TestVaultFork is Test {
         uint256 scheduledPaymentBefore = IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr);
 
         IVaultFull(payable(address(vault))).withdraw(address(aaveProtocol), mainnet.WETH, payAmount);
-        vault.payScheduleds(_u1(salaryId), new address[](0), new uint256[](0));
+        vault.payScheduled(salaryId, new address[](0));
 
         uint256 scheduledPaymentAfter = IERC20(mainnet.WETH).balanceOf(scheduledPaymentAddr);
         assertEq(scheduledPaymentAfter - scheduledPaymentBefore, payAmount);

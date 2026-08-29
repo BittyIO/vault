@@ -155,7 +155,7 @@ contract VaultForKidsForkTest is Test {
         deal(mainnet.WETH, address(vault), totalWETHBalance);
 
         vm.expectRevert(ScheduledPaymentNotStartYet.selector);
-        vault.payScheduleds(_u1(wbtcId), new address[](0), new uint256[](0));
+        vault.payScheduled(wbtcId, new address[](0));
 
         // Step 3: parent gives up vault admin in one atomic renounceVaultOwnership().
         // The immutable gifts must be locked (past their lock window, capped at
@@ -171,13 +171,13 @@ contract VaultForKidsForkTest is Test {
         // Step 4: after age 18, the scheduled gifts pay out to the kids' configured addresses.
         vm.warp(EIGHTEEN_TIMESTAMP);
 
-        vault.payScheduleds(_u1(wbtcId), new address[](0), new uint256[](0));
-        vault.payScheduleds(_u1(wethId), new address[](0), new uint256[](0));
+        vault.payScheduled(wbtcId, new address[](0));
+        vault.payScheduled(wethId, new address[](0));
 
         for (uint256 i = 1; i <= PAY_COUNT; i++) {
             vm.warp(EIGHTEEN_TIMESTAMP + i * PAY_INTERVAL);
-            vault.payScheduleds(_u1(wbtcId), new address[](0), new uint256[](0));
-            vault.payScheduleds(_u1(wethId), new address[](0), new uint256[](0));
+            vault.payScheduled(wbtcId, new address[](0));
+            vault.payScheduled(wethId, new address[](0));
         }
         assertEq(IERC20(WBTC).balanceOf(ALICE_ADDRESS), totalWBTCBalance);
         assertEq(IERC20(mainnet.WETH).balanceOf(ALICE_ADDRESS), totalWETHBalance);

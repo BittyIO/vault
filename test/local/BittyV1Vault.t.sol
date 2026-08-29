@@ -92,9 +92,7 @@ contract ReentrantEthReceiver {
     receive() external payable {
         if (armed) {
             armed = false;
-            uint256[] memory ids = new uint256[](1);
-            ids[0] = scheduledPaymentId;
-            try vault.payScheduleds(ids, new address[](0), new uint256[](0)) {} catch {}
+            try vault.payScheduled(scheduledPaymentId, new address[](0)) {} catch {}
         }
     }
 }
@@ -1481,10 +1479,8 @@ contract BittyV1VaultTest is Test {
         uint256 aliceId = _addScheduledPayment(scheduledPaymentAddr, 1 ether, 2, 7 days);
         deal(address(weth), address(vault), 1 ether);
 
-        vm.expectEmit(false, false, false, true, address(vault));
-        emit IBittyV1Vault.ScheduledPaymentsPaid(
-            _oneU(aliceId), _oneAddr(scheduledPaymentAddr), _oneAddr(address(weth)), _oneU(1 ether), _oneU(1)
-        );
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit IBittyV1Vault.ScheduledPaymentPaid(aliceId, scheduledPaymentAddr, address(weth), 1 ether, 1);
 
         _payScheduled(_oneU(aliceId));
     }
@@ -1521,10 +1517,8 @@ contract BittyV1VaultTest is Test {
         uint256 aliceId = _addScheduledPayment(r);
         deal(address(weth), address(vault), vaultBalance);
 
-        vm.expectEmit(false, false, false, true, address(vault));
-        emit IBittyV1Vault.ScheduledPaymentsPaid(
-            _oneU(aliceId), _oneAddr(scheduledPaymentAddr), _oneAddr(address(weth)), _oneU(vaultBalance), _oneU(0)
-        );
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit IBittyV1Vault.ScheduledPaymentPaid(aliceId, scheduledPaymentAddr, address(weth), vaultBalance, 0);
 
         _payScheduled(_oneU(aliceId));
     }
@@ -1754,13 +1748,13 @@ contract BittyV1VaultTest is Test {
         uint256 id = vault.addScheduledPayment(
             _makeScheduledPayment(payee, address(0), address(weth), 1 ether, 2, block.timestamp, 0, false)
         );
-        vault.payScheduled(id, new address[](0), new uint256[](0));
+        vault.payScheduled(id, new address[](0));
         assertEq(weth.balanceOf(payee), 1 ether, "scalar payScheduled paid");
 
         vm.prank(ownerAddress);
         vault.removeScheduledPayments(_oneU(id));
         vm.expectRevert();
-        vault.payScheduled(id, new address[](0), new uint256[](0));
+        vault.payScheduled(id, new address[](0));
     }
 
     function test_scalar_whitelistedRecipient_addPaySendRemove() public {
@@ -2775,10 +2769,10 @@ contract BittyV1VaultTest is Test {
             _makeScheduledPayment(payee, address(0), address(usdc), payAmount, 3, block.timestamp, 7 days, false)
         );
 
-        // Triggerless → callable by anyone; the payment amount is unstaked from the staked
-        // reserve into the vault and then paid out to the payee in the same call.
+        // Triggerless → callable by anyone; the shortfall is unstaked from the staked reserve
+        // straight to the payee in the same call.
         vm.prank(makeAddr("caller"));
-        vault.payScheduleds(_oneU(id), _arr(address(impl)), _amounts(payAmount));
+        vault.payScheduled(id, _arr(address(impl)));
 
         assertEq(usdc.balanceOf(payee), payAmount, "payee received the scheduled amount");
         // The pulled funds transit the vault but are fully paid out, so its net balance ends at 0.
@@ -2798,14 +2792,201 @@ contract BittyV1VaultTest is Test {
             _makeScheduledPayment(payee, address(0), address(usdc), payAmount, 2, block.timestamp, 7 days, false)
         );
 
-        // The payment amount is withdrawn from the lending position into the vault and then paid
-        // out to the payee in the same call.
+        // The shortfall is withdrawn from the lending position straight to the payee in the same call.
         vm.prank(makeAddr("caller"));
-        vault.payScheduleds(_oneU(id), _arr(address(impl)), _amounts(payAmount));
+        vault.payScheduled(id, _arr(address(impl)));
 
         assertEq(usdc.balanceOf(payee), payAmount, "payee received the scheduled amount");
         // The pulled funds transit the vault but are fully paid out, so its net balance ends at 0.
         assertEq(usdc.balanceOf(address(vault)), 0, "pulled funds were fully paid out");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Subscription model. Like a card subscription, the merchant is both the payee
+    // and the trigger: the merchant initiates each charge and pays its own gas, so
+    // the subscriber's vault can be fully invested (zero free balance) and never
+    // needs to cover a relayer fee. These pin down that model and its guardrails.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_subscription_merchantTriggerChargesFullyInvestedVault() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        address merchant = makeAddr("merchant");
+
+        // Subscriber's vault is 100% invested — every USDC is supplied, none sits free.
+        _setupSuppliedReserve(usdc, impl, 1_000e6);
+        assertEq(usdc.balanceOf(address(vault)), 0, "vault holds no free balance");
+
+        uint256 monthly = 30e6;
+        vm.prank(ownerAddress);
+        uint256 subId = _addScheduledPayment(
+            _makeScheduledPayment(merchant, merchant, address(usdc), monthly, 12, block.timestamp, 30 days, false)
+        );
+
+        // The merchant submits the charge and is msg.sender, so the merchant pays the gas — no
+        // relayer, no vault gas budget, no free stablecoin required. The cycle is sourced straight
+        // from the position to the merchant.
+        vm.prank(merchant);
+        vault.payScheduled(subId, _arr(address(impl)));
+
+        assertEq(usdc.balanceOf(merchant), monthly, "merchant charged exactly one cycle");
+        assertEq(usdc.balanceOf(address(vault)), 0, "vault still holds no free balance");
+    }
+
+    function test_subscription_onlyMerchantTriggerCanCharge() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        address merchant = makeAddr("merchant");
+        _setupSuppliedReserve(usdc, impl, 1_000e6);
+
+        vm.prank(ownerAddress);
+        uint256 subId = _addScheduledPayment(
+            _makeScheduledPayment(merchant, merchant, address(usdc), 30e6, 12, block.timestamp, 30 days, false)
+        );
+
+        // Only the named trigger may charge; a stranger cannot pull the subscription.
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(ScheduledPaymentTriggerError.selector);
+        vault.payScheduled(subId, _arr(address(impl)));
+    }
+
+    function test_subscription_chargeCannotExceedScheduledAmount() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        address merchant = makeAddr("merchant");
+        _setupSuppliedReserve(usdc, impl, 1_000e6);
+
+        uint256 monthly = 30e6;
+        vm.prank(ownerAddress);
+        uint256 subId = _addScheduledPayment(
+            _makeScheduledPayment(merchant, merchant, address(usdc), monthly, 12, block.timestamp, 30 days, false)
+        );
+
+        // Even though the merchant lists the position, only the cycle's amount is withdrawn — the
+        // caller can't force an oversized exit. The rest of the position stays invested.
+        vm.prank(merchant);
+        vault.payScheduled(subId, _arr(address(impl)));
+
+        assertEq(usdc.balanceOf(merchant), monthly, "merchant received only the cycle amount");
+        assertEq(
+            IVaultFull(payable(address(vault))).getBalances(_arr(address(impl)), _arr(address(usdc)))[0],
+            1_000e6 - monthly,
+            "position drawn down by exactly one cycle, not drained"
+        );
+    }
+
+    function test_subscription_triggerCannotRewriteRecipientOrAmount() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        address merchant = makeAddr("merchant");
+        _setupSuppliedReserve(usdc, impl, 1_000e6);
+
+        vm.prank(ownerAddress);
+        uint256 subId = _addScheduledPayment(
+            _makeScheduledPayment(merchant, merchant, address(usdc), 30e6, 12, block.timestamp, 30 days, false)
+        );
+
+        // A trigger's only power is to execute the pre-authorised pull. Even a compromised merchant
+        // cannot point the subscription at itself for a bigger amount or a new payee — rewriting a
+        // payment is owner-only, so the merchant is rejected before it can touch the entry.
+        address attacker = makeAddr("attacker");
+        IBittyV1Vault.ScheduledPayment[] memory tampered = new IBittyV1Vault.ScheduledPayment[](1);
+        tampered[0] =
+            _makeScheduledPayment(attacker, merchant, address(usdc), 1_000e6, 12, block.timestamp, 30 days, false);
+        vm.prank(merchant);
+        vm.expectRevert(NotPayoutOperator.selector);
+        vault.updateScheduledPayments(_oneU(subId), tampered);
+    }
+
+    function test_payScheduled_nativePaymentFundedFromPosition() public {
+        _initializeVault();
+        MockLendingProtocol impl = new MockLendingProtocol();
+        address payee = makeAddr("nativePayee");
+
+        // Supply WETH (backed by real ETH so it can be unwrapped) into the position, leaving the
+        // vault with zero free WETH.
+        vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
+        guardAddProtocols(address(BittyV1Guard(guardAddress)), _arr(address(impl)));
+        vm.stopPrank();
+        vm.prank(ownerAddress);
+        IVaultFull(payable(address(vault))).updateProtocols(_arr(address(impl)), new address[](0));
+        _fundVaultWeth(3 ether);
+        vm.prank(assetManagerAddress);
+        IVaultFull(payable(address(vault))).deposit(address(impl), address(weth), 3 ether);
+        assertEq(weth.balanceOf(address(vault)), 0, "vault holds no free WETH");
+
+        // A native (address(0)) payment: the shortfall is pulled from the WETH position into the
+        // vault, unwrapped, and the recipient receives real ETH — not WETH.
+        vm.prank(ownerAddress);
+        uint256 id = _addScheduledPayment(
+            _makeScheduledPayment(payee, address(0), address(0), 1 ether, 3, block.timestamp, 7 days, false)
+        );
+
+        uint256 payeeEthBefore = payee.balance;
+        vault.payScheduled(id, _arr(address(impl)));
+
+        assertEq(payee.balance - payeeEthBefore, 1 ether, "payee received real ETH");
+        assertEq(address(vault).balance, 0, "no leftover ETH stuck in the vault");
+        assertEq(weth.balanceOf(address(vault)), 0, "no leftover WETH stuck in the vault");
+    }
+
+    function test_payScheduled_skipsZeroAndEmptyProtocols() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        MockLendingProtocol impl = new MockLendingProtocol();
+        address payee = makeAddr("payee");
+        _setupSuppliedReserve(usdc, impl, 1_000e6);
+
+        uint256 pay = 30e6;
+        vm.prank(ownerAddress);
+        uint256 id = _addScheduledPayment(
+            _makeScheduledPayment(payee, payee, address(usdc), pay, 12, block.timestamp, 30 days, false)
+        );
+
+        // The list leads with a zero address and an unregistered protocol (no clone, zero balance);
+        // both are skipped, and the real position covers the charge.
+        address[] memory protocols = new address[](3);
+        protocols[0] = address(0);
+        protocols[1] = makeAddr("unregistered");
+        protocols[2] = address(impl);
+        vm.prank(payee);
+        vault.payScheduled(id, protocols);
+
+        assertEq(usdc.balanceOf(payee), pay, "charge covered from the real position after skipping the rest");
+    }
+
+    function test_payScheduled_skipsUnfundedPayWithInsufficientBalanceAndNoProtocols() public {
+        _initializeVault();
+        MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
+        address payee = makeAddr("payee");
+
+        // payWithInsufficientBalance, zero on-hand balance, no protocols supplied → the call is a
+        // silent no-op: nothing paid, no revert, and the payment count is left intact.
+        IBittyV1Vault.ScheduledPayment memory sp = IBittyV1Vault.ScheduledPayment({
+            recipient: payee,
+            trigger: address(0),
+            assetAddress: address(usdc),
+            amount: 100e6,
+            remainingPaymentCount: 2,
+            startTimestamp: block.timestamp,
+            paymentInterval: 0,
+            isImmutable: false,
+            payWithInsufficientBalance: true
+        });
+        vm.prank(ownerAddress);
+        uint256 id = _addScheduledPayment(sp);
+
+        vault.payScheduled(id, new address[](0));
+        assertEq(usdc.balanceOf(payee), 0, "nothing was paid");
+
+        // Count untouched: once funded, the payment still has both cycles available.
+        usdc.mint(address(vault), 100e6);
+        vault.payScheduled(id, new address[](0));
+        assertEq(usdc.balanceOf(payee), 100e6, "first real cycle pays");
     }
 
     function test_send_sourcesFromLendingPosition() public {
@@ -2840,16 +3021,20 @@ contract BittyV1VaultTest is Test {
         assertEq(usdc.balanceOf(address(vault)), 0, "no residual in the vault");
     }
 
-    function test_payScheduled_revertsWhenPositionArraysMismatch() public {
+    function test_payScheduled_revertsWhenBalanceAndPositionsCannotCover() public {
         _initializeVault();
         MockERC20 usdc = _addStableCoin(6);
+        MockLendingProtocol impl = new MockLendingProtocol();
         address payee = makeAddr("payee");
+        // Position holds 40, payment needs 100, vault holds nothing: 40 < 100 and the payment is
+        // strict, so the shortfall can't be met and the whole call reverts.
+        _setupSuppliedReserve(usdc, impl, 40e6);
         vm.prank(ownerAddress);
         uint256 id = _addScheduledPayment(
             _makeScheduledPayment(payee, address(0), address(usdc), 100e6, 1, block.timestamp, 0, false)
         );
-        vm.expectRevert(ArrayLengthMismatch.selector);
-        vault.payScheduleds(_oneU(id), _arr(makeAddr("staking")), new uint256[](0));
+        vm.expectRevert(InsufficientBalance.selector);
+        vault.payScheduled(id, _arr(address(impl)));
     }
 
     function test_fallback_delegatesViewCallsToDeFiFacet() public {
@@ -3459,7 +3644,9 @@ contract BittyV1VaultTest is Test {
 
     // Plain vault-balance payScheduled (no yield-position sourcing).
     function _payScheduled(uint256[] memory ids) internal {
-        vault.payScheduleds(ids, new address[](0), new uint256[](0));
+        for (uint256 i = 0; i < ids.length; i++) {
+            vault.payScheduled(ids[i], new address[](0));
+        }
     }
 
     function _oneB(bytes32 v) internal pure returns (bytes32[] memory arr) {

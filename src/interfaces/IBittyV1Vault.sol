@@ -3,8 +3,6 @@ pragma solidity ^0.8.34;
 
 // common errors
 error AddressZero();
-// Moved here from the guard's interface, which stopped exporting them: these are the VAULT refusing
-// because the guard said no, so they belong to the vault's own error set.
 error NotRegistered();
 error Deprecated();
 error AssetNotRegistered();
@@ -103,10 +101,6 @@ struct AutoYield {
  * 3. Let the owner only ever lower the vault's risk.
  */
 interface IBittyV1Vault {
-    event ScheduledPaymentsPaid(
-        uint256[] ids, address[] recipients, address[] assets, uint256[] amounts, uint256[] remainingPaymentCounts
-    );
-
     event ScheduledPaymentPaid(
         uint256 indexed id, address recipient, address asset, uint256 amount, uint256 remainingPaymentCount
     );
@@ -238,18 +232,6 @@ interface IBittyV1Vault {
     function autoYields(address[] calldata assets) external;
 
     /**
-     * @notice Pay scheduled payments.
-     * @param ids The ids of the scheduled payments to pay.
-     * @param withdrawProtocols The withdrawable protocols to use.
-     * @param withdrawAmounts The amounts to withdraw from the withdrawable protocols.
-     */
-    function payScheduleds(
-        uint256[] calldata ids,
-        address[] calldata withdrawProtocols,
-        uint256[] calldata withdrawAmounts
-    ) external;
-
-    /**
      * @notice Pay a scheduled payment.
      * @param id The id of the scheduled payment.
      * @param amount The amount to pay.
@@ -305,12 +287,17 @@ interface IBittyV1Vault {
     function payRelayerFee(address asset, uint256 amount) external;
 
     /**
-     * @notice Pay a scheduled payment.
+     * @notice Pay a scheduled payment, funding any shortfall from the given positions.
+     * @dev If the vault already holds enough of the payment's asset, `withdrawProtocols` is ignored.
+     *      Otherwise the deficit — never a caller-supplied amount — is withdrawn from the protocols in
+     *      order, each up to its available balance, until the amount is covered. A native (ETH) payment
+     *      routes the withdrawn WETH through the vault and unwraps it; an ERC-20 payment is topped up
+     *      straight to the recipient. Reverts if the on-hand balance plus every listed protocol still
+     *      cannot cover the amount, unless the payment set payWithInsufficientBalance.
      * @param id The id of the scheduled payment.
-     * @param withdrawProtocols The withdrawable protocols to use.
-     * @param withdrawAmounts The amounts to withdraw from the withdrawable protocols.
+     * @param withdrawProtocols The withdrawable protocols to draw a shortfall from, in priority order.
      */
-    function payScheduled(uint256 id, address[] calldata withdrawProtocols, uint256[] calldata withdrawAmounts) external;
+    function payScheduled(uint256 id, address[] calldata withdrawProtocols) external;
 
     /**
      * @notice Auto yield the assets.

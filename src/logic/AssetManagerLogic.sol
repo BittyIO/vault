@@ -298,6 +298,14 @@ library AssetManagerLogic {
         }
     }
 
+    function protocolBalance(AssetManagerStorage storage logicStorage, address withdrawProtocol, address assetAddress)
+        external
+        view
+        returns (uint256)
+    {
+        return _getBalance(logicStorage, withdrawProtocol, assetAddress);
+    }
+
     function _getBalance(AssetManagerStorage storage logicStorage, address withdrawProtocol, address assetAddress)
         private
         view

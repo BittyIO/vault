@@ -464,13 +464,40 @@ library VaultLogic {
         emit IBittyV1Owner.SendApproved(id);
     }
 
-    function payScheduledOne(VaultStorage storage vaultStorage, uint256 id, address sender)
+    function accrueScheduled(VaultStorage storage vaultStorage, uint256 id, address sender, bool hasProtocols)
         external
         onlyInitialized(vaultStorage)
+        returns (
+            bool skipped,
+            address recipient,
+            address asset,
+            address payoutToken,
+            uint256 needed,
+            uint256 have,
+            bool allowPartial,
+            uint256 count
+        )
     {
-        (bool skipped, address addr, address asset, uint256 paid, uint256 count) =
-            _payScheduledById(vaultStorage, id, sender);
-        if (!skipped) emit IBittyV1Vault.ScheduledPaymentPaid(id, addr, asset, paid, count);
+        IBittyV1Vault.ScheduledPayment storage sp = vaultStorage.scheduledPayments[id];
+        if (sp.trigger != address(0) && sender != sp.trigger) {
+            revert ScheduledPaymentTriggerError();
+        }
+        if (_accrueScheduledPayment(vaultStorage, sp, id, hasProtocols)) {
+            return (true, address(0), address(0), address(0), 0, 0, false, 0);
+        }
+        recipient = sp.recipient;
+        asset = sp.assetAddress;
+        payoutToken = asset == address(0) ? vaultStorage.weth : asset;
+        needed = sp.amount;
+        have = IERC20(payoutToken).balanceOf(address(this));
+        allowPartial = sp.payWithInsufficientBalance;
+        count = sp.remainingPaymentCount;
+    }
+
+    function payScheduledOut(VaultStorage storage vaultStorage, address asset, address recipient, uint256 amount)
+        external
+    {
+        _payOut(vaultStorage, asset, amount, recipient);
     }
 
     function sendToWhitelistedRecipientOne(VaultStorage storage vaultStorage, uint256 id, address asset, uint256 amount)
@@ -942,57 +969,6 @@ library VaultLogic {
         }
     }
 
-    function payScheduled(VaultStorage storage vaultStorage, uint256[] calldata ids, address sender)
-        external
-        onlyInitialized(vaultStorage)
-    {
-        uint256 n = ids.length;
-        uint256[] memory paidIds = new uint256[](n);
-        address[] memory addrs = new address[](n);
-        address[] memory assetsOut = new address[](n);
-        uint256[] memory amountsOut = new uint256[](n);
-        uint256[] memory counts = new uint256[](n);
-        uint256 paid;
-        for (uint256 i; i < n; ++i) {
-            (bool skipped, address addr, address asset, uint256 amount, uint256 count) =
-                _payScheduledById(vaultStorage, ids[i], sender);
-            if (skipped) continue;
-            paidIds[paid] = ids[i];
-            addrs[paid] = addr;
-            assetsOut[paid] = asset;
-            amountsOut[paid] = amount;
-            counts[paid] = count;
-            ++paid;
-        }
-        assembly ("memory-safe") {
-            mstore(paidIds, paid)
-            mstore(addrs, paid)
-            mstore(assetsOut, paid)
-            mstore(amountsOut, paid)
-            mstore(counts, paid)
-        }
-        if (paid > 0) {
-            emit IBittyV1Vault.ScheduledPaymentsPaid(paidIds, addrs, assetsOut, amountsOut, counts);
-        }
-    }
-
-    function _payScheduledById(VaultStorage storage vaultStorage, uint256 id, address sender)
-        private
-        returns (
-            bool skipped,
-            address recipient,
-            address assetAddress,
-            uint256 paidAmount,
-            uint256 remainingPaymentCount
-        )
-    {
-        IBittyV1Vault.ScheduledPayment storage scheduledPayment = vaultStorage.scheduledPayments[id];
-        if (scheduledPayment.trigger != address(0) && sender != scheduledPayment.trigger) {
-            revert ScheduledPaymentTriggerError();
-        }
-        return _payScheduled(vaultStorage, scheduledPayment, id, scheduledPayment.amount);
-    }
-
     function payScheduledAmount(VaultStorage storage vaultStorage, uint256 id, uint256 amount, address sender)
         external
         onlyInitialized(vaultStorage)
@@ -1010,10 +986,6 @@ library VaultLogic {
         (bool skipped, address addr, address asset, uint256 paid, uint256 count) =
             _payScheduled(vaultStorage, scheduledPayment, id, amount);
         if (!skipped) emit IBittyV1Vault.ScheduledPaymentPaid(id, addr, asset, paid, count);
-    }
-
-    function scheduledPaymentAsset(VaultStorage storage vaultStorage, uint256 id) external view returns (address) {
-        return vaultStorage.scheduledPayments[id].assetAddress;
     }
 
     function _payScheduled(
