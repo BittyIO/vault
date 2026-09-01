@@ -33,10 +33,6 @@ abstract contract DeployScript is Script, Config {
     /**
      * @dev {getAddress} reverts on a missing key. This is for addresses a deployment may legitimately
      *      not have yet, such as an optional relayer.
-     *
-     *      Inspects the variable's type rather than catching a revert from `this.getAddress(...)`:
-     *      that would be an external self-call, and forge rejects `address(this)` in scripts because
-     *      a script contract is ephemeral and its address means nothing.
      */
     function getAddressOr(string memory key, address fallbackValue) public view returns (address) {
         Variable memory v = config.get(key);
@@ -47,16 +43,9 @@ abstract contract DeployScript is Script, Config {
 
     /**
      * @dev Buffered rather than written straight through, because {Config-set} is an external call to
-     *      StdConfig - a helper forge-std deploys INSIDE the simulation to hold the parsed TOML, at an
-     *      address that exists nowhere on the target chain.
-     *
-     *      Inside the broadcast window forge records every such call as a transaction to be sent, so a
-     *      real broadcast would emit one pointless ~21k-gas send per key, to an address with no code,
-     *      each preceded by "Script contains a transaction to 0x... which does not contain any code".
-     *      They do nothing on-chain and they bury the real deployment transactions in the run log.
-     *
-     *      Pushing to this contract's own storage is an internal write, so nothing is recorded; the
-     *      buffer is flushed once the broadcast has closed and writes exactly the same TOML.
+     *      StdConfig - a helper forge-std deploys INSIDE the simulation. Inside the broadcast window
+     *      forge records every such call as a transaction; buffering to this contract's own storage is
+     *      an internal write, flushed after the broadcast closes.
      */
     function saveAddress(string memory key, address value) public {
         require(value != address(0), string.concat("Address for key ", key, " is 0x0"));

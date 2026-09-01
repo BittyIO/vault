@@ -1,122 +1,194 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
-import {IBittyV1AssetManager, NotAssetManager, AssetManagerExpired} from "./interfaces/IBittyV1AssetManager.sol";
+import {BittyV1AccountBase} from "./BittyV1AccountBase.sol";
+import {DeFiLogic} from "./logic/DeFiLogic.sol";
+import {BittyStorage, DeFiStorage} from "./logic/BittyStorage.sol";
 import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
-import {AssetManagerLogic} from "./logic/AssetManagerLogic.sol";
-import {VaultLogic} from "./logic/VaultLogic.sol";
-import {AssetManagerStorage, VaultStorage} from "./logic/Storages.sol";
-import {BITTY_GUARD, INTENT_CATEGORY} from "./logic/Constants.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {AutoYield} from "./interfaces/IBittyV1Vault.sol";
+import {BITTY_GUARD, INTENT_CATEGORY} from "./logic/Constants.sol";
+import {SubOwnerExpired} from "./interfaces/IBittyV1SubVault.sol";
+import {IBittyV1DeFi} from "./interfaces/IBittyV1DeFi.sol";
 
-contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
-    /**
-     * @dev ERC-1271 "signature is valid".
-     */
+/**
+ * @title BittyV1VaultDeFiFacet
+ * @notice The DeFi surface, written once and delegatecalled by both the main vault and every sub vault.
+ *         Authorisation is the inherited {onlyOwner}: since `owner()` lives at OZ's fixed ERC-7201 slot,
+ *         `_msgSender() == owner()` resolves to the main owner inside the main vault and the sub owner
+ *         inside a sub vault — the same code, correct authority in each host.
+ * @dev Reached through each host's fallback, so it never holds its own state; every function operates on
+ *      the host's co-located {DeFiStorage}. The allowlist *switch* is deliberately NOT here (that stays
+ *      host-controlled — main owner / parent); only the list *content* is, since narrowing is pure
+ *      self-restriction.
+ */
+contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
     bytes4 internal constant ERC1271_MAGIC_VALUE = 0x1626ba7e;
 
-    using AssetManagerLogic for AssetManagerStorage;
-    using VaultLogic for VaultStorage;
+    error NotAutoYieldTrigger();
+
     modifier onlyAssetManager() {
-        _checkAssetManager();
+        if (!DeFiLogic.isActiveAssetManager(_msgSender())) _checkOwner();
         _;
     }
 
-    function _checkAssetManager() internal view {
-        address sender = _msgSender();
-        if (_assetManager.isActiveAssetManager(sender)) return;
-        if (sender == _assetManager.assetManager) revert AssetManagerExpired();
-        revert NotAssetManager();
+    modifier onlyUnwind() {
+        if (!DeFiLogic.subOwnerLapsed() && !DeFiLogic.isActiveAssetManager(_msgSender())) _checkOwner();
+        _;
+    }
+
+    function _checkOwner() internal view override {
+        super._checkOwner();
+        uint64 expiresAt = BittyStorage.subVault().subOwnerExpiresAt;
+        if (expiresAt != 0 && block.timestamp >= expiresAt) revert SubOwnerExpired();
+    }
+
+    function deposit(address protocol, address asset, uint256 amount) external onlyAssetManager {
+        DeFiLogic.deposit(protocol, asset, amount);
+    }
+
+    function withdraw(address protocol, address asset, uint256 amount) external onlyUnwind {
+        DeFiLogic.withdraw(protocol, asset, amount, address(this));
+    }
+
+    function claimWithdrawals(address protocol, uint256[] memory ids) external onlyUnwind {
+        DeFiLogic.claimWithdrawals(protocol, ids);
+    }
+
+    function claimWithdrawal(address protocol, uint256 id) external onlyUnwind {
+        DeFiLogic.claimWithdrawalOne(protocol, id);
+    }
+
+    function getBalances(address[] calldata protocols, address[] calldata assets)
+        external
+        view
+        returns (uint256[] memory)
+    {
+        return DeFiLogic.getBalances(protocols, assets);
+    }
+
+    function getPendingWithdrawalIds(address protocol) external view returns (uint256[] memory) {
+        return DeFiLogic.getPendingWithdrawalIds(protocol);
+    }
+
+    function getClone(address protocol) external view returns (address) {
+        return DeFiLogic.getClone(protocol);
+    }
+
+    function _onlyAutoYieldTrigger() private view {
+        if (msg.sender == address(this)) return;
+        address s = _msgSender();
+        if (s == owner()) return;
+        address trigger = DeFiLogic.autoYieldTrigger();
+        if (trigger != address(0) && s == trigger) return;
+        revert NotAutoYieldTrigger();
+    }
+
+    function setAssetManager(address assetManager_, uint64 expiresAt) external onlyOwner {
+        DeFiLogic.setAssetManager(assetManager_, expiresAt);
+    }
+
+    function getAssetManagerSettings()
+        external
+        view
+        returns (address manager, uint64 expiresAt, address pendingManager, uint64 pendingAt)
+    {
+        return DeFiLogic.getAssetManagerSettings();
+    }
+
+    function setAutoYieldTrigger(address trigger) external onlyOwner {
+        DeFiLogic.setAutoYieldTrigger(trigger);
+    }
+
+    function autoYieldTrigger() external view returns (address) {
+        return DeFiLogic.autoYieldTrigger();
+    }
+
+    function autoYield(address asset) external {
+        _onlyAutoYieldTrigger();
+        DeFiLogic.autoYieldOne(asset);
+    }
+
+    function autoYields(address[] calldata assets) external {
+        _onlyAutoYieldTrigger();
+        DeFiLogic.autoYield(assets);
+    }
+
+    function setAutoYielding(AutoYield calldata route) external onlyOwner {
+        DeFiLogic.setAutoYieldingOne(route);
+    }
+
+    function setAutoYieldings(AutoYield[] calldata routes) external onlyOwner {
+        DeFiLogic.setAutoYieldings(routes);
+    }
+
+    function getAutoYieldings(address[] calldata assets) external view returns (address[] memory) {
+        return DeFiLogic.getAutoYieldings(assets);
     }
 
     function addLiquidity(
-        address ammProtocol,
+        address amm,
         address token0,
         uint256 amount0,
         address token1,
         uint256 amount1,
         bytes memory data
-    ) external override onlyAssetManager {
-        _assetManager.addLiquidity(_vault, ammProtocol, token0, amount0, token1, amount1, data);
+    ) external onlyAssetManager {
+        DeFiLogic.addLiquidity(amm, token0, amount0, token1, amount1, data);
     }
 
-    function removeLiquidity(address ammProtocol, bytes memory data) external override onlyAssetManager {
-        _assetManager.removeLiquidity(ammProtocol, data);
+    function removeLiquidity(address amm, bytes memory data) external onlyUnwind {
+        DeFiLogic.removeLiquidity(amm, data);
     }
 
-    function decreaseLiquidity(address ammProtocol, bytes memory data) external override onlyAssetManager {
-        _assetManager.decreaseLiquidity(ammProtocol, data);
+    function decreaseLiquidity(address amm, bytes memory data) external onlyUnwind {
+        DeFiLogic.decreaseLiquidity(amm, data);
     }
 
-    function claimAMMFees(address ammProtocol, bytes memory data) external override onlyAssetManager {
-        _assetManager.claimAMMFees(ammProtocol, data);
+    function claimAMMFees(address amm, bytes memory data) external onlyUnwind {
+        DeFiLogic.claimAMMFees(amm, data);
     }
 
-    function getLiquidities(address[] calldata ammProtocols, bytes[] calldata data)
-        external
-        view
-        returns (uint256[] memory liquidities)
-    {
-        return _assetManager.getLiquidities(ammProtocols, data);
+    function getLiquidities(address[] calldata amms, bytes[] calldata data) external view returns (uint256[] memory) {
+        return DeFiLogic.getLiquidities(amms, data);
     }
 
-    function approveIntentRelayer(address intentProtocol, address token) external override onlyAssetManager {
-        _assetManager.approveIntentRelayer(intentProtocol, token);
+    function approveIntentRelayer(address intent, address token) external onlyAssetManager {
+        DeFiLogic.approveIntentRelayer(intent, token);
     }
 
-    function cancelIntentOrders(address intentProtocol, bytes[] calldata orderUids) external override onlyAssetManager {
-        _assetManager.cancelIntentOrders(intentProtocol, orderUids);
+    function cancelIntentOrders(address intent, bytes[] calldata uids) external onlyUnwind {
+        DeFiLogic.cancelIntentOrders(intent, uids);
     }
 
-    function cancelIntentOrder(address intentProtocol, bytes calldata orderUid) external onlyAssetManager {
-        _assetManager.cancelIntentOrderOne(intentProtocol, orderUid);
+    function cancelIntentOrder(address intent, bytes calldata uid) external onlyUnwind {
+        DeFiLogic.cancelIntentOrderOne(intent, uid);
     }
 
-    function getClone(address intentProtocol) external view returns (address) {
-        return _assetManager.getClone(intentProtocol);
+    function disableTradeUntilTimestamp(uint256 ts) external onlyOwner {
+        DeFiLogic.disableTradeUntilTimestamp(ts);
+        emit IBittyV1DeFi.TradingDisabledUntil(ts);
     }
 
-    function deposit(address depositProtocol, address assetAddress, uint256 amount) external override onlyAssetManager {
-        _assetManager.deposit(depositProtocol, assetAddress, amount);
+    function updateProtocols(address[] calldata add, address[] calldata remove) external onlyOwner {
+        DeFiLogic.updateProtocols(add, remove);
     }
 
-    function withdraw(address withdrawProtocol, address assetAddress, uint256 amount)
-        external
-        override
-        onlyAssetManager
-    {
-        _assetManager.withdraw(withdrawProtocol, assetAddress, amount, address(this));
-    }
-
-    function getBalances(address[] calldata withdrawProtocols, address[] calldata assetAddresses)
-        external
-        view
-        returns (uint256[] memory balances)
-    {
-        return _assetManager.getBalances(withdrawProtocols, assetAddresses);
-    }
-
-    function getPendingWithdrawalIds(address withdrawProtocol) external view returns (uint256[] memory) {
-        return _assetManager.getPendingWithdrawalIds(withdrawProtocol);
-    }
-
-    function claimWithdrawal(address withdrawProtocol, uint256 id) external onlyAssetManager {
-        _assetManager.claimWithdrawalOne(withdrawProtocol, id);
-    }
-
-    function claimWithdrawals(address withdrawProtocol, uint256[] memory ids) external override onlyAssetManager {
-        _assetManager.claimWithdrawals(withdrawProtocol, ids);
-    }
-
-    function disableTradeUntilTimestamp(uint256 timestamp) external override onlyAssetManager {
-        _assetManager.disableTradeUntilTimestamp(timestamp);
-        emit TradingDisabledUntil(timestamp);
+    function updateAssets(address[] calldata add, address[] calldata remove) external onlyOwner {
+        DeFiLogic.updateAssets(add, remove);
     }
 
     function isProtocolAllowed(address protocol) external view returns (bool) {
-        return _assetManager.protocols[protocol];
+        return DeFiLogic.isProtocolAllowed(protocol);
+    }
+
+    function isAssetAllowed(address asset) external view returns (bool) {
+        return DeFiLogic.assetAllowed(asset);
+    }
+
+    function allowlistEnabled() external view returns (bool) {
+        return DeFiLogic.allowlistEnabled();
     }
 
     function guard() external pure returns (IBittyV1Guard) {
@@ -134,10 +206,10 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         view
         returns (bytes4)
     {
-        for (uint256 i = 0; i < protocols.length; i++) {
-            if (!_assetManager.protocols[protocols[i]]) continue;
+        DeFiStorage storage $ = BittyStorage.defi();
+        for (uint256 i; i < protocols.length; i++) {
             if (IBittyV1Guard(BITTY_GUARD).protocolCategory(protocols[i]) != INTENT_CATEGORY) continue;
-            address clone = _assetManager.clonedProtocols[protocols[i]];
+            address clone = $.clonedProtocols[protocols[i]];
             if (clone == address(0)) continue;
             try IBittyV1IntentProtocol(clone).isValidSignature(hash, signature) returns (bytes4 result) {
                 if (result == ERC1271_MAGIC_VALUE) return result;
@@ -151,16 +223,14 @@ contract BittyV1VaultDeFiFacet is BittyV1VaultBase, IBittyV1AssetManager {
         view
         returns (bool)
     {
-        if (!_assetManager.isActiveAssetManager(signer)) return false;
-        uint256 disabledUntil = _assetManager.tradeDisabledUntilTimestamp;
+        if (signer != owner() && !DeFiLogic.isActiveAssetManager(signer)) return false;
+        uint256 disabledUntil = DeFiLogic.tradeDisabledUntil();
         if (disabledUntil > 0 && block.timestamp < disabledUntil) return false;
-        if (!_vault.assetAllowed(buyToken)) return false;
-        uint256 bal = IERC20(sellToken).balanceOf(address(this));
-        if (bal < sellAmount) return false;
-        return true;
+        if (!DeFiLogic.assetAllowed(buyToken)) return false;
+        return IERC20(sellToken).balanceOf(address(this)) >= sellAmount;
     }
 
-    function isOffchainManager(address signer) external view returns (bool) {
-        return _assetManager.isActiveAssetManager(signer);
+    function isOffchainCancellationAuthorized(address signer) external view returns (bool) {
+        return signer == owner() || DeFiLogic.isActiveAssetManager(signer);
     }
 }

@@ -29,20 +29,12 @@ error PaymentProtectionTooLong();
 error PayMoreThanScheduledPaymentAmount();
 error PayScheduledPaymentAmountTriggerEmpty();
 
-// adding assets and protocols errors
-error AddingAssetsDisabled();
-error AddingProtocolsDisabled();
 error OwnerAndPayoutOperatorMustDiffer();
 
 error OwnershipNotRenounceable();
 error PendingOwnerIsPayoutOperator();
-// Emergency renounce needs a surviving, trustworthy rescue path — a locked
-// immutable scheduled payment (the only entry an attacker with the same key
-// cannot forge/remove, and the only one that still pays out permissionlessly in
-// an ownerless vault). Without one, renouncing would strand the funds, so the
-// call reverts.
+error ImplementationNotRegistered();
 error NoRescueTarget();
-// After renounce, only locked immutable scheduled payments are payable.
 error OnlyImmutablePayableAfterRenounce();
 error ImmutableScheduledPaymentLocked();
 
@@ -50,8 +42,6 @@ error NotPayoutOperator();
 error PayoutOperatorNotFound();
 error PayoutOperatorAlreadyRegistered();
 
-// Relayed-gas (ERC-2771) errors. The two "exceeded" cases mean the caller must fall back to paying
-// its own gas; the two ceilings themselves are hard constants in VaultLogic.
 error NotTrustedForwarder();
 error GasBudgetExceeded();
 error GasBudgetTooHigh();
@@ -91,8 +81,8 @@ struct AutoYield {
 /**
  * @title IBittyV1Vault
  * @notice The vault's shared types, errors, and the no-role (permissionless) + read functions.
- *         Owner-only functions live in {IBittyV1Owner}; asset manager trading/yield functions live in
- *         {IBittyV1AssetManager}.
+ *         Owner-only functions live in {IBittyV1Owner}; trading/yield functions live in
+ *         {IBittyV1DeFi}.
  *
  * @dev Bitty Vault helps you manage your assets safely across different devices, people or AI agents.
  * There are 3 principles for Bitty Vault design:
@@ -135,30 +125,29 @@ interface IBittyV1Vault {
     function wethAddress() external view returns (address);
 
     /**
-     * @notice Get the asset manager settings.
-     * @return assetManager The asset manager.
-     * @return expiresAt When the asset manager grant lapses; 0 = never.
-     * @return pendingAssetManager A scheduled manager, or address(0) if nothing is scheduled.
-     * @return pendingAt When the scheduled change takes effect; 0 = nothing scheduled.
-     */
-    function getAssetManagerSettings() external view returns (address, uint64, address, uint64);
-
-    /**
-     * @notice Check if adding assets is disabled.
-     */
-    function isAddingAssetsDisabled() external view returns (bool);
-
-    /**
-     * @notice Check if adding protocols is disabled.
-     */
-    function isAddingProtocolsDisabled() external view returns (bool);
-
-    /**
      * @notice Get the auto yieldings.
      * @param assetAddresses The addresses of the assets to get the auto yieldings for.
      * @return protocols The protocols for the assets.
      */
     function getAutoYieldings(address[] calldata assetAddresses) external view returns (address[] memory protocols);
+
+    /**
+     * @notice Get the address, besides the owner, allowed to trigger an auto yield sweep.
+     * @return trigger The trigger, or the zero address if only the owner may sweep.
+     */
+    function autoYieldTrigger() external view returns (address trigger);
+
+    /**
+     * @notice The vault's trading delegate, and anything queued behind the change timelock.
+     * @return manager The asset manager, or the zero address if the owner alone may trade.
+     * @return expiresAt When the grant lapses; 0 = never.
+     * @return pendingManager A manager waiting out the timelock, or zero if nothing is queued.
+     * @return pendingAt When that queued grant takes effect; 0 = nothing queued.
+     */
+    function getAssetManagerSettings()
+        external
+        view
+        returns (address manager, uint64 expiresAt, address pendingManager, uint64 pendingAt);
 
     /**
      * @notice Is this asset allowed?
@@ -208,7 +197,7 @@ interface IBittyV1Vault {
 
     /**
      * @notice Get the withdrawals awaiting a claim.
-     * @dev Empty for protocols that settle {IBittyV1AssetManager-withdraw} in the same call.
+     * @dev Empty for protocols that settle {IBittyV1DeFi-withdraw} in the same call.
      * @param withdrawProtocol The protocol to get the pending withdrawal ids for.
      * @return ids The pending withdrawal ids.
      */
@@ -304,4 +293,22 @@ interface IBittyV1Vault {
      * @param asset The address of the asset to auto yield.
      */
     function autoYield(address asset) external;
+
+    /**
+     * @notice Name the address, besides the owner, that may trigger an auto yield sweep.
+     * @param trigger The trigger to name. The zero address clears it, leaving the owner alone.
+     */
+    function setAutoYieldTrigger(address trigger) external;
+
+    /**
+     * @notice Name the address, besides the owner, that may trade this vault. Zero revokes.
+     * @dev Main vault only; refused on a sub vault. The manager may deposit, withdraw, run LP positions
+     *      and sign intent orders, but cannot change which assets or protocols are reachable, cannot
+     *      re-route auto-yield, and cannot pay anyone — so daily DeFi work no longer needs the key that
+     *      can move money out. Appointing or extending waits out the vault's change timelock; revoking
+     *      and shortening apply at once.
+     * @param assetManager The trading delegate, or zero to revoke.
+     * @param expiresAt When the grant lapses; 0 = never.
+     */
+    function setAssetManager(address assetManager, uint64 expiresAt) external;
 }

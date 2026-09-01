@@ -59,18 +59,18 @@ contract MockLendingProtocol is IBittyV1Protocol, IBittyV1Depositable, IBittyV1W
     /**
      * @dev No separate receipt token — tells the vault's approval helper there is nothing to approve.
      */
-    function receiptTokenOf(address) external pure returns (address) {
+    function receiptTokenOf(address) external view virtual returns (address) {
         return address(0);
     }
 
     /**
      * @dev Settles in the same call, so nothing is ever pending.
      */
-    function getPendingWithdrawalIds() external pure override returns (uint256[] memory) {
+    function getPendingWithdrawalIds() external view virtual override returns (uint256[] memory) {
         return new uint256[](0);
     }
 
-    function claimWithdrawals(uint256[] memory) external override onlyOwner {}
+    function claimWithdrawals(uint256[] memory) external virtual override onlyOwner {}
 
     /**
      * @dev Answers the id the guard used to probe for, purely so {detectCategory} files this mock
