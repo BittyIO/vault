@@ -5,6 +5,9 @@ error InvalidDepositableProtocol();
 error InvalidWithdrawableProtocol();
 error InvalidAMMProtocol();
 error InvalidIntentProtocol();
+error ProtocolNotInstantiated();
+error ProtocolLineageMismatch();
+error ProtocolNotNewer();
 error disableTradeUntilTimestampTooEarly();
 error disableTradeUntilTimestampTooLong();
 error ProtocolNFT();
@@ -27,7 +30,7 @@ interface IBittyV1DeFi {
     /**
      * @notice Put an asset into a depositable protocol.
      * @dev One entry for every protocol the vault can deposit into. Supply and stake were the same
-     *      call under two names, and the adapters expose it as {IBittyV1Depositable-deposit}, so the
+     *      call under two names, and the adapters expose it as {IBittyV1Yield-deposit}, so the
      *      vault does not distinguish the kinds - nor will it have to for kinds added later.
      * @param depositProtocol The protocol to deposit into.
      * @param assetAddress The address of the asset to deposit.

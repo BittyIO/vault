@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
-import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {IBittyV1Depositable} from "protocol-contracts/src/interfaces/IBittyV1Depositable.sol";
-import {IBittyV1Withdrawable} from "protocol-contracts/src/interfaces/IBittyV1Withdrawable.sol";
+import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {UUPSUpgradeable} from "openzeppelin-contracts/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {
+    IBittyV1Guard,
+    ASSET_STABLE_COIN,
+    PROTOCOL_INTENT,
+    PROTOCOL_AMM
+} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IBittyV1Yield} from "protocol-contracts/src/interfaces/IBittyV1Yield.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
 import {IBittyV1AMMProtocol} from "protocol-contracts/src/interfaces/IBittyV1AMMProtocol.sol";
 import {
@@ -14,6 +19,9 @@ import {
     disableTradeUntilTimestampTooLong,
     InvalidAMMProtocol,
     InvalidIntentProtocol,
+    ProtocolNotInstantiated,
+    ProtocolLineageMismatch,
+    ProtocolNotNewer,
     ProtocolNFT,
     AssetManagerExpiryInPast,
     AssetManagerNotForSubVault,
@@ -35,14 +43,7 @@ import {
 } from "../interfaces/IBittyV1Vault.sol";
 import {BittyStorage, DeFiStorage} from "./BittyStorage.sol";
 import {TimelockLib} from "./TimelockLib.sol";
-import {
-    BITTY_GUARD,
-    AMM_CATEGORY,
-    INTENT_CATEGORY,
-    STABLE_COIN_CATEGORY,
-    MAX_DURATION,
-    TRADE_DISABLE_MAX_DURATION
-} from "./Constants.sol";
+import {BITTY_GUARD, MAX_DURATION, TRADE_DISABLE_MAX_DURATION} from "./Constants.sol";
 
 /**
  * @dev Minimal view into an intent protocol's settlement addresses (CoW-style): the relayer a gasless
@@ -75,7 +76,6 @@ library DeFiLogic {
     event AssetManagerPending(address indexed assetManager, uint64 expiresAt, uint64 effectiveAt);
 
     using SafeERC20 for IERC20;
-    using Clones for address;
     using Address for address;
 
     function initialize(bool allowlistEnabled) external {
@@ -83,6 +83,14 @@ library DeFiLogic {
         if ($.isInitialized) revert AlreadyInitialized();
         $.isInitialized = true;
         $.allowlistEnabled = allowlistEnabled;
+    }
+
+    function listInitialAsset(address asset) external {
+        DeFiStorage storage $ = BittyStorage.defi();
+        if (asset == address(0) || $.assets[asset]) return;
+        (bool ok, bytes memory data) = BITTY_GUARD.staticcall(abi.encodeCall(IBittyV1Guard.isAssetRegistered, (asset)));
+        if (!ok || data.length < 32 || !abi.decode(data, (bool))) return;
+        $.assets[asset] = true;
     }
 
     function _onlyInitialized(DeFiStorage storage $) private view {
@@ -232,6 +240,22 @@ library DeFiLogic {
         return expiresAt == 0 || block.timestamp < expiresAt;
     }
 
+    function upgradeProtocol(address protocol, address newImplementation) external {
+        DeFiStorage storage $ = BittyStorage.defi();
+        _onlyInitialized($);
+        address instance = $.clonedProtocols[protocol];
+        if (instance == address(0)) revert ProtocolNotInstantiated();
+        if (!IBittyV1Guard(BITTY_GUARD).isProtocolRegistered(newImplementation)) revert NotRegistered();
+        bytes32 lineage = IBittyV1Protocol(instance).protocolLineage();
+        if (lineage == bytes32(0) || IBittyV1Protocol(newImplementation).protocolLineage() != lineage) {
+            revert ProtocolLineageMismatch();
+        }
+        if (IBittyV1Protocol(newImplementation).protocolVersion() <= IBittyV1Protocol(instance).protocolVersion()) {
+            revert ProtocolNotNewer();
+        }
+        UUPSUpgradeable(instance).upgradeToAndCall(newImplementation, "");
+    }
+
     function updateAssets(address[] calldata addAssets, address[] calldata removeAssets) external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
@@ -256,7 +280,7 @@ library DeFiLogic {
             if (!guard.isProtocolRegistered(addProtocols[i])) revert NotRegistered();
             $.protocols[addProtocols[i]] = true;
             // Intent protocols must be cloned eagerly so off-chain isValidSignature has a signer.
-            if (guard.protocolCategory(addProtocols[i]) == INTENT_CATEGORY) {
+            if (guard.protocolCategory(addProtocols[i]) == PROTOCOL_INTENT) {
                 _cloneProtocol($, addProtocols[i]);
             }
         }
@@ -279,7 +303,7 @@ library DeFiLogic {
 
     function stableCoinAllowed(address asset) external view returns (bool) {
         DeFiStorage storage $ = BittyStorage.defi();
-        if (IBittyV1Guard(BITTY_GUARD).assetCategory(asset) != STABLE_COIN_CATEGORY) return false;
+        if (IBittyV1Guard(BITTY_GUARD).assetCategory(asset) != ASSET_STABLE_COIN) return false;
         if (!IBittyV1Guard(BITTY_GUARD).isAssetRegistered(asset)) return false;
         return !_allowlistActiveView($) || $.assets[asset];
     }
@@ -316,7 +340,7 @@ library DeFiLogic {
         if (IERC20(assetAddress).allowance(address(this), clone) < amount) {
             IERC20(assetAddress).forceApprove(clone, type(uint256).max);
         }
-        IBittyV1Depositable(clone).deposit(assetAddress, amount);
+        IBittyV1Yield(clone).deposit(assetAddress, amount);
     }
 
     function withdraw(address withdrawProtocol, address assetAddress, uint256 amount, address recipient)
@@ -331,10 +355,10 @@ library DeFiLogic {
         address clone = $.clonedProtocols[withdrawProtocol];
         if (clone == address(0)) revert InvalidWithdrawableProtocol();
         if (amount != type(uint256).max) {
-            if (IBittyV1Withdrawable(clone).getBalance(assetAddress) < amount) revert InsufficientBalance();
+            if (IBittyV1Yield(clone).getBalance(assetAddress) < amount) revert InsufficientBalance();
         }
         _approveReceiptToken(clone, assetAddress);
-        return IBittyV1Withdrawable(clone).withdraw(assetAddress, amount, recipient);
+        return IBittyV1Yield(clone).withdraw(assetAddress, amount, recipient);
     }
 
     function protocolBalance(address withdrawProtocol, address assetAddress) external view returns (uint256) {
@@ -362,20 +386,20 @@ library DeFiLogic {
         if (assetAddress == address(0)) revert AddressZero();
         address clone = $.clonedProtocols[withdrawProtocol];
         if (clone == address(0)) return 0;
-        return IBittyV1Withdrawable(clone).getBalance(assetAddress);
+        return IBittyV1Yield(clone).getBalance(assetAddress);
     }
 
     function getPendingWithdrawalIds(address withdrawProtocol) external view returns (uint256[] memory) {
         address clone = BittyStorage.defi().clonedProtocols[withdrawProtocol];
         if (clone == address(0)) return new uint256[](0);
-        return IBittyV1Withdrawable(clone).getPendingWithdrawalIds();
+        return IBittyV1Yield(clone).getPendingWithdrawalIds();
     }
 
     function claimWithdrawals(address withdrawProtocol, uint256[] memory ids) external {
         if (ids.length == 0) return;
         address clone = BittyStorage.defi().clonedProtocols[withdrawProtocol];
         if (clone == address(0)) revert InvalidWithdrawableProtocol();
-        IBittyV1Withdrawable(clone).claimWithdrawals(ids);
+        IBittyV1Yield(clone).claimWithdrawals(ids);
     }
 
     function claimWithdrawalOne(address withdrawProtocol, uint256 id) external {
@@ -383,7 +407,7 @@ library DeFiLogic {
         if (clone == address(0)) revert InvalidWithdrawableProtocol();
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
-        IBittyV1Withdrawable(clone).claimWithdrawals(ids);
+        IBittyV1Yield(clone).claimWithdrawals(ids);
     }
 
     function setAutoYieldingOne(AutoYield calldata route) external {
@@ -447,7 +471,7 @@ library DeFiLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
-        if (!_categoryProtocolOK($, AMM_CATEGORY, ammProtocol)) revert InvalidAMMProtocol();
+        if (!_categoryProtocolOK($, PROTOCOL_AMM, ammProtocol)) revert InvalidAMMProtocol();
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
         _requireAsset($, token0);
         _requireAsset($, token1);
@@ -520,7 +544,7 @@ library DeFiLogic {
     }
 
     function _checkIntentProtocol(DeFiStorage storage $, address intentProtocol) private {
-        if (!_categoryProtocolOK($, INTENT_CATEGORY, intentProtocol)) revert InvalidIntentProtocol();
+        if (!_categoryProtocolOK($, PROTOCOL_INTENT, intentProtocol)) revert InvalidIntentProtocol();
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(intentProtocol)) revert Deprecated();
     }
 
@@ -544,8 +568,7 @@ library DeFiLogic {
     function _cloneProtocol(DeFiStorage storage $, address protocol) private returns (address clone) {
         clone = $.clonedProtocols[protocol];
         if (clone != address(0)) return clone;
-        clone = protocol.clone();
-        IBittyV1Protocol(clone).initialize(address(this));
+        clone = address(new ERC1967Proxy(protocol, abi.encodeCall(IBittyV1Protocol.initialize, (address(this)))));
         $.clonedProtocols[protocol] = clone;
     }
 

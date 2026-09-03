@@ -9,10 +9,16 @@ import {ImplementationNotRegistered} from "../../src/interfaces/IBittyV1Vault.so
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 contract MockImplRegistry {
-    mapping(address => bool) public isImplementationRegistered;
+    // Keyed by category: a main vault and a sub vault are separate registries, so blessing a build
+    // for one must not bless it for the other.
+    mapping(uint8 => mapping(address => bool)) internal _registered;
+
+    function isImplementationRegisteredFor(address impl, uint8 category) external view returns (bool) {
+        return _registered[category][impl];
+    }
 
     function setRegistered(address impl, bool ok) external {
-        isImplementationRegistered[impl] = ok;
+        _registered[1][impl] = ok; // main-vault category, which is what this suite upgrades
     }
 }
 

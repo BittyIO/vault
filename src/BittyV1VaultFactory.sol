@@ -9,6 +9,7 @@ import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptogra
 import {AddressZero} from "./interfaces/IBittyV1Vault.sol";
 import {NotDeployer, VaultAlreadyActivated, InvalidActivationSignature} from "./interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1Vault} from "./BittyV1Vault.sol";
+import {BittyV1VaultBootstrap} from "./BittyV1VaultBootstrap.sol";
 
 /**
  * @title BittyV1VaultFactory
@@ -20,9 +21,11 @@ import {BittyV1Vault} from "./BittyV1Vault.sol";
  */
 contract BittyV1VaultFactory is Initializable, EIP712 {
     bytes32 private constant _ACTIVATION_TYPEHASH =
-        keccak256("Activation(address owner,address stableCoinAddress,uint256 feeAmount)");
+        keccak256("Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled)");
 
     address public constant DEPLOYER = 0x12EE2de7BF086388B1D560eb95e7191Edfab9823;
+
+    address public bootstrapImplementation;
 
     address public vaultImplementation;
     address public wethAddress;
@@ -31,39 +34,61 @@ contract BittyV1VaultFactory is Initializable, EIP712 {
 
     constructor() EIP712("BittyV1VaultFactory", "1") {}
 
-    function initialize(address vaultImplementation_, address wethAddress_) external initializer {
+    function initialize(address vaultImplementation_, address wethAddress_, address bootstrapImplementation_)
+        external
+        initializer
+    {
         if (tx.origin != DEPLOYER) revert NotDeployer();
-        if (vaultImplementation_ == address(0) || wethAddress_ == address(0)) revert AddressZero();
+        if (vaultImplementation_ == address(0) || wethAddress_ == address(0) || bootstrapImplementation_ == address(0))
+        {
+            revert AddressZero();
+        }
+        bootstrapImplementation = bootstrapImplementation_;
         vaultImplementation = vaultImplementation_;
         wethAddress = wethAddress_;
     }
 
-    function activateVault() external returns (address vault) {
-        return _deploy(msg.sender, address(0), 0);
+    function setVaultImplementation(address vaultImplementation_) external {
+        if (tx.origin != DEPLOYER) revert NotDeployer();
+        if (vaultImplementation_ == address(0)) revert AddressZero();
+        vaultImplementation = vaultImplementation_;
     }
 
-    function activateVaultByAsset(address owner, address asset, uint256 amount, bytes calldata signature)
-        external
+    function activateVault(bool allowlistEnabled) external returns (address vault) {
+        return _deploy(msg.sender, address(0), 0, allowlistEnabled);
+    }
+
+    function activateVaultByAsset(
+        address owner,
+        address asset,
+        uint256 amount,
+        bool allowlistEnabled,
+        bytes calldata signature
+    ) external returns (address vault) {
+        _checkActivationSignature(owner, asset, amount, allowlistEnabled, signature);
+        return _deploy(owner, asset, amount, allowlistEnabled);
+    }
+
+    function _deploy(address owner, address asset, uint256 amount, bool allowlistEnabled)
+        private
         returns (address vault)
     {
-        _checkActivationSignature(owner, asset, amount, signature);
-        return _deploy(owner, asset, amount);
-    }
-
-    function _deploy(address owner, address asset, uint256 amount) private returns (address vault) {
         bytes32 salt = keccak256(abi.encodePacked(owner));
         vault = _predict(salt);
         if (vault.code.length > 0) revert VaultAlreadyActivated();
-        // Empty init data → address independent of the fee; initialize atomically here (allowlist ON).
-        address deployed = address(new ERC1967Proxy{salt: salt}(vaultImplementation, ""));
-        BittyV1Vault(payable(deployed)).initialize(owner, wethAddress, true, asset, amount);
+        address deployed = address(new ERC1967Proxy{salt: salt}(bootstrapImplementation, ""));
+        BittyV1VaultBootstrap(payable(deployed))
+            .upgradeToAndCall(
+                vaultImplementation,
+                abi.encodeCall(BittyV1Vault.initialize, (owner, wethAddress, allowlistEnabled, asset, amount))
+            );
         emit VaultActivated(owner, deployed);
         vault = deployed;
     }
 
     function _predict(bytes32 salt) private view returns (address) {
         bytes memory bytecode =
-            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(vaultImplementation, bytes("")));
+            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(bootstrapImplementation, bytes("")));
         return Create2.computeAddress(salt, keccak256(bytecode));
     }
 
@@ -75,9 +100,12 @@ contract BittyV1VaultFactory is Initializable, EIP712 {
         address owner,
         address stableCoinAddress,
         uint256 feeAmount,
+        bool allowlistEnabled,
         bytes calldata signature
     ) private view {
-        bytes32 structHash = keccak256(abi.encode(_ACTIVATION_TYPEHASH, owner, stableCoinAddress, feeAmount));
+        bytes32 structHash = keccak256(
+            abi.encode(_ACTIVATION_TYPEHASH, owner, stableCoinAddress, feeAmount, allowlistEnabled)
+        );
         if (!SignatureChecker.isValidSignatureNow(owner, _hashTypedDataV4(structHash), signature)) {
             revert InvalidActivationSignature();
         }

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
+import {IBeacon} from "openzeppelin-contracts/contracts/proxy/beacon/IBeacon.sol";
 import {DeFiLogic} from "./logic/DeFiLogic.sol";
 import {PaymentLogic} from "./logic/PaymentLogic.sol";
 import {ScheduledPaymentLogic} from "./logic/ScheduledPaymentLogic.sol";
@@ -13,10 +14,8 @@ import {BittyStorage} from "./logic/BittyStorage.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import {IBittyV1Owner} from "./interfaces/IBittyV1Owner.sol";
-import {IBittyV1PayoutOperator} from "./interfaces/IBittyV1PayoutOperator.sol";
 import {
     IBittyV1Vault,
-    AutoYield,
     AddressZero,
     ArrayLengthMismatch,
     InsufficientBalance,
@@ -31,10 +30,6 @@ interface IAutoYieldTrigger {
     function autoYield(address asset) external;
 }
 
-interface IUUPSUpgrade {
-    function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;
-}
-
 /**
  * @title BittyV1Vault
  * @notice The main vault: owner payments + the owner's own DeFi (reached through fallback → shared
@@ -43,7 +38,7 @@ interface IUUPSUpgrade {
  *         owner/payout-operator gated; sub vaults can never reach them.
  * @dev Renamed to BittyV1Vault at cutover.
  */
-contract BittyV1Vault is BittyV1VaultBase {
+contract BittyV1Vault is BittyV1VaultBase, IBeacon {
     address public immutable DEFI_FACET;
     address public immutable SUB_VAULT_IMPL;
 
@@ -66,6 +61,12 @@ contract BittyV1Vault is BittyV1VaultBase {
         DeFiLogic.initialize(allowlistEnabled);
         if (activationAsset != address(0) && activationAmount != 0) {
             GaslessLogic.payActivationFee(activationAsset, activationAmount);
+        }
+        if (allowlistEnabled) {
+            if (activationAsset != address(0)) {
+                DeFiLogic.listInitialAsset(activationAsset);
+            }
+            DeFiLogic.listInitialAsset(weth_);
         }
         uint256 bal = address(this).balance;
         if (bal > 0) WETH(payable(weth_)).deposit{value: bal}();
@@ -319,7 +320,7 @@ contract BittyV1Vault is BittyV1VaultBase {
         onlyOwner
         returns (uint256 subId, address account)
     {
-        return SubVaultRegistryLogic.createSubVault(SUB_VAULT_IMPL, subOwner, allowlistEnabled, expiresAt);
+        return SubVaultRegistryLogic.createSubVault(subOwner, allowlistEnabled, expiresAt);
     }
 
     function createSubVaultWithDeposits(
@@ -330,7 +331,7 @@ contract BittyV1Vault is BittyV1VaultBase {
         uint256[] calldata amounts
     ) external onlyOwner returns (uint256 subId, address account) {
         if (assets.length != amounts.length) revert ArrayLengthMismatch();
-        (subId, account) = SubVaultRegistryLogic.createSubVault(SUB_VAULT_IMPL, subOwner, allowlistEnabled, expiresAt);
+        (subId, account) = SubVaultRegistryLogic.createSubVault(subOwner, allowlistEnabled, expiresAt);
         SubVaultRegistryLogic.fundSubVault(subId, assets, amounts);
     }
 
@@ -361,10 +362,8 @@ contract BittyV1Vault is BittyV1VaultBase {
         SubVaultRegistryLogic.closeSubVault(subId);
     }
 
-    function upgradeSubVault(uint256 subId, address newImpl) external onlyOwner {
-        address account = SubVaultRegistryLogic.subVaultAccount(subId);
-        if (account == address(0)) revert AddressZero();
-        IUUPSUpgrade(account).upgradeToAndCall(newImpl, "");
+    function implementation() external view override returns (address) {
+        return SUB_VAULT_IMPL;
     }
 
     function _pullFromPositions(

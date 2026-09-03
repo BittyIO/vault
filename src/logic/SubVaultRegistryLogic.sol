@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {BeaconProxy} from "openzeppelin-contracts/contracts/proxy/beacon/BeaconProxy.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AddressZero, ArrayLengthMismatch} from "../interfaces/IBittyV1Vault.sol";
@@ -31,17 +31,16 @@ library SubVaultRegistryLogic {
         if (e.account == address(0)) revert SubVaultNotFound();
     }
 
-    function createSubVault(address impl, address subOwner, bool allowlistEnabled, uint64 expiresAt)
+    function createSubVault(address subOwner, bool allowlistEnabled, uint64 expiresAt)
         external
         returns (uint256 subId, address account)
     {
         if (subOwner == address(0)) revert AddressZero();
         VaultStorage storage $ = BittyStorage.vault();
         subId = ++$.nextSubId;
-        bytes memory initData =
-            abi.encodeCall(IBittyV1SubVault.initialize, (address(this), subOwner, allowlistEnabled, expiresAt));
         bytes32 salt = keccak256(abi.encodePacked(address(this), subId));
-        account = address(new ERC1967Proxy{salt: salt}(impl, initData));
+        account = address(new BeaconProxy{salt: salt}(address(this), ""));
+        IBittyV1SubVault(account).initialize(address(this), subOwner, allowlistEnabled, expiresAt);
         $.subs[subId] = SubVaultEntry({
             account: account, owner: subOwner, closed: false, expiresAt: expiresAt, gaslessEnabled: false
         });
@@ -135,15 +134,7 @@ library SubVaultRegistryLogic {
         }
     }
 
-    function subVaultAccount(uint256 subId) external view returns (address) {
-        return BittyStorage.vault().subs[subId].account;
-    }
-
     function openSubCount() external view returns (uint256) {
         return BittyStorage.vault().openSubCount;
-    }
-
-    function nextSubId() external view returns (uint256) {
-        return BittyStorage.vault().nextSubId;
     }
 }

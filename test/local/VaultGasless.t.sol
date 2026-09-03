@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -20,7 +21,6 @@ import {
     BITTY_GUARD,
     BITTY_FORWARDER,
     BITTY_FEE_COLLECTOR,
-    STABLE_COIN_CATEGORY,
     SYSTEM_DAILY_MAX_GAS_BUDGET,
     SYSTEM_MAX_FEE_PER_OP
 } from "../../src/logic/Constants.sol";
@@ -52,7 +52,7 @@ contract VaultGaslessTest is Test {
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
         other = new MockERC20("Other", "OTH", 18);
-        guard.setAsset(address(usdc), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         usdc.mint(address(vault), 1_000_000e6);
         other.mint(address(vault), 1_000e18);
     }
@@ -103,7 +103,7 @@ contract VaultGaslessTest is Test {
     // ── narrowing ─────────────────────────────────────────────────────────────
 
     function test_ownerNarrowsToNamedCoins() public {
-        guard.setAsset(address(other), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(other), ASSET_STABLE_COIN);
         address[] memory only = new address[](1);
         only[0] = address(usdc);
 
@@ -176,7 +176,7 @@ contract VaultGaslessTest is Test {
     /// Decimals are normalised to 18 before the ceilings apply, so a 6-dp and an 18-dp coin
     /// consume the same budget for the same value.
     function test_ceilingsAreDecimalNormalised() public {
-        guard.setAsset(address(other), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(other), ASSET_STABLE_COIN);
         _charge(address(usdc), 3e6); // 3 whole tokens, 6dp
         uint256 afterUsdc = vault.gasBudgetRemaining();
         _charge(address(other), 3e18); // 3 whole tokens, 18dp

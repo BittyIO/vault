@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.34;
 
-import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IBittyV1Guard, ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {LENDING_ID, STAKING_ID, AMM_ID, INTENT_ID} from "./CategoryIds.sol";
 
-uint8 constant STABLE_COIN_CATEGORY = 1;
+uint8 constant ASSET_STABLE_COIN = 1;
 uint8 constant CRYPTO_CATEGORY = 2;
 
 /**
@@ -72,7 +72,7 @@ function guardAddAssets(address guard, address[] memory assets) {
  * @dev Stable coins are ordinary assets carrying the stable coin category now.
  */
 function guardAddStableCoins(address guard, address[] memory coins) {
-    IBittyV1Guard(guard).addAssets(coins, _fill(coins.length, STABLE_COIN_CATEGORY));
+    IBittyV1Guard(guard).addAssets(coins, _fill(coins.length, ASSET_STABLE_COIN));
 }
 
 function _fill(uint256 n, uint8 category) pure returns (uint8[] memory out) {

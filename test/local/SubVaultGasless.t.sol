@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -20,7 +21,7 @@ import {
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {NotSubOwner} from "../../src/interfaces/IBittyV1SubVault.sol";
 import {SYSTEM_DAILY_MAX_GAS_BUDGET, SYSTEM_MAX_FEE_PER_OP} from "../../src/logic/Constants.sol";
-import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR, STABLE_COIN_CATEGORY} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR} from "../../src/logic/Constants.sol";
 
 /**
  * Per-sub gasless: the OWNER flips the switch, the SUB OWNER tunes the limits, and the sub pays its own
@@ -42,7 +43,7 @@ contract SubVaultGaslessTest is Test {
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         facet = new BittyV1VaultDeFiFacet();
         subImpl = new BittyV1SubVault(address(facet));
-        MockGuard(BITTY_GUARD).setImpl(address(subImpl), true);
+        MockGuard(BITTY_GUARD).setImplFor(address(subImpl), 2, true);
 
         BittyV1Vault vaultImpl = new BittyV1Vault(address(facet), address(subImpl));
         vault = BittyV1Vault(
@@ -52,7 +53,7 @@ contract SubVaultGaslessTest is Test {
         );
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
-        MockGuard(BITTY_GUARD).setAsset(address(usdc), STABLE_COIN_CATEGORY);
+        MockGuard(BITTY_GUARD).setAsset(address(usdc), ASSET_STABLE_COIN);
 
         address account;
         vm.prank(owner);

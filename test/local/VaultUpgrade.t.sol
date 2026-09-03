@@ -17,6 +17,11 @@ import {BITTY_GUARD} from "../../src/logic/Constants.sol";
  *         upgrades storage-safe — new fields go in a fresh namespaced struct, never appended to V1's.
  * @dev Slot = keccak256(abi.encode(uint256(keccak256("bitty.v2.vault.main")) - 1)) & ~0xff.
  */
+interface IVaultVersion {
+    function vaultVersion() external view returns (uint256);
+    function versionName() external view returns (string memory);
+}
+
 contract BittyV2Vault is BittyV1Vault {
     bytes32 private constant V2_SLOT = 0x7ecb699a06ee21ad3b6687b1a055b97ffa71638bb69215fc9703e69f6463c300;
 
@@ -164,5 +169,11 @@ contract VaultUpgradeTest is Test {
         vm.prank(makeAddr("stranger"));
         vm.expectRevert();
         vault.upgrade(address(v2Impl));
+    }
+
+    /// The vault names its own release the same way an adapter does, so one ABI reads either.
+    function test_vaultReportsItsVersion() public {
+        assertEq(IVaultVersion(address(vault)).vaultVersion(), 1_000_000, "encoded 1.0.0");
+        assertEq(IVaultVersion(address(vault)).versionName(), "1.0.0", "readable form");
     }
 }

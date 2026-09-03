@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -9,7 +10,7 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, STABLE_COIN_CATEGORY} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 interface IVaultDeFi {
     function deposit(address protocol, address asset, uint256 amount) external;
@@ -39,7 +40,7 @@ contract VaultPaymentsTest is Test {
                 ))
         );
         usdc = new MockERC20("USD Coin", "USDC", 6);
-        MockGuard(BITTY_GUARD).setAsset(address(usdc), STABLE_COIN_CATEGORY);
+        MockGuard(BITTY_GUARD).setAsset(address(usdc), ASSET_STABLE_COIN);
     }
 
     function _sp(uint256 amount, uint256 count, uint256 interval)

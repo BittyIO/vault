@@ -9,6 +9,7 @@ import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptogra
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IBittyV1Vault} from "./interfaces/IBittyV1Vault.sol";
 import {Ownable2StepUpgradeable} from "openzeppelin-contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 /**
  * @dev Ownership is the UPGRADEABLE OpenZeppelin variant purely so it initializes instead of taking a
@@ -16,7 +17,7 @@ import {Ownable2StepUpgradeable} from "openzeppelin-contracts-upgradeable/access
  *      appended to the init code and give it a different address on every chain, which is the one
  *      property the whole deployment depends on.
  */
-contract BittyV1VaultForwarder is ERC2771Forwarder, Ownable2StepUpgradeable {
+contract BittyV1VaultForwarder is ERC2771Forwarder, Ownable2StepUpgradeable, UUPSUpgradeable {
     address public constant DEPLOYER = 0x12EE2de7BF086388B1D560eb95e7191Edfab9823;
 
     error FeeExceedsVaultBudget();
@@ -25,7 +26,7 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, Ownable2StepUpgradeable {
     error BatchTargetMismatch();
     error NotDeployer();
     error OwnershipNotRenounceable();
-
+    error BatchNotSupported();
     event RelayerApprovalSet(address indexed relayer, bool approved);
 
     /**
@@ -41,7 +42,16 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, Ownable2StepUpgradeable {
      *      code arguments — and so it is identical everywhere, since changing it would invalidate
      *      every signature ever made for this forwarder.
      */
-    constructor() ERC2771Forwarder("BittyV1VaultForwarder") {}
+    constructor() ERC2771Forwarder("BittyV1VaultForwarder") {
+        _disableInitializers();
+    }
+
+    /**
+     * @dev The relayer-allowlist owner, which is the only authority this contract has. Deliberately not
+     *      a separate upgrade admin: an owner that can already decide who may charge a vault's gas
+     *      budget is not made more powerful by also deciding the code.
+     */
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 
     /**
      * @dev Per-(signer, target) nonce sequences, replacing OpenZeppelin's single sequence per signer.
@@ -65,8 +75,6 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, Ownable2StepUpgradeable {
      *      because it is meaningful for exactly the length of one call and must never survive it.
      */
     bytes32 private constant _NONCE_TARGET_SLOT = 0x8df4084eac8b84d2f835fdd215c47aed36ec12bae0062c9cfc227df184580f00; // keccak256("bitty.v1.forwarder.nonceTarget")
-
-    error BatchNotSupported();
 
     /**
      * @notice The next nonce `signer` must sign for a request targeting `target`.
