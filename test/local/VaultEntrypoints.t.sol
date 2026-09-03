@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -26,13 +27,17 @@ import {
     BITTY_FORWARDER,
     BITTY_FEE_COLLECTOR,
     SENTINEL,
-    STABLE_COIN_CATEGORY,
     SYSTEM_MAX_FEE_PER_OP
 } from "../../src/logic/Constants.sol";
 
 interface IFacet {
     function deposit(address protocol, address asset, uint256 amount) external;
     function getClone(address protocol) external view returns (address);
+}
+
+interface IFacetView {
+    function allowlistEnabled() external view returns (bool);
+    function isAssetAllowed(address asset) external view returns (bool);
 }
 
 contract WETHStub {
@@ -85,7 +90,7 @@ contract VaultEntrypointsTest is Test {
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
         proto = new MockLendingProtocol();
-        guard.setAsset(address(usdc), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         guard.setProtocol(address(proto), LENDING_ID);
         usdc.mint(address(vault), 1_000e6);
 
@@ -169,7 +174,7 @@ contract VaultEntrypointsTest is Test {
 
     function test_activationFeeIsPaidToTheCollectorAtBirth() public {
         MockERC20 fee = new MockERC20("USD Coin", "USDC", 6);
-        guard.setAsset(address(fee), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(fee), ASSET_STABLE_COIN);
         address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
         fee.mint(predicted, 10e6);
 
@@ -187,14 +192,14 @@ contract VaultEntrypointsTest is Test {
 
     function test_anActivationFeeAboveTheSystemCapIsRefused() public {
         MockERC20 fee = new MockERC20("USD Coin", "USDC", 6);
-        guard.setAsset(address(fee), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(fee), ASSET_STABLE_COIN);
         vm.expectRevert(FeeExceedsPerOpCap.selector);
         _newVault(0, address(fee), (uint256(SYSTEM_MAX_FEE_PER_OP) + 1) * 1e6);
     }
 
     function test_anActivationFeeTheVaultCannotCoverIsRefused() public {
         MockERC20 fee = new MockERC20("USD Coin", "USDC", 6);
-        guard.setAsset(address(fee), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(fee), ASSET_STABLE_COIN);
         vm.expectRevert(InsufficientBalance.selector);
         _newVault(0, address(fee), 5e6);
     }
@@ -324,12 +329,6 @@ contract VaultEntrypointsTest is Test {
         );
     }
 
-    function test_upgradingASubThatDoesNotExistIsRefused() public {
-        vm.prank(owner);
-        vm.expectRevert(AddressZero.selector);
-        vault.upgradeSubVault(99, address(0xdead));
-    }
-
     // ── scheduled-payment shortfall cover ─────────────────────────────────────
 
     function _immutableSchedule(uint256 amount) internal returns (uint256 id) {
@@ -419,7 +418,7 @@ contract VaultEntrypointsTest is Test {
     }
 
     function test_theSentinelCannotBeSmuggledInAsACoin() public {
-        guard.setAsset(SENTINEL, STABLE_COIN_CATEGORY);
+        guard.setAsset(SENTINEL, ASSET_STABLE_COIN);
         address[] memory list = new address[](2);
         list[0] = SENTINEL;
         list[1] = address(usdc);
@@ -433,7 +432,7 @@ contract VaultEntrypointsTest is Test {
 
     function test_narrowingTwiceReplacesRatherThanAppends() public {
         MockERC20 dai = new MockERC20("Dai", "DAI", 18);
-        guard.setAsset(address(dai), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN);
 
         vm.startPrank(owner);
         vault.setGasless(_addr(address(usdc)), 50, 5);
@@ -465,5 +464,48 @@ contract VaultEntrypointsTest is Test {
         vm.prank(BITTY_FORWARDER);
         vm.expectRevert(OnlyImmutablePayableAfterRenounce.selector);
         vault.payRelayerFee(address(usdc), 1e6);
+    }
+
+    /**
+     * A vault activated by PAYING in an asset must be able to use that asset. Before this, the
+     * allowlist came up on and empty, so the coin that funded the activation was not tradeable by
+     * the vault it had just paid for - and because a CoW order is signed off chain, the refusal
+     * surfaced as an opaque InvalidEip1271Signature from the orderbook rather than a failed call.
+     */
+    function test_activationAssetIsListedOnTheAllowlist() public {
+        MockERC20 coin = new MockERC20("USD Coin", "USDC", 6);
+        guard.setAsset(address(coin), ASSET_STABLE_COIN);
+        // Seeding defers to the guard, so the stub has to be registered there like the real WETH is.
+        guard.setAsset(address(weth), 2); // 2 = crypto asset, as the live guard categorises WETH
+
+        // Allowlist ON, exactly as the factory activates a vault.
+        bytes memory init = abi.encodeCall(BittyV1Vault.initialize, (owner, address(weth), true, address(coin), 0));
+        BittyV1Vault v = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
+
+        assertTrue(IFacetView(address(v)).allowlistEnabled(), "allowlist should be on");
+        assertTrue(IFacetView(address(v)).isAssetAllowed(address(coin)), "activation asset not listed");
+        assertTrue(IFacetView(address(v)).isAssetAllowed(address(weth)), "weth not listed");
+    }
+
+    /// Seeding is a convenience: an unreachable guard must never block vault creation.
+    function test_initializeSurvivesAnUnreachableGuard() public {
+        vm.etch(BITTY_GUARD, "");
+        BittyV1Vault v = _newVault(0, address(0), 0);
+        assertEq(v.owner(), owner, "vault must still initialize with no guard deployed");
+    }
+
+    /// With the allowlist OFF there is no list to seed: the guard's catalog is the only gate, so
+    /// writing these in would change no answer.
+    function test_noSeedingWhenTheAllowlistIsOff() public {
+        MockERC20 coin = new MockERC20("USD Coin", "USDC", 6);
+        guard.setAsset(address(coin), ASSET_STABLE_COIN);
+        guard.setAsset(address(weth), 2);
+
+        bytes memory init = abi.encodeCall(BittyV1Vault.initialize, (owner, address(weth), false, address(coin), 0));
+        BittyV1Vault v = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
+
+        assertFalse(IFacetView(address(v)).allowlistEnabled(), "allowlist should be off");
+        // Still usable: with no allowlist the guard alone decides.
+        assertTrue(IFacetView(address(v)).isAssetAllowed(address(coin)), "guard-registered asset must pass");
     }
 }

@@ -6,10 +6,10 @@ import {ContextUpgradeable} from "openzeppelin-contracts-upgradeable/utils/Conte
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "openzeppelin-contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {BittyStorage} from "./logic/BittyStorage.sol";
 import {OwnershipNotRenounceable, ImplementationNotRegistered} from "./interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD} from "./logic/Constants.sol";
-import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IBittyV1Guard, IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 
 /**
  * @title BittyV1VaultBase
@@ -19,13 +19,29 @@ import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
  *         for life — there is no opt-out, so a bug found later is always patchable.
  */
 abstract contract BittyV1VaultBase is BittyV1AccountBase, Ownable2StepUpgradeable, UUPSUpgradeable {
+    uint256 private constant _VERSION = 1 * 1_000_000 + 0 * 1_000 + 0;
+
+    function vaultVersion() external pure returns (uint256) {
+        return _VERSION;
+    }
+
+    function versionName() external pure returns (string memory) {
+        return string.concat(
+            Strings.toString(_VERSION / 1_000_000),
+            ".",
+            Strings.toString((_VERSION / 1_000) % 1_000),
+            ".",
+            Strings.toString(_VERSION % 1_000)
+        );
+    }
+
     function upgrade(address newImpl) external {
         upgradeToAndCall(newImpl, "");
     }
 
     function _authorizeUpgrade(address newImpl) internal view override {
         _checkOwner();
-        if (!IBittyV1Guard(BITTY_GUARD).isImplementationRegistered(newImpl)) {
+        if (!IBittyV1Guard(BITTY_GUARD).isImplementationRegisteredFor(newImpl, IMPLEMENTATION_VAULT)) {
             revert ImplementationNotRegistered();
         }
     }

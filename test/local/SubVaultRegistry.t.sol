@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {BeaconProxy} from "openzeppelin-contracts/contracts/proxy/beacon/BeaconProxy.sol";
+import {IBeacon} from "openzeppelin-contracts/contracts/proxy/beacon/IBeacon.sol";
+import {ERC1967Utils} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {SubVaultNotFound, NotParentVault, SubVaultClosedError} from "../../src/interfaces/IBittyV1SubVault.sol";
 import {ImplementationNotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
 import {AddressZero, ArrayLengthMismatch, NoRescueTarget} from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, STABLE_COIN_CATEGORY} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 /**
  * The sub-vault registry: the main vault's book of the accounts it has spun out.
@@ -41,7 +45,7 @@ contract SubVaultRegistryTest is Test {
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
-        guard.setAsset(address(usdc), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         usdc.mint(address(vault), 1_000e6);
     }
 
@@ -244,7 +248,7 @@ contract SubVaultRegistryTest is Test {
     function test_severalAssetsComeBackInOneRecall() public {
         (uint256 id, BittyV1SubVault sub) = _create();
         MockERC20 dai = new MockERC20("Dai", "DAI", 18);
-        guard.setAsset(address(dai), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN);
         dai.mint(address(vault), 1_000e18);
 
         address[] memory assets = new address[](2);
@@ -300,27 +304,73 @@ contract SubVaultRegistryTest is Test {
 
     // ── upgrades ──────────────────────────────────────────────────────────────
 
-    /// A sub may only be moved to an implementation the guard has blessed.
-    function test_subUpgradeRequiresARegisteredImplementation() public {
-        (uint256 id,) = _create();
-        address rogue = address(new BittyV1SubVault(makeAddr("facet")));
-        vm.prank(owner);
-        vm.expectRevert(ImplementationNotRegistered.selector);
-        vault.upgradeSubVault(id, rogue);
+    /// Every sub follows the PARENT's upgrade, in the parent's own transaction and with no call of
+    /// its own - the whole point of pointing the beacon at the parent.
+    function test_subsFollowTheParentUpgrade() public {
+        (, BittyV1SubVault sub) = _create();
+        assertEq(sub.vault(), address(vault));
 
-        guard.setImpl(rogue, true);
+        address nextFacet = address(new BittyV1VaultDeFiFacet());
+        BittyV1SubVault nextSubImpl = new BittyV1SubVault(nextFacet);
+        address nextVaultImpl = address(new BittyV1Vault(nextFacet, address(nextSubImpl)));
+        guard.setImplFor(nextVaultImpl, 1, true);
         vm.prank(owner);
-        vault.upgradeSubVault(id, rogue);
+        vault.upgradeToAndCall(nextVaultImpl, "");
+
+        assertEq(vault.implementation(), address(nextSubImpl));
+        assertEq(_beaconImpl(address(sub)), address(nextSubImpl));
+        assertEq(sub.vault(), address(vault), "sub storage survives the parent upgrade");
     }
 
-    /// And only the parent may move it — a sub cannot upgrade itself.
-    function test_subCannotUpgradeItself() public {
+    /// Nobody can point a single sub somewhere else - not the sub owner, not the parent. The only
+    /// lever is the parent's own implementation, which the guard gates.
+    function test_aSubHasNoUpgradePathOfItsOwn() public {
         (, BittyV1SubVault sub) = _create();
-        address next = address(new BittyV1SubVault(makeAddr("facet")));
-        guard.setImpl(next, true);
+        address rogue = address(new BittyV1SubVault(makeAddr("facet")));
+        guard.setImplFor(rogue, 2, true);
+
+        bytes memory call = abi.encodeWithSignature("upgradeToAndCall(address,bytes)", rogue, "");
         vm.prank(subOwner);
-        vm.expectRevert(NotParentVault.selector);
-        sub.upgradeToAndCall(next, "");
+        (bool okSubOwner,) = address(sub).call(call);
+        assertFalse(okSubOwner);
+        vm.prank(owner);
+        (bool okParent,) = address(sub).call(call);
+        assertFalse(okParent);
+        assertEq(_beaconImpl(address(sub)), vault.implementation());
+    }
+
+    /// A sub's address follows from (parent, subId) alone, so it is knowable before the sub exists and
+    /// unaffected by the settings it is created with - an address someone saved keeps working.
+    function test_subAddressIsPredictableAndSettingsIndependent() public {
+        address predicted = _predictSub(address(vault), 1);
+        (, BittyV1SubVault sub) = _create();
+        assertEq(address(sub), predicted);
+
+        vm.prank(owner);
+        (, address second) = vault.createSubVault(makeAddr("other"), true, uint64(block.timestamp) + 1 days);
+        assertEq(second, _predictSub(address(vault), 2), "different settings, same derivation");
+    }
+
+    /// The code a sub is actually running, read the way the proxy resolves it: beacon slot, then ask.
+    function _beaconImpl(address proxy) internal view returns (address) {
+        address beacon = address(uint160(uint256(vm.load(proxy, ERC1967Utils.BEACON_SLOT))));
+        assertEq(beacon, address(vault), "the parent is the beacon");
+        return IBeacon(beacon).implementation();
+    }
+
+    function _predictSub(address parent, uint256 subId) internal pure returns (address) {
+        bytes memory initCode = abi.encodePacked(type(BeaconProxy).creationCode, abi.encode(parent, bytes("")));
+        return address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(
+                            bytes1(0xff), parent, keccak256(abi.encodePacked(parent, subId)), keccak256(initCode)
+                        )
+                    )
+                )
+            )
+        );
     }
 
     /**

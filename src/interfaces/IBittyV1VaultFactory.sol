@@ -21,8 +21,11 @@ interface IBittyV1VaultFactory {
      *
      * @dev Activate the vault by ETH as gas from the owner.
      *      Any native ETH in the vault will be wrapped into WETH.
+     * @param allowlistEnabled Whether the vault starts restricted to its own allowlist. ON is the
+     *        cautious default; OFF leaves the guard's catalog as the only gate. Reversible either
+     *        way, and it does not affect the vault's address.
      */
-    function activateVault() external;
+    function activateVault(bool allowlistEnabled) external;
 
     /**
      * @notice Activate a vault whose owner pays in stable coin rather than ETH: you supply the gas on
@@ -32,9 +35,18 @@ interface IBittyV1VaultFactory {
      * @param owner The address of the owner.
      * @param asset The address of the assset.
      * @param amount The amount of asset to pay for the activation.
+     * @param allowlistEnabled Whether the vault starts restricted to its own allowlist. Part of what
+     *        the owner SIGNS, not merely of what the submitter passes: whoever relays the activation
+     *        must not get to choose the security posture of someone else's vault.
      * @param signature The signature of the owner.
      */
-    function activateVaultByAsset(address owner, address asset, uint256 amount, bytes calldata signature) external;
+    function activateVaultByAsset(
+        address owner,
+        address asset,
+        uint256 amount,
+        bool allowlistEnabled,
+        bytes calldata signature
+    ) external;
 
     /**
      * @notice Get the vault address for a given owner.

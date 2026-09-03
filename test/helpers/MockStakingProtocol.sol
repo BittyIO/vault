@@ -2,8 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
-import {IBittyV1Depositable} from "protocol-contracts/src/interfaces/IBittyV1Depositable.sol";
-import {IBittyV1Withdrawable} from "protocol-contracts/src/interfaces/IBittyV1Withdrawable.sol";
+import {IBittyV1Yield} from "protocol-contracts/src/interfaces/IBittyV1Yield.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
@@ -14,7 +13,19 @@ import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initia
  * asset 1:1 and records the recipient of the last on-behalf unstake so tests can assert
  * funds are delivered only to the configured scheduledPayment.
  */
-contract MockStakingProtocol is IBittyV1Protocol, IBittyV1Depositable, IBittyV1Withdrawable, Ownable, Initializable {
+contract MockStakingProtocol is IBittyV1Protocol, IBittyV1Yield, Ownable, Initializable {
+    function protocolLineage() external pure returns (bytes32) {
+        return keccak256("bitty.mock.staking");
+    }
+
+    function protocolVersion() external pure returns (uint256) {
+        return 1_000_000;
+    }
+
+    function versionName() external pure returns (string memory) {
+        return "1.0.0";
+    }
+
     using SafeERC20 for IERC20;
 
     address public lastUnstakeRecipient;
@@ -24,14 +35,6 @@ contract MockStakingProtocol is IBittyV1Protocol, IBittyV1Depositable, IBittyV1W
 
     function initialize(address newOwner) external override initializer {
         _transferOwnership(newOwner);
-    }
-
-    function name() external pure override returns (string memory) {
-        return "MockStaking";
-    }
-
-    function version() external pure override returns (string memory) {
-        return "1.0.0";
     }
 
     function deposit(address asset, uint256 amount) external override onlyOwner {

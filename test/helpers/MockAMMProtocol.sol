@@ -6,6 +6,18 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract MockAMMProtocol is IBittyV1AMMProtocol {
+    function protocolLineage() external pure returns (bytes32) {
+        return keccak256("bitty.mock.amm");
+    }
+
+    function protocolVersion() external pure returns (uint256) {
+        return 1_000_000;
+    }
+
+    function versionName() external pure returns (string memory) {
+        return "1.0.0";
+    }
+
     using SafeERC20 for IERC20;
 
     uint256 public decreaseLiquidityCallCount;
@@ -14,14 +26,6 @@ contract MockAMMProtocol is IBittyV1AMMProtocol {
     bytes public lastRemoveData;
 
     function initialize(address) external override {}
-
-    function name() external pure override returns (string memory) {
-        return "MockAMM";
-    }
-
-    function version() external pure override returns (string memory) {
-        return "1.0.0";
-    }
 
     function addLiquidity(bytes memory) external override {}
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -12,7 +13,7 @@ import {AMM_ID, INTENT_ID, LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
-import {BITTY_GUARD, STABLE_COIN_CATEGORY} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 interface IFacet {
     function addLiquidity(address amm, address t0, uint256 a0, address t1, uint256 a1, bytes memory data) external;
@@ -70,7 +71,7 @@ contract DeFiTradingTest is Test {
         intent = new MockIntentProtocol();
         intent.setEndpoints(address(settlement), address(settlement));
 
-        guard.setAsset(address(t0), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(t0), ASSET_STABLE_COIN);
         guard.setAsset(address(t1), 2);
         guard.setProtocol(address(amm), AMM_ID);
         guard.setProtocol(address(intent), INTENT_ID);

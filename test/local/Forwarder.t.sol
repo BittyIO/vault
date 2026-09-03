@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC2771Forwarder} from "openzeppelin-contracts/contracts/metatx/ERC2771Forwarder.sol";
@@ -11,9 +12,12 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {BittyV1VaultForwarder} from "../../src/BittyV1VaultForwarder.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR, STABLE_COIN_CATEGORY} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR} from "../../src/logic/Constants.sol";
 
 /// Answers ERC-1271 for one key, so a contract-owned vault can be relayed.
+import {BittyV1ForwarderBootstrap, NotDeployer as BootstrapNotDeployer} from "../../src/BittyV1ForwarderBootstrap.sol";
+import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
 contract ContractWallet {
     address public signer;
 
@@ -76,7 +80,7 @@ contract ForwarderTest is Test {
         vaultB = _newVault(owner);
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
-        guard.setAsset(address(usdc), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         usdc.mint(address(vaultA), 1_000e6);
         usdc.mint(address(vaultB), 1_000e6);
     }
@@ -523,5 +527,49 @@ contract ForwarderTest is Test {
         assertEq(usdc.balanceOf(one), 10e6);
         assertEq(usdc.balanceOf(two), 20e6);
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 3e6, "one charge for both");
+    }
+
+    // ── the bootstrap ─────────────────────────────────────────────────────────
+
+    /// The forwarder's address is compiled into every vault, so it must survive a change of build.
+    /// Born on the bootstrap, moved to the real forwarder, and upgradeable again afterwards - all at
+    /// one address, with the relayer allowlist and nonces intact.
+    function test_forwarderSurvivesAnImplementationChange() public {
+        address proxy = address(new ERC1967Proxy(address(new BittyV1ForwarderBootstrap()), ""));
+        address build = address(new BittyV1VaultForwarder());
+        vm.prank(DEPLOYER, DEPLOYER);
+        UUPSUpgradeable(proxy).upgradeToAndCall(build, "");
+
+        BittyV1VaultForwarder f = BittyV1VaultForwarder(payable(proxy));
+        vm.prank(DEPLOYER, DEPLOYER);
+        f.initialize(fwdOwner);
+        vm.prank(fwdOwner);
+        f.setRelayerApproval(relayer, true);
+
+        address next = address(new BittyV1VaultForwarder());
+        vm.prank(fwdOwner);
+        UUPSUpgradeable(proxy).upgradeToAndCall(next, "");
+
+        assertEq(f.owner(), fwdOwner, "owner survived");
+        assertTrue(f.approvedRelayers(relayer), "relayer allowlist survived");
+    }
+
+    /// Only the owner may replace the relay logic once the forwarder is live.
+    function test_onlyOwnerMayUpgradeTheForwarder() public {
+        address next = address(new BittyV1VaultForwarder());
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert();
+        UUPSUpgradeable(address(fwd)).upgradeToAndCall(next, "");
+    }
+
+    /// The proxy address is reproducible on every chain, so the window before the first upgrade is
+    /// reachable by anyone on a chain Bitty has not deployed to yet. Only the deployer may close it.
+    function test_onlyDeployerMayUpgradeOffTheForwarderBootstrap() public {
+        address proxy = address(new ERC1967Proxy(address(new BittyV1ForwarderBootstrap()), ""));
+        address build = address(new BittyV1VaultForwarder());
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger, stranger);
+        vm.expectRevert(BootstrapNotDeployer.selector);
+        UUPSUpgradeable(proxy).upgradeToAndCall(build, "");
     }
 }

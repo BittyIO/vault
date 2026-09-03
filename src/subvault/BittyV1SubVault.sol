@@ -15,7 +15,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
-import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IBittyV1Guard, ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {
     AddressZero,
     AmountIsZero,
@@ -30,7 +30,6 @@ import {
 import {
     BITTY_GUARD,
     BITTY_FEE_COLLECTOR,
-    STABLE_COIN_CATEGORY,
     SYSTEM_DAILY_MAX_GAS_BUDGET,
     SYSTEM_MAX_FEE_PER_OP,
     MAX_DURATION
@@ -143,7 +142,7 @@ contract BittyV1SubVault is BittyV1SubVaultBase, IBittyV1SubVault {
         SubVaultStorage storage $ = BittyStorage.subVault();
         if (!$.gaslessEnabled) revert SubGaslessDisabled();
         if (amount == 0) revert AmountIsZero();
-        if (IBittyV1Guard(BITTY_GUARD).assetCategory(asset) != STABLE_COIN_CATEGORY) revert InvalidAsset();
+        if (IBittyV1Guard(BITTY_GUARD).assetCategory(asset) != ASSET_STABLE_COIN) revert InvalidAsset();
 
         uint64 dailyLimit = $.gasDailyLimit == 0 ? SYSTEM_DAILY_MAX_GAS_BUDGET : $.gasDailyLimit;
         uint64 feeCap = $.maxFeePerOp == 0 ? SYSTEM_MAX_FEE_PER_OP : $.maxFeePerOp;

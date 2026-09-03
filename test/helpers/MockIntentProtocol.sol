@@ -4,6 +4,18 @@ pragma solidity ^0.8.34;
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 
 contract MockIntentProtocol is IBittyV1IntentProtocol {
+    function protocolLineage() external pure returns (bytes32) {
+        return keccak256("bitty.mock.intent");
+    }
+
+    function protocolVersion() external pure returns (uint256) {
+        return 1_000_000;
+    }
+
+    function versionName() external pure returns (string memory) {
+        return "1.0.0";
+    }
+
     address public owner;
     address public settlement;
     address public vaultRelayer;
@@ -15,14 +27,6 @@ contract MockIntentProtocol is IBittyV1IntentProtocol {
 
     function initialize(address newOwner) external override {
         owner = newOwner;
-    }
-
-    function name() external pure override returns (string memory) {
-        return "MockIntent";
-    }
-
-    function version() external pure override returns (string memory) {
-        return "1.0.0";
     }
 
     function isValidSignature(bytes32, bytes memory) external pure override returns (bytes4) {

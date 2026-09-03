@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {BittyV1VaultBootstrap} from "../../src/BittyV1VaultBootstrap.sol";
+import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC2771Forwarder} from "openzeppelin-contracts/contracts/metatx/ERC2771Forwarder.sol";
@@ -16,7 +18,7 @@ import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {BittyV1VaultForwarder} from "../../src/BittyV1VaultForwarder.sol";
 import {InvalidActivationSignature} from "../../src/interfaces/IBittyV1VaultFactory.sol";
-import {BITTY_GUARD, BITTY_FORWARDER, STABLE_COIN_CATEGORY} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_FORWARDER} from "../../src/logic/Constants.sol";
 
 /**
  * A Gnosis Safe as the vault owner.
@@ -63,7 +65,7 @@ contract SafeOwnerTest is Test {
         BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
-        guard.setAsset(address(usdc), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN);
 
         vault = BittyV1Vault(
             payable(new ERC1967Proxy(
@@ -74,8 +76,9 @@ contract SafeOwnerTest is Test {
 
         BittyV1VaultFactory factoryImpl = new BittyV1VaultFactory();
         factory = BittyV1VaultFactory(address(new ERC1967Proxy(address(factoryImpl), "")));
+        address boot = address(new BittyV1VaultBootstrap());
         vm.prank(DEPLOYER, DEPLOYER);
-        factory.initialize(address(impl), weth);
+        factory.initialize(address(impl), weth, boot);
 
         BittyV1VaultForwarder fwdImpl = new BittyV1VaultForwarder();
         vm.etch(BITTY_FORWARDER, address(fwdImpl).code);
@@ -147,7 +150,12 @@ contract SafeOwnerTest is Test {
     function test_aSafeOperatesTheVaultItOwns() public {
         assertEq(vault.owner(), address(safe), "the Safe owns it");
 
-        _exec(address(vault), abi.encodeCall(BittyV1Vault.createSubVault, (makeAddr("subOwner"), false, uint64(block.timestamp + 365 days))));
+        _exec(
+            address(vault),
+            abi.encodeCall(
+                BittyV1Vault.createSubVault, (makeAddr("subOwner"), false, uint64(block.timestamp + 365 days))
+            )
+        );
         assertEq(vault.subVaultOpenCount(), 1, "a 2-of-3 vote created a sub account");
 
         _exec(address(vault), abi.encodeCall(BittyV1VaultDeFiFacet.setAssetManager, (makeAddr("manager"), 0)));
@@ -178,16 +186,19 @@ contract SafeOwnerTest is Test {
     function test_aSafeCanActivateAVaultGaslessly() public {
         bytes32 structHash = keccak256(
             abi.encode(
-                keccak256("Activation(address owner,address stableCoinAddress,uint256 feeAmount)"),
+                keccak256(
+                    "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled)"
+                ),
                 address(safe),
                 address(0),
-                uint256(0)
+                uint256(0),
+                true
             )
         );
         bytes32 digest = _domain712("BittyV1VaultFactory", address(factory), structHash);
 
         vm.prank(relayer);
-        address created = factory.activateVaultByAsset(address(safe), address(0), 0, _sign1271(digest, 2));
+        address created = factory.activateVaultByAsset(address(safe), address(0), 0, true, _sign1271(digest, 2));
         assertEq(BittyV1Vault(payable(created)).owner(), address(safe), "born under a multisig");
     }
 

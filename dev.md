@@ -65,8 +65,25 @@ forge coverage --ir-minimum --no-match-coverage 'test|node_modules|script|src/li
 
 ## Deploy
 
-`script/Deploy.s.sol` is the only deploy script. It brings up the whole stack in dependency order —
-forwarder, DeFi facet, auto-yield keeper, implementation, factory — and wires the factory to them.
+`script/Deploy.s.sol` is the only deploy script. It brings up the whole stack in dependency order and
+wires the factory to it:
+
+| # | Contract | Deployer | Salt |
+| --- | --- | --- | --- |
+| 1 | seven logic libraries | canonical CREATE2 | `0` |
+| 2 | `BittyV1ForwarderBootstrap` | canonical CREATE2 | `0` |
+| 3 | forwarder proxy → upgraded to `BittyV1VaultForwarder`, then `initialize` | `ImmutableCreate2Factory` | `FORWARDER_SALT` (mined) |
+| 4 | `BittyV1AutoYieldKeeper` — re-pointed at the forwarder | canonical CREATE2 | `0` |
+| 5 | `BittyV1VaultDeFiFacet` | canonical CREATE2 | `0` |
+| 6 | `BittyV1SubVault` implementation | canonical CREATE2 | `0` |
+| 7 | `BittyV1Vault` implementation | `ImmutableCreate2Factory` | `IMPLEMENTATION_SALT` (mined) |
+| 8 | `BittyV1VaultBootstrap` | canonical CREATE2 | `0` |
+| 9 | `BittyV1VaultFactory` → `initialize` | `ImmutableCreate2Factory` | `FACTORY_SALT` (mined) |
+
+Everything at salt `0` goes through the canonical CREATE2 deployer
+`0x4e59b44847b379578588920cA78FbF26c0B4956C`, so each address is a pure function of its init code —
+constructor arguments included. That is what makes re-running safe: code at the predicted address is
+byte-for-byte this build, never a leftover from an older generation.
 
 Chain-specific addresses live in `deployments/<chain>.toml`. The script reads them, and writes the ones
 it creates back, through `forge-std`'s `Config`.
@@ -80,281 +97,208 @@ what genuinely varies per chain or is genuinely discovered by the run.
 | Key | Notes |
 | --- | --- |
 | `WETH` | |
-| `BITTY_FORWARDER_OWNER` | controls the relayer allowlist. A Safe is the right answer; the deployer EOA works but is a hot key sitting on every vault's fee path |
+| `BITTY_FORWARDER_OWNER` | controls the relayer allowlist AND, now that the forwarder is a proxy, its upgrades. A Safe is the right answer; the deployer EOA works but is a hot key sitting on every vault's fee path |
 | `BITTY_RELAYER` | optional — approved for `executeWithFee` / `executeBatchWithFee` if present. Without it the forwarder still relays, it just cannot charge |
 
-`BITTY_FORWARDER_OWNER` doubles as the owner of `BittyV1AutoYieldKeeper`, which the script deploys and
-records as `BITTY_AUTO_YIELD_KEEPER`. Deploy order is forced by two immutables on the implementation —
-the DeFi facet and the keeper — so both must exist before it: **forwarder → facet → keeper →
-implementation → factory**.
+`BITTY_FORWARDER_OWNER` doubles as the owner of `BittyV1AutoYieldKeeper`. The keeper stores which
+forwarder it trusts, so it is redeployed-or-re-pointed on any run where the forwarder address changes;
+vaults freeze their trigger, so never deploy a *new* keeper for a live generation — call
+`setForwarder(newForwarder, true)` on the existing one, which is what step 4 does.
 
-The facet and keeper go through the canonical CREATE2 deployer at
-`0x4e59b44847b379578588920cA78FbF26c0B4956C` with salt `0`, so each address is a function of its init
-code — constructor arguments included. That is what makes re-running safe: code at the predicted address
-is byte-for-byte this build, never a leftover from an older generation. Reusing whatever a TOML key
-happens to name cannot promise that, and would silently pick up the previous generation on an upgrade.
-It also means changing either moves its address, and the implementation moves whenever the facet or
-keeper does.
-
-The **implementation** goes through `ImmutableCreate2Factory` instead, with `IMPLEMENTATION_SALT`. Not
-for a vanity address — its init code carries the facet and keeper, so the address moves on every upgrade
-and no mined suffix would survive — but for `containsCaller`. It is the only deployment here with an
-`initialize`, so on a fresh chain a squatter using the open salt-0 deployer could have front-run it and
-claimed the singleton. A DEPLOYER-prefixed salt makes that impossible. The claim itself is gated on
-`owner() == address(0)`, so a run that deployed and then failed before claiming still claims on retry.
-
-After a *later* forwarder generation ships, add it to the existing keeper with
-`setForwarder(newForwarder, true)` rather than deploying a new keeper. Vaults freeze their trigger, so a
-new keeper address would strand every vault already live.
-
-**The broadcasting key must be the DEPLOYER**, `0x12EE2de7BF086388B1D560eb95e7191Edfab9823`. Both
-`BittyV1VaultForwarder.initialize` and `BittyV1VaultFactory.initialize` gate on `tx.origin` rather than
-`msg.sender` — which stops another chain's squatter from claiming the address, and also means these two
-calls cannot be relayed or sent from a multisig.
-
-**Every deploy must use `FOUNDRY_PROFILE=deploy`** — see [Build profiles](#build-profiles) below. That
-profile pins the logic library addresses and drops metadata, so the default profile builds the same
-source to different bytecode and therefore different CREATE2 addresses.
+**The broadcasting key must be the DEPLOYER**, `0x12EE2de7BF086388B1D560eb95e7191Edfab9823`. The two
+bootstraps, `BittyV1VaultForwarder.initialize` and `BittyV1VaultFactory.initialize` all gate on
+`tx.origin` rather than `msg.sender` — which stops another chain's squatter from claiming these
+addresses, and also means those calls cannot be relayed or sent from a multisig.
 
 ```shell
 source .env
 
-FOUNDRY_PROFILE=deploy forge script script/Deploy.s.sol:Deploy \
+forge script script/Deploy.s.sol:Deploy \
   --rpc-url sepolia \
   --broadcast \
+  --verify \
   --private-key $SEPOLIA_PRIVATE_KEY \
   -vvvv
 ```
 
-Writes `BITTY_AUTO_YIELD_KEEPER`, `VAULT_IMPLEMENTATION`, `DEFI_FACET`, `VAULT_LOGIC`,
-`ASSET_MANAGER_LOGIC` and `BITTY_VAULT_FACTORY`. The forwarder is not written: its address is already
-`BITTY_FORWARDER` in `Constants.sol`, and the script hard-`require`s that the two agree before it
-deploys anything, so a TOML copy could only ever restate a value the build already fixed.
+The run is idempotent. Anything already at its expected address is skipped, each `initialize` is only
+called when it has not run yet, and each proxy is upgraded only when its ERC-1967 slot does not already
+name the current build — so a partial deployment can simply be re-run.
 
-No `--libraries` flag is needed. Under the `deploy` profile the two logic libraries are pinned in
-`foundry.toml`, so the build is already linked and the script only has to put code at those two
-addresses — `_deployLogicLibraries` does that, through the salt-0 deployer that the pins were derived
-from, skipping either that already has code. (Under the default profile forge auto-deploys them as part
-of the broadcast and the step is a no-op.) Either way the TOML ends up naming the libraries the
-implementation is actually linked against, via `address(VaultLogic)` / `address(AssetManagerLogic)` —
-which is what the verify step below needs.
-
-The run is idempotent. Anything already at its expected address is skipped, and each `initialize` is
-only called when it has not run yet, so a partial deployment can simply be re-run.
+Watch the log for two things: seven library deployments near the top, and any `!! … MOVED` line from
+`_reportIfMoved`, which means a recorded address changed and the guard registration or the web config
+needs updating with it.
 
 > **Simulating.** Drop `--broadcast` for a dry run — but note it still rewrites the TOML, because the
-> implementation and facet really are deployed inside the fork, at addresses that will not exist
-> afterwards. Back the file up if the current values matter.
+> contracts really are deployed inside the fork, at addresses that will not exist afterwards. Back the
+> file up if the current values matter.
+
+### After the deploy
+
+1. Register the implementation on the guard: `setImplementation(<implementation>, IMPLEMENTATION_VAULT)`.
+   There is no sub-vault registration — a sub vault is a beacon proxy of its parent, so it runs the
+   build that ships with the parent's own guard-approved implementation and the guard has nothing
+   separate to bless.
+2. Update the web config's factory address and deploy block.
+
+### Addresses that must never move
+
+Three addresses are compiled into other contracts as constants, so moving one is not a redeploy but a
+migration of everything downstream:
+
+| Constant | Why it is pinned |
+| --- | --- |
+| `BITTY_GUARD` | read by every vault on every trade |
+| `BITTY_FORWARDER` | a vault stores its trusted forwarder at `initialize` and has no setter |
+| `BITTY_FEE_COLLECTOR` | an EOA, so it has no bytecode to drift |
+
+The guard and the forwarder are therefore **proxies born on a bootstrap** — a permanent, do-nothing
+implementation with fixed bytecode. A proxy's init code embeds its implementation, so a proxy pointed
+straight at the current build moves to a new address on every release of that build, and a second chain
+can only match the first by rebuilding the exact implementation the first was born with. Being born on
+a constant takes the build out of the hash: the init code, and therefore the address, is identical on
+every chain at every version, and a later change is an upgrade rather than a migration.
+
+`BittyV1VaultBootstrap` does the same job one level down, for the vaults themselves — every vault proxy
+is born on it, so an owner's vault address depends on their address and nothing else, and shipping a new
+vault build does not relocate anyone.
+
+Each bootstrap authorises exactly one upgrade, gated on `tx.origin == DEPLOYER` (or, for vaults, on the
+vault being unclaimed), and is never the implementation again afterwards.
 
 ### Build profiles
 
-There are two, and they build the **same source to different bytecode**:
+`default`, `ci` and `deploy` compile the **same source to the same bytecode** — identical `solc_version`,
+`evm_version`, optimizer settings, `via_ir` and remappings. They differ only in `out` and `test`
+directories. There is no longer a profile you must remember to select before mining or deploying.
 
-| | `default` | `deploy` |
-| --- | --- | --- |
-| out dir | `out/` | `out-deploy/` |
-| logic libraries | auto-deployed by forge, linked at whatever address the run assigned | pinned in `foundry.toml` |
-| metadata | appended | `bytecode_hash = "none"`, `cbor_metadata = false` |
-
-Different bytecode means **different init code, and therefore different CREATE2 addresses** — the same
-salt lands somewhere else. That is the single easiest way to mine a salt against bytecode nobody
-deploys, so: `deploy` for every real deploy, every salt mine, every address prediction and every
-verify. `default` for `forge test`, which needs the auto-deployed libraries — pinning them there would
-link every test to two empty addresses and revert on the first library call.
-
-The pin exists so an implementation address is reproducible at all: `BittyV1Vault` links `VaultLogic`
-(48 sites) and `AssetManagerLogic` (13), the facet links both (19), and those addresses are baked into
-creation code. `bytecode_hash = "none"` is what makes the pin a fixed point — solc records the
-`libraries` setting in metadata, so with metadata appended, pinning an address changes the bytecode of
-the library being pinned and moves its own address.
-
-`ImplSalt.t.sol` and `LibAddr.t.sol` skip themselves outside the `deploy` profile rather than report
-numbers no deploy will produce.
-
-### Predicting addresses
-
-> **No tooling for this right now.** Predicting the addresses has to resolve a chain — the pinned
-> library addresses, then the facet, then the keeper, then the implementation whose constructor
-> arguments are the facet and keeper *addresses* — and it cannot be a forge test, because `forge test`
-> links libraries at ephemeral addresses rather than the pinned ones, so anything computed inside a
-> test hashes to something no deploy will ever produce.
->
-> It therefore has to read `out-deploy/` from outside Solidity. That script is not in the repo. Until
-> it is, derive the addresses by hand from the artifacts: link each contract's `linkReferences` at the
-> pinned library addresses, append the constructor arguments, and take
-> `keccak256(0xff ‖ factory ‖ salt ‖ keccak256(initCode))[12:]`.
->
-> The same gap covers the drift checks that used to live here: the two library pins in `foundry.toml`,
-> `BITTY_FORWARDER` in `Constants.sol`, and `IMPLEMENTATION_SALT` differing between `Deploy.s.sol` and
-> `ImplSalt.t.sol`. Each of those goes stale silently, so check them by eye before mining or deploying.
+`foundry.toml` deliberately sets **no `libraries` pin and no `bytecode_hash` / `cbor_metadata`
+override**. Both change the init code and therefore every CREATE2 address derived from it, and solc
+records the `libraries` setting in each contract's metadata — so pinning shifts even contracts that link
+nothing. Forge links the libraries automatically at their salt-0 CREATE2 addresses, which is exactly
+where `_deployLogicLibraries` puts them, and `_deployLibrary` asserts the two agree before deploying.
 
 ### Deterministic addresses and salt mining
 
-The forwarder, the factory and the implementation all go through `ImmutableCreate2Factory` at
-`0x0000000000FFe8B47B3e2130213B802212439497`, which requires the salt's leading 20 bytes to equal the
-caller — so only the trailing 12 bytes are free to search, and no one but the DEPLOYER can use these
-salts on any chain. All three are hardcoded in `script/Deploy.s.sol` as `FORWARDER_SALT`, `FACTORY_SALT`
-and `IMPLEMENTATION_SALT`.
+`FORWARDER_SALT`, `IMPLEMENTATION_SALT` and `FACTORY_SALT` in `script/Deploy.s.sol` all go through
+`ImmutableCreate2Factory` at `0x0000000000FFe8B47B3e2130213B802212439497`, which requires the salt's
+leading 20 bytes to equal the caller. Only the trailing 12 bytes are free to search, and no one but the
+DEPLOYER can use these salts on any chain — so a miner has to be told the caller, not just the hash.
 
-Only the first two are mined for vanity; `IMPLEMENTATION_SALT` is the DEPLOYER prefix followed by zeros,
-because the implementation's address is not stable across releases anyway.
-
-The script computes each target address itself rather than calling
-`ImmutableCreate2Factory.findCreate2Address`, which returns `address(0)` once a salt has been used —
-a sentinel that reads as "nothing deployed here" and would send every re-run into `safeCreate2` and
-revert.
-
-Neither contract takes constructor arguments, deliberately: constructor arguments are appended to the
-init code, and init code is what CREATE2 hashes. With none, the same salt lands on the same address on
-every chain even where each chain has a different owner.
-
-The corollary is that **changing either contract's bytecode moves its address**, so the salt has to be
-re-mined. For the forwarder that is more than an inconvenience: a vault stores its `trustedForwarder`
-once at `initialize` and has no setter, so vaults already deployed cannot be pointed at a new forwarder
-and must be re-activated under a new factory. Print what a miner needs with:
-
-```shell
-FOUNDRY_PROFILE=deploy forge test --match-test test_printInitCodeHashForSaltMining -vv
-```
-
-That prints the forwarder's init code hash, which is the input a miner wants. The forwarder can do
-this from a test because it links no library and takes no constructor arguments — its creation code is
-the same everywhere. The implementation and the facet cannot, for the reason in the note above.
-
-Only the trailing 12 bytes of the salt are free; the leading 20 must stay the DEPLOYER address or
-`ImmutableCreate2Factory` rejects it — so a miner has to be told the caller, not just the hash.
+The script prints each init code hash as it runs, so a dry run is the way to get them.
 
 #### Mining order
 
-The implementation is mined **last**, and the order ahead of it is forced rather than preferred:
+The order is forced, not preferred:
 
-| step | | depends on |
+| step | mine | depends on |
 | --- | --- | --- |
-| 1 | `VaultLogic` pin | nothing — links nothing, so its source alone fixes it |
-| 2 | `AssetManagerLogic` pin | `VaultLogic`'s pin (it links `VaultLogic` at 4 sites) |
-| 3 | `FORWARDER_SALT` → `BITTY_FORWARDER` | nothing — the forwarder imports nothing |
-| — | `FACTORY_SALT` | nothing — links no library, imports no constant, so mine it whenever |
-| 4 | `IMPLEMENTATION_SALT` | all of the above |
+| 1 | `FORWARDER_SALT` | nothing — the proxy's init code holds only the forwarder bootstrap, which is constant |
+| 2 | — | paste the resulting proxy address into `BITTY_FORWARDER` in `Constants.sol` |
+| 3 | `IMPLEMENTATION_SALT` and `FACTORY_SALT` | step 2 — both build against `Constants.sol` |
 
-`BittyV1Vault` and `BittyV1VaultDeFiFacet` are the only two carrying inputs from elsewhere. They LINK
-both logic libraries, so the pinned addresses are baked into their creation code, and they import
-`Constants.sol`, so `BITTY_FORWARDER` is too. Move any of those three and the implementation's init
-code changes — a salt mined earlier lands on an address the deploy can never reach.
+Step 2 is the one that catches people out. `BittyV1Vault`, `BittyV1SubVault` and the DeFi facet all
+import `Constants.sol`, so changing `BITTY_FORWARDER` moves the facet, the sub implementation and the
+vault implementation — and the factory's metadata references the changed sources, so it moves too. A
+salt mined before step 2 lands on an address the deploy can never reach, and the failure is silent: the
+numbers all look fine.
 
-Steps 1–2 are the two library pins in `foundry.toml` under `[profile.deploy]`. Re-pin them in that
-order, rebuilding between them: `AssetManagerLogic`'s bytecode carries `VaultLogic`'s pinned address,
-so it is only meaningful once that pin is final. `test/local/LibAddr.t.sol` derives both addresses
-independently as a cross-check:
+**Any source edit invalidates a mined salt — comments and NatSpec included**, because solc appends a
+metadata hash covering the sources. Between mining and deploying, treat `src/` as frozen, and do not run
+`forge fmt`.
 
-```shell
-FOUNDRY_PROFILE=deploy forge test --match-path test/local/LibAddr.t.sol -vv
-```
-
-Step 3 re-derives `BITTY_FORWARDER` in `Constants.sol` from `FORWARDER_SALT` in `Deploy.s.sol` and the
-forwarder's init code hash. There is no circularity: the forwarder imports nothing from
-`Constants.sol`, so editing the constant cannot change the forwarder's bytecode, and the value
-converges in one pass.
-
-Step 4 is the implementation, mined last and only when the release is otherwise frozen.
-
-**Nothing enforces this order.** A stale library pin or a stale `BITTY_FORWARDER` produces an
-implementation salt that lands on an address the deploy can never reach, and the failure is silent —
-the numbers all look fine. Re-check each input before mining the implementation.
-
-The implementation is also the least durable of the three: ANY edit to `BittyV1Vault`, the facet, the
-keeper, either logic library or `Constants.sol` moves it again. Mine it last, and mine it only when the
-release is otherwise frozen.
+Since the forwarder went behind its bootstrap, a change to the relay logic is an upgrade and no longer
+forces any of this. The mining sequence above is needed only when `Constants.sol` itself changes.
 
 ## Verify
 
-Requires `ETHERSCAN_API_KEY` in `.env`.
+Requires `ETHERSCAN_API_KEY` in `.env`. `--verify` on the deploy covers most of it; the commands below
+are for filling gaps or verifying an older deployment.
 
-The `--libraries` addresses below must be the ones the deployed bytecode is **actually linked against**.
-`VAULT_LOGIC` and `ASSET_MANAGER_LOGIC` in the chain TOML are written by the deploy script for exactly
-this purpose, so they are the values to use. `{BITTY_FORWARDER}` below comes from `Constants.sol`, not
-the TOML. If a deployment predates that and the two look suspect,
-`broadcast/Deploy.s.sol/<chainid>/run-latest.json` is authoritative.
+Foundry reads the compiler settings from `foundry.toml`, so the `0.8.34` / `optimizer_runs = 10000` /
+`via_ir = true` triple is matched automatically. Getting one of those wrong is the usual cause of a
+bytecode mismatch.
 
-### Verify logic libraries
+### Libraries, bootstraps, forwarder build and factory
 
-`VaultLogic` is standalone; `AssetManagerLogic` links against it:
+None of these take constructor arguments or link a library:
 
 ```shell
-forge verify-contract \
-  --chain sepolia \
-  {VAULT_LOGIC} \
-  src/logic/VaultLogic.sol:VaultLogic \
-  --etherscan-api-key $ETHERSCAN_API_KEY \
-  --watch
-
-forge verify-contract \
-  --chain sepolia \
-  {ASSET_MANAGER_LOGIC} \
-  src/logic/AssetManagerLogic.sol:AssetManagerLogic \
-  --libraries src/logic/VaultLogic.sol:VaultLogic:{VAULT_LOGIC} \
-  --etherscan-api-key $ETHERSCAN_API_KEY \
-  --watch
+forge verify-contract --chain sepolia --watch {ADDRESS} {PATH}:{NAME}
 ```
 
-### Verify implementation and DeFi facet
+for each of `src/logic/PaymentLogic.sol:PaymentLogic`, `DeFiLogic`, `SubVaultRegistryLogic`,
+`GaslessLogic`, `RiskLogic`, `ScheduledPaymentLogic`, `WhitelistLogic`,
+`src/BittyV1ForwarderBootstrap.sol:BittyV1ForwarderBootstrap`,
+`src/BittyV1VaultBootstrap.sol:BittyV1VaultBootstrap`,
+`src/BittyV1VaultForwarder.sol:BittyV1VaultForwarder` and
+`src/BittyV1VaultFactory.sol:BittyV1VaultFactory`.
 
-Both link against `VaultLogic` + `AssetManagerLogic`:
+### Contracts that link libraries
+
+The `--libraries` addresses must be the ones the deployed bytecode is **actually linked against** — the
+values the deploy script wrote to the chain TOML. Pass each flag separately and **quote it**: collapsing
+several into one unquoted shell variable makes forge read them as a single argument and fail with
+nothing but `For more information, try '--help'`.
 
 ```shell
-forge verify-contract \
-  --chain sepolia \
-  {VAULT_IMPLEMENTATION} \
-  src/BittyV1Vault.sol:BittyV1Vault \
-  --libraries src/logic/VaultLogic.sol:VaultLogic:{VAULT_LOGIC} \
-  --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{ASSET_MANAGER_LOGIC} \
-  --etherscan-api-key $ETHERSCAN_API_KEY \
-  --watch
-
-forge verify-contract \
-  --chain sepolia \
-  {DEFI_FACET} \
+# DeFi facet — links DeFiLogic only
+forge verify-contract --chain sepolia --watch {DEFI_FACET} \
   src/BittyV1VaultDeFiFacet.sol:BittyV1VaultDeFiFacet \
-  --libraries src/logic/VaultLogic.sol:VaultLogic:{VAULT_LOGIC} \
-  --libraries src/logic/AssetManagerLogic.sol:AssetManagerLogic:{ASSET_MANAGER_LOGIC} \
-  --etherscan-api-key $ETHERSCAN_API_KEY \
-  --watch
+  --libraries "src/logic/DeFiLogic.sol:DeFiLogic:{DEFI_LOGIC}"
+
+# sub-vault implementation — links DeFiLogic, takes the facet
+forge verify-contract --chain sepolia --watch {SUB_VAULT_IMPLEMENTATION} \
+  src/subvault/BittyV1SubVault.sol:BittyV1SubVault \
+  --libraries "src/logic/DeFiLogic.sol:DeFiLogic:{DEFI_LOGIC}" \
+  --constructor-args "$(cast abi-encode 'constructor(address)' {DEFI_FACET})"
+
+# vault implementation — links all seven, takes the facet and the sub implementation
+forge verify-contract --chain sepolia --watch {VAULT_IMPLEMENTATION} \
+  src/BittyV1Vault.sol:BittyV1Vault \
+  --libraries "src/logic/DeFiLogic.sol:DeFiLogic:{DEFI_LOGIC}" \
+  --libraries "src/logic/GaslessLogic.sol:GaslessLogic:{GASLESS_LOGIC}" \
+  --libraries "src/logic/PaymentLogic.sol:PaymentLogic:{PAYMENT_LOGIC}" \
+  --libraries "src/logic/RiskLogic.sol:RiskLogic:{RISK_LOGIC}" \
+  --libraries "src/logic/ScheduledPaymentLogic.sol:ScheduledPaymentLogic:{SCHEDULED_PAYMENT_LOGIC}" \
+  --libraries "src/logic/SubVaultRegistryLogic.sol:SubVaultRegistryLogic:{SUB_VAULT_REGISTRY_LOGIC}" \
+  --libraries "src/logic/WhitelistLogic.sol:WhitelistLogic:{WHITELIST_LOGIC}" \
+  --constructor-args "$(cast abi-encode 'constructor(address,address)' {DEFI_FACET} {SUB_VAULT_IMPLEMENTATION})"
 ```
 
-### Verify factory, forwarder and keeper
-
-The factory and forwarder take no constructor arguments; the keeper does, so it needs
-`--constructor-args`:
+### Keeper
 
 ```shell
-forge verify-contract \
-  --chain sepolia \
-  {BITTY_VAULT_FACTORY} \
-  src/BittyV1VaultFactory.sol:BittyV1VaultFactory \
-  --etherscan-api-key $ETHERSCAN_API_KEY \
-  --watch
-
-forge verify-contract \
-  --chain sepolia \
-  {BITTY_FORWARDER} \
-  src/BittyV1VaultForwarder.sol:BittyV1VaultForwarder \
-  --etherscan-api-key $ETHERSCAN_API_KEY \
-  --watch
-
-forge verify-contract \
-  --chain sepolia \
-  {BITTY_AUTO_YIELD_KEEPER} \
+forge verify-contract --chain sepolia --watch {BITTY_AUTO_YIELD_KEEPER} \
   src/BittyV1AutoYieldKeeper.sol:BittyV1AutoYieldKeeper \
-  --constructor-args $(cast abi-encode "constructor(address)" {BITTY_FORWARDER_OWNER}) \
-  --etherscan-api-key $ETHERSCAN_API_KEY \
-  --watch
+  --constructor-args "$(cast abi-encode 'constructor(address)' {BITTY_FORWARDER_OWNER})"
 ```
 
-The implementation now takes constructor arguments too — the facet and the keeper — so it needs
-`--constructor-args $(cast abi-encode "constructor(address,address)" {DEFI_FACET} {BITTY_AUTO_YIELD_KEEPER})`
-alongside its `--libraries` flags.
+### Forwarder proxy
 
-Pass the flags literally — collapsing the two `--libraries` into one shell variable makes forge read
-them as a single argument and fail.
+The constructor argument is the **bootstrap**, not the forwarder build behind it, and it stays the
+bootstrap through every future upgrade. Passing the current implementation is the natural mistake and
+fails with a bytecode mismatch:
+
+```shell
+forge verify-contract --chain sepolia --watch {BITTY_FORWARDER} \
+  lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy \
+  --constructor-args "$(cast abi-encode 'constructor(address,bytes)' {FORWARDER_BOOTSTRAP} 0x)"
+```
+
+Verification alone does not make Etherscan render the forwarder's functions — the proxy's own ABI has
+none. Link it to its implementation as well, and repeat this after every forwarder upgrade:
+
+```shell
+curl -X POST "https://api.etherscan.io/v2/api?chainid=11155111" \
+  -d "module=contract" -d "action=verifyproxycontract" -d "apikey=$ETHERSCAN_API_KEY" \
+  -d "address={BITTY_FORWARDER}" -d "expectedimplementation={FORWARDER_IMPLEMENTATION}"
+```
+
+The same control is in the UI under *Contract → More Options → Is this a proxy?*.
+
+Individual **vaults** need no verification of their own: each is an `ERC1967Proxy` whose init code is
+the vault bootstrap, so once one is verified Etherscan matches the rest by bytecode.
 
 ## Formatting
 

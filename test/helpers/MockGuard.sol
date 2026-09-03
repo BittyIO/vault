@@ -7,7 +7,13 @@ pragma solidity ^0.8.34;
  *         BITTY_GUARD and drive it with the setters. Public mappings auto-generate the interface getters.
  */
 contract MockGuard {
-    mapping(address => bool) public isImplementationRegistered;
+    // Keyed by category, like the guard: the two are separate registries so a sub vault cannot be
+    // pointed at main-vault code.
+    mapping(uint8 => mapping(address => bool)) internal _registered;
+
+    function isImplementationRegisteredFor(address impl, uint8 category) external view returns (bool) {
+        return _registered[category][impl];
+    }
     mapping(address => uint8) public assetCategory;
     mapping(address => uint8) public protocolCategory;
     mapping(address => bool) public isProtocolDeprecated;
@@ -32,7 +38,12 @@ contract MockGuard {
 
     // ── setters ──
     function setImpl(address impl, bool ok) external {
-        isImplementationRegistered[impl] = ok;
+        // Default to the main-vault category, which is what almost every test means.
+        _registered[1][impl] = ok;
+    }
+
+    function setImplFor(address impl, uint8 category, bool ok) external {
+        _registered[category][impl] = ok;
     }
 
     function setAsset(address a, uint8 cat) external {

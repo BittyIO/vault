@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -12,7 +13,7 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, STABLE_COIN_CATEGORY} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 /// Reaches the DeFi facet through the host's fallback.
 interface IFacet {
@@ -68,7 +69,7 @@ contract DeFiAllowlistTest is Test {
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
         proto = new MockLendingProtocol();
-        guard.setAsset(address(usdc), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         guard.setProtocol(address(proto), LENDING_ID);
         usdc.mint(address(vault), 1_000e6);
     }

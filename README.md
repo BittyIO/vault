@@ -62,7 +62,7 @@ EOA and Safe carry frontend and signing risk on **every** interaction. Bitty Vau
 The security above is not free — but it is cheap. Because funds never leave the vault and every action is checked against the guard, a compromised DeFi frontend, a malicious relayer, or a leaked asset-manager key **cannot drain your money**. The price of that immunity is a little extra gas on each operation: instead of hitting the protocol directly, every call routes through the vault and its guard. The path is
 
 ```
-asset manager ─► Vault (CALL) ─► DeFi facet (delegatecall) ─► AssetManagerLogic (delegatecall)
+asset manager ─► Vault (CALL) ─► DeFi facet (delegatecall) ─► DeFiLogic (delegatecall)
                                      │
                                      ├─► Guard (staticcall: is protocol deprecated?)
                                      └─► per-vault protocol clone (CALL ─► minimal-proxy delegatecall) ─► real protocol
@@ -84,6 +84,22 @@ Estimated extra gas per operation (derived from the call graph and standard main
 | CoW Swap | place limit / TWAP order | ~110k | $0.009 | $0.62 |
 
 Fractions of a cent today, and well under a dollar even at normal gas — the cost of a single trade. Weigh that against the alternative: with an EOA or a Safe, one bad signature on a compromised frontend can take **everything**. A few cents of gas per operation is what it costs to make that impossible.
+
+## Deployed addresses
+
+Sepolia. Mainnet and Base are not deployed yet.
+
+| Contract | Address |
+| --- | --- |
+| Factory | [`0x000000001bF2Aa874Ab7009d1b623F7f453Ea3af`](https://sepolia.etherscan.io/address/0x000000001bF2Aa874Ab7009d1b623F7f453Ea3af) |
+| Vault implementation (1.0.0) | [`0x00dbdf7e66CA15215F00550060Fb00770000ea54`](https://sepolia.etherscan.io/address/0x00dbdf7e66CA15215F00550060Fb00770000ea54) |
+| Forwarder | [`0x000000009e22008077E3c8d2ef7C717Ccc218b19`](https://sepolia.etherscan.io/address/0x000000009e22008077E3c8d2ef7C717Ccc218b19) |
+| Guard | [`0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00`](https://sepolia.etherscan.io/address/0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00) |
+
+The factory and the forwarder are the addresses to integrate against; both are fixed and will be the
+same on every chain. A vault's own address follows from its owner alone, so it is knowable before the
+vault exists and does not move when a new implementation ships — see
+[Addresses that must never move](./dev.md#addresses-that-must-never-move).
 
 ## Development
 

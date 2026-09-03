@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -22,7 +23,7 @@ import {
     InvalidDepositableProtocol,
     disableTradeUntilTimestampTooLong
 } from "../../src/interfaces/IBittyV1DeFi.sol";
-import {BITTY_GUARD, STABLE_COIN_CATEGORY} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 interface IFacet {
     function deposit(address protocol, address asset, uint256 amount) external;
@@ -129,8 +130,8 @@ contract DeFiGuardrailsTest is Test {
         intent = new MockIntentProtocol();
         intent.setEndpoints(address(settlement), address(settlement));
 
-        guard.setAsset(address(usdc), STABLE_COIN_CATEGORY);
-        guard.setAsset(address(dai), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN);
         guard.setProtocol(address(proto), LENDING_ID);
         guard.setProtocol(address(amm), AMM_ID);
         guard.setProtocol(address(intent), INTENT_ID);
@@ -369,7 +370,7 @@ contract DeFiGuardrailsTest is Test {
 
     function test_autoYieldingAnEmptyBalanceDoesNothing() public {
         MockERC20 empty = new MockERC20("Empty", "EMP", 18);
-        guard.setAsset(address(empty), STABLE_COIN_CATEGORY);
+        guard.setAsset(address(empty), ASSET_STABLE_COIN);
         vm.startPrank(owner);
         _f().setAutoYielding(AutoYield({asset: address(empty), protocol: address(proto)}));
         _f().autoYield(address(empty));

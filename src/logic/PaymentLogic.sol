@@ -39,10 +39,6 @@ library PaymentLogic {
         vaultStorage.weth = weth;
     }
 
-    function weth() external view returns (address) {
-        return BittyStorage.vault().weth;
-    }
-
     function _processSendBatch(
         VaultStorage storage vaultStorage,
         address[] memory recipients,
@@ -168,13 +164,10 @@ library PaymentLogic {
         emit IBittyV1Owner.SendApproved(id);
     }
 
-    function _validateSendOne(
-        VaultStorage storage vaultStorage,
-        address recipient,
-        address asset,
-        uint256 amount,
-        bool enforceOwnerSendWindow
-    ) private {
+    function _validateSendOne(VaultStorage storage vaultStorage, address recipient, address asset, uint256 amount)
+        private
+        view
+    {
         if (recipient == address(0)) revert AddressZero();
         if (amount == 0) revert AmountIsZero();
         uint64 cap = TimelockLib.effective(vaultStorage.riskConfig.maxSendValue);
@@ -184,14 +177,6 @@ library PaymentLogic {
             stableValue = Math.mulDiv(amount, 1e18, 10 ** IERC20Metadata(asset).decimals(), Math.Rounding.Ceil);
             if (stableValue > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
         }
-        if (enforceOwnerSendWindow) _checkOwnerSendWindow(vaultStorage, stableValue, cap);
-    }
-
-    function sendOne(address recipient, address asset, uint256 amount) external {
-        VaultStorage storage vaultStorage = BittyStorage.vault();
-        PaymentCore.onlyInitialized(vaultStorage);
-        _validateSendOne(vaultStorage, recipient, asset, amount, true);
-        PaymentCore.payOut(vaultStorage, asset, amount, recipient);
     }
 
     function proposeSendOne(address recipient, address asset, uint256 amount, address sender)
@@ -200,7 +185,7 @@ library PaymentLogic {
     {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         PaymentCore.onlyInitialized(vaultStorage);
-        _validateSendOne(vaultStorage, recipient, asset, amount, false);
+        _validateSendOne(vaultStorage, recipient, asset, amount);
         id = vaultStorage.nextPendingSendId++;
         PendingSend storage ps = vaultStorage.pendingSends[id];
         ps.proposer = sender;

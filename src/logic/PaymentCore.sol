@@ -9,12 +9,12 @@ import {
     ProtectionPeriodNotEnded,
     IBittyV1Vault
 } from "../interfaces/IBittyV1Vault.sol";
-import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IBittyV1Guard, ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {BittyStorage, VaultStorage, DeFiStorage} from "./BittyStorage.sol";
-import {BITTY_GUARD, STABLE_COIN_CATEGORY} from "./Constants.sol";
+import {BITTY_GUARD} from "./Constants.sol";
 
 /**
  * @title PaymentCore
@@ -38,7 +38,7 @@ library PaymentCore {
     }
 
     function stableCoinAllowed(address asset) internal view returns (bool) {
-        if (IBittyV1Guard(BITTY_GUARD).assetCategory(asset) != STABLE_COIN_CATEGORY) return false;
+        if (IBittyV1Guard(BITTY_GUARD).assetCategory(asset) != ASSET_STABLE_COIN) return false;
         DeFiStorage storage d = BittyStorage.defi();
         if (d.allowlistEnabled && !(d.allowlistDisableAt != 0 && block.timestamp >= d.allowlistDisableAt)) {
             if (!d.assets[asset]) return false;
