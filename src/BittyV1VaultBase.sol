@@ -19,7 +19,7 @@ import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
  *         for life — there is no opt-out, so a bug found later is always patchable.
  */
 abstract contract BittyV1VaultBase is BittyV1AccountBase, Ownable2StepUpgradeable, UUPSUpgradeable {
-    uint256 private constant _VERSION = 1 * 1_000_000 + 0 * 1_000 + 0;
+    uint256 private constant _VERSION = 1 * 1_000_000 + 0 * 1_000 + 1;
 
     function vaultVersion() external pure returns (uint256) {
         return _VERSION;
