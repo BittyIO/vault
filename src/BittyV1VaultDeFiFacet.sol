@@ -138,6 +138,28 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         DeFiLogic.addLiquidity(amm, token0, amount0, token1, amount1, data);
     }
 
+    function marketSell(
+        address amm,
+        address sellToken,
+        uint256 sellAmount,
+        address buyToken,
+        uint256 buyAmountMin,
+        bytes memory path
+    ) external onlyAssetManager {
+        DeFiLogic.marketSell(amm, sellToken, sellAmount, buyToken, buyAmountMin, path);
+    }
+
+    function marketBuy(
+        address amm,
+        address sellToken,
+        uint256 sellAmountMax,
+        address buyToken,
+        uint256 buyAmount,
+        bytes memory reversedPath
+    ) external onlyAssetManager {
+        DeFiLogic.marketBuy(amm, sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
+    }
+
     function removeLiquidity(address amm, bytes memory data) external onlyUnwind {
         DeFiLogic.removeLiquidity(amm, data);
     }

@@ -25,7 +25,8 @@ import {
     ProtocolNFT,
     AssetManagerExpiryInPast,
     AssetManagerNotForSubVault,
-    GrantTooLong
+    GrantTooLong,
+    MarketTradeNotSupported
 } from "../interfaces/IBittyV1DeFi.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -76,6 +77,8 @@ library DeFiLogic {
     event AssetManagerPending(address indexed assetManager, uint64 expiresAt, uint64 effectiveAt);
 
     using SafeERC20 for IERC20;
+
+    uint8 internal constant ASSET_AMM_LIQUID = 4;
     using Address for address;
 
     function initialize(bool allowlistEnabled) external {
@@ -485,6 +488,63 @@ library DeFiLogic {
         }
         _approveNFTIfNeeded(clone);
         IBittyV1AMMProtocol(clone).addLiquidity(data);
+    }
+
+    function marketSell(
+        address ammProtocol,
+        address sellToken,
+        uint256 sellAmount,
+        address buyToken,
+        uint256 buyAmountMin,
+        bytes memory path
+    ) external {
+        DeFiStorage storage $ = BittyStorage.defi();
+        _onlyInitialized($);
+        if (!_categoryProtocolOK($, PROTOCOL_AMM, ammProtocol)) revert InvalidAMMProtocol();
+        if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
+        _requireAsset($, sellToken);
+        _requireAsset($, buyToken);
+        _requireAmmLiquid(sellToken);
+        _requireAmmLiquid(buyToken);
+
+        address clone = _cloneProtocol($, ammProtocol);
+        if (sellToken != address(0) && sellAmount > 0 && IERC20(sellToken).allowance(address(this), clone) < sellAmount)
+        {
+            IERC20(sellToken).forceApprove(clone, type(uint256).max);
+        }
+        bytes memory data = abi.encode(sellToken, sellAmount, buyToken, buyAmountMin, path);
+        IBittyV1AMMProtocol(clone).swap{value: sellToken == address(0) ? sellAmount : 0}(data, address(this));
+    }
+
+    function marketBuy(
+        address ammProtocol,
+        address sellToken,
+        uint256 sellAmountMax,
+        address buyToken,
+        uint256 buyAmount,
+        bytes memory reversedPath
+    ) external {
+        DeFiStorage storage $ = BittyStorage.defi();
+        _onlyInitialized($);
+        if (!_categoryProtocolOK($, PROTOCOL_AMM, ammProtocol)) revert InvalidAMMProtocol();
+        if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
+        _requireAsset($, sellToken);
+        _requireAsset($, buyToken);
+        _requireAmmLiquid(sellToken);
+        _requireAmmLiquid(buyToken);
+
+        address clone = _cloneProtocol($, ammProtocol);
+        if (sellToken != address(0) && IERC20(sellToken).allowance(address(this), clone) < sellAmountMax) {
+            IERC20(sellToken).forceApprove(clone, type(uint256).max);
+        }
+        bytes memory data = abi.encode(sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
+        IBittyV1AMMProtocol(clone).swapExactOut(data, address(this));
+    }
+
+    function _requireAmmLiquid(address token) private view {
+        if ((IBittyV1Guard(BITTY_GUARD).assetCategory(token) & ASSET_AMM_LIQUID) == 0) {
+            revert MarketTradeNotSupported();
+        }
     }
 
     function removeLiquidity(address ammProtocol, bytes memory data) external {

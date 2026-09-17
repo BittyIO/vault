@@ -21,9 +21,14 @@ import {
     InvalidAMMProtocol,
     InvalidIntentProtocol,
     InvalidDepositableProtocol,
-    disableTradeUntilTimestampTooLong
+    disableTradeUntilTimestampTooLong,
+    MarketTradeNotSupported
 } from "../../src/interfaces/IBittyV1DeFi.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+
+// The AMM-liquid category bit (mirrors DeFiLogic.ASSET_AMM_LIQUID). Market buy/sell requires BOTH
+// legs to carry it; it is owner-curated data on the guard, so the guard contract is unchanged.
+uint8 constant ASSET_AMM_LIQUID = 4;
 
 interface IFacet {
     function deposit(address protocol, address asset, uint256 amount) external;
@@ -40,6 +45,22 @@ interface IFacet {
     function autoYields(address[] calldata assets) external;
     function getClone(address protocol) external view returns (address);
     function addLiquidity(address amm, address t0, uint256 a0, address t1, uint256 a1, bytes memory data) external;
+    function marketSell(
+        address amm,
+        address sellToken,
+        uint256 sellAmount,
+        address buyToken,
+        uint256 buyAmountMin,
+        bytes memory path
+    ) external;
+    function marketBuy(
+        address amm,
+        address sellToken,
+        uint256 sellAmountMax,
+        address buyToken,
+        uint256 buyAmount,
+        bytes memory reversedPath
+    ) external;
     function removeLiquidity(address amm, bytes memory data) external;
     function decreaseLiquidity(address amm, bytes memory data) external;
     function claimAMMFees(address amm, bytes memory data) external;
@@ -180,6 +201,105 @@ contract DeFiGuardrailsTest is Test {
         vm.prank(owner);
         vm.expectRevert(Deprecated.selector);
         _f().addLiquidity(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+    }
+
+    // ── market buy / sell: both legs must be flagged AMM-liquid ─────────────────
+    // A market (AMM) swap is only for assets the guard has flagged AMM-liquid, on BOTH legs. Assets
+    // without the flag are limit-order (CoW) only, so a market swap on either an unflagged sell token
+    // or an unflagged buy token is refused before it ever reaches the pool.
+
+    function test_marketSell_bothLegsAmmLiquid_reachesTheAmm() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        vm.prank(owner);
+        _f().marketSell(address(amm), address(usdc), 1e6, address(dai), 0, "");
+        // The gate passed and the swap dispatched to the AMM clone (which the vault approved to spend).
+        assertEq(
+            usdc.allowance(address(vault), _f().getClone(address(amm))),
+            type(uint256).max,
+            "sell token approved to the amm clone"
+        );
+    }
+
+    function test_marketSell_sellLegNotAmmLiquid_reverts() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN); // sell leg: no AMM-liquid flag
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        vm.prank(owner);
+        vm.expectRevert(MarketTradeNotSupported.selector);
+        _f().marketSell(address(amm), address(usdc), 1e6, address(dai), 0, "");
+    }
+
+    function test_marketSell_buyLegNotAmmLiquid_reverts() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN); // buy leg: no AMM-liquid flag
+        vm.prank(owner);
+        vm.expectRevert(MarketTradeNotSupported.selector);
+        _f().marketSell(address(amm), address(usdc), 1e6, address(dai), 0, "");
+    }
+
+    function test_marketBuy_bothLegsAmmLiquid_reachesTheAmm() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        vm.prank(owner);
+        _f().marketBuy(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+        assertEq(
+            usdc.allowance(address(vault), _f().getClone(address(amm))),
+            type(uint256).max,
+            "sell token approved to the amm clone"
+        );
+    }
+
+    function test_marketBuy_sellLegNotAmmLiquid_reverts() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN); // sell leg: no AMM-liquid flag
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        vm.prank(owner);
+        vm.expectRevert(MarketTradeNotSupported.selector);
+        _f().marketBuy(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+    }
+
+    function test_marketBuy_buyLegNotAmmLiquid_reverts() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN); // buy leg: no AMM-liquid flag
+        vm.prank(owner);
+        vm.expectRevert(MarketTradeNotSupported.selector);
+        _f().marketBuy(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+    }
+
+    // The protocol gate comes BEFORE the asset gates: a market order names an AMM, and anything that is
+    // not one (or one the guard has retired) is refused up front, whatever the legs look like.
+
+    function test_marketSell_throughANonAmmProtocol_reverts() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        vm.prank(owner);
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        _f().marketSell(address(proto), address(usdc), 1e6, address(dai), 0, "");
+    }
+
+    function test_marketSell_throughADeprecatedAmm_reverts() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setDeprecated(address(amm), true);
+        vm.prank(owner);
+        vm.expectRevert(Deprecated.selector);
+        _f().marketSell(address(amm), address(usdc), 1e6, address(dai), 0, "");
+    }
+
+    function test_marketBuy_throughANonAmmProtocol_reverts() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        vm.prank(owner);
+        vm.expectRevert(InvalidAMMProtocol.selector);
+        _f().marketBuy(address(proto), address(usdc), 1e6, address(dai), 1e18, "");
+    }
+
+    function test_marketBuy_throughADeprecatedAmm_reverts() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setDeprecated(address(amm), true);
+        vm.prank(owner);
+        vm.expectRevert(Deprecated.selector);
+        _f().marketBuy(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
     }
 
     function test_aDeprecatedIntentProtocolSignsNothingNew() public {

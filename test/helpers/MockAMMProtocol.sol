@@ -29,6 +29,10 @@ contract MockAMMProtocol is IBittyV1AMMProtocol {
 
     function addLiquidity(bytes memory) external override {}
 
+    function swap(bytes memory, address) external payable override {}
+
+    function swapExactOut(bytes memory, address) external override {}
+
     function removeLiquidity(bytes memory data) external override {
         removeLiquidityCallCount++;
         lastRemoveData = data;

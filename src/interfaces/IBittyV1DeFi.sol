@@ -14,6 +14,9 @@ error ProtocolNFT();
 error GrantTooLong();
 error AssetManagerExpiryInPast();
 error AssetManagerNotForSubVault();
+// A market (AMM) swap was attempted on an asset the guard has not flagged as AMM-liquid. Such assets
+// are limit-order only (CoW), so market buy/sell is refused for them.
+error MarketTradeNotSupported();
 
 /**
  * @title IBittyV1DeFi
