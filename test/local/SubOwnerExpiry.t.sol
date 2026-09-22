@@ -61,7 +61,8 @@ contract SubOwnerExpiryTest is Test {
         BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
         vault = BittyV1Vault(
             payable(new ERC1967Proxy(
-                    address(impl), abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0))
+                    address(impl),
+                    abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)))
                 ))
         );
 

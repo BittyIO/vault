@@ -48,12 +48,19 @@ contract BittyV1Vault is BittyV1VaultBase, IBeacon {
         _disableInitializers();
     }
 
+    /**
+     * @dev `calls` are the owner's first operations, run here as the owner so activation and, say, the
+     *      first deposit share one transaction. Ordered after the fee and the ETH wrap on purpose: a
+     *      batch cannot spend the stable coin the relayer is owed, and any ETH the counterfactual
+     *      address was funded with is already WETH by the time a call tries to use it.
+     */
     function initialize(
         address owner_,
         address gasWrapped_,
         bool allowlistEnabled,
         address activationAsset,
-        uint256 activationAmount
+        uint256 activationAmount,
+        bytes[] calldata calls
     ) external initializer {
         if (owner_ == address(0) || gasWrapped_ == address(0)) revert AddressZero();
         __Ownable_init(owner_);
@@ -70,6 +77,7 @@ contract BittyV1Vault is BittyV1VaultBase, IBeacon {
         }
         uint256 bal = address(this).balance;
         if (bal > 0) WETH(payable(gasWrapped_)).deposit{value: bal}();
+        if (calls.length != 0) _runAsOwner(owner_, calls);
     }
 
     modifier onlyOwnerOrPayoutOperator() {

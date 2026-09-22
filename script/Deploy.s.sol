@@ -255,21 +255,37 @@ contract Deploy is DeployScript {
     }
 
     function _deployFactory() private {
+        (address factory, address build) = _deployFactoryBuild();
+        if (_implementationOf(factory) != build) _upgradeFactory(factory, build);
+        _reportIfMoved("BITTY_VAULT_FACTORY", factory);
+        saveAddress("BITTY_VAULT_FACTORY", factory);
+        console2.log("BittyV1VaultFactory            ", factory);
+    }
+
+    /**
+     * @dev The three CREATE2 pieces of the factory, each skipped when already there: the constant
+     *      bootstrap, the proxy born on it (the address every vault is CREATE2'd off, so it never
+     *      moves), and the current logic build. Deploying the build does NOT point the proxy at it -
+     *      that is {_upgradeFactory}, an owner action, kept separate so {DeployFactoryUpgrade} can
+     *      hand it to a Safe when the deploy key is not the owner.
+     */
+    function _deployFactoryBuild() internal returns (address factory, address build) {
         address bootstrap = _create2("BittyV1VaultFactoryBootstrap", type(BittyV1VaultFactoryBootstrap).creationCode);
         require(
             bootstrap == BITTY_VAULT_FACTORY_BOOTSTRAP,
             "BITTY_VAULT_FACTORY_BOOTSTRAP constant is stale: update Constants.sol"
         );
         bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(bootstrap, bytes("")));
-        address factory = _create2("BittyV1VaultFactoryProxy", initCode);
+        factory = _create2("BittyV1VaultFactoryProxy", initCode);
+        build = _create2("BittyV1VaultFactory", type(BittyV1VaultFactory).creationCode);
+    }
 
-        address build = _create2("BittyV1VaultFactory", type(BittyV1VaultFactory).creationCode);
-        if (address(uint160(uint256(vm.load(factory, ERC1967Utils.IMPLEMENTATION_SLOT)))) != build) {
-            UUPSUpgradeable(factory).upgradeToAndCall(build, "");
-            console2.log("factory moved to implementation       ", build);
-        }
-        _reportIfMoved("BITTY_VAULT_FACTORY", factory);
-        saveAddress("BITTY_VAULT_FACTORY", factory);
-        console2.log("BittyV1VaultFactory            ", factory);
+    function _upgradeFactory(address factory, address build) internal {
+        UUPSUpgradeable(factory).upgradeToAndCall(build, "");
+        console2.log("factory moved to implementation       ", build);
+    }
+
+    function _implementationOf(address proxy) internal view returns (address) {
+        return address(uint160(uint256(vm.load(proxy, ERC1967Utils.IMPLEMENTATION_SLOT))));
     }
 }

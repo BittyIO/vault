@@ -46,7 +46,8 @@ contract VersionUpgradeSafetyTest is Test {
     /// State written under the old code must survive an upgrade to the build carrying the getters.
     function test_upgradingToTheVersionedBuildKeepsState() public {
         BittyV1Vault a = _impl();
-        bytes memory init = abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, true, address(usdc), 0));
+        bytes memory init =
+            abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, true, address(usdc), 0, new bytes[](0)));
         address vault = address(new ERC1967Proxy(address(a), init));
 
         assertTrue(IVaultView(vault).isAssetAllowed(address(usdc)), "seeded before upgrade");
@@ -70,7 +71,8 @@ contract VersionUpgradeSafetyTest is Test {
         BittyV1Vault a = _impl();
         address vault = address(
             new ERC1967Proxy(
-                address(a), abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0))
+                address(a),
+                abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)))
             )
         );
         assertEq(IVaultView(vault).vaultVersion(), 1_000_002);

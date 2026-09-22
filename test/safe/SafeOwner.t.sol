@@ -15,7 +15,11 @@ import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {BittyV1VaultForwarder} from "../../src/BittyV1VaultForwarder.sol";
 import {InvalidActivationSignature} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {
-    BITTY_GUARD, BITTY_FORWARDER, BITTY_VAULT_BOOTSTRAP, CFG_GAS_WRAPPED, CFG_OWNER
+    BITTY_GUARD,
+    BITTY_FORWARDER,
+    BITTY_VAULT_BOOTSTRAP,
+    CFG_GAS_WRAPPED,
+    CFG_OWNER
 } from "../../src/logic/Constants.sol";
 
 // The Safe (v1.4.1) is deployed by BYTECODE via vm.deployCode — never imported as source — so its
@@ -123,7 +127,10 @@ contract SafeOwnerTest is Test {
 
         vault = BittyV1Vault(
             payable(new ERC1967Proxy(
-                    address(impl), abi.encodeCall(BittyV1Vault.initialize, (address(safe), gasWrapped, false, address(0), 0))
+                    address(impl),
+                    abi.encodeCall(
+                        BittyV1Vault.initialize, (address(safe), gasWrapped, false, address(0), 0, new bytes[](0))
+                    )
                 ))
         );
         usdc.mint(address(vault), 1_000e6);
@@ -183,9 +190,7 @@ contract SafeOwnerTest is Test {
         bytes32 txHash = safe.getTransactionHash(
             to, 0, data, Operation.Call, 0, 0, 0, address(0), payable(address(0)), safe.nonce()
         );
-        safe.execTransaction(
-            to, 0, data, Operation.Call, 0, 0, 0, address(0), payable(address(0)), _sign(txHash, 2)
-        );
+        safe.execTransaction(to, 0, data, Operation.Call, 0, 0, 0, address(0), payable(address(0)), _sign(txHash, 2));
     }
 
     /**
@@ -222,7 +227,7 @@ contract SafeOwnerTest is Test {
         BittyV1Vault v = BittyV1Vault(
             payable(new ERC1967Proxy(
                     address(new BittyV1Vault(address(facet), address(new BittyV1SubVault(address(facet))))),
-                    abi.encodeCall(BittyV1Vault.initialize, (eoa, gasWrapped, false, address(0), 0))
+                    abi.encodeCall(BittyV1Vault.initialize, (eoa, gasWrapped, false, address(0), 0, new bytes[](0)))
                 ))
         );
 
@@ -240,18 +245,20 @@ contract SafeOwnerTest is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled)"
+                    "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled,bytes[] calls)"
                 ),
                 address(safe),
                 address(0),
                 uint256(0),
-                true
+                true,
+                keccak256("")
             )
         );
         bytes32 digest = _domain712("BittyV1VaultFactory", address(factory), structHash);
 
         vm.prank(relayer);
-        address created = factory.activateVaultByAsset(address(safe), address(0), 0, true, _sign1271(digest, 2));
+        address created =
+            factory.activateVaultByAsset(address(safe), address(0), 0, true, new bytes[](0), _sign1271(digest, 2));
         assertEq(BittyV1Vault(payable(created)).owner(), address(safe), "born under a multisig");
     }
 

@@ -85,7 +85,8 @@ contract VaultUpgradeTest is Test {
         subImpl = new BittyV1SubVault(address(facet));
         vaultImpl = new BittyV1Vault(address(facet), address(subImpl));
 
-        bytes memory init = abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0));
+        bytes memory init =
+            abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(vaultImpl), init)));
 
         usdc = new MockERC20("USD Coin", "USDC", 6);

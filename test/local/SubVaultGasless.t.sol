@@ -49,7 +49,7 @@ contract SubVaultGaslessTest is Test {
         vault = BittyV1Vault(
             payable(new ERC1967Proxy(
                     address(vaultImpl),
-                    abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0))
+                    abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)))
                 ))
         );
 

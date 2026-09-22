@@ -126,7 +126,8 @@ contract ForwarderTest is Test {
     }
 
     function _newVault(address o) internal returns (BittyV1Vault) {
-        bytes memory init = abi.encodeCall(BittyV1Vault.initialize, (o, gasWrapped, false, address(0), 0));
+        bytes memory init =
+            abi.encodeCall(BittyV1Vault.initialize, (o, gasWrapped, false, address(0), 0, new bytes[](0)));
         return BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
     }
 
