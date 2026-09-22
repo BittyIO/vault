@@ -26,7 +26,8 @@ import {
     AssetManagerExpiryInPast,
     AssetManagerNotForSubVault,
     GrantTooLong,
-    MarketTradeNotSupported
+    MarketTradeNotSupported,
+    TradingDisabled
 } from "../interfaces/IBittyV1DeFi.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -500,6 +501,7 @@ library DeFiLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
+        _requireTradingEnabled($);
         if (!_categoryProtocolOK($, PROTOCOL_AMM, ammProtocol)) revert InvalidAMMProtocol();
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
         _requireAsset($, sellToken);
@@ -526,6 +528,7 @@ library DeFiLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
+        _requireTradingEnabled($);
         if (!_categoryProtocolOK($, PROTOCOL_AMM, ammProtocol)) revert InvalidAMMProtocol();
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
         _requireAsset($, sellToken);
@@ -539,6 +542,16 @@ library DeFiLogic {
         }
         bytes memory data = abi.encode(sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
         IBittyV1AMMProtocol(clone).swapExactOut(data, address(this));
+    }
+
+    /**
+     * @dev The owner's trade pause, applied to market (AMM) swaps. The same test gates intent orders in
+     *      the facet's {isOffchainOrderAuthorized}; without it here a paused manager could still swap
+     *      through the AMM. Unwind paths (remove liquidity, cancel, withdraw) stay open on purpose.
+     */
+    function _requireTradingEnabled(DeFiStorage storage $) private view {
+        uint64 disabledUntil = $.tradeDisabledUntilTimestamp;
+        if (disabledUntil != 0 && block.timestamp < disabledUntil) revert TradingDisabled();
     }
 
     function _requireAmmLiquid(address token) private view {
