@@ -29,7 +29,9 @@ contract SubVaultNativeWrapTest is Test {
         vault = BittyV1Vault(
             payable(new ERC1967Proxy(
                     address(impl),
-                    abi.encodeCall(BittyV1Vault.initialize, (owner, address(gasWrapped), false, address(0), 0))
+                    abi.encodeCall(
+                        BittyV1Vault.initialize, (owner, address(gasWrapped), false, address(0), 0, new bytes[](0))
+                    )
                 ))
         );
     }

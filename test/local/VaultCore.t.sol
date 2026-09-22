@@ -49,7 +49,8 @@ contract VaultCoreTest is Test {
         facet = new BittyV1VaultDeFiFacet();
         subImpl = new BittyV1SubVault(address(facet));
         impl = new BittyV1Vault(address(facet), address(subImpl));
-        bytes memory init = abi.encodeCall(BittyV1Vault.initialize, (owner, address(gasWrapped), false, address(0), 0));
+        bytes memory init =
+            abi.encodeCall(BittyV1Vault.initialize, (owner, address(gasWrapped), false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
@@ -190,13 +191,13 @@ contract VaultCoreTest is Test {
 
     function test_cannotInitializeTwice() public {
         vm.expectRevert();
-        vault.initialize(owner, address(gasWrapped), false, address(0), 0);
+        vault.initialize(owner, address(gasWrapped), false, address(0), 0, new bytes[](0));
     }
 
     /// The implementation itself is not usable as a vault — initializers are disabled on it.
     function test_theImplementationCannotBeInitialized() public {
         vm.expectRevert();
-        impl.initialize(makeAddr("squatter"), address(gasWrapped), false, address(0), 0);
+        impl.initialize(makeAddr("squatter"), address(gasWrapped), false, address(0), 0, new bytes[](0));
     }
 
     function test_immutablesAreWired() public view {

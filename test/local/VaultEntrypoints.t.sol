@@ -110,7 +110,8 @@ contract VaultEntrypointsTest is Test {
         returns (BittyV1Vault v)
     {
         bytes memory init = abi.encodeCall(
-            BittyV1Vault.initialize, (owner, address(gasWrapped), false, activationAsset, activationAmount)
+            BittyV1Vault.initialize,
+            (owner, address(gasWrapped), false, activationAsset, activationAmount, new bytes[](0))
         );
         v = BittyV1Vault(payable(new ERC1967Proxy{value: value}(address(impl), init)));
     }
@@ -151,14 +152,16 @@ contract VaultEntrypointsTest is Test {
     // ── initialize ────────────────────────────────────────────────────────────
 
     function test_aVaultCannotBeBornOwnerless() public {
-        bytes memory init =
-            abi.encodeCall(BittyV1Vault.initialize, (address(0), address(gasWrapped), false, address(0), 0));
+        bytes memory init = abi.encodeCall(
+            BittyV1Vault.initialize, (address(0), address(gasWrapped), false, address(0), 0, new bytes[](0))
+        );
         vm.expectRevert(AddressZero.selector);
         new ERC1967Proxy(address(impl), init);
     }
 
     function test_aVaultCannotBeBornWithoutAWethToUnwrapThrough() public {
-        bytes memory init = abi.encodeCall(BittyV1Vault.initialize, (owner, address(0), false, address(0), 0));
+        bytes memory init =
+            abi.encodeCall(BittyV1Vault.initialize, (owner, address(0), false, address(0), 0, new bytes[](0)));
         vm.expectRevert(AddressZero.selector);
         new ERC1967Proxy(address(impl), init);
     }
@@ -528,8 +531,9 @@ contract VaultEntrypointsTest is Test {
         guard.setAsset(address(gasWrapped), 2); // 2 = crypto asset, as the live guard categorises WETH
 
         // Allowlist ON, exactly as the factory activates a vault.
-        bytes memory init =
-            abi.encodeCall(BittyV1Vault.initialize, (owner, address(gasWrapped), true, address(coin), 0));
+        bytes memory init = abi.encodeCall(
+            BittyV1Vault.initialize, (owner, address(gasWrapped), true, address(coin), 0, new bytes[](0))
+        );
         BittyV1Vault v = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
 
         assertTrue(IFacetView(address(v)).allowlistEnabled(), "allowlist should be on");
@@ -551,8 +555,9 @@ contract VaultEntrypointsTest is Test {
         guard.setAsset(address(coin), ASSET_STABLE_COIN);
         guard.setAsset(address(gasWrapped), 2);
 
-        bytes memory init =
-            abi.encodeCall(BittyV1Vault.initialize, (owner, address(gasWrapped), false, address(coin), 0));
+        bytes memory init = abi.encodeCall(
+            BittyV1Vault.initialize, (owner, address(gasWrapped), false, address(coin), 0, new bytes[](0))
+        );
         BittyV1Vault v = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
 
         assertFalse(IFacetView(address(v)).allowlistEnabled(), "allowlist should be off");

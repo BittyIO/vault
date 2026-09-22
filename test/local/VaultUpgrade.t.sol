@@ -85,7 +85,8 @@ contract VaultUpgradeTest is Test {
         subImpl = new BittyV1SubVault(address(facet));
         vaultImpl = new BittyV1Vault(address(facet), address(subImpl));
 
-        bytes memory init = abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0));
+        bytes memory init =
+            abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(vaultImpl), init)));
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
@@ -173,7 +174,7 @@ contract VaultUpgradeTest is Test {
 
     /// The vault names its own release the same way an adapter does, so one ABI reads either.
     function test_vaultReportsItsVersion() public {
-        assertEq(IVaultVersion(address(vault)).vaultVersion(), 1_000_001, "encoded 1.0.1");
-        assertEq(IVaultVersion(address(vault)).versionName(), "1.0.1", "readable form");
+        assertEq(IVaultVersion(address(vault)).vaultVersion(), 1_000_002, "encoded 1.0.2");
+        assertEq(IVaultVersion(address(vault)).versionName(), "1.0.2", "readable form");
     }
 }

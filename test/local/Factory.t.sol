@@ -63,6 +63,10 @@ contract FactoryTest is Test {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN);
     }
 
+    function _noCalls() internal pure returns (bytes[] memory) {
+        return new bytes[](0);
+    }
+
     function _sign(address o, address asset, uint256 amount, uint256 pk) internal view returns (bytes memory) {
         return _sign(o, asset, amount, true, pk);
     }
@@ -75,12 +79,13 @@ contract FactoryTest is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled)"
+                    "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled,bytes[] calls)"
                 ),
                 o,
                 asset,
                 amount,
-                allowlistEnabled
+                allowlistEnabled,
+                keccak256("")
             )
         );
         bytes32 domain = keccak256(
@@ -104,17 +109,17 @@ contract FactoryTest is Test {
         assertEq(predicted.code.length, 0, "nothing there yet");
 
         vm.prank(owner);
-        address deployed = factory.activateVault(true);
+        address deployed = factory.activateVault(true, _noCalls());
         assertEq(deployed, predicted, "landed exactly where predicted");
     }
 
     /// One owner, one vault. Ever.
     function test_oneVaultPerOwner() public {
         vm.prank(owner);
-        factory.activateVault(true);
+        factory.activateVault(true, _noCalls());
         vm.prank(owner);
         vm.expectRevert(VaultAlreadyActivated.selector);
-        factory.activateVault(true);
+        factory.activateVault(true, _noCalls());
     }
 
     function test_differentOwnersGetDifferentVaults() public {
@@ -125,7 +130,7 @@ contract FactoryTest is Test {
     /// activateVault() is always the CALLER's vault — it cannot be pointed at someone else.
     function test_activateVaultIsAlwaysTheCallersOwn() public {
         vm.prank(owner);
-        address v = factory.activateVault(true);
+        address v = factory.activateVault(true, _noCalls());
         assertEq(BittyV1Vault(payable(v)).owner(), owner);
     }
 
@@ -139,7 +144,9 @@ contract FactoryTest is Test {
         address predicted = factory.vaultAddress(owner);
         usdc.mint(predicted, 100e6); // deposited before the vault exists
 
-        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _sign(owner, address(usdc), 2e6, ownerPk));
+        factory.activateVaultByAsset(
+            owner, address(usdc), 2e6, true, _noCalls(), _sign(owner, address(usdc), 2e6, ownerPk)
+        );
 
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 2e6, "we are repaid for the gas we fronted");
         assertEq(usdc.balanceOf(predicted), 98e6, "the rest stays the owner's");
@@ -151,7 +158,9 @@ contract FactoryTest is Test {
         address predicted = factory.vaultAddress(owner);
         usdc.mint(predicted, 100e6);
         vm.prank(makeAddr("relayer"));
-        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _sign(owner, address(usdc), 2e6, ownerPk));
+        factory.activateVaultByAsset(
+            owner, address(usdc), 2e6, true, _noCalls(), _sign(owner, address(usdc), 2e6, ownerPk)
+        );
         assertEq(BittyV1Vault(payable(predicted)).owner(), owner);
     }
 
@@ -160,7 +169,9 @@ contract FactoryTest is Test {
     function test_forgedActivationSignatureRejected() public {
         (, uint256 wrongPk) = makeAddrAndKey("mallory");
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _sign(owner, address(usdc), 2e6, wrongPk));
+        factory.activateVaultByAsset(
+            owner, address(usdc), 2e6, true, _noCalls(), _sign(owner, address(usdc), 2e6, wrongPk)
+        );
     }
 
     /// The fee is part of what was signed, so a relayer cannot inflate it after the fact.
@@ -169,7 +180,7 @@ contract FactoryTest is Test {
         usdc.mint(predicted, 100e6);
         bytes memory sig = _sign(owner, address(usdc), 2e6, ownerPk);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByAsset(owner, address(usdc), 50e6, true, sig);
+        factory.activateVaultByAsset(owner, address(usdc), 50e6, true, _noCalls(), sig);
     }
 
     /// And so is the coin.
@@ -178,7 +189,7 @@ contract FactoryTest is Test {
         guard.setAsset(address(other), ASSET_STABLE_COIN);
         bytes memory sig = _sign(owner, address(usdc), 2e6, ownerPk);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByAsset(owner, address(other), 2e6, true, sig);
+        factory.activateVaultByAsset(owner, address(other), 2e6, true, _noCalls(), sig);
     }
 
     /**
@@ -189,9 +200,9 @@ contract FactoryTest is Test {
         address predicted = factory.vaultAddress(owner);
         usdc.mint(predicted, 100e6);
         bytes memory sig = _sign(owner, address(usdc), 2e6, ownerPk);
-        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, sig);
+        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _noCalls(), sig);
         vm.expectRevert(VaultAlreadyActivated.selector);
-        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, sig);
+        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _noCalls(), sig);
     }
 
     // ── initialize ────────────────────────────────────────────────────────────
@@ -201,7 +212,7 @@ contract FactoryTest is Test {
         guard.setConfigAddress(CFG_GAS_WRAPPED, address(0)); // simulate an unconfigured chain
         vm.prank(makeAddr("someone"));
         vm.expectRevert(); // vault initialize hits AddressZero on a zero wrapped-gas token
-        factory.activateVault(true);
+        factory.activateVault(true, _noCalls());
     }
 
     /// Activating with WETH as the fee asset makes the vault list the SAME asset twice - once as the
@@ -210,8 +221,9 @@ contract FactoryTest is Test {
     function test_activatingWithWethAsTheFeeAssetListsItOnce() public {
         guard.setConfigAddress(CFG_GAS_WRAPPED, address(usdc)); // wrapped-gas == the fee asset for this case
         usdc.mint(factory.vaultAddress(owner), 100e6);
-        address v =
-            factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _sign(owner, address(usdc), 2e6, ownerPk));
+        address v = factory.activateVaultByAsset(
+            owner, address(usdc), 2e6, true, _noCalls(), _sign(owner, address(usdc), 2e6, ownerPk)
+        );
 
         assertTrue(IAllowlistView(v).allowlistEnabled(), "allowlist should be on");
         assertTrue(IAllowlistView(v).isAssetAllowed(address(usdc)), "the fee asset is listed");
@@ -239,19 +251,19 @@ contract FactoryTest is Test {
         usdc.mint(factory.vaultAddress(owner), 2e6);
         bytes memory signedForOn = _sign(owner, address(usdc), 2e6, true, ownerPk);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByAsset(owner, address(usdc), 2e6, false, signedForOn);
+        factory.activateVaultByAsset(owner, address(usdc), 2e6, false, _noCalls(), signedForOn);
     }
 
     /// Activating with the allowlist OFF leaves the guard's catalog as the only gate.
     function test_activatingWithTheAllowlistOff() public {
-        address v = factory.activateVault(false);
+        address v = factory.activateVault(false, _noCalls());
         assertFalse(IAllowlistView(v).allowlistEnabled(), "allowlist should be off");
         assertTrue(IAllowlistView(v).isAssetAllowed(address(usdc)), "guard-registered asset must pass");
     }
 
     /// ...and ON restricts to what the vault itself has listed.
     function test_activatingWithTheAllowlistOn() public {
-        address v = factory.activateVault(true);
+        address v = factory.activateVault(true, _noCalls());
         assertTrue(IAllowlistView(v).allowlistEnabled(), "allowlist should be on");
         assertFalse(IAllowlistView(v).isAssetAllowed(address(usdc)), "unlisted asset must not pass");
     }
@@ -274,7 +286,7 @@ contract FactoryTest is Test {
 
         // ...and the vault actually deployed there runs the NEW build.
         vm.prank(owner);
-        address deployed = factory.activateVault(true);
+        address deployed = factory.activateVault(true, _noCalls());
         assertEq(deployed, predictedBefore, "deployed somewhere other than predicted");
         assertEq(_implOf(deployed), address(newImpl), "not upgraded off the bootstrap");
     }
@@ -282,7 +294,7 @@ contract FactoryTest is Test {
     /// A vault leaves the bootstrap in the same transaction it is created in.
     function test_vaultDoesNotStayOnTheBootstrap() public {
         vm.prank(owner);
-        address v = factory.activateVault(true);
+        address v = factory.activateVault(true, _noCalls());
         assertEq(_implOf(v), address(impl), "should be on the real implementation");
         assertTrue(_implOf(v) != BITTY_VAULT_BOOTSTRAP, "still on the bootstrap");
     }
@@ -307,7 +319,7 @@ contract FactoryTest is Test {
         UUPSUpgradeable(proxy).upgradeToAndCall(build, "");
 
         vm.prank(owner);
-        address v = BittyV1VaultFactory(proxy).activateVault(true);
+        address v = BittyV1VaultFactory(proxy).activateVault(true, _noCalls());
         assertEq(BittyV1Vault(payable(v)).owner(), owner, "the proxied factory mints a working vault");
     }
 

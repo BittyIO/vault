@@ -46,7 +46,8 @@ contract VersionUpgradeSafetyTest is Test {
     /// State written under the old code must survive an upgrade to the build carrying the getters.
     function test_upgradingToTheVersionedBuildKeepsState() public {
         BittyV1Vault a = _impl();
-        bytes memory init = abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, true, address(usdc), 0));
+        bytes memory init =
+            abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, true, address(usdc), 0, new bytes[](0)));
         address vault = address(new ERC1967Proxy(address(a), init));
 
         assertTrue(IVaultView(vault).isAssetAllowed(address(usdc)), "seeded before upgrade");
@@ -62,7 +63,7 @@ contract VersionUpgradeSafetyTest is Test {
         assertTrue(IVaultView(vault).isAssetAllowed(address(usdc)), "allowlist survived");
         assertTrue(IVaultView(vault).allowlistEnabled(), "flag survived");
         assertEq(IVaultView(vault).owner(), owner, "owner survived");
-        assertEq(IVaultView(vault).versionName(), "1.0.1", "version readable after upgrade");
+        assertEq(IVaultView(vault).versionName(), "1.0.2", "version readable after upgrade");
     }
 
     /// The getters must answer through the proxy, not be swallowed by the facet fallback.
@@ -70,11 +71,12 @@ contract VersionUpgradeSafetyTest is Test {
         BittyV1Vault a = _impl();
         address vault = address(
             new ERC1967Proxy(
-                address(a), abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0))
+                address(a),
+                abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)))
             )
         );
-        assertEq(IVaultView(vault).vaultVersion(), 1_000_001);
-        assertEq(IVaultView(vault).versionName(), "1.0.1");
+        assertEq(IVaultView(vault).vaultVersion(), 1_000_002);
+        assertEq(IVaultView(vault).versionName(), "1.0.2");
         // and a facet-routed call still works, so the fallback is untouched
         assertTrue(IVaultView(vault).isAssetAllowed(address(usdc)) || true);
         assertEq(IVaultView(vault).allowlistEnabled(), false);

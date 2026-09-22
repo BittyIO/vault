@@ -24,7 +24,8 @@ interface IBittyV1VaultActivation {
         address gasWrapped,
         bool allowlistEnabled,
         address activationAsset,
-        uint256 activationAmount
+        uint256 activationAmount,
+        bytes[] calldata calls
     ) external;
 }
 
@@ -41,8 +42,9 @@ interface IBittyV1VaultActivation {
  *      factory) never move. Its upgrade owner is the guard's configured owner. Allowlist defaults ON.
  */
 contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
-    bytes32 private constant _ACTIVATION_TYPEHASH =
-        keccak256("Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled)");
+    bytes32 private constant _ACTIVATION_TYPEHASH = keccak256(
+        "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled,bytes[] calls)"
+    );
 
     error NotOwner();
 
@@ -63,8 +65,8 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
-    function activateVault(bool allowlistEnabled) external returns (address vault) {
-        return _deploy(msg.sender, address(0), 0, allowlistEnabled);
+    function activateVault(bool allowlistEnabled, bytes[] calldata calls) external returns (address vault) {
+        return _deploy(msg.sender, address(0), 0, allowlistEnabled, calls);
     }
 
     function activateVaultByAsset(
@@ -72,13 +74,14 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
         address asset,
         uint256 amount,
         bool allowlistEnabled,
+        bytes[] calldata calls,
         bytes calldata signature
     ) external returns (address vault) {
-        _checkActivationSignature(owner, asset, amount, allowlistEnabled, signature);
-        return _deploy(owner, asset, amount, allowlistEnabled);
+        _checkActivationSignature(owner, asset, amount, allowlistEnabled, calls, signature);
+        return _deploy(owner, asset, amount, allowlistEnabled, calls);
     }
 
-    function _deploy(address owner, address asset, uint256 amount, bool allowlistEnabled)
+    function _deploy(address owner, address asset, uint256 amount, bool allowlistEnabled, bytes[] calldata calls)
         private
         returns (address vault)
     {
@@ -91,7 +94,9 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
         BittyV1VaultBootstrap(payable(deployed))
             .upgradeToAndCall(
                 vaultImpl,
-                abi.encodeCall(IBittyV1VaultActivation.initialize, (owner, gasWrapped, allowlistEnabled, asset, amount))
+                abi.encodeCall(
+                    IBittyV1VaultActivation.initialize, (owner, gasWrapped, allowlistEnabled, asset, amount, calls)
+                )
             );
         emit VaultActivated(owner, deployed);
         vault = deployed;
@@ -107,18 +112,35 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
         return _predict(keccak256(abi.encodePacked(owner)));
     }
 
+    /**
+     * @dev `calls` are part of what the owner signs. A relayer that could add its own entries would be
+     *      running owner-authorised operations on a vault it does not own.
+     */
     function _checkActivationSignature(
         address owner,
         address stableCoinAddress,
         uint256 feeAmount,
         bool allowlistEnabled,
+        bytes[] calldata calls,
         bytes calldata signature
     ) private view {
         bytes32 structHash = keccak256(
-            abi.encode(_ACTIVATION_TYPEHASH, owner, stableCoinAddress, feeAmount, allowlistEnabled)
+            abi.encode(_ACTIVATION_TYPEHASH, owner, stableCoinAddress, feeAmount, allowlistEnabled, _hashCalls(calls))
         );
         if (!SignatureChecker.isValidSignatureNow(owner, _hashTypedDataV4(structHash), signature)) {
             revert InvalidActivationSignature();
         }
+    }
+
+    /**
+     * @dev EIP-712 encoding of a `bytes[]`: the hash of the concatenated hashes of its members, which
+     *      is what a wallet produces for a `bytes[] calls` field without any custom handling.
+     */
+    function _hashCalls(bytes[] calldata calls) private pure returns (bytes32) {
+        bytes32[] memory hashes = new bytes32[](calls.length);
+        for (uint256 i; i < calls.length; ++i) {
+            hashes[i] = keccak256(calls[i]);
+        }
+        return keccak256(abi.encodePacked(hashes));
     }
 }

@@ -22,7 +22,8 @@ import {
     InvalidIntentProtocol,
     InvalidDepositableProtocol,
     disableTradeUntilTimestampTooLong,
-    MarketTradeNotSupported
+    MarketTradeNotSupported,
+    TradingDisabled
 } from "../../src/interfaces/IBittyV1DeFi.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
@@ -140,7 +141,8 @@ contract DeFiGuardrailsTest is Test {
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
         BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
         BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
-        bytes memory init = abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0));
+        bytes memory init =
+            abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
@@ -562,6 +564,56 @@ contract DeFiGuardrailsTest is Test {
         vm.prank(owner);
         vm.expectRevert(disableTradeUntilTimestampTooLong.selector);
         _f().disableTradeUntilTimestamp(block.timestamp + 3650 days);
+    }
+
+    // The pause is the owner's brake on a delegated manager. It has to stop market swaps on the AMM,
+    // not only signed intent orders - otherwise pausing leaves the faster door open.
+
+    function test_marketSell_whilePaused_reverts() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        vm.prank(owner);
+        _f().disableTradeUntilTimestamp(block.timestamp + 1 days);
+        vm.prank(owner);
+        vm.expectRevert(TradingDisabled.selector);
+        _f().marketSell(address(amm), address(usdc), 1e6, address(dai), 0, "");
+    }
+
+    function test_marketBuy_whilePaused_reverts() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        vm.prank(owner);
+        _f().disableTradeUntilTimestamp(block.timestamp + 1 days);
+        vm.prank(owner);
+        vm.expectRevert(TradingDisabled.selector);
+        _f().marketBuy(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+    }
+
+    function test_marketTradesResumeOnceThePauseLapses() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        vm.prank(owner);
+        _f().disableTradeUntilTimestamp(block.timestamp + 1 days);
+        vm.warp(block.timestamp + 1 days);
+        vm.startPrank(owner);
+        _f().marketSell(address(amm), address(usdc), 1e6, address(dai), 0, "");
+        _f().marketBuy(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+        vm.stopPrank();
+        assertEq(
+            usdc.allowance(address(vault), _f().getClone(address(amm))),
+            type(uint256).max,
+            "swaps reached the amm clone after the pause"
+        );
+    }
+
+    function test_thePauseDoesNotBlockUnwindingLiquidity() public {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        vm.startPrank(owner);
+        _f().addLiquidity(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+        _f().disableTradeUntilTimestamp(block.timestamp + 1 days);
+        _f().removeLiquidity(address(amm), "");
+        vm.stopPrank();
     }
 
     // ── the view helpers answer for things the guard never registered ─────────

@@ -5,6 +5,7 @@ import {ContextUpgradeable} from "openzeppelin-contracts-upgradeable/utils/Conte
 import {ERC2771ContextUpgradeable} from "openzeppelin-contracts-upgradeable/metatx/ERC2771ContextUpgradeable.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {MulticallUpgradeable} from "openzeppelin-contracts-upgradeable/utils/MulticallUpgradeable.sol";
+import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
 import {BITTY_FORWARDER} from "./logic/Constants.sol";
 
 /**
@@ -28,10 +29,54 @@ import {BITTY_FORWARDER} from "./logic/Constants.sol";
  *      and collides with `ContextUpgradeable` here, which is what dropped batching in the first place.
  */
 abstract contract BittyV1AccountBase is ERC2771ContextUpgradeable, OwnableUpgradeable, MulticallUpgradeable {
+    /**
+     * @dev The activation window. While an account is being initialised, the address that initialised
+     *      it (the factory) is honoured as a trusted forwarder, so the calls it hands over run with the
+     *      OWNER's authority exactly as a relayed call would. TRANSIENT on purpose: the window opens
+     *      inside `initialize` and is closed before it returns, and the slot is wiped at the end of the
+     *      transaction regardless - so a factory upgrade can never impersonate the owner of a vault
+     *      that already exists. Not an ERC-7201 slot, and never part of the storage layout.
+     */
+    bytes32 private constant _ACTIVATOR_TSLOT = keccak256("bitty.account.activator.transient");
+
     constructor() ERC2771ContextUpgradeable(address(0)) {}
 
     function trustedForwarder() public view virtual override returns (address) {
         return BITTY_FORWARDER;
+    }
+
+    /**
+     * @dev The fixed forwarder, plus whoever opened the activation window - and only for as long as
+     *      it is open. A contract that re-enters during the window is not the activator, so it gets
+     *      no suffix and is attributed to itself.
+     */
+    function isTrustedForwarder(address forwarder) public view virtual override returns (bool) {
+        if (forwarder == BITTY_FORWARDER) return true;
+        address activator;
+        bytes32 slot = _ACTIVATOR_TSLOT;
+        assembly {
+            activator := tload(slot)
+        }
+        return activator != address(0) && forwarder == activator;
+    }
+
+    /**
+     * @dev Run `calls` through this account as `owner_`, in the caller's activation window. Each entry
+     *      is self-delegatecalled with the owner appended as the ERC-2771 suffix, which is what
+     *      {_msgSender} reads while `msg.sender` (the activator) is trusted. Reverts bubble up, so an
+     *      activation with a failing entry leaves no account behind.
+     */
+    function _runAsOwner(address owner_, bytes[] calldata calls) internal {
+        bytes32 slot = _ACTIVATOR_TSLOT;
+        assembly {
+            tstore(slot, caller())
+        }
+        for (uint256 i; i < calls.length; ++i) {
+            Address.functionDelegateCall(address(this), bytes.concat(calls[i], bytes20(owner_)));
+        }
+        assembly {
+            tstore(slot, 0)
+        }
     }
 
     function _msgSender()

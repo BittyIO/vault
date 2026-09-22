@@ -14,8 +14,10 @@ interface IBittyV1VaultFactory {
      * @param allowlistEnabled Whether the vault starts restricted to its own allowlist. ON is the
      *        cautious default; OFF leaves the guard's catalog as the only gate. Reversible either
      *        way, and it does not affect the vault's address.
+     * @param calls The owner's first operations, ABI-encoded calls on the vault, run as the owner in
+     *        this same transaction once the vault is initialised. Empty activates and nothing more.
      */
-    function activateVault(bool allowlistEnabled) external;
+    function activateVault(bool allowlistEnabled, bytes[] calldata calls) external;
 
     /**
      * @notice Activate a vault whose owner pays in stable coin rather than ETH: you supply the gas on
@@ -28,13 +30,16 @@ interface IBittyV1VaultFactory {
      * @param allowlistEnabled Whether the vault starts restricted to its own allowlist. Part of what
      *        the owner SIGNS, not merely of what the submitter passes: whoever relays the activation
      *        must not get to choose the security posture of someone else's vault.
-     * @param signature The signature of the owner.
+     * @param calls The owner's first operations, run as the owner once the vault is initialised. Signed
+     *        along with everything else, so the relayer cannot add entries of its own.
+     * @param signature The signature of the owner over (owner, asset, amount, allowlistEnabled, calls).
      */
     function activateVaultByAsset(
         address owner,
         address asset,
         uint256 amount,
         bool allowlistEnabled,
+        bytes[] calldata calls,
         bytes calldata signature
     ) external;
 
