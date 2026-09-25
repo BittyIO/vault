@@ -135,11 +135,13 @@ library ScheduledPaymentLogic {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         PaymentCore.onlyInitialized(vaultStorage);
         if (approveIds.length != expectedHashes.length) revert ArrayLengthMismatch();
-        uint256 immutableDeadline = PaymentCore.immutableLockDeadlineFromWindow(
-            TimelockLib.effective(vaultStorage.riskConfig.newPaymentProtection)
-        );
+        uint64 protection = TimelockLib.effective(vaultStorage.riskConfig.newPaymentProtection);
+        uint256 protectionDeadline = PaymentCore.protectionDeadline(protection);
+        uint256 immutableDeadline = PaymentCore.immutableLockDeadlineFromWindow(protection);
         for (uint256 i; i < approveIds.length; ++i) {
-            _approveScheduledPayment(vaultStorage, approveIds[i], expectedHashes[i], immutableDeadline);
+            _approveScheduledPayment(
+                vaultStorage, approveIds[i], expectedHashes[i], protectionDeadline, immutableDeadline
+            );
         }
         for (uint256 i; i < cancelIds.length; ++i) {
             _removeScheduledPayment(vaultStorage, cancelIds[i], true, sender);
@@ -152,6 +154,7 @@ library ScheduledPaymentLogic {
         VaultStorage storage vaultStorage,
         uint256 id,
         bytes32 expectedHash,
+        uint256 protectionDeadline,
         uint256 immutableDeadline
     ) private {
         IBittyV1Vault.ScheduledPayment memory scheduledPayment = vaultStorage.scheduledPayments[id];
@@ -159,7 +162,8 @@ library ScheduledPaymentLogic {
         if (vaultStorage.scheduledPaymentPendingProposer[id] == address(0)) revert NotPendingApproval();
         if (keccak256(abi.encode(scheduledPayment)) != expectedHash) revert ScheduledPaymentContentMismatch();
         delete vaultStorage.scheduledPaymentPendingProposer[id];
-        if (scheduledPayment.isImmutable) vaultStorage.scheduledPaymentEffectiveAt[id] = immutableDeadline;
+        vaultStorage.scheduledPaymentEffectiveAt[id] =
+            scheduledPayment.isImmutable ? immutableDeadline : protectionDeadline;
     }
 
     function _checkScheduledPayment(IBittyV1Vault.ScheduledPayment calldata scheduledPayment) private view {

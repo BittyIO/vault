@@ -300,6 +300,36 @@ contract ScheduledPaymentsTest is Test {
         assertEq(usdc.balanceOf(payee), 10e6);
     }
 
+    // S-05: the protection window is the owner's chance to react to what they just approved, so it must be
+    // measured from APPROVAL, not from the operator's proposal. A proposal that sat pending past the window
+    // used to become payable the instant the owner approved it (its effectiveAt was frozen at proposal
+    // time); now approval re-stamps the deadline, so a fresh window still has to elapse.
+    function test_protectionRestartsFromApprovalNotProposal() public {
+        vm.prank(owner);
+        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(3 days, UNCHANGED, UNCHANGED, UNCHANGED));
+
+        uint256 t0 = block.timestamp;
+        IBittyV1Vault.ScheduledPayment memory proposed = _sp(1, address(0), 10e6, t0, 0);
+        vm.prank(operator);
+        uint256 id = vault.addScheduledPayment(proposed);
+
+        // The whole window elapses while the proposal is still pending; the owner approves late.
+        vm.warp(t0 + 3 days + 1);
+        vm.prank(owner);
+        vault.reviewScheduledPayments(_ids(id), _hashes(keccak256(abi.encode(proposed))), new uint256[](0));
+
+        // Approved, but the cooling-off restarts from approval — not payable yet (approval was at t0+window+1,
+        // so the fresh window runs to t0 + 2*window + 1).
+        vm.prank(owner);
+        vm.expectRevert(ProtectionPeriodNotEnded.selector);
+        vault.payScheduled(id, new address[](0));
+
+        // Past the fresh window measured from approval: it pays.
+        vm.warp(t0 + 3 days + 1 + 3 days + 1);
+        _pay(id, owner);
+        assertEq(usdc.balanceOf(payee), 10e6, "payable only after a fresh window measured from approval");
+    }
+
     // ── payScheduledAmount ────────────────────────────────────────────────────
 
     /// The variable-amount path is trigger-only: without one, anybody could choose the amount.
