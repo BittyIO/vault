@@ -701,8 +701,8 @@ library DeFiLogic {
     }
 
     function _positionNFT(address protocol) private view returns (address) {
-        (bool ok, bytes memory data) = protocol.staticcall(abi.encodeWithSignature("positionAssetManager()"));
-        if (!ok || data.length < 32) return address(0);
-        return abi.decode(data, (address));
+        (bool ok, bytes memory data) = protocol.staticcall(abi.encodeWithSignature("positionManager()"));
+        if (ok && data.length >= 32) return abi.decode(data, (address));
+        return address(0);
     }
 }

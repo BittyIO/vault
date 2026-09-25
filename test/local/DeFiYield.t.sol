@@ -80,7 +80,7 @@ contract PendingLendingProtocol is MockLendingProtocol {
  * represents a live position is held under the CLONE, not the address the guard lists.
  */
 contract NFTPositionProtocol is Ownable, Initializable {
-    address public positionAssetManager;
+    address public positionManager;
     address internal immutable _nft;
 
     constructor(address nft) Ownable(msg.sender) {
@@ -88,12 +88,12 @@ contract NFTPositionProtocol is Ownable, Initializable {
     }
 
     function claimPositionOnTheMaster() external {
-        positionAssetManager = _nft;
+        positionManager = _nft;
     }
 
     function initialize(address newOwner) external initializer {
         _transferOwnership(newOwner);
-        positionAssetManager = _nft;
+        positionManager = _nft;
     }
 
     function deposit(address asset, uint256 amount) external onlyOwner {
@@ -387,12 +387,12 @@ contract DeFiYieldTest is Test {
         StrayNFT nft = new StrayNFT();
         NFTPositionProtocol np = new NFTPositionProtocol(address(nft));
         guard.setProtocol(address(np), LENDING_ID);
-        assertEq(np.positionAssetManager(), address(0), "the master copy claims no position");
+        assertEq(np.positionManager(), address(0), "the master copy claims no position");
 
         vm.startPrank(owner);
         _f().deposit(address(np), address(usdc), 10e6);
         address clone = _f().getClone(address(np));
-        assertEq(NFTPositionProtocol(clone).positionAssetManager(), address(nft), "the clone does");
+        assertEq(NFTPositionProtocol(clone).positionManager(), address(nft), "the clone does");
 
         nft.mint(address(vault), 1);
         vm.expectRevert(ProtocolNFT.selector);
