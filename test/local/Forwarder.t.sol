@@ -233,6 +233,31 @@ contract ForwarderTest is Test {
     }
 
     /**
+     * S-01: the forwarder's guard only inspects the OUTER selector, so it blocks a bare relayed
+     * `payRelayerFee` but not one wrapped in `multicall([payRelayerFee])` — there the outer selector is
+     * `multicall`. The vault's multicall self-delegatecalls each entry with `msg.sender` still the
+     * forwarder, so the inner `payRelayerFee`'s `msg.sender == trustedForwarder()` check would pass and
+     * anyone could drain the vault's gas budget to the fee collector via the permissionless `execute`.
+     * The multicall override now rejects the selector, so the wrapped path reverts and nothing moves.
+     */
+    function test_multicallCannotBypassPayRelayerFeeGuard() public {
+        (address attacker, uint256 attackerPk) = makeAddrAndKey("multicall-attacker");
+        bytes[] memory calls = new bytes[](1);
+        calls[0] = abi.encodeWithSelector(BittyV1Vault.payRelayerFee.selector, address(usdc), 1e6);
+        bytes memory data = abi.encodeWithSignature("multicall(bytes[])", calls);
+        ERC2771Forwarder.ForwardRequestData memory r = _sign(_req(attacker, address(vaultA), data), attackerPk);
+
+        uint256 vaultBefore = usdc.balanceOf(address(vaultA));
+        uint256 collectorBefore = usdc.balanceOf(BITTY_FEE_COLLECTOR);
+
+        vm.prank(attacker);
+        try fwd.execute(r) {} catch {}
+
+        assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), collectorBefore, "no fee drained via multicall");
+        assertEq(usdc.balanceOf(address(vaultA)), vaultBefore, "vault stablecoin untouched");
+    }
+
+    /**
      * A batch request whose execution re-enters {execute} for another target must not let that reentrant
      * call steal a later sibling's nonce. {_execute} re-binds the nonce target to its own `request.to`
      * right before consuming, so the poisoned transient value from the reentrant call is overwritten.
