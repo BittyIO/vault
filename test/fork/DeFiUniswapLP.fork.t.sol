@@ -144,6 +144,41 @@ contract DeFiUniswapLPForkTest is Test {
         assertGt(_liquidity(tokenId), 0, "position should have liquidity");
     }
 
+    function test_vault_addLiquidity_dataCannotOutspendValidatedAmount() public {
+        address pool =
+            IUniswapV3Factory(IUniswapV3Router(sepolia.UNISWAP_V3_ROUTER).factory()).getPool(token0, token1, FEE);
+        (, int24 tick,,,,,) = IUniswapV3Pool(pool).slot0();
+        int24 lower = (tick / SPACING) * SPACING - SPACING * 10;
+        int24 upper = (tick / SPACING) * SPACING + SPACING * 10;
+
+        // Caller validates a tiny amount but tells the adapter (via data) to pull far more; the vault holds it.
+        uint256 validated0 = token0 == sepolia.WETH9 ? 0.001 ether : 1e6;
+        uint256 validated1 = token1 == sepolia.WETH9 ? 0.001 ether : 1e6;
+        uint256 dataAmount0 = token0 == sepolia.WETH9 ? 0.05 ether : 500e6;
+        uint256 dataAmount1 = token1 == sepolia.WETH9 ? 0.05 ether : 500e6;
+        deal(token0, address(vault), dataAmount0);
+        deal(token1, address(vault), dataAmount1);
+
+        INonfungiblePositionManager.MintParams memory mp = INonfungiblePositionManager.MintParams({
+            token0: token0,
+            token1: token1,
+            fee: FEE,
+            tickLower: lower,
+            tickUpper: upper,
+            amount0Desired: dataAmount0,
+            amount1Desired: dataAmount1,
+            amount0Min: 0,
+            amount1Min: 0,
+            recipient: address(0),
+            deadline: block.timestamp
+        });
+        bytes memory data = abi.encode(true, abi.encode(mp));
+
+        vm.prank(owner);
+        vm.expectRevert(); // the adapter's transferFrom exceeds the scoped allowance
+        IVaultLP(address(vault)).addLiquidity(address(uniImpl), token0, validated0, token1, validated1, data);
+    }
+
     // Would REVERT ("ERC721: transfer caller is not owner nor approved") when _positionNFT can't resolve
     // the adapter's NFT-manager getter, so the vault never approved the clone to pull the position NFT.
     function test_vault_claimAMMFees_worksThroughRealAdapter() public {

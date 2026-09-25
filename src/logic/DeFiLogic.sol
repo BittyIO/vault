@@ -481,12 +481,8 @@ library DeFiLogic {
         _requireAsset($, token1);
 
         address clone = _cloneProtocol($, ammProtocol);
-        if (token0 != address(0) && amount0 > 0 && IERC20(token0).allowance(address(this), clone) < amount0) {
-            IERC20(token0).forceApprove(clone, type(uint256).max);
-        }
-        if (token1 != address(0) && amount1 > 0 && IERC20(token1).allowance(address(this), clone) < amount1) {
-            IERC20(token1).forceApprove(clone, type(uint256).max);
-        }
+        if (token0 != address(0) && amount0 > 0) IERC20(token0).forceApprove(clone, amount0);
+        if (token1 != address(0) && amount1 > 0) IERC20(token1).forceApprove(clone, amount1);
         _approveNFTIfNeeded(clone);
         IBittyV1AMMProtocol(clone).addLiquidity(data);
     }
