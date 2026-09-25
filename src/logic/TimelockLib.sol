@@ -2,6 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {TimelockedValue} from "./BittyStorage.sol";
+import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
 
 /**
  * @title TimelockLib
@@ -36,13 +37,13 @@ library TimelockLib {
 
     function setHigherSafer(TimelockedValue storage tv, uint256 next, uint64 timelock) internal {
         _settle(tv);
-        uint64 n = uint64(next);
+        uint64 n = SafeCast.toUint64(next);
         _apply(tv, n, n < tv.value, timelock);
     }
 
     function setCap(TimelockedValue storage tv, uint256 next, uint64 timelock) internal {
         _settle(tv);
-        uint64 n = uint64(next);
+        uint64 n = SafeCast.toUint64(next);
         bool loosen = tv.value != 0 && (n == 0 || n > tv.value);
         _apply(tv, n, loosen, timelock);
     }
