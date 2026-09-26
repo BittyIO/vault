@@ -109,7 +109,6 @@ abstract contract BittyV1AccountBase is ERC2771ContextUpgradeable, OwnableUpgrad
             }
             results[i] = Address.functionDelegateCall(address(this), bytes.concat(data[i], context));
         }
-        return results;
     }
 
     function _msgSender()

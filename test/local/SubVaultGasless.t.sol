@@ -19,7 +19,7 @@ import {
     AddressZero,
     InvalidRelayedCalldata
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {NotSubOwner} from "../../src/interfaces/IBittyV1SubVault.sol";
+import {NotSubOwner, SubOwnerExpired} from "../../src/interfaces/IBittyV1SubVault.sol";
 import {SYSTEM_DAILY_MAX_GAS_BUDGET, SYSTEM_MAX_FEE_PER_OP} from "../../src/logic/Constants.sol";
 import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR} from "../../src/logic/Constants.sol";
 
@@ -84,6 +84,24 @@ contract SubVaultGaslessTest is Test {
 
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 5e6, "fee to collector");
         assertEq(usdc.balanceOf(address(sub)), 995e6, "sub paid its own fee");
+    }
+
+    function test_expiredSubOwnerCannotSetGaslessOrPayFee() public {
+        vm.prank(owner);
+        vault.setSubVaultGasless(subId, true);
+
+        // The grant (365 days in setUp) lapses.
+        vm.warp(block.timestamp + 365 days + 1);
+
+        vm.prank(subOwner);
+        vm.expectRevert(SubOwnerExpired.selector);
+        sub.setGasless(50, 8);
+
+        vm.prank(BITTY_FORWARDER);
+        vm.expectRevert(SubOwnerExpired.selector);
+        sub.payRelayerFee(address(usdc), 5e6);
+
+        assertEq(usdc.balanceOf(address(sub)), 1_000e6, "nothing left the expired sub");
     }
 
     function test_onlyForwarderCanCharge() public {
