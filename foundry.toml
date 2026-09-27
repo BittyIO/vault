@@ -64,12 +64,42 @@ remappings = [
 
 fs_permissions = [{ access = "read-write", path = "./deployments" }]
 
+# Fork tests that drive the vault through REAL on-chain protocol adapters (Uniswap V3, etc.) instead of
+# mocks — the only way to catch adapter-interface drift (e.g. a getter renamed on the deployed adapter).
+# Its own test dir so the default suite stays offline. Run with:  FOUNDRY_PROFILE=fork forge test
+[profile.fork]
+src = "src"
+out = "out"
+test = "test/fork"
+libs = ["lib"]
+solc_version = "0.8.34"
+evm_version = "prague"
+optimizer = true
+optimizer_runs = 10000
+via_ir = true
+remappings = [
+    "forge-std/=lib/forge-std/src/",
+    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+    "openzeppelin-contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+    "guard-contracts/=lib/guard-contracts/",
+    "protocol-contracts/=lib/protocol-contracts/",
+    "solmate/=lib/solmate/src/",
+    "safe-contracts/=lib/safe-smart-account/contracts/",
+]
+
 [rpc_endpoints]
 sepolia = "https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}"
 mainnet = "https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
 base = "https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
+# Robinhood Chain (Arbitrum Orbit L2, id 4663). The public endpoint is rate-limited; override with a
+# dedicated provider for anything heavier than a deploy.
+robinhood = "https://rpc.mainnet.chain.robinhood.com"
 
 [etherscan]
+# Robinhood Chain has no entry here on purpose: forge refuses an [etherscan] entry for a chain id it
+# does not know. Verify on Blockscout from the command line instead:
+#   forge verify-contract --chain 4663 --verifier blockscout \
+#     --verifier-url https://robinhoodchain.blockscout.com/api <address> <Contract>
 sepolia = { key = "${ETHERSCAN_API_KEY}" }
 mainnet = { key = "${ETHERSCAN_API_KEY}" }
 base = { key = "${ETHERSCAN_API_KEY}", chain = 8453 }

@@ -7,6 +7,7 @@ import {BittyStorage, SubVaultStorage} from "../logic/BittyStorage.sol";
 import {
     IBittyV1SubVault,
     NotSubOwner,
+    SubOwnerExpired,
     SubOwnerExpiryInPast,
     SubOwnerDeadlineRequired
 } from "../interfaces/IBittyV1SubVault.sol";
@@ -132,6 +133,7 @@ contract BittyV1SubVault is BittyV1SubVaultBase, IBittyV1SubVault {
 
     function setGasless(uint64 dailyLimit, uint64 maxFeePerOp) external {
         if (_msgSender() != owner()) revert NotSubOwner();
+        if (_grantLapsed()) revert SubOwnerExpired();
         if (dailyLimit > SYSTEM_DAILY_MAX_GAS_BUDGET) revert GasBudgetTooHigh();
         if (maxFeePerOp > SYSTEM_MAX_FEE_PER_OP) revert FeeExceedsPerOpCap();
         SubVaultStorage storage $ = BittyStorage.subVault();
@@ -141,6 +143,7 @@ contract BittyV1SubVault is BittyV1SubVaultBase, IBittyV1SubVault {
 
     function payRelayerFee(address asset, uint256 amount) external {
         if (msg.sender != trustedForwarder()) revert NotTrustedForwarder();
+        if (_grantLapsed()) revert SubOwnerExpired();
         SubVaultStorage storage $ = BittyStorage.subVault();
         if (!$.gaslessEnabled) revert SubGaslessDisabled();
         if (amount == 0) revert AmountIsZero();

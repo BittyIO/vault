@@ -21,7 +21,17 @@ abstract contract DeployScript is Script, Config {
     }
 
     function run() public {
-        deploy(vm.getChain(block.chainid).name);
+        deploy(_chainName());
+    }
+
+    /**
+     * @dev The chain's name, which is also its deployments/<name>.toml. Foundry's own registry
+     *      answers for the well-known chains; Robinhood Chain (an Arbitrum Orbit L2, id 4663) is not
+     *      in it, and asking would revert the whole run, so it is named here.
+     */
+    function _chainName() internal returns (string memory) {
+        if (block.chainid == 4663) return "robinhood";
+        return vm.getChain(block.chainid).name;
     }
 
     function getAddress(string memory key) public view returns (address) {

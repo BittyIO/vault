@@ -11,6 +11,7 @@ import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {PaymentProtectionTooLong} from "../../src/interfaces/IBittyV1Vault.sol";
 import {RiskLogic} from "../../src/logic/RiskLogic.sol";
 import {BITTY_GUARD, MAX_DURATION} from "../../src/logic/Constants.sol";
+import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
 
 /**
  * THE RATCHET. Tightening applies immediately; loosening waits out `changeTimelock`.
@@ -51,6 +52,25 @@ contract RiskRatchetTest is Test {
     }
 
     // ── the two directions ────────────────────────────────────────────────────
+
+    // S-10: risk values are stored as uint64. A uint256 input above that range must REVERT, not silently
+    // truncate — `maxSendValue` wrapping to 0 would read as "no cap" and quietly disable the risk limit,
+    // and any wrapped value is a risk control set to something the owner never asked for.
+    function test_outOfRangeRiskValueRevertsInsteadOfTruncating() public {
+        uint256 tooBig = uint256(type(uint64).max) + 1; // uint64(tooBig) == 0
+        bytes memory overflow =
+            abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, uint8(64), tooBig);
+
+        // setCap path (maxSendValue): wrapping to 0 would silently remove the cap.
+        vm.prank(owner);
+        vm.expectRevert(overflow);
+        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(UNCHANGED, tooBig, UNCHANGED, UNCHANGED));
+
+        // setHigherSafer path (maxSendInterval).
+        vm.prank(owner);
+        vm.expectRevert(overflow);
+        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(UNCHANGED, UNCHANGED, tooBig, UNCHANGED));
+    }
 
     /// Tightening is immediate. Someone reacting to something alarming is never made to wait.
     function test_tighteningAppliesImmediately() public {

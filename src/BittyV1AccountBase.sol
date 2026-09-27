@@ -79,6 +79,38 @@ abstract contract BittyV1AccountBase is ERC2771ContextUpgradeable, OwnableUpgrad
         }
     }
 
+    /**
+     * @dev `payRelayerFee` moves the vault's gas budget and is authorised only by `msg.sender ==
+     *      trustedForwarder()` — it is meant to be charged by the forwarder ALONE during settlement,
+     *      never as a relayed user op. The forwarder blocks it as a TOP-LEVEL relayed call by inspecting
+     *      the outer selector, but {multicall} self-delegatecalls each entry with `msg.sender` still the
+     *      forwarder, so a relayed `multicall([payRelayerFee(...)])` would slip past that guard and drain
+     *      the budget to the fee collector (audit S-01). Reject the selector here too — at EVERY multicall
+     *      layer, so nesting can't smuggle it in. Legitimate charging goes straight through the forwarder,
+     *      not multicall, so nothing real is lost.
+     */
+    error PayRelayerFeeNotRelayable();
+
+    bytes4 private constant _PAY_RELAYER_FEE_SELECTOR = bytes4(keccak256("payRelayerFee(address,uint256)"));
+
+    function multicall(bytes[] calldata data)
+        external
+        virtual
+        override(MulticallUpgradeable)
+        returns (bytes[] memory results)
+    {
+        // Same ERC-2771 suffix handling as OZ's MulticallUpgradeable, with the payRelayerFee guard added.
+        bytes memory context =
+            msg.sender == _msgSender() ? new bytes(0) : msg.data[msg.data.length - _contextSuffixLength():];
+        results = new bytes[](data.length);
+        for (uint256 i = 0; i < data.length; ++i) {
+            if (data[i].length >= 4 && bytes4(data[i][:4]) == _PAY_RELAYER_FEE_SELECTOR) {
+                revert PayRelayerFeeNotRelayable();
+            }
+            results[i] = Address.functionDelegateCall(address(this), bytes.concat(data[i], context));
+        }
+    }
+
     function _msgSender()
         internal
         view

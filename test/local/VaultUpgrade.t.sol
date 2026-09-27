@@ -174,7 +174,7 @@ contract VaultUpgradeTest is Test {
 
     /// The vault names its own release the same way an adapter does, so one ABI reads either.
     function test_vaultReportsItsVersion() public {
-        assertEq(IVaultVersion(address(vault)).vaultVersion(), 1_000_002, "encoded 1.0.2");
-        assertEq(IVaultVersion(address(vault)).versionName(), "1.0.2", "readable form");
+        assertEq(IVaultVersion(address(vault)).vaultVersion(), 1_000_003, "encoded 1.0.3");
+        assertEq(IVaultVersion(address(vault)).versionName(), "1.0.3", "readable form");
     }
 }

@@ -92,7 +92,7 @@ contract NFTAwareAMM is MockAMMProtocol {
         _nft = nft;
     }
 
-    function positionAssetManager() external view returns (address) {
+    function positionManager() external view returns (address) {
         return _nft;
     }
 }
@@ -105,7 +105,7 @@ contract SilentNFTAMM is MockAMMProtocol {
         _nft = nft;
     }
 
-    function positionAssetManager() external view returns (address) {
+    function positionManager() external view returns (address) {
         return _nft;
     }
 }

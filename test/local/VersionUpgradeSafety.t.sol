@@ -63,7 +63,7 @@ contract VersionUpgradeSafetyTest is Test {
         assertTrue(IVaultView(vault).isAssetAllowed(address(usdc)), "allowlist survived");
         assertTrue(IVaultView(vault).allowlistEnabled(), "flag survived");
         assertEq(IVaultView(vault).owner(), owner, "owner survived");
-        assertEq(IVaultView(vault).versionName(), "1.0.2", "version readable after upgrade");
+        assertEq(IVaultView(vault).versionName(), "1.0.3", "version readable after upgrade");
     }
 
     /// The getters must answer through the proxy, not be swallowed by the facet fallback.
@@ -75,8 +75,8 @@ contract VersionUpgradeSafetyTest is Test {
                 abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)))
             )
         );
-        assertEq(IVaultView(vault).vaultVersion(), 1_000_002);
-        assertEq(IVaultView(vault).versionName(), "1.0.2");
+        assertEq(IVaultView(vault).vaultVersion(), 1_000_003);
+        assertEq(IVaultView(vault).versionName(), "1.0.3");
         // and a facet-routed call still works, so the fallback is untouched
         assertTrue(IVaultView(vault).isAssetAllowed(address(usdc)) || true);
         assertEq(IVaultView(vault).allowlistEnabled(), false);
