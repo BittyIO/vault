@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {PROTOCOL_AMM} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+
+uint8 constant PROTOCOL_MARKET_TRADE = PROTOCOL_AMM;
+
 address constant BITTY_GUARD = 0x00006Dc0000DBB00d9bd462ad2005E20007e0Dc7;
 
 address constant BITTY_FORWARDER = 0xfB49bE0861AC05bC690327076130342966429c03;

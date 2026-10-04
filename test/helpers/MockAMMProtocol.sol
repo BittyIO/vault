@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {IBittyV1AMMProtocol} from "protocol-contracts/src/interfaces/IBittyV1AMMProtocol.sol";
+import {IBittyV1MarketTradeProtocol} from "protocol-contracts/src/interfaces/IBittyV1MarketTradeProtocol.sol";
+import {IBittyV1MarketMakerProtocol} from "protocol-contracts/src/interfaces/IBittyV1MarketMakerProtocol.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract MockAMMProtocol is IBittyV1AMMProtocol {
+/**
+ * @dev A single mock that answers BOTH split interfaces, so a test can deploy one instance and register it
+ *      as a market-trade protocol, another and register it as a market-maker protocol. The guard gates on
+ *      the registered category, not on which methods exist, so implementing both is harmless.
+ */
+contract MockAMMProtocol is IBittyV1MarketTradeProtocol, IBittyV1MarketMakerProtocol {
     function protocolLineage() external pure returns (bytes32) {
         return keccak256("bitty.mock.amm");
     }
@@ -49,10 +55,12 @@ contract MockAMMProtocol is IBittyV1AMMProtocol {
         return 0;
     }
 
-    /**
-     * @dev Declares its category so the guard will register it; `virtual` so subclasses can differ.
-     */
+    function positionManager() external view virtual override returns (address) {
+        return address(0);
+    }
+
     function supportsInterface(bytes4 interfaceId) public pure virtual returns (bool) {
-        return interfaceId == type(IBittyV1AMMProtocol).interfaceId || interfaceId == 0x01ffc9a7;
+        return interfaceId == type(IBittyV1MarketTradeProtocol).interfaceId
+            || interfaceId == type(IBittyV1MarketMakerProtocol).interfaceId || interfaceId == 0x01ffc9a7;
     }
 }

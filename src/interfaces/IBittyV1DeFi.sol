@@ -3,7 +3,8 @@ pragma solidity ^0.8.34;
 
 error InvalidDepositableProtocol();
 error InvalidWithdrawableProtocol();
-error InvalidAMMProtocol();
+error InvalidMarketTradeProtocol();
+error InvalidMarketMakerProtocol();
 error InvalidIntentProtocol();
 error ProtocolNotInstantiated();
 error ProtocolLineageMismatch();

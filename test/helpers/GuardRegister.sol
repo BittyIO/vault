@@ -2,7 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {IBittyV1Guard, ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {LENDING_ID, STAKING_ID, AMM_ID, INTENT_ID} from "./CategoryIds.sol";
+import {LENDING_ID, STAKING_ID, AMM_ID, MARKET_TRADE_ID, MARKET_MAKER_ID, INTENT_ID} from "./CategoryIds.sol";
 
 uint8 constant ASSET_STABLE_COIN = 1;
 uint8 constant CRYPTO_CATEGORY = 2;
@@ -28,7 +28,8 @@ function detectCategory(address protocol) view returns (uint8) {
     // one as an argument - so this looks for a function only that category has, by scanning the
     // runtime bytecode for its selector. Cruder than supportsInterface, but it needs no cooperation
     // from the adapter and cannot be fooled by a call that reverts for its own reasons.
-    if (_hasSelector(protocol, bytes4(keccak256("removeLiquidity(bytes)")))) return AMM_ID;
+    if (_hasSelector(protocol, bytes4(keccak256("removeLiquidity(bytes)")))) return MARKET_MAKER_ID;
+    if (_hasSelector(protocol, bytes4(keccak256("swap(bytes,address)")))) return MARKET_TRADE_ID;
     if (_hasSelector(protocol, bytes4(keccak256("isValidSignature(bytes32,bytes)")))) return INTENT_ID;
 
     // Fixtures built on MockCategoryProtocol carry no category function at all - they only answer the
