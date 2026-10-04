@@ -10,7 +10,7 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {MockAMMProtocol} from "../helpers/MockAMMProtocol.sol";
 import {MockIntentProtocol} from "../helpers/MockIntentProtocol.sol";
 import {MockSettlement} from "../helpers/MockSettlement.sol";
-import {AMM_ID, INTENT_ID, LENDING_ID} from "../helpers/CategoryIds.sol";
+import {AMM_ID, MARKET_TRADE_ID, MARKET_MAKER_ID, INTENT_ID, LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
@@ -18,7 +18,8 @@ import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
 import {AddressZero, ArrayLengthMismatch, Deprecated, NotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
 import {
-    InvalidAMMProtocol,
+    InvalidMarketTradeProtocol,
+    InvalidMarketMakerProtocol,
     InvalidIntentProtocol,
     InvalidDepositableProtocol,
     disableTradeUntilTimestampTooLong,
@@ -92,7 +93,7 @@ contract NFTAwareAMM is MockAMMProtocol {
         _nft = nft;
     }
 
-    function positionManager() external view returns (address) {
+    function positionManager() external view override returns (address) {
         return _nft;
     }
 }
@@ -105,7 +106,7 @@ contract SilentNFTAMM is MockAMMProtocol {
         _nft = nft;
     }
 
-    function positionManager() external view returns (address) {
+    function positionManager() external view override returns (address) {
         return _nft;
     }
 }
@@ -125,6 +126,7 @@ contract DeFiGuardrailsTest is Test {
     MockERC20 dai;
     MockLendingProtocol proto;
     MockAMMProtocol amm;
+    MockAMMProtocol tradeAmm;
     MockIntentProtocol intent;
     MockSettlement settlement;
 
@@ -149,6 +151,7 @@ contract DeFiGuardrailsTest is Test {
         dai = new MockERC20("Dai", "DAI", 18);
         proto = new MockLendingProtocol();
         amm = new MockAMMProtocol();
+        tradeAmm = new MockAMMProtocol();
         settlement = new MockSettlement();
         intent = new MockIntentProtocol();
         intent.setEndpoints(address(settlement), address(settlement));
@@ -156,7 +159,8 @@ contract DeFiGuardrailsTest is Test {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         guard.setAsset(address(dai), ASSET_STABLE_COIN);
         guard.setProtocol(address(proto), LENDING_ID);
-        guard.setProtocol(address(amm), AMM_ID);
+        guard.setProtocol(address(amm), MARKET_MAKER_ID);
+        guard.setProtocol(address(tradeAmm), MARKET_TRADE_ID);
         guard.setProtocol(address(intent), INTENT_ID);
 
         usdc.mint(address(vault), 1_000e6);
@@ -214,10 +218,10 @@ contract DeFiGuardrailsTest is Test {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
-        _f().marketSell(address(amm), address(usdc), 1e6, address(dai), 0, "");
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, "");
         // The gate passed and the swap dispatched to the AMM clone (which the vault approved to spend).
         assertEq(
-            usdc.allowance(address(vault), _f().getClone(address(amm))),
+            usdc.allowance(address(vault), _f().getClone(address(tradeAmm))),
             type(uint256).max,
             "sell token approved to the amm clone"
         );
@@ -228,7 +232,7 @@ contract DeFiGuardrailsTest is Test {
         guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
         vm.expectRevert(MarketTradeNotSupported.selector);
-        _f().marketSell(address(amm), address(usdc), 1e6, address(dai), 0, "");
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, "");
     }
 
     function test_marketSell_buyLegNotAmmLiquid_reverts() public {
@@ -236,16 +240,16 @@ contract DeFiGuardrailsTest is Test {
         guard.setAsset(address(dai), ASSET_STABLE_COIN); // buy leg: no AMM-liquid flag
         vm.prank(owner);
         vm.expectRevert(MarketTradeNotSupported.selector);
-        _f().marketSell(address(amm), address(usdc), 1e6, address(dai), 0, "");
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, "");
     }
 
     function test_marketBuy_bothLegsAmmLiquid_reachesTheAmm() public {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
-        _f().marketBuy(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+        _f().marketBuy(address(tradeAmm), address(usdc), 1e6, address(dai), 1e18, "");
         assertEq(
-            usdc.allowance(address(vault), _f().getClone(address(amm))),
+            usdc.allowance(address(vault), _f().getClone(address(tradeAmm))),
             type(uint256).max,
             "sell token approved to the amm clone"
         );
@@ -256,7 +260,7 @@ contract DeFiGuardrailsTest is Test {
         guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
         vm.expectRevert(MarketTradeNotSupported.selector);
-        _f().marketBuy(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+        _f().marketBuy(address(tradeAmm), address(usdc), 1e6, address(dai), 1e18, "");
     }
 
     function test_marketBuy_buyLegNotAmmLiquid_reverts() public {
@@ -264,7 +268,7 @@ contract DeFiGuardrailsTest is Test {
         guard.setAsset(address(dai), ASSET_STABLE_COIN); // buy leg: no AMM-liquid flag
         vm.prank(owner);
         vm.expectRevert(MarketTradeNotSupported.selector);
-        _f().marketBuy(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+        _f().marketBuy(address(tradeAmm), address(usdc), 1e6, address(dai), 1e18, "");
     }
 
     // The protocol gate comes BEFORE the asset gates: a market order names an AMM, and anything that is
@@ -274,34 +278,34 @@ contract DeFiGuardrailsTest is Test {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
-        vm.expectRevert(InvalidAMMProtocol.selector);
+        vm.expectRevert(InvalidMarketTradeProtocol.selector);
         _f().marketSell(address(proto), address(usdc), 1e6, address(dai), 0, "");
     }
 
     function test_marketSell_throughADeprecatedAmm_reverts() public {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
-        guard.setDeprecated(address(amm), true);
+        guard.setDeprecated(address(tradeAmm), true);
         vm.prank(owner);
         vm.expectRevert(Deprecated.selector);
-        _f().marketSell(address(amm), address(usdc), 1e6, address(dai), 0, "");
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, "");
     }
 
     function test_marketBuy_throughANonAmmProtocol_reverts() public {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
-        vm.expectRevert(InvalidAMMProtocol.selector);
+        vm.expectRevert(InvalidMarketTradeProtocol.selector);
         _f().marketBuy(address(proto), address(usdc), 1e6, address(dai), 1e18, "");
     }
 
     function test_marketBuy_throughADeprecatedAmm_reverts() public {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
-        guard.setDeprecated(address(amm), true);
+        guard.setDeprecated(address(tradeAmm), true);
         vm.prank(owner);
         vm.expectRevert(Deprecated.selector);
-        _f().marketBuy(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+        _f().marketBuy(address(tradeAmm), address(usdc), 1e6, address(dai), 1e18, "");
     }
 
     function test_aDeprecatedIntentProtocolSignsNothingNew() public {
@@ -522,20 +526,23 @@ contract DeFiGuardrailsTest is Test {
 
     function test_ammCallsOnANeverUsedProtocolAreRefused() public {
         vm.startPrank(owner);
-        vm.expectRevert(InvalidAMMProtocol.selector);
+        vm.expectRevert(InvalidMarketMakerProtocol.selector);
         _f().removeLiquidity(address(amm), "");
 
-        vm.expectRevert(InvalidAMMProtocol.selector);
+        vm.expectRevert(InvalidMarketMakerProtocol.selector);
         _f().decreaseLiquidity(address(amm), "");
 
-        vm.expectRevert(InvalidAMMProtocol.selector);
+        vm.expectRevert(InvalidMarketMakerProtocol.selector);
         _f().claimAMMFees(address(amm), "");
         vm.stopPrank();
     }
 
+    // Liquidity is dispatched by the market-maker interface, not a category: a registered protocol that
+    // isn't a maker (here a lending adapter, with no addLiquidity) is rejected by the interface call
+    // itself — it reverts with no matching function rather than a category error.
     function test_aNonAmmProtocolCannotProvideLiquidity() public {
         vm.prank(owner);
-        vm.expectRevert(InvalidAMMProtocol.selector);
+        vm.expectRevert(); // no addLiquidity on a lending adapter
         _f().addLiquidity(address(proto), address(usdc), 1e6, address(dai), 1e18, "");
     }
 
@@ -596,11 +603,11 @@ contract DeFiGuardrailsTest is Test {
         _f().disableTradeUntilTimestamp(block.timestamp + 1 days);
         vm.warp(block.timestamp + 1 days);
         vm.startPrank(owner);
-        _f().marketSell(address(amm), address(usdc), 1e6, address(dai), 0, "");
-        _f().marketBuy(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, "");
+        _f().marketBuy(address(tradeAmm), address(usdc), 1e6, address(dai), 1e18, "");
         vm.stopPrank();
         assertEq(
-            usdc.allowance(address(vault), _f().getClone(address(amm))),
+            usdc.allowance(address(vault), _f().getClone(address(tradeAmm))),
             type(uint256).max,
             "swaps reached the amm clone after the pause"
         );
@@ -645,7 +652,7 @@ contract DeFiGuardrailsTest is Test {
     function test_theCloneIsGrantedTheNftItNeedsToManagePositions() public {
         PositionNFT nft = new PositionNFT();
         NFTAwareAMM nftAmm = new NFTAwareAMM(address(nft));
-        guard.setProtocol(address(nftAmm), AMM_ID);
+        guard.setProtocol(address(nftAmm), MARKET_MAKER_ID);
 
         vm.prank(owner);
         _f().addLiquidity(address(nftAmm), address(usdc), 1e6, address(dai), 1e18, "");
@@ -657,7 +664,7 @@ contract DeFiGuardrailsTest is Test {
     function test_theApprovalIsNotGrantedTwice() public {
         PositionNFT nft = new PositionNFT();
         NFTAwareAMM nftAmm = new NFTAwareAMM(address(nft));
-        guard.setProtocol(address(nftAmm), AMM_ID);
+        guard.setProtocol(address(nftAmm), MARKET_MAKER_ID);
 
         vm.startPrank(owner);
         _f().addLiquidity(address(nftAmm), address(usdc), 1e6, address(dai), 1e18, "");
@@ -671,7 +678,7 @@ contract DeFiGuardrailsTest is Test {
     /// A "position NFT" that is not a contract cannot be probed; the vault skips it rather than reverting.
     function test_anUnprobeableNftIsSkippedNotFatal() public {
         SilentNFTAMM oddAmm = new SilentNFTAMM(makeAddr("notAContract"));
-        guard.setProtocol(address(oddAmm), AMM_ID);
+        guard.setProtocol(address(oddAmm), MARKET_MAKER_ID);
 
         vm.prank(owner);
         _f().addLiquidity(address(oddAmm), address(usdc), 1e6, address(dai), 1e18, "");
@@ -763,7 +770,7 @@ contract DeFiGuardrailsTest is Test {
     function test_decreasingLiquidityAlsoGrantsTheNftApproval() public {
         PositionNFT nft = new PositionNFT();
         NFTAwareAMM nftAmm = new NFTAwareAMM(address(nft));
-        guard.setProtocol(address(nftAmm), AMM_ID);
+        guard.setProtocol(address(nftAmm), MARKET_MAKER_ID);
 
         vm.startPrank(owner);
         _f().addLiquidity(address(nftAmm), address(usdc), 1e6, address(dai), 1e18, "");

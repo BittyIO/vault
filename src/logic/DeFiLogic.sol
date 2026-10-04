@@ -3,21 +3,18 @@ pragma solidity ^0.8.34;
 
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts/contracts/proxy/utils/UUPSUpgradeable.sol";
-import {
-    IBittyV1Guard,
-    ASSET_STABLE_COIN,
-    PROTOCOL_INTENT,
-    PROTOCOL_AMM
-} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IBittyV1Guard, ASSET_STABLE_COIN, PROTOCOL_INTENT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1Yield} from "protocol-contracts/src/interfaces/IBittyV1Yield.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
-import {IBittyV1AMMProtocol} from "protocol-contracts/src/interfaces/IBittyV1AMMProtocol.sol";
+import {IBittyV1MarketTradeProtocol} from "protocol-contracts/src/interfaces/IBittyV1MarketTradeProtocol.sol";
+import {IBittyV1MarketMakerProtocol} from "protocol-contracts/src/interfaces/IBittyV1MarketMakerProtocol.sol";
 import {
     InvalidDepositableProtocol,
     InvalidWithdrawableProtocol,
     disableTradeUntilTimestampTooEarly,
     disableTradeUntilTimestampTooLong,
-    InvalidAMMProtocol,
+    InvalidMarketTradeProtocol,
+    InvalidMarketMakerProtocol,
     InvalidIntentProtocol,
     ProtocolNotInstantiated,
     ProtocolLineageMismatch,
@@ -45,7 +42,7 @@ import {
 } from "../interfaces/IBittyV1Vault.sol";
 import {BittyStorage, DeFiStorage} from "./BittyStorage.sol";
 import {TimelockLib} from "./TimelockLib.sol";
-import {BITTY_GUARD, MAX_DURATION, TRADE_DISABLE_MAX_DURATION} from "./Constants.sol";
+import {BITTY_GUARD, MAX_DURATION, TRADE_DISABLE_MAX_DURATION, PROTOCOL_MARKET_TRADE} from "./Constants.sol";
 
 /**
  * @dev Minimal view into an intent protocol's settlement addresses (CoW-style): the relayer a gasless
@@ -324,6 +321,11 @@ library DeFiLogic {
         return !_allowlistActive($) || $.protocols[protocol];
     }
 
+    function _registeredProtocolOK(DeFiStorage storage $, address protocol) private returns (bool) {
+        if (!IBittyV1Guard(BITTY_GUARD).isProtocolRegistered(protocol)) return false;
+        return !_allowlistActive($) || $.protocols[protocol];
+    }
+
     function isProtocolAllowed(address protocol) external view returns (bool) {
         DeFiStorage storage $ = BittyStorage.defi();
         if (!IBittyV1Guard(BITTY_GUARD).isProtocolRegistered(protocol)) return false;
@@ -475,7 +477,7 @@ library DeFiLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
-        if (!_categoryProtocolOK($, PROTOCOL_AMM, ammProtocol)) revert InvalidAMMProtocol();
+        if (!_registeredProtocolOK($, ammProtocol)) revert InvalidMarketMakerProtocol();
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
         _requireAsset($, token0);
         _requireAsset($, token1);
@@ -484,7 +486,7 @@ library DeFiLogic {
         if (token0 != address(0) && amount0 > 0) IERC20(token0).forceApprove(clone, amount0);
         if (token1 != address(0) && amount1 > 0) IERC20(token1).forceApprove(clone, amount1);
         _approveNFTIfNeeded(clone);
-        IBittyV1AMMProtocol(clone).addLiquidity(data);
+        IBittyV1MarketMakerProtocol(clone).addLiquidity(data);
     }
 
     function marketSell(
@@ -498,7 +500,7 @@ library DeFiLogic {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
         _requireTradingEnabled($);
-        if (!_categoryProtocolOK($, PROTOCOL_AMM, ammProtocol)) revert InvalidAMMProtocol();
+        if (!_categoryProtocolOK($, PROTOCOL_MARKET_TRADE, ammProtocol)) revert InvalidMarketTradeProtocol();
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
         _requireAsset($, sellToken);
         _requireAsset($, buyToken);
@@ -511,7 +513,7 @@ library DeFiLogic {
             IERC20(sellToken).forceApprove(clone, type(uint256).max);
         }
         bytes memory data = abi.encode(sellToken, sellAmount, buyToken, buyAmountMin, path);
-        IBittyV1AMMProtocol(clone).swap{value: sellToken == address(0) ? sellAmount : 0}(data, address(this));
+        IBittyV1MarketTradeProtocol(clone).swap{value: sellToken == address(0) ? sellAmount : 0}(data, address(this));
     }
 
     function marketBuy(
@@ -525,7 +527,7 @@ library DeFiLogic {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
         _requireTradingEnabled($);
-        if (!_categoryProtocolOK($, PROTOCOL_AMM, ammProtocol)) revert InvalidAMMProtocol();
+        if (!_categoryProtocolOK($, PROTOCOL_MARKET_TRADE, ammProtocol)) revert InvalidMarketTradeProtocol();
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
         _requireAsset($, sellToken);
         _requireAsset($, buyToken);
@@ -537,7 +539,7 @@ library DeFiLogic {
             IERC20(sellToken).forceApprove(clone, type(uint256).max);
         }
         bytes memory data = abi.encode(sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
-        IBittyV1AMMProtocol(clone).swapExactOut(data, address(this));
+        IBittyV1MarketTradeProtocol(clone).swapExactOut(data, address(this));
     }
 
     /**
@@ -559,24 +561,24 @@ library DeFiLogic {
     function removeLiquidity(address ammProtocol, bytes memory data) external {
         address clone = _ammClone(ammProtocol);
         _approveNFTIfNeeded(clone);
-        IBittyV1AMMProtocol(clone).removeLiquidity(data);
+        IBittyV1MarketMakerProtocol(clone).removeLiquidity(data);
     }
 
     function decreaseLiquidity(address ammProtocol, bytes memory data) external {
         address clone = _ammClone(ammProtocol);
         _approveNFTIfNeeded(clone);
-        IBittyV1AMMProtocol(clone).decreaseLiquidity(data);
+        IBittyV1MarketMakerProtocol(clone).decreaseLiquidity(data);
     }
 
     function claimAMMFees(address ammProtocol, bytes memory data) external {
         address clone = _ammClone(ammProtocol);
         _approveNFTIfNeeded(clone);
-        IBittyV1AMMProtocol(clone).claimAMMFees(data);
+        IBittyV1MarketMakerProtocol(clone).claimAMMFees(data);
     }
 
     function _ammClone(address ammProtocol) private view returns (address clone) {
         clone = _instanceOf(BittyStorage.defi(), ammProtocol);
-        if (clone == address(0)) revert InvalidAMMProtocol();
+        if (clone == address(0)) revert InvalidMarketMakerProtocol();
     }
 
     function getLiquidities(address[] calldata ammProtocols, bytes[] calldata data)
@@ -589,7 +591,7 @@ library DeFiLogic {
         liquidities = new uint256[](ammProtocols.length);
         for (uint256 i; i < ammProtocols.length; ++i) {
             address clone = _instanceOf($, ammProtocols[i]);
-            liquidities[i] = clone == address(0) ? 0 : IBittyV1AMMProtocol(clone).getLiquidity(data[i]);
+            liquidities[i] = clone == address(0) ? 0 : IBittyV1MarketMakerProtocol(clone).getLiquidity(data[i]);
         }
     }
 

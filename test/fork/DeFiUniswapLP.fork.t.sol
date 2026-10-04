@@ -8,13 +8,13 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 
 import {MockGuard} from "../helpers/MockGuard.sol";
-import {AMM_ID} from "../helpers/CategoryIds.sol";
+import {MARKET_MAKER_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
-import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Protocol.sol";
+import {UniswapV3MarketMakerProtocol} from "protocol-contracts/src/protocols/UniswapV3MarketMakerProtocol.sol";
 import {sepolia} from "protocol-contracts/script/addresses.sol";
 import {
     IUniswapV3Factory,
@@ -50,7 +50,7 @@ contract DeFiUniswapLPForkTest is Test {
 
     BittyV1Vault vault;
     MockGuard guard;
-    UniswapV3Protocol uniImpl; // the real adapter implementation the vault clones
+    UniswapV3MarketMakerProtocol uniImpl; // the real adapter implementation the vault clones
 
     address npm; // NonfungiblePositionManager
     address token0;
@@ -66,11 +66,9 @@ contract DeFiUniswapLPForkTest is Test {
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         guard = MockGuard(BITTY_GUARD);
 
-        uniImpl = new UniswapV3Protocol(
-            sepolia.UNISWAP_V3_ROUTER, sepolia.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER, sepolia.BITTY_GUARD
-        );
+        uniImpl = new UniswapV3MarketMakerProtocol(sepolia.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
         npm = sepolia.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER;
-        guard.setProtocol(address(uniImpl), AMM_ID);
+        guard.setProtocol(address(uniImpl), MARKET_MAKER_ID);
         guard.setAsset(sepolia.WETH9, 1);
         guard.setAsset(sepolia.USDT, 1);
 

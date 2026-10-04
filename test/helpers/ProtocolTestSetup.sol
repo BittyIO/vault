@@ -6,7 +6,7 @@ import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "./GuardReg
 import {GUARD_DEPLOYER} from "./GuardDeployer.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.sol";
-import {UniswapV3Protocol} from "protocol-contracts/src/protocols/UniswapV3Protocol.sol";
+import {UniswapV3MarketMakerProtocol} from "protocol-contracts/src/protocols/UniswapV3MarketMakerProtocol.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
@@ -21,7 +21,7 @@ abstract contract ProtocolTestSetup is Test {
 
     AaveV3Protocol internal aaveProtocol;
     LidoV2Protocol internal lidoProtocol;
-    UniswapV3Protocol internal uniswapV3Protocol;
+    UniswapV3MarketMakerProtocol internal uniswapV3Protocol;
 
     /**
      * @dev `guard` is etched, with its roles and registry already configured, BEFORE any fork exists.
@@ -47,7 +47,7 @@ abstract contract ProtocolTestSetup is Test {
         lidoProtocol = new LidoV2Protocol(mainnet.STETH, mainnet.UNSTETH, mainnet.WETH);
         lidoProtocol.initialize(address(this));
 
-        uniswapV3Protocol = new UniswapV3Protocol(mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
+        uniswapV3Protocol = new UniswapV3MarketMakerProtocol(mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
         uniswapV3Protocol.initialize(address(this));
 
         vm.stopPrank();

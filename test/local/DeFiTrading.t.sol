@@ -9,7 +9,7 @@ import {MockGuard} from "../helpers/MockGuard.sol";
 import {MockAMMProtocol} from "../helpers/MockAMMProtocol.sol";
 import {MockIntentProtocol} from "../helpers/MockIntentProtocol.sol";
 import {MockSettlement} from "../helpers/MockSettlement.sol";
-import {AMM_ID, INTENT_ID, LENDING_ID} from "../helpers/CategoryIds.sol";
+import {AMM_ID, MARKET_MAKER_ID, INTENT_ID, LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
@@ -74,7 +74,7 @@ contract DeFiTradingTest is Test {
 
         guard.setAsset(address(t0), ASSET_STABLE_COIN);
         guard.setAsset(address(t1), 2);
-        guard.setProtocol(address(amm), AMM_ID);
+        guard.setProtocol(address(amm), MARKET_MAKER_ID);
         guard.setProtocol(address(intent), INTENT_ID);
 
         t0.mint(address(vault), 1_000e18);
@@ -112,11 +112,13 @@ contract DeFiTradingTest is Test {
     }
 
     /// A protocol registered under the WRONG category cannot be used as an AMM.
-    function test_aNonAMMCannotProvideLiquidity() public {
-        guard.setProtocol(address(amm), LENDING_ID);
+    /// Liquidity is dispatched by interface, but the protocol must still be guard-curated: one the guard
+    /// never registered is refused up front, before any clone or interface call.
+    function test_anUnregisteredProtocolCannotProvideLiquidity() public {
+        MockAMMProtocol stranger = new MockAMMProtocol(); // never registered with the guard
         vm.prank(owner);
         vm.expectRevert();
-        _f().addLiquidity(address(amm), address(t0), 1e18, address(t1), 1e18, "");
+        _f().addLiquidity(address(stranger), address(t0), 1e18, address(t1), 1e18, "");
     }
 
     function test_onlyOwnerMayProvideLiquidity() public {
