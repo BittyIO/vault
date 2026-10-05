@@ -26,38 +26,16 @@ import {IBittyV1Guard, IMPLEMENTATION_VAULT} from "guard-contracts/src/interface
  *      Run:  forge script script/DeployNewVersion.s.sol:DeployNewVersion --broadcast -vvvv
  */
 contract DeployNewVersion is Deploy {
+
     function deploy() public override {
         address vaultImpl = deployImplementationChain();
 
-        console2.log("----------------------------------------");
-        console2.log("new vault implementation      ", vaultImpl);
-        console2.log("version                       ", BittyV1Vault(payable(vaultImpl)).versionName());
-
-        _printGuardRegistration(vaultImpl);
-
-        console2.log("----------------------------------------");
-        console2.log("after the guard registers it: each vault owner calls upgrade(newImpl),");
-        console2.log("then update the web config's implementation address.");
-    }
-
-    /**
-     * @dev The registration step is NOT executed here — it is the role holder's (Safe / governance)
-     *      transaction. A `view` check reports whether it is already blessed; otherwise the exact
-     *      transaction to submit is printed: `to` = guard, `data` = setImplementation(impl, VAULT).
-     *      Paste that target + calldata into the Safe transaction builder or a governance proposal.
-     */
-    function _printGuardRegistration(address vaultImpl) private view {
         IBittyV1Guard guard = IBittyV1Guard(BITTY_GUARD);
         if (guard.isImplementationRegisteredFor(vaultImpl, IMPLEMENTATION_VAULT)) {
             console2.log("guard: already registered (nothing to submit)");
             return;
         }
-        console2.log("GUARD REGISTRATION - submit from the IMPLEMENTATION_MANAGER_ROLE holder");
-        console2.log("(a Safe multisig or governance timelock, NOT this deploy key):");
-        console2.log("  to (guard) ", BITTY_GUARD);
-        console2.log("  function   setImplementation(address,uint8)");
-        console2.log("  args       ", vaultImpl, uint256(IMPLEMENTATION_VAULT));
-        console2.log("  calldata:");
-        console2.logBytes(abi.encodeCall(IBittyV1Guard.setImplementation, (vaultImpl, IMPLEMENTATION_VAULT)));
+        console2.log("guard: should regist implementation in guard for vault", vaultImpl);
     }
+
 }
