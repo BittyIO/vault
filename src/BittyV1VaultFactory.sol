@@ -46,11 +46,30 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
         "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled,bytes[] calls)"
     );
 
+    /**
+     * @dev keccak256 of the vault proxy's CREATE2 init code: {ERC1967Proxy} creation code plus its
+     *      constructor args ({BITTY_VAULT_BOOTSTRAP}, ""). Every vault address derives from this hash,
+     *      and the creation code ends in solc's CBOR metadata, so a factory build compiled with a
+     *      different OpenZeppelin revision, solc version, or optimizer/metadata setting would silently
+     *      relocate every {vaultAddress} — stranding counterfactually funded addresses and letting an
+     *      already-activated owner activate a second vault. The constructor compares this constant
+     *      against the bytes actually compiled into the build, so a drifted toolchain reverts loudly at
+     *      deployment instead. If the proxy init code is ever changed ON PURPOSE, update this constant
+     *      knowing it moves every un-activated owner's address.
+     */
+    bytes32 private constant _VAULT_PROXY_INITCODE_HASH =
+        0x6c313cb305e616270f7a0ed3e9bb874c27e1a38fbde9d4cf2ccccb10c193a45c;
+
     error NotOwner();
+    error VaultProxyInitCodeDrift();
 
     event VaultActivated(address indexed owner, address vault);
 
     constructor() EIP712("BittyV1VaultFactory", "1") {
+        if (
+            keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(BITTY_VAULT_BOOTSTRAP, bytes(""))))
+                != _VAULT_PROXY_INITCODE_HASH
+        ) revert VaultProxyInitCodeDrift();
         _disableInitializers();
     }
 
@@ -103,9 +122,7 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
     }
 
     function _predict(bytes32 salt) private view returns (address) {
-        bytes memory bytecode =
-            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(BITTY_VAULT_BOOTSTRAP, bytes("")));
-        return Create2.computeAddress(salt, keccak256(bytecode));
+        return Create2.computeAddress(salt, _VAULT_PROXY_INITCODE_HASH);
     }
 
     function vaultAddress(address owner) external view returns (address) {
