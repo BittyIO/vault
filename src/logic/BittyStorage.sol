@@ -130,6 +130,15 @@ struct VaultStorage {
     mapping(uint256 => SubVaultEntry) subs;
     uint256 nextSubId;
     uint256 openSubCount;
+
+    /**
+     * When the owner renounced, or 0 while owned. The set of payable schedules is FROZEN at this
+     * moment: only payments already locked immutable by then may pay afterwards. Evaluating
+     * lockedness at pay time instead would let a compromised key queue an immutable payment inside
+     * its protection window just before the renounce — invisible to the rescue check, locked only
+     * after, with nobody left who could remove it.
+     */
+    uint64 renouncedAt;
 }
 
 struct SubVaultStorage {

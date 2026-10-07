@@ -224,5 +224,6 @@ library PaymentLogic {
         PaymentCore.onlyInitialized(vaultStorage);
         if (!PaymentCore.isLockedImmutable(vaultStorage, rescueScheduledPaymentId)) revert NoRescueTarget();
         vaultStorage.renounced = true;
+        vaultStorage.renouncedAt = uint64(block.timestamp);
     }
 }

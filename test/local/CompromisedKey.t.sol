@@ -12,6 +12,7 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {
     IBittyV1Vault,
     NotPayoutOperator,
@@ -182,6 +183,52 @@ contract CompromisedKeyTest is Test {
             vault.payScheduled(rescueId, new address[](0));
         }
         assertEq(usdc.balanceOf(heir), 4 * 500e6, "paid four times after the vault lost its owner");
+    }
+
+    /**
+     * The attacker cannot leave itself a DELAYED backdoor either: an immutable payment queued inside
+     * its protection window just before the renounce is invisible to the rescue check and locks only
+     * after — when nobody is left who could remove it. The payable set is frozen at the renounce, so
+     * such a payment must never pay, however long the attacker waits.
+     */
+    function test_paymentQueuedInsideItsWindowBeforeRenounceNeverPays() public {
+        address attacker = makeAddr("attacker");
+        uint256 unchanged = type(uint256).max;
+
+        // The compromised key queues a drain-everything payment to itself, still inside the protection
+        // window (raising the window is a tightening, so it applies immediately).
+        vm.startPrank(owner);
+        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(1 days, unchanged, unchanged, unchanged));
+        uint256 evilId = vault.addScheduledPayment(
+            IBittyV1Vault.ScheduledPayment({
+                recipient: attacker,
+                remainingPaymentCount: type(uint256).max,
+                isImmutable: true,
+                payWithInsufficientBalance: true,
+                trigger: attacker,
+                assetAddress: address(usdc),
+                amount: 10_000e6,
+                startTimestamp: block.timestamp,
+                paymentInterval: 0
+            })
+        );
+        vm.stopPrank();
+
+        // The legitimate holder renounces; the rescue payment is locked, so the renounce succeeds.
+        vm.prank(owner);
+        vault.renounceVaultOwnership(rescueId);
+
+        // One protection window later the attacker's payment would be "locked immutable" — but it was
+        // not locked AT the renounce, so it stays unpayable forever.
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(attacker);
+        vm.expectRevert(OnlyImmutablePayableAfterRenounce.selector);
+        vault.payScheduled(evilId, new address[](0));
+        assertEq(usdc.balanceOf(attacker), 0, "the backdoor paid nothing");
+
+        // While the heir — locked before the renounce — is still paid.
+        vault.payScheduled(rescueId, new address[](0));
+        assertEq(usdc.balanceOf(heir), 500e6, "the rescue payment survived");
     }
 
     /// Nothing else can be paid — the rescue payment is the only way value leaves an ownerless vault.

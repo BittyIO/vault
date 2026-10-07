@@ -266,7 +266,11 @@ library ScheduledPaymentLogic {
         bool fromPosition
     ) private returns (bool skipped) {
         if (scheduledPayment.amount == 0) revert ScheduledPaymentNotFound();
-        if (vaultStorage.renounced && !PaymentCore.isLockedImmutable(vaultStorage, id)) {
+        if (
+            vaultStorage.renounced
+                && !(PaymentCore.isLockedImmutable(vaultStorage, id)
+                    && vaultStorage.scheduledPaymentEffectiveAt[id] <= vaultStorage.renouncedAt)
+        ) {
             revert OnlyImmutablePayableAfterRenounce();
         }
         if (vaultStorage.scheduledPaymentPendingProposer[id] != address(0)) revert PaymentNotApproved();
