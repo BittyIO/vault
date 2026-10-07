@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
 import {IBeacon} from "openzeppelin-contracts/contracts/proxy/beacon/IBeacon.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {DeFiLogic} from "./logic/DeFiLogic.sol";
 import {PaymentLogic} from "./logic/PaymentLogic.sol";
 import {ScheduledPaymentLogic} from "./logic/ScheduledPaymentLogic.sol";
@@ -429,6 +430,15 @@ contract BittyV1Vault is BittyV1VaultBase, IBeacon {
         }
     }
 
+    /**
+     * @dev Funds a payout shortfall from the caller-chosen list of the vault's OWN positions. Counts
+     *      only what actually ARRIVES at the sink, never what an adapter reports, and refuses an entry
+     *      that delivers nothing: an asynchronous exit (Lido's withdrawal queue) consumes the position,
+     *      returns 0 and funds nothing in this call, so trusting the list would let any caller of a
+     *      trigger-less payment unstake the owner's positions as a side effect — repeatably, one list
+     *      entry at a time. Reverting instead unwinds the queue request opened in the same call, so a
+     *      list naming an asynchronous protocol fails whole rather than succeeding with a side effect.
+     */
     function _coverShortfall(address[] calldata withdrawProtocols, address payoutToken, address sink, uint256 shortfall)
         private
         returns (uint256 covered)
@@ -439,7 +449,11 @@ contract BittyV1Vault is BittyV1VaultBase, IBeacon {
             uint256 available = DeFiLogic.protocolBalance(protocol, payoutToken);
             if (available == 0) continue;
             uint256 remaining = shortfall - covered;
-            covered += DeFiLogic.withdraw(protocol, payoutToken, available < remaining ? available : remaining, sink);
+            uint256 sinkBefore = IERC20(payoutToken).balanceOf(sink);
+            DeFiLogic.withdraw(protocol, payoutToken, available < remaining ? available : remaining, sink);
+            uint256 got = IERC20(payoutToken).balanceOf(sink) - sinkBefore;
+            if (got == 0) revert InsufficientBalance();
+            covered += got;
         }
     }
 
