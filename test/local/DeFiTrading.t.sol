@@ -28,7 +28,6 @@ interface IFacet {
         view
         returns (bool);
     function isOffchainCancellationAuthorized(address signer) external view returns (bool);
-    function disableTradeUntilTimestamp(uint256 ts) external;
     function updateAssets(address[] calldata add, address[] calldata remove) external;
     function updateProtocols(address[] calldata add, address[] calldata remove) external;
     function getClone(address protocol) external view returns (address);
@@ -195,16 +194,5 @@ contract DeFiTradingTest is Test {
     /// And it must be backed: an over-signed order simply stops authorising once its backing is gone.
     function test_orderRefusedWhenUnbacked() public {
         assertFalse(_f().isOffchainOrderAuthorized(owner, address(t0), address(t1), 10_000e18));
-    }
-
-    /**
-     * Pausing trading stops new orders but NOT cancellation — otherwise pausing would be the one
-     * action guaranteeing the orders already signed keep filling.
-     */
-    function test_pausingStopsOrdersButNotCancellation() public {
-        vm.prank(owner);
-        _f().disableTradeUntilTimestamp(block.timestamp + 7 days);
-        assertFalse(_f().isOffchainOrderAuthorized(owner, address(t0), address(t1), 1e18), "no new orders");
-        assertTrue(_f().isOffchainCancellationAuthorized(owner), "but cancelling still works");
     }
 }

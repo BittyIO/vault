@@ -188,11 +188,6 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         DeFiLogic.cancelIntentOrderOne(intent, uid);
     }
 
-    function disableTradeUntilTimestamp(uint256 ts) external onlyOwner {
-        DeFiLogic.disableTradeUntilTimestamp(ts);
-        emit IBittyV1DeFi.TradingDisabledUntil(ts);
-    }
-
     function updateProtocols(address[] calldata add, address[] calldata remove) external onlyOwner {
         DeFiLogic.updateProtocols(add, remove);
     }
@@ -251,8 +246,6 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         if ((signer != owner() || DeFiLogic.subOwnerLapsed()) && !DeFiLogic.isActiveAssetManager(signer)) {
             return false;
         }
-        uint256 disabledUntil = DeFiLogic.tradeDisabledUntil();
-        if (disabledUntil > 0 && block.timestamp < disabledUntil) return false;
         if (!DeFiLogic.assetAllowed(buyToken)) return false;
         return IERC20(sellToken).balanceOf(address(this)) >= sellAmount;
     }

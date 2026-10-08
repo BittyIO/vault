@@ -33,7 +33,6 @@ interface IFacet {
     function setAutoYielding(AutoYield calldata route) external;
     function getAutoYieldings(address[] calldata assets) external view returns (address[] memory);
     function autoYield(address asset) external;
-    function disableTradeUntilTimestamp(uint256 ts) external;
     function getClone(address protocol) external view returns (address);
 }
 
@@ -245,24 +244,6 @@ contract DeFiAllowlistTest is Test {
         vm.prank(makeAddr("stranger"));
         vm.expectRevert();
         _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(proto)}));
-    }
-
-    // ── trade pause ───────────────────────────────────────────────────────────
-
-    /// Pausing can only ever be pushed LATER, never pulled in — so it cannot be cancelled early.
-    function test_tradePauseCanOnlyBeExtended() public {
-        vm.startPrank(owner);
-        _f().disableTradeUntilTimestamp(block.timestamp + 7 days);
-        vm.expectRevert();
-        _f().disableTradeUntilTimestamp(block.timestamp + 1 days);
-        _f().disableTradeUntilTimestamp(block.timestamp + 14 days);
-        vm.stopPrank();
-    }
-
-    function test_onlyOwnerMayPauseTrading() public {
-        vm.prank(makeAddr("stranger"));
-        vm.expectRevert();
-        _f().disableTradeUntilTimestamp(block.timestamp + 1 days);
     }
 
     // ── clones ────────────────────────────────────────────────────────────────

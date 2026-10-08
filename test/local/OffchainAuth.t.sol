@@ -17,7 +17,6 @@ interface IOffchainAuth {
         view
         returns (bool);
     function isOffchainCancellationAuthorized(address signer) external view returns (bool);
-    function disableTradeUntilTimestamp(uint256 ts) external;
 }
 
 /**
@@ -58,19 +57,6 @@ contract OffchainAuthTest is Test {
 
     function test_strangerMayNotCancel() public view {
         assertFalse(_auth().isOffchainCancellationAuthorized(stranger), "nobody else may");
-    }
-
-    /**
-     * The reason cancellation does not reuse the order check. Pausing trading must not also trap the
-     * orders already signed — otherwise pausing would be the one action that guarantees they keep
-     * filling, which is the opposite of what an owner reaching for it wants.
-     */
-    function test_cancellationStillAuthorizedWhileTradingIsPaused() public {
-        vm.prank(owner);
-        _auth().disableTradeUntilTimestamp(block.timestamp + 7 days);
-
-        assertFalse(_auth().isOffchainOrderAuthorized(owner, sell, buy, 0), "placing is refused while paused");
-        assertTrue(_auth().isOffchainCancellationAuthorized(owner), "cancelling is not");
     }
 
     /// Each account answers for itself: a sub vault's owner cancels its orders, the main owner does not.

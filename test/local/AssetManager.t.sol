@@ -129,10 +129,6 @@ contract AssetManagerTest is Test {
 
         vm.prank(manager);
         vm.expectRevert();
-        _f().disableTradeUntilTimestamp(START + 1 days);
-
-        vm.prank(manager);
-        vm.expectRevert();
         _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(sky)}));
 
         vm.prank(manager);

@@ -11,8 +11,6 @@ import {IBittyV1MarketMakerProtocol} from "protocol-contracts/src/interfaces/IBi
 import {
     InvalidDepositableProtocol,
     InvalidWithdrawableProtocol,
-    disableTradeUntilTimestampTooEarly,
-    disableTradeUntilTimestampTooLong,
     InvalidMarketTradeProtocol,
     InvalidMarketMakerProtocol,
     InvalidIntentProtocol,
@@ -23,8 +21,7 @@ import {
     AssetManagerExpiryInPast,
     AssetManagerNotForSubVault,
     GrantTooLong,
-    MarketTradeNotSupported,
-    TradingDisabled
+    MarketTradeNotSupported
 } from "../interfaces/IBittyV1DeFi.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -42,7 +39,7 @@ import {
 } from "../interfaces/IBittyV1Vault.sol";
 import {BittyStorage, DeFiStorage} from "./BittyStorage.sol";
 import {TimelockLib} from "./TimelockLib.sol";
-import {BITTY_GUARD, MAX_DURATION, TRADE_DISABLE_MAX_DURATION, PROTOCOL_MARKET_TRADE} from "./Constants.sol";
+import {BITTY_GUARD, MAX_DURATION, PROTOCOL_MARKET_TRADE} from "./Constants.sol";
 
 /**
  * @dev Minimal view into an intent protocol's settlement addresses (CoW-style): the relayer a gasless
@@ -499,7 +496,6 @@ library DeFiLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
-        _requireTradingEnabled($);
         if (!_categoryProtocolOK($, PROTOCOL_MARKET_TRADE, ammProtocol)) revert InvalidMarketTradeProtocol();
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
         _requireAsset($, sellToken);
@@ -526,7 +522,6 @@ library DeFiLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
-        _requireTradingEnabled($);
         if (!_categoryProtocolOK($, PROTOCOL_MARKET_TRADE, ammProtocol)) revert InvalidMarketTradeProtocol();
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
         _requireAsset($, sellToken);
@@ -540,16 +535,6 @@ library DeFiLogic {
         }
         bytes memory data = abi.encode(sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
         IBittyV1MarketTradeProtocol(clone).swapExactOut(data, address(this));
-    }
-
-    /**
-     * @dev The owner's trade pause, applied to market (AMM) swaps. The same test gates intent orders in
-     *      the facet's {isOffchainOrderAuthorized}; without it here a paused manager could still swap
-     *      through the AMM. Unwind paths (remove liquidity, cancel, withdraw) stay open on purpose.
-     */
-    function _requireTradingEnabled(DeFiStorage storage $) private view {
-        uint64 disabledUntil = $.tradeDisabledUntilTimestamp;
-        if (disabledUntil != 0 && block.timestamp < disabledUntil) revert TradingDisabled();
     }
 
     function _requireAmmLiquid(address token) private view {
@@ -617,19 +602,6 @@ library DeFiLogic {
     function _checkIntentProtocol(DeFiStorage storage $, address intentProtocol) private {
         if (!_categoryProtocolOK($, PROTOCOL_INTENT, intentProtocol)) revert InvalidIntentProtocol();
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(intentProtocol)) revert Deprecated();
-    }
-
-    function disableTradeUntilTimestamp(uint256 timestamp) external {
-        DeFiStorage storage $ = BittyStorage.defi();
-        _onlyInitialized($);
-        if (timestamp == 0) return;
-        if (timestamp < $.tradeDisabledUntilTimestamp) revert disableTradeUntilTimestampTooEarly();
-        if (timestamp > block.timestamp + TRADE_DISABLE_MAX_DURATION) revert disableTradeUntilTimestampTooLong();
-        $.tradeDisabledUntilTimestamp = uint64(timestamp);
-    }
-
-    function tradeDisabledUntil() external view returns (uint256) {
-        return BittyStorage.defi().tradeDisabledUntilTimestamp;
     }
 
     function getClone(address protocol) external view returns (address) {

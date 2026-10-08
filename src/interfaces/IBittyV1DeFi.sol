@@ -9,14 +9,11 @@ error InvalidIntentProtocol();
 error ProtocolNotInstantiated();
 error ProtocolLineageMismatch();
 error ProtocolNotNewer();
-error disableTradeUntilTimestampTooEarly();
-error disableTradeUntilTimestampTooLong();
 error ProtocolNFT();
 error GrantTooLong();
 error AssetManagerExpiryInPast();
 error AssetManagerNotForSubVault();
 error MarketTradeNotSupported();
-error TradingDisabled();
 
 /**
  * @title IBittyV1DeFi
@@ -28,8 +25,6 @@ error TradingDisabled();
  *         (getBalances, getLiquidity, protocol getters, …) live in {IBittyV1Vault}.
  */
 interface IBittyV1DeFi {
-    event TradingDisabledUntil(uint256 timestamp);
-
     /**
      * @notice Put an asset into a depositable protocol.
      * @dev One entry for every protocol the vault can deposit into. Supply and stake were the same
@@ -103,12 +98,6 @@ interface IBittyV1DeFi {
      * @param data The data for the claim.
      */
     function claimAMMFees(address ammProtocol, bytes memory data) external;
-
-    /**
-     * @notice Disable trading until a timestamp.
-     * @param timestamp The timestamp when trading should be disabled.
-     */
-    function disableTradeUntilTimestamp(uint256 timestamp) external;
 
     /**
      * @notice Approve the intent protocol's settlement relayer for a token.

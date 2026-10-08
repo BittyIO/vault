@@ -86,7 +86,12 @@ struct DeFiStorage {
     bool isInitialized;
     bool allowlistEnabled;
     uint64 allowlistDisableAt;
-    uint64 tradeDisabledUntilTimestamp;
+    /**
+     * Retired trade-pause deadline. The feature is removed, but the slot stays so the ERC-7201
+     * layout of already-deployed vaults survives the upgrade; any residual value is ignored. Do
+     * not reuse for anything else — a live vault may still hold a non-zero timestamp here.
+     */
+    uint64 __deprecatedTradeDisabledUntilTimestamp;
     mapping(bytes32 => address) clonedProtocols;
     mapping(address => address) autoYieldProtocols;
     mapping(address => bool) assets;
