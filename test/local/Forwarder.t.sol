@@ -9,7 +9,6 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {BittyV1VaultForwarder} from "../../src/BittyV1VaultForwarder.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR, CFG_OWNER} from "../../src/logic/Constants.sol";
@@ -114,8 +113,7 @@ contract ForwarderTest is Test {
         fwd.setRelayerApproval(relayer, true);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        impl = new BittyV1Vault(address(facet), address(subImpl));
+        impl = new BittyV1Vault(address(facet));
         vaultA = _newVault(owner);
         vaultB = _newVault(owner);
 

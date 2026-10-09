@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
-import {IBeacon} from "openzeppelin-contracts/contracts/proxy/beacon/IBeacon.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {DeFiLogic} from "./logic/DeFiLogic.sol";
 import {PaymentLogic} from "./logic/PaymentLogic.sol";
@@ -10,7 +9,6 @@ import {ScheduledPaymentLogic} from "./logic/ScheduledPaymentLogic.sol";
 import {WhitelistLogic} from "./logic/WhitelistLogic.sol";
 import {GaslessLogic} from "./logic/GaslessLogic.sol";
 import {RiskLogic} from "./logic/RiskLogic.sol";
-import {SubVaultRegistryLogic} from "./logic/SubVaultRegistryLogic.sol";
 import {BittyStorage} from "./logic/BittyStorage.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
@@ -34,18 +32,16 @@ interface IAutoYieldTrigger {
 /**
  * @title BittyV1Vault
  * @notice The main vault: owner payments + the owner's own DeFi (reached through fallback → shared
- *         {BittyV1VaultDeFiFacet}) + the sub-vault registry + curated/timelocked/freezable UUPS upgrades
- *         (from {BittyV1VaultBase}). Payouts to arbitrary external addresses live only here and are
- *         owner/payout-operator gated; sub vaults can never reach them.
+ *         {BittyV1VaultDeFiFacet}) + curated/timelocked/freezable UUPS upgrades (from
+ *         {BittyV1VaultBase}). Payouts to arbitrary external addresses live only here and are
+ *         owner/payout-operator gated.
  * @dev Renamed to BittyV1Vault at cutover.
  */
-contract BittyV1Vault is BittyV1VaultBase, IBeacon {
+contract BittyV1Vault is BittyV1VaultBase {
     address public immutable DEFI_FACET;
-    address public immutable SUB_VAULT_IMPL;
 
-    constructor(address defiFacet, address subVaultImpl) {
+    constructor(address defiFacet) {
         DEFI_FACET = defiFacet;
-        SUB_VAULT_IMPL = subVaultImpl;
         _disableInitializers();
     }
 
@@ -348,57 +344,6 @@ contract BittyV1Vault is BittyV1VaultBase, IBeacon {
         emit IBittyV1Owner.Retrieved721(contractAddress, tokenId, to);
     }
 
-    function createSubVault(address subOwner, bool allowlistEnabled, uint64 expiresAt)
-        external
-        onlyOwner
-        returns (uint256 subId, address account)
-    {
-        return SubVaultRegistryLogic.createSubVault(subOwner, allowlistEnabled, expiresAt);
-    }
-
-    function createSubVaultWithDeposits(
-        address subOwner,
-        bool allowlistEnabled,
-        uint64 expiresAt,
-        address[] calldata assets,
-        uint256[] calldata amounts
-    ) external onlyOwner returns (uint256 subId, address account) {
-        if (assets.length != amounts.length) revert ArrayLengthMismatch();
-        (subId, account) = SubVaultRegistryLogic.createSubVault(subOwner, allowlistEnabled, expiresAt);
-        SubVaultRegistryLogic.fundSubVault(subId, assets, amounts);
-    }
-
-    function fundSubVault(uint256 subId, address[] calldata assets, uint256[] calldata amounts) external onlyOwner {
-        SubVaultRegistryLogic.fundSubVault(subId, assets, amounts);
-    }
-
-    function recallFromSubVault(uint256 subId, address[] calldata assets, uint256[] calldata amounts)
-        external
-        onlyOwner
-    {
-        SubVaultRegistryLogic.recallFromSubVault(subId, assets, amounts);
-    }
-
-    function assignSubOwner(uint256 subId, address newOwner, uint64 expiresAt) external onlyOwner {
-        SubVaultRegistryLogic.assignSubOwner(subId, newOwner, expiresAt);
-    }
-
-    function setSubOwnerExpiry(uint256 subId, uint64 expiresAt) external onlyOwner {
-        SubVaultRegistryLogic.setSubOwnerExpiry(subId, expiresAt);
-    }
-
-    function setSubVaultGasless(uint256 subId, bool enabled) external onlyOwner {
-        SubVaultRegistryLogic.setSubVaultGasless(subId, enabled);
-    }
-
-    function closeSubVault(uint256 subId) external onlyOwner {
-        SubVaultRegistryLogic.closeSubVault(subId);
-    }
-
-    function implementation() external view override returns (address) {
-        return SUB_VAULT_IMPL;
-    }
-
     function _pullFromPositions(
         address[] calldata assets,
         address[][] calldata withdrawProtocols,
@@ -491,23 +436,5 @@ contract BittyV1Vault is BittyV1VaultBase, IBeacon {
 
     function gasWrappedAddress() external view returns (address) {
         return _gasWrapped();
-    }
-
-    function getSubVault(uint256[] calldata subIds)
-        external
-        view
-        returns (
-            address[] memory accounts,
-            address[] memory owners,
-            uint64[] memory expiresAts,
-            bool[] memory gaslessEnabled,
-            bool[] memory closed
-        )
-    {
-        return SubVaultRegistryLogic.getSubVault(subIds);
-    }
-
-    function subVaultOpenCount() external view returns (uint256) {
-        return SubVaultRegistryLogic.openSubCount();
     }
 }

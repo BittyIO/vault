@@ -10,7 +10,6 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     AddressZero,
@@ -91,8 +90,7 @@ contract VaultEntrypointsTest is Test {
 
         gasWrapped = new WETHStub();
         facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        impl = new BittyV1Vault(address(facet), address(subImpl));
+        impl = new BittyV1Vault(address(facet));
         vault = _newVault(0, address(0), 0);
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
@@ -335,16 +333,6 @@ contract VaultEntrypointsTest is Test {
         vault.send(payee, address(usdc), 10e6, _addr(address(proto)), _amt(0));
         vm.stopPrank();
         assertEq(usdc.balanceOf(payee), 10e6, "paid from balance");
-    }
-
-    // ── sub-vault convenience ─────────────────────────────────────────────────
-
-    function test_creatingAFundedSubWithRaggedArraysIsRefused() public {
-        vm.prank(owner);
-        vm.expectRevert(ArrayLengthMismatch.selector);
-        vault.createSubVaultWithDeposits(
-            makeAddr("subOwner"), false, uint64(block.timestamp) + 365 days, _addr(address(usdc)), new uint256[](0)
-        );
     }
 
     // ── scheduled-payment shortfall cover ─────────────────────────────────────

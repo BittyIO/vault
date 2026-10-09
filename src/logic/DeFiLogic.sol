@@ -19,7 +19,6 @@ import {
     ProtocolNotNewer,
     ProtocolNFT,
     AssetManagerExpiryInPast,
-    AssetManagerNotForSubVault,
     GrantTooLong,
     MarketTradeNotSupported
 } from "../interfaces/IBittyV1DeFi.sol";
@@ -145,7 +144,6 @@ library DeFiLogic {
     }
 
     function setAssetManager(address assetManager, uint64 expiresAt) external {
-        if (BittyStorage.subVault().vault != address(0)) revert AssetManagerNotForSubVault();
         if (expiresAt != 0) {
             if (expiresAt <= block.timestamp) revert AssetManagerExpiryInPast();
             if (expiresAt > block.timestamp + MAX_DURATION) revert GrantTooLong();
@@ -224,11 +222,6 @@ library DeFiLogic {
         delete $.autoYieldTrigger;
         emit AssetManagerSet(address(0), 0);
         emit AutoYieldTriggerSet(address(0));
-    }
-
-    function subOwnerLapsed() external view returns (bool) {
-        uint64 expiresAt = BittyStorage.subVault().subOwnerExpiresAt;
-        return expiresAt != 0 && block.timestamp >= expiresAt;
     }
 
     function isActiveAssetManager(address account) external view returns (bool) {

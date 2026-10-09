@@ -12,7 +12,6 @@ error ProtocolNotNewer();
 error ProtocolNFT();
 error GrantTooLong();
 error AssetManagerExpiryInPast();
-error AssetManagerNotForSubVault();
 error MarketTradeNotSupported();
 
 /**

@@ -7,7 +7,6 @@ import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC19
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
@@ -40,7 +39,7 @@ contract VersionUpgradeSafetyTest is Test {
 
     function _impl() internal returns (BittyV1Vault) {
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        return new BittyV1Vault(address(facet), address(new BittyV1SubVault(address(facet))));
+        return new BittyV1Vault(address(facet));
     }
 
     /// State written under the old code must survive an upgrade to the build carrying the getters.

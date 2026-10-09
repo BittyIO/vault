@@ -7,7 +7,6 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {ImplementationNotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
@@ -36,7 +35,7 @@ contract BittyV2Vault is BittyV1Vault {
         }
     }
 
-    constructor(address defiFacet, address subVaultImpl) BittyV1Vault(defiFacet, subVaultImpl) {}
+    constructor(address defiFacet) BittyV1Vault(defiFacet) {}
 
     /// One-time V2 migration, runnable exactly once via {reinitializer}; call it atomically in upgradeToAndCall.
     function initializeV2(string memory label_) external reinitializer(2) {
@@ -68,7 +67,6 @@ contract BittyV2Vault is BittyV1Vault {
 contract VaultUpgradeTest is Test {
     MockGuard guard;
     BittyV1VaultDeFiFacet facet;
-    BittyV1SubVault subImpl;
     BittyV1Vault vaultImpl;
     BittyV1Vault vault;
     MockERC20 usdc;
@@ -82,8 +80,7 @@ contract VaultUpgradeTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         facet = new BittyV1VaultDeFiFacet();
-        subImpl = new BittyV1SubVault(address(facet));
-        vaultImpl = new BittyV1Vault(address(facet), address(subImpl));
+        vaultImpl = new BittyV1Vault(address(facet));
 
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
@@ -94,14 +91,11 @@ contract VaultUpgradeTest is Test {
     }
 
     function _deployV2() internal returns (BittyV2Vault v2Impl) {
-        v2Impl = new BittyV2Vault(address(facet), address(subImpl));
+        v2Impl = new BittyV2Vault(address(facet));
     }
 
     function test_upgradeToV2PreservesStateAndAddsStorage() public {
-        // Build up some V1 state first: an open sub vault, plus the vault's token balance.
-        vm.prank(owner);
-        vault.createSubVault(subOwner, false, uint64(block.timestamp) + 365 days);
-        assertEq(vault.subVaultOpenCount(), 1, "pre: one sub open");
+        // Build up some V1 state first: the vault's token balance.
         assertEq(usdc.balanceOf(address(vault)), 1_000e6, "pre: balance");
 
         BittyV2Vault v2Impl = _deployV2();
@@ -124,7 +118,6 @@ contract VaultUpgradeTest is Test {
 
         // All V1 state is intact — nothing was overwritten by the new namespace.
         assertEq(vault.owner(), owner, "owner preserved");
-        assertEq(vault.subVaultOpenCount(), 1, "sub count preserved");
         assertEq(usdc.balanceOf(address(vault)), 1_000e6, "balance preserved");
     }
 

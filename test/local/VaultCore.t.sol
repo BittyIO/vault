@@ -11,7 +11,6 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     OwnershipNotRenounceable,
@@ -32,7 +31,6 @@ interface IFacet {
 contract VaultCoreTest is Test {
     BittyV1Vault vault;
     BittyV1Vault impl;
-    BittyV1SubVault subImpl;
     BittyV1VaultDeFiFacet facet;
     MockGuard guard;
     WETH gasWrapped;
@@ -47,8 +45,7 @@ contract VaultCoreTest is Test {
         gasWrapped = new WETH();
 
         facet = new BittyV1VaultDeFiFacet();
-        subImpl = new BittyV1SubVault(address(facet));
-        impl = new BittyV1Vault(address(facet), address(subImpl));
+        impl = new BittyV1Vault(address(facet));
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, address(gasWrapped), false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
@@ -112,7 +109,7 @@ contract VaultCoreTest is Test {
      * Bitty has already published.
      */
     function test_upgradeOnlyToAGuardBlessedImplementation() public {
-        BittyV1Vault rogue = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault rogue = new BittyV1Vault(address(facet));
         vm.prank(owner);
         vm.expectRevert(ImplementationNotRegistered.selector);
         vault.upgrade(address(rogue));
@@ -123,7 +120,7 @@ contract VaultCoreTest is Test {
     }
 
     function test_onlyOwnerMayUpgrade() public {
-        BittyV1Vault next = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault next = new BittyV1Vault(address(facet));
         guard.setImpl(address(next), true);
         vm.prank(makeAddr("stranger"));
         vm.expectRevert();
@@ -202,7 +199,6 @@ contract VaultCoreTest is Test {
 
     function test_immutablesAreWired() public view {
         assertEq(vault.DEFI_FACET(), address(facet));
-        assertEq(vault.SUB_VAULT_IMPL(), address(subImpl));
         assertEq(vault.trustedForwarder(), BITTY_FORWARDER);
     }
 

@@ -34,7 +34,7 @@ contract VaultNativePaymentTest is Test {
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         facet = new BittyV1VaultDeFiFacet();
         gasWrapped = new WETH();
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(0));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         vault = BittyV1Vault(
             payable(new ERC1967Proxy(
                     address(impl),

@@ -10,10 +10,9 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield, IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
-import {AssetManagerExpiryInPast, AssetManagerNotForSubVault} from "../../src/interfaces/IBittyV1DeFi.sol";
+import {AssetManagerExpiryInPast} from "../../src/interfaces/IBittyV1DeFi.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 /**
@@ -28,7 +27,6 @@ import {BITTY_GUARD} from "../../src/logic/Constants.sol";
  */
 contract AssetManagerTest is Test {
     BittyV1Vault vault;
-    BittyV1SubVault subImpl;
     BittyV1VaultDeFiFacet facet;
     MockGuard guard;
     MockERC20 usdc;
@@ -55,8 +53,7 @@ contract AssetManagerTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         facet = new BittyV1VaultDeFiFacet();
-        subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         vault = BittyV1Vault(
             payable(new ERC1967Proxy(
                     address(impl),
@@ -259,29 +256,6 @@ contract AssetManagerTest is Test {
     }
 
     // ── sub vaults have no manager ───────────────────────────────────────────
-
-    /// A sub owner is already the constrained delegate, and a sub cannot send anywhere but its parent,
-    /// so there is nothing for an manager to add — and sub-delegation would make the parent's record
-    /// of who trades its sub untrue.
-    function test_aSubVaultRefusesAManager() public {
-        vm.prank(owner);
-        (, address account) = vault.createSubVault(makeAddr("subOwner"), false, uint64(block.timestamp) + 365 days);
-
-        vm.prank(makeAddr("subOwner"));
-        vm.expectRevert(AssetManagerNotForSubVault.selector);
-        BittyV1VaultDeFiFacet(payable(account)).setAssetManager(stranger, 0);
-    }
-
-    /// The main vault's manager has no standing inside a sub vault: separate account, separate owner.
-    function test_theMainManagerHasNoReachIntoASub() public {
-        _appoint(0);
-        vm.prank(owner);
-        (, address account) = vault.createSubVault(makeAddr("subOwner"), false, uint64(block.timestamp) + 365 days);
-
-        vm.prank(manager);
-        vm.expectRevert();
-        BittyV1VaultDeFiFacet(payable(account)).deposit(address(sky), address(usdc), 1);
-    }
 
     // ── the ratchet ───────────────────────────────────────────────────────────
     //

@@ -11,7 +11,6 @@ import {MockGuard} from "../helpers/MockGuard.sol";
 import {MARKET_MAKER_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 import {UniswapV3MarketMakerProtocol} from "protocol-contracts/src/protocols/UniswapV3MarketMakerProtocol.sol";
@@ -74,8 +73,7 @@ contract DeFiUniswapLPForkTest is Test {
 
         // The vault (facet behind an ERC1967 proxy), allowlist off.
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));

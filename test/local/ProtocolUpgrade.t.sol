@@ -16,7 +16,6 @@ import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protoc
 import {IBittyV1Yield} from "protocol-contracts/src/interfaces/IBittyV1Yield.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {NotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     ProtocolNotInstantiated,
@@ -134,8 +133,7 @@ contract ProtocolUpgradeTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         vault = BittyV1Vault(
             payable(new ERC1967Proxy(
                     address(impl),

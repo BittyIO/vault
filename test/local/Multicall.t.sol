@@ -7,13 +7,13 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {BITTY_GUARD, BITTY_FORWARDER} from "../../src/logic/Constants.sol";
 
 /// The facet's views, reached through the host's fallback — `allowlistEnabled` lives on the shared
 /// DeFi facet, not on the vault, so a plain BittyV1Vault handle cannot see it.
 interface IFacetViews {
     function allowlistEnabled() external view returns (bool);
+    function autoYieldTrigger() external view returns (address);
 }
 
 /**
@@ -27,31 +27,23 @@ interface IFacetViews {
 contract MulticallTest is Test {
     BittyV1VaultDeFiFacet facet;
     BittyV1Vault vaultImpl;
-    BittyV1SubVault subImpl;
     BittyV1Vault vault;
     MockERC20 usdc;
 
     address owner = makeAddr("owner");
-    address subOwner = makeAddr("subOwner");
+    address keeper = makeAddr("keeper");
     address stranger = makeAddr("stranger");
     address gasWrapped = makeAddr("gasWrapped");
 
     function setUp() public {
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         facet = new BittyV1VaultDeFiFacet();
-        subImpl = new BittyV1SubVault(address(facet));
-        vaultImpl = new BittyV1Vault(address(facet), address(subImpl));
+        vaultImpl = new BittyV1Vault(address(facet));
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(vaultImpl), init)));
         usdc = new MockERC20("USD Coin", "USDC", 6);
         usdc.mint(address(vault), 1_000e6);
-    }
-
-    function _newSub() internal returns (uint256 id, BittyV1SubVault sub) {
-        vm.prank(owner);
-        (uint256 subId, address account) = vault.createSubVault(subOwner, false, uint64(block.timestamp) + 365 days);
-        return (subId, BittyV1SubVault(payable(account)));
     }
 
     /// A relayed call: the forwarder appends the signer's address, which is what _msgSender reads.
@@ -67,13 +59,13 @@ contract MulticallTest is Test {
     function test_ownerBatchesFromTheirOwnWallet() public {
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(BittyV1Vault.enableAllowlist, ());
-        calls[1] = abi.encodeCall(BittyV1Vault.createSubVault, (subOwner, false, uint64(block.timestamp + 365 days)));
+        calls[1] = abi.encodeCall(BittyV1VaultDeFiFacet.setAutoYieldTrigger, (keeper));
 
         vm.prank(owner);
         vault.multicall(calls);
 
         assertTrue(IFacetViews(address(vault)).allowlistEnabled(), "first entry applied");
-        assertEq(vault.subVaultOpenCount(), 1, "second entry applied in the same transaction");
+        assertEq(IFacetViews(address(vault)).autoYieldTrigger(), keeper, "second entry applied in the same transaction");
     }
 
     /// Batching cannot be used to act as someone else: a stranger's batch is refused per call.
@@ -92,65 +84,15 @@ contract MulticallTest is Test {
     function test_batchIsAllOrNothing() public {
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(BittyV1Vault.enableAllowlist, ());
-        // Not the owner's to call twice: the second enable reverts, taking the first with it.
-        calls[1] = abi.encodeCall(BittyV1Vault.createSubVault, (address(0), false, uint64(block.timestamp + 365 days)));
+        // The second entry reverts (an over-long manager grant), taking the first with it.
+        calls[1] = abi.encodeCall(BittyV1VaultDeFiFacet.setAssetManager, (keeper, type(uint64).max));
 
         vm.prank(owner);
         vm.expectRevert();
         vault.multicall(calls);
 
         assertFalse(IFacetViews(address(vault)).allowlistEnabled(), "the first call was rolled back too");
-        assertEq(vault.subVaultOpenCount(), 0, "nothing created");
-    }
-
-    // ── sub vault ─────────────────────────────────────────────────────────────
-
-    /// A sub vault batches on the same terms, authorised against ITS owner.
-    function test_subOwnerBatchesOnTheirOwnSubVault() public {
-        (, BittyV1SubVault sub) = _newSub();
-
-        bytes[] memory calls = new bytes[](1);
-        calls[0] = abi.encodeCall(BittyV1SubVault.setGasless, (10, 1));
-
-        vm.prank(subOwner);
-        sub.multicall(calls);
-
-        (, uint256 daily, uint256 perOp) = sub.gaslessConfig();
-        assertEq(daily, 10, "sub owner's batch applied");
-        assertEq(perOp, 1);
-    }
-
-    /**
-     * The isolation that matters once accounts nest: the MAIN owner is not the sub's owner, and
-     * batching must not become a way around that. Ownership is per-account, and so is the batch.
-     */
-    function test_mainOwnerCannotBatchIntoASubVault() public {
-        (, BittyV1SubVault sub) = _newSub();
-
-        (, uint256 dailyBefore,) = sub.gaslessConfig();
-
-        bytes[] memory calls = new bytes[](1);
-        calls[0] = abi.encodeCall(BittyV1SubVault.setGasless, (10, 1));
-
-        vm.prank(owner);
-        vm.expectRevert();
-        sub.multicall(calls);
-
-        // Compared against the pre-state rather than 0: an unset limit reads back as the system
-        // default, so asserting 0 would be asserting the wrong thing whether or not the batch landed.
-        (, uint256 dailyAfter,) = sub.gaslessConfig();
-        assertEq(dailyAfter, dailyBefore, "the main owner's batch changed nothing");
-    }
-
-    function test_strangerCannotBatchIntoASubVault() public {
-        (, BittyV1SubVault sub) = _newSub();
-
-        bytes[] memory calls = new bytes[](1);
-        calls[0] = abi.encodeCall(BittyV1SubVault.setGasless, (10, 1));
-
-        vm.prank(stranger);
-        vm.expectRevert();
-        sub.multicall(calls);
+        assertEq(IFacetViews(address(vault)).autoYieldTrigger(), address(0), "nothing applied");
     }
 
     // ── relayed ───────────────────────────────────────────────────────────────
@@ -166,12 +108,16 @@ contract MulticallTest is Test {
     function test_relayedBatchIsAttributedToTheSignerNotTheForwarder() public {
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(BittyV1Vault.enableAllowlist, ());
-        calls[1] = abi.encodeCall(BittyV1Vault.createSubVault, (subOwner, false, uint64(block.timestamp + 365 days)));
+        calls[1] = abi.encodeCall(BittyV1VaultDeFiFacet.setAutoYieldTrigger, (keeper));
 
         _relay(address(vault), abi.encodeCall(vault.multicall, (calls)), owner);
 
         assertTrue(IFacetViews(address(vault)).allowlistEnabled(), "relayed batch applied as the owner");
-        assertEq(vault.subVaultOpenCount(), 1, "both entries, one transaction, no ETH from the owner");
+        assertEq(
+            IFacetViews(address(vault)).autoYieldTrigger(),
+            keeper,
+            "both entries, one transaction, no ETH from the owner"
+        );
     }
 
     /// The same suffix handling must not let the FORWARDER act on its own behalf.

@@ -10,7 +10,6 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {BittyV1VaultForwarder} from "../../src/BittyV1VaultForwarder.sol";
 import {InvalidActivationSignature} from "../../src/interfaces/IBittyV1VaultFactory.sol";
@@ -119,8 +118,7 @@ contract SafeOwnerTest is Test {
         safe = _deploySafe();
 
         facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
         guard.setAsset(address(usdc), ASSET_STABLE_COIN);
@@ -208,14 +206,6 @@ contract SafeOwnerTest is Test {
     function test_aSafeOperatesTheVaultItOwns() public {
         assertEq(vault.owner(), address(safe), "the Safe owns it");
 
-        _exec(
-            address(vault),
-            abi.encodeCall(
-                BittyV1Vault.createSubVault, (makeAddr("subOwner"), false, uint64(block.timestamp + 365 days))
-            )
-        );
-        assertEq(vault.subVaultOpenCount(), 1, "a 2-of-3 vote created a sub account");
-
         _exec(address(vault), abi.encodeCall(BittyV1VaultDeFiFacet.setAssetManager, (makeAddr("manager"), 0)));
         (address manager,,,) = BittyV1VaultDeFiFacet(payable(address(vault))).getAssetManagerSettings();
         assertEq(manager, makeAddr("manager"), "and appointed an asset manager");
@@ -226,7 +216,7 @@ contract SafeOwnerTest is Test {
         address eoa = makeAddr("eoa");
         BittyV1Vault v = BittyV1Vault(
             payable(new ERC1967Proxy(
-                    address(new BittyV1Vault(address(facet), address(new BittyV1SubVault(address(facet))))),
+                    address(new BittyV1Vault(address(facet))),
                     abi.encodeCall(BittyV1Vault.initialize, (eoa, gasWrapped, false, address(0), 0, new bytes[](0)))
                 ))
         );

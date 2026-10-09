@@ -33,7 +33,7 @@ contract VaultPaymentsTest is Test {
     function setUp() public {
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         facet = new BittyV1VaultDeFiFacet();
-        BittyV1Vault vaultImpl = new BittyV1Vault(address(facet), address(0));
+        BittyV1Vault vaultImpl = new BittyV1Vault(address(facet));
         vault = BittyV1Vault(
             payable(new ERC1967Proxy(
                     address(vaultImpl),

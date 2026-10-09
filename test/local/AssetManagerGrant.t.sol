@@ -10,13 +10,8 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {
-    GrantTooLong,
-    AssetManagerExpiryInPast,
-    AssetManagerNotForSubVault
-} from "../../src/interfaces/IBittyV1DeFi.sol";
+import {GrantTooLong, AssetManagerExpiryInPast} from "../../src/interfaces/IBittyV1DeFi.sol";
 import {BITTY_GUARD, MAX_DURATION} from "../../src/logic/Constants.sol";
 
 interface IFacet {
@@ -59,8 +54,7 @@ contract AssetManagerGrantTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
@@ -262,17 +256,5 @@ contract AssetManagerGrantTest is Test {
         assertTrue(_f().isOffchainCancellationAuthorized(manager), "the desk may pull its own orders");
         assertTrue(_f().isOffchainCancellationAuthorized(owner), "so may the owner");
         assertFalse(_f().isOffchainCancellationAuthorized(stranger), "nobody else");
-    }
-
-    // ── a sub vault has no asset manager ──────────────────────────────────────
-
-    function test_aSubVaultCannotNameAnAssetManager() public {
-        address subOwner = makeAddr("subOwner");
-        vm.prank(owner);
-        (, address account) = vault.createSubVault(subOwner, false, uint64(block.timestamp + 30 days));
-
-        vm.prank(subOwner);
-        vm.expectRevert(AssetManagerNotForSubVault.selector);
-        IFacet(account).setAssetManager(makeAddr("desk"), 0);
     }
 }

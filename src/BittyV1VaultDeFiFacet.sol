@@ -9,7 +9,6 @@ import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {AutoYield} from "./interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD} from "./logic/Constants.sol";
-import {SubOwnerExpired} from "./interfaces/IBittyV1SubVault.sol";
 import {IBittyV1DeFi} from "./interfaces/IBittyV1DeFi.sol";
 
 /**
@@ -34,14 +33,8 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
     }
 
     modifier onlyUnwind() {
-        if (!DeFiLogic.subOwnerLapsed() && !DeFiLogic.isActiveAssetManager(_msgSender())) _checkOwner();
+        if (!DeFiLogic.isActiveAssetManager(_msgSender())) _checkOwner();
         _;
-    }
-
-    function _checkOwner() internal view override {
-        super._checkOwner();
-        uint64 expiresAt = BittyStorage.subVault().subOwnerExpiresAt;
-        if (expiresAt != 0 && block.timestamp >= expiresAt) revert SubOwnerExpired();
     }
 
     function deposit(address protocol, address asset, uint256 amount) external onlyAssetManager {
@@ -79,7 +72,7 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
     function _onlyAutoYieldTrigger() private view {
         if (msg.sender == address(this)) return;
         address s = _msgSender();
-        if (s == owner() && !DeFiLogic.subOwnerLapsed()) return;
+        if (s == owner()) return;
         address trigger = DeFiLogic.autoYieldTrigger();
         if (trigger != address(0) && s == trigger) return;
         revert NotAutoYieldTrigger();
@@ -243,7 +236,7 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         view
         returns (bool)
     {
-        if ((signer != owner() || DeFiLogic.subOwnerLapsed()) && !DeFiLogic.isActiveAssetManager(signer)) {
+        if (signer != owner() && !DeFiLogic.isActiveAssetManager(signer)) {
             return false;
         }
         if (!DeFiLogic.assetAllowed(buyToken)) return false;

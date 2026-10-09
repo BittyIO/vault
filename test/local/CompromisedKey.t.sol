@@ -10,7 +10,6 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {
@@ -48,7 +47,6 @@ contract CompromisedKeyTest is Test {
     uint64 constant SUB_GRANT = 90 days;
 
     uint256 subId;
-    BittyV1SubVault sub;
     uint256 rescueId;
 
     /// @dev A bare expectRevert would pass on any revert at all, including the wrong one.
@@ -76,8 +74,7 @@ contract CompromisedKeyTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         vault = BittyV1Vault(
             payable(new ERC1967Proxy(
                     address(impl),
@@ -91,14 +88,11 @@ contract CompromisedKeyTest is Test {
         guard.setProtocol(address(sky), LENDING_ID);
         usdc.mint(address(vault), 10_000e6);
 
-        // A vault in normal service: a trading delegate, a keeper, a funded sub account, and a
-        // standing payment to the person this vault exists for.
+        // A vault in normal service: a trading delegate, a keeper, and a standing payment to the
+        // person this vault exists for.
         vm.startPrank(owner);
         _f().setAssetManager(manager, 0);
         _f().setAutoYieldTrigger(keeper);
-        (subId,) = vault.createSubVault(subOwner, false, START + SUB_GRANT);
-        sub = BittyV1SubVault(payable(_subAccount()));
-        vault.fundSubVault(subId, _one(address(usdc)), _one(2_000e6));
         rescueId = vault.addScheduledPayment(
             IBittyV1Vault.ScheduledPayment({
                 recipient: heir,
@@ -115,20 +109,10 @@ contract CompromisedKeyTest is Test {
         vm.stopPrank();
     }
 
-    function _subAccount() internal view returns (address account) {
-        uint256[] memory ids = new uint256[](1);
-        ids[0] = subId;
-        (address[] memory accounts,,,,) = vault.getSubVault(ids);
-        account = accounts[0];
-    }
-
     /// Everything is live before the compromise, so the test that follows is about what CHANGES.
     function test_theVaultWorksBeforeTheCompromise() public {
         vm.prank(manager);
         _f().deposit(address(sky), address(usdc), 1_000e6);
-
-        vm.prank(subOwner);
-        BittyV1VaultDeFiFacet(payable(address(sub))).deposit(address(sky), address(usdc), 500e6);
 
         vault.payScheduled(rescueId, new address[](0));
         assertEq(usdc.balanceOf(heir), 500e6, "the heir is being paid");
@@ -148,13 +132,9 @@ contract CompromisedKeyTest is Test {
         vm.expectRevert(NotPayoutOperator.selector);
         vault.send(owner, address(usdc), 1e6, new address[](0), new uint256[](0));
         vm.expectRevert(_notOwner(owner));
-        vault.createSubVault(owner, false, START + SUB_GRANT);
-        vm.expectRevert(_notOwner(owner));
         vault.transferOwnership(owner);
         vm.expectRevert(_notOwner(owner));
         _f().setAssetManager(owner, 0);
-        vm.expectRevert(_notOwner(owner));
-        vault.recallFromSubVault(subId, _one(address(usdc)), _one(2_000e6));
         vm.stopPrank();
 
         // The delegates appointed BEFORE the compromise are the subtle part: the attacker inherits
@@ -254,40 +234,5 @@ contract CompromisedKeyTest is Test {
         vm.expectRevert(OnlyImmutablePayableAfterRenounce.selector);
         vault.payScheduled(ordinary, new address[](0));
         assertEq(usdc.balanceOf(stranger), 0, "a mutable payment cannot pay after renounce");
-    }
-
-    /**
-     * The sub account outlives the renounce, then winds itself up. Its grant was bounded at creation —
-     * it has to be, a sub cannot exist without a deadline — so once it lapses the unwind and the trip
-     * home both go permissionless, and the recovered value leaves through the rescue payment.
-     */
-    function test_theSubAccountWindsItselfUpAndTheValueReachesTheHeir() public {
-        vm.prank(subOwner);
-        BittyV1VaultDeFiFacet(payable(address(sub))).deposit(address(sky), address(usdc), 2_000e6);
-
-        vm.prank(owner);
-        vault.renounceVaultOwnership(rescueId);
-
-        // Still inside its grant: the sub carries on, and strangers stay out.
-        vm.prank(stranger);
-        vm.expectRevert(_notOwner(stranger));
-        BittyV1VaultDeFiFacet(payable(address(sub))).withdraw(address(sky), address(usdc), 1);
-
-        vm.warp(START + SUB_GRANT);
-
-        // Lapsed. Anyone can unwind the position and send it home - no key exists to ask.
-        vm.startPrank(stranger);
-        BittyV1VaultDeFiFacet(payable(address(sub))).withdraw(address(sky), address(usdc), 2_000e6);
-        sub.returnToVault(_one(address(usdc)), _one(2_000e6));
-        vm.stopPrank();
-        assertEq(usdc.balanceOf(address(sub)), 0, "the sub is empty");
-
-        // And that recovered value has exactly one way out of the parent.
-        uint256 before = usdc.balanceOf(heir);
-        vm.warp(START + SUB_GRANT + 30 days);
-        vm.prank(stranger);
-        vault.payScheduled(rescueId, new address[](0));
-        assertEq(usdc.balanceOf(heir), before + 500e6, "it reached the heir");
-        assertEq(usdc.balanceOf(stranger), 0, "and never the person who moved it");
     }
 }

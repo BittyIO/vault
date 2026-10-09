@@ -10,7 +10,6 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {
     BittyV1VaultFactoryBootstrap,
@@ -50,8 +49,7 @@ contract FactoryTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        impl = new BittyV1Vault(address(facet), address(subImpl));
+        impl = new BittyV1Vault(address(facet));
 
         factory = new BittyV1VaultFactory();
         // deployCodeTo (not etch) so the bootstrap's UUPS __self immutable resolves to this constant.
@@ -279,7 +277,7 @@ contract FactoryTest is Test {
         address predictedBefore = factory.vaultAddress(owner);
 
         BittyV1VaultDeFiFacet facet2 = new BittyV1VaultDeFiFacet();
-        BittyV1Vault newImpl = new BittyV1Vault(address(facet2), address(new BittyV1SubVault(address(facet2))));
+        BittyV1Vault newImpl = new BittyV1Vault(address(facet2));
         guard.setLatestImpl(IMPLEMENTATION_VAULT, address(newImpl)); // governance points at a new build
 
         assertEq(factory.vaultAddress(owner), predictedBefore, "vault address moved with the implementation");

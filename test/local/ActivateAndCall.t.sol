@@ -17,7 +17,6 @@ import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {InvalidActivationSignature} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BITTY_GUARD, BITTY_VAULT_BOOTSTRAP, BITTY_FEE_COLLECTOR, CFG_GAS_WRAPPED} from "../../src/logic/Constants.sol";
 
@@ -111,8 +110,7 @@ contract ActivateAndCallTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        impl = new BittyV1Vault(address(facet), address(subImpl));
+        impl = new BittyV1Vault(address(facet));
 
         factory = new BittyV1VaultFactory();
         deployCodeTo("BittyV1VaultBootstrap.sol:BittyV1VaultBootstrap", BITTY_VAULT_BOOTSTRAP);

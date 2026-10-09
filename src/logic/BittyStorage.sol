@@ -5,15 +5,12 @@ import {IBittyV1Vault} from "../interfaces/IBittyV1Vault.sol";
 
 /**
  * @title BittyStorage
- * @notice ERC-7201 namespaced storage for the subaccount generation. Three independent contexts, each
- *         pinned to a fixed keccak-derived slot so the layout survives UUPS upgrades and so the shared
- *         {BittyV1VaultDeFiFacet} reads the right {DeFiStorage} whether it runs inside the main vault or
- *         a sub vault.
+ * @notice ERC-7201 namespaced storage. Two independent contexts, each pinned to a fixed keccak-derived
+ *         slot so the layout survives UUPS upgrades.
  *
  * @dev Slots derived as `keccak256(abi.encode(uint256(keccak256(id)) - 1)) & ~0xff`:
  *      - bitty.storage.vault.main     → VAULT_SLOT
- *      - bitty.storage.vault.defi     → DEFI_SLOT   (one per DeFi context: the main vault's, and each sub's)
- *      - bitty.storage.vault.subvault → SUBVAULT_SLOT
+ *      - bitty.storage.vault.defi     → DEFI_SLOT
  *
  *      The ids carry NO version, and that is the point. An id is not a label for a release — it is the
  *      address of the data. `keccak256("bitty.storage.vault.main")` is what produces VAULT_SLOT, so
@@ -74,14 +71,6 @@ struct PendingSend {
     uint256[] amounts;
 }
 
-struct SubVaultEntry {
-    address account;
-    address owner;
-    bool closed;
-    uint64 expiresAt;
-    bool gaslessEnabled;
-}
-
 struct DeFiStorage {
     bool isInitialized;
     bool allowlistEnabled;
@@ -132,10 +121,6 @@ struct VaultStorage {
     bool gaslessDisabled;
     mapping(address => address) gaslessAssets;
 
-    mapping(uint256 => SubVaultEntry) subs;
-    uint256 nextSubId;
-    uint256 openSubCount;
-
     /**
      * When the owner renounced, or 0 while owned. The set of payable schedules is FROZEN at this
      * moment: only payments already locked immutable by then may pay afterwards. Evaluating
@@ -146,20 +131,9 @@ struct VaultStorage {
     uint64 renouncedAt;
 }
 
-struct SubVaultStorage {
-    address vault;
-    bool gaslessEnabled;
-    uint64 gasDailyLimit;
-    uint64 maxFeePerOp;
-    uint96 gasSpentToday;
-    uint64 gasBudgetDay;
-    uint64 subOwnerExpiresAt;
-}
-
 library BittyStorage {
     bytes32 internal constant VAULT_SLOT = 0x17e3e73c9899a2a21e7ae5b2fc286a77d4903c0979f27baf0730ce5db138e400;
     bytes32 internal constant DEFI_SLOT = 0xfcb7e45a818f0ecef03db92f5b6e7b2ed559effd8e9a1c8a33ce82a8fa3b9400;
-    bytes32 internal constant SUBVAULT_SLOT = 0x1f23b54053e98ff84aecab4159c83dbe1d91d3e7726b98f9dbe948133c43d300;
 
     function vault() internal pure returns (VaultStorage storage $) {
         assembly {
@@ -170,12 +144,6 @@ library BittyStorage {
     function defi() internal pure returns (DeFiStorage storage $) {
         assembly {
             $.slot := DEFI_SLOT
-        }
-    }
-
-    function subVault() internal pure returns (SubVaultStorage storage $) {
-        assembly {
-            $.slot := SUBVAULT_SLOT
         }
     }
 }

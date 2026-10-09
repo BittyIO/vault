@@ -7,7 +7,6 @@ import {MockGuard} from "../helpers/MockGuard.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 /// The off-chain auth callbacks an intent adapter asks the host, reached through the host's fallback.
@@ -28,7 +27,6 @@ interface IOffchainAuth {
 contract OffchainAuthTest is Test {
     BittyV1VaultDeFiFacet facet;
     BittyV1Vault vault;
-    BittyV1SubVault subImpl;
 
     address owner = makeAddr("owner");
     address subOwner = makeAddr("subOwner");
@@ -40,8 +38,7 @@ contract OffchainAuthTest is Test {
     function setUp() public {
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         facet = new BittyV1VaultDeFiFacet();
-        subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
@@ -57,31 +54,5 @@ contract OffchainAuthTest is Test {
 
     function test_strangerMayNotCancel() public view {
         assertFalse(_auth().isOffchainCancellationAuthorized(stranger), "nobody else may");
-    }
-
-    /// Each account answers for itself: a sub vault's owner cancels its orders, the main owner does not.
-    function test_subVaultAnswersForItsOwnOwner() public {
-        vm.prank(owner);
-        (, address account) = vault.createSubVault(subOwner, false, uint64(block.timestamp) + 365 days);
-        IOffchainAuth sub = IOffchainAuth(account);
-
-        assertTrue(sub.isOffchainCancellationAuthorized(subOwner), "the sub's own owner may cancel");
-        assertFalse(sub.isOffchainCancellationAuthorized(owner), "the main owner is not the sub's owner");
-    }
-
-    /// A lapsed sub owner can no longer place off-chain orders, but may still cancel the ones it signed.
-    function test_expiredSubOwnerCannotPlaceButMayStillCancel() public {
-        address sellTok = address(new MockERC20("Sell", "SELL", 18));
-        MockGuard(BITTY_GUARD).setAsset(buy, 2); // buyToken must be guard-listed
-        uint64 expiry = uint64(block.timestamp) + 10 days;
-        vm.prank(owner);
-        (, address account) = vault.createSubVault(subOwner, false, expiry);
-        IOffchainAuth sub = IOffchainAuth(account);
-
-        assertTrue(sub.isOffchainOrderAuthorized(subOwner, sellTok, buy, 0), "authorized before expiry");
-
-        vm.warp(expiry);
-        assertFalse(sub.isOffchainOrderAuthorized(subOwner, sellTok, buy, 0), "no placing after expiry");
-        assertTrue(sub.isOffchainCancellationAuthorized(subOwner), "but cancelling stays open");
     }
 }
