@@ -13,6 +13,7 @@ import {BittyStorage} from "./logic/BittyStorage.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import {IBittyV1Owner} from "./interfaces/IBittyV1Owner.sol";
+import {IBittyV1Forwarder} from "./interfaces/IBittyV1Forwarder.sol";
 import {
     IBittyV1Vault,
     AddressZero,
@@ -332,8 +333,32 @@ contract BittyV1Vault is BittyV1VaultBase {
         GaslessLogic.disableGasless();
     }
 
+    /**
+     * @dev The forwarder, AND only while it is settling a fee for this vault.
+     *
+     *      `msg.sender == trustedForwarder()` is true of every relayed call as well, which is the
+     *      whole point of ERC-2771 — so on its own it authorised the charge from inside any relayed
+     *      request that could reach this function. {multicall} self-delegatecalls each entry with
+     *      `msg.sender` untouched, so `multicall([payRelayerFee(USDC, 10e6) x 10])`, signed by a key
+     *      with no role anywhere, moved a day's budget to the fee collector — of every vault, every
+     *      day, by default.
+     *
+     *      The second half asks the question that was actually meant: the forwarder opens a transient
+     *      window around its own settlement step naming the vault it is about to charge (see
+     *      {BittyV1VaultForwarder-_CHARGING_SLOT}), and nothing else can open it. Inside a relayed
+     *      request the window is shut, so the charge is refused however it was reached and however
+     *      deeply it was nested — including through paths nobody has thought of yet, which is what
+     *      the selector guards cannot promise.
+     *
+     *      Requires a forwarder that has the window. The forwarder is upgradeable and must be
+     *      upgraded FIRST: a vault on this code against an older forwarder has no `chargingVault` to
+     *      call, so the staticcall returns nothing, this reverts, and the vault simply cannot be
+     *      charged — safe, but gasless stops working for it. The other order is harmless.
+     */
     function payRelayerFee(address asset, uint256 amount) external {
-        if (msg.sender != trustedForwarder()) revert NotTrustedForwarder();
+        if (msg.sender != trustedForwarder() || IBittyV1Forwarder(msg.sender).chargingVault() != address(this)) {
+            revert NotTrustedForwarder();
+        }
         GaslessLogic.payRelayerFee(asset, amount);
     }
 

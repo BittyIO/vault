@@ -266,7 +266,12 @@ interface IBittyV1Vault {
 
     /**
      * @notice Reimburse the trusted forwarder, in stablecoin, for gas it fronted for this vault.
-     * @dev Not subject to the payment-risk controls: this is the vault settling its own gas bill, and
+     * @dev Callable by the forwarder and ONLY while it is settling a fee for this vault — it must be
+     *      inside its own charge window (see {IBittyV1Forwarder}). Being the forwarder is not enough:
+     *      every relayed call has the forwarder as `msg.sender`, so that test alone let a relayed
+     *      `multicall([payRelayerFee])` signed by any key charge the budget.
+     *
+     *      Not subject to the payment-risk controls: this is the vault settling its own gas bill, and
      *      an owner able to block it with maxSendValue = 0 would just be relaying for free. The daily
      *      budget and per-charge ceiling are the controls that apply instead.
      * @param asset The asset to use for the relayer fee.

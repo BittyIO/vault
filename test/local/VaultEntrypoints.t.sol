@@ -6,6 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
+import {MockChargeWindow} from "../helpers/MockChargeWindow.sol";
 import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
@@ -101,6 +102,11 @@ contract VaultEntrypointsTest is Test {
 
         vm.prank(owner);
         vault.updatePayoutOperator(operator, true);
+
+        // The charge asks the forwarder whether it is settling for this vault; the three fee tests
+        // below call it directly, so the window is held open. See {MockChargeWindow}.
+        vm.etch(BITTY_FORWARDER, address(new MockChargeWindow()).code);
+        MockChargeWindow(BITTY_FORWARDER).setChargingVault(address(vault));
     }
 
     function _newVault(uint256 value, address activationAsset, uint256 activationAmount)

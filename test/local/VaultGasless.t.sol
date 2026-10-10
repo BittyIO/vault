@@ -6,6 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
+import {MockChargeWindow} from "../helpers/MockChargeWindow.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {
@@ -54,6 +55,11 @@ contract VaultGaslessTest is Test {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         usdc.mint(address(vault), 1_000_000e6);
         other.mint(address(vault), 1_000e18);
+
+        // The charge asks the forwarder whether it is settling for this vault; these tests charge it
+        // directly, so the window is held open for the whole file. See {MockChargeWindow}.
+        vm.etch(BITTY_FORWARDER, address(new MockChargeWindow()).code);
+        MockChargeWindow(BITTY_FORWARDER).setChargingVault(address(vault));
     }
 
     function _charge(address asset, uint256 amount) internal {

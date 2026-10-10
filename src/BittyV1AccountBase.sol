@@ -85,7 +85,7 @@ abstract contract BittyV1AccountBase is ERC2771ContextUpgradeable, OwnableUpgrad
      *      never as a relayed user op. The forwarder blocks it as a TOP-LEVEL relayed call by inspecting
      *      the outer selector, but {multicall} self-delegatecalls each entry with `msg.sender` still the
      *      forwarder, so a relayed `multicall([payRelayerFee(...)])` would slip past that guard and drain
-     *      the budget to the fee collector (audit S-01). Reject the selector here too — at EVERY multicall
+     *      the budget to the fee collector. Reject the selector here too — at EVERY multicall
      *      layer, so nesting can't smuggle it in. Legitimate charging goes straight through the forwarder,
      *      not multicall, so nothing real is lost.
      */

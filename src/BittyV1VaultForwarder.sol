@@ -93,6 +93,51 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
         return _laneNonce[signer][target];
     }
 
+    /**
+     * @dev The CHARGE WINDOW: the vault this forwarder is settling a fee for, for the length of that
+     *      one call and no longer.
+     *
+     *      It exists because `msg.sender == trustedForwarder()` cannot tell a settlement from a
+     *      relayed user op — the forwarder is the caller for both. So the account could not
+     *      distinguish "the forwarder is charging me" from "the forwarder is relaying something that
+     *      calls me", and anything a relayed request could reach could reach the charge. Blocking the
+     *      `payRelayerFee` selector, at the top level here and at every {multicall} layer in the
+     *      account, closes the paths that are known; the window closes the question.
+     *
+     *      Transient, like {_NONCE_TARGET_SLOT}: it is meaningful for exactly the length of one call
+     *      and must never survive it. Opened AFTER the relayed work has run and closed before the
+     *      settlement returns, so no relayed calldata ever executes with it open — and even if an
+     *      ERC-20 callback inside the charge re-entered {execute}, a relayed `payRelayerFee` is still
+     *      refused by the selector guards, so the two defences do not depend on each other.
+     */
+    bytes32 private constant _CHARGING_SLOT = 0x118462e6d7d9c109e6aaaa07552c6f72e83745f9f6921f9ba4a142b4ad0e06a1; // keccak256("bitty.v1.forwarder.charging")
+
+    /**
+     * @notice The vault this forwarder is charging in this call, or the zero address.
+     * @dev Read by the account from inside {IBittyV1Vault-payRelayerFee} — see {IBittyV1Forwarder}.
+     */
+    function chargingVault() external view returns (address vault) {
+        assembly ("memory-safe") {
+            vault := tload(_CHARGING_SLOT)
+        }
+    }
+
+    /**
+     * @dev Collect the fee with the window open for this vault, and shut it again. The only path to
+     *      `payRelayerFee` in this contract: both settlement entry points go through here, so there
+     *      is no second place that could charge with the window shut — which the account would
+     *      refuse — or forget to shut it.
+     */
+    function _charge(address vault, address stableCoinAddress, uint256 fee) private {
+        assembly ("memory-safe") {
+            tstore(_CHARGING_SLOT, vault)
+        }
+        IBittyV1Vault(vault).payRelayerFee(stableCoinAddress, fee);
+        assembly ("memory-safe") {
+            tstore(_CHARGING_SLOT, 0)
+        }
+    }
+
     function _setNonceTarget(address target) private {
         assembly ("memory-safe") {
             tstore(_NONCE_TARGET_SLOT, target)
@@ -120,7 +165,10 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
      *      every other entry point, so the nonce target and the `payRelayerFee` guard both still apply.
      *
      *      `payRelayerFee` is charged by the forwarder directly during a settlement, never relayed as a
-     *      user op — relaying it would let anyone drain a vault's gas budget through {execute}.
+     *      user op — relaying it would let anyone drain a vault's gas budget through {execute}. This
+     *      selector check is now one of three layers, and the shallowest: the account rejects the same
+     *      selector at every {multicall} layer, and the charge window (see {_CHARGING_SLOT}) refuses a
+     *      charge that did not come from a settlement at all, whatever path found it.
      *
      *      The nonce target is bound here, from this request's own `to`, immediately before {_useNonce}
      *      consumes it inside `super._execute`. Doing it per request rather than once per entry point
@@ -179,7 +227,7 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
         }
 
         if (fee != 0) {
-            IBittyV1Vault(request.to).payRelayerFee(stableCoinAddress, fee);
+            _charge(request.to, stableCoinAddress, fee);
         }
     }
 
@@ -225,7 +273,7 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
         }
 
         if (fee != 0) {
-            IBittyV1Vault(vault).payRelayerFee(stableCoinAddress, fee);
+            _charge(vault, stableCoinAddress, fee);
         }
     }
 

@@ -11,6 +11,7 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultForwarder} from "../../src/BittyV1VaultForwarder.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
+import {NotTrustedForwarder} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR, CFG_OWNER} from "../../src/logic/Constants.sol";
 
 /// Answers ERC-1271 for one key, so a contract-owned vault can be relayed.
@@ -231,7 +232,7 @@ contract ForwarderTest is Test {
     }
 
     /**
-     * S-01: the forwarder's guard only inspects the OUTER selector, so it blocks a bare relayed
+     * The forwarder's guard only inspects the OUTER selector, so it blocks a bare relayed
      * `payRelayerFee` but not one wrapped in `multicall([payRelayerFee])` — there the outer selector is
      * `multicall`. The vault's multicall self-delegatecalls each entry with `msg.sender` still the
      * forwarder, so the inner `payRelayerFee`'s `msg.sender == trustedForwarder()` check would pass and
@@ -253,6 +254,68 @@ contract ForwarderTest is Test {
 
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), collectorBefore, "no fee drained via multicall");
         assertEq(usdc.balanceOf(address(vaultA)), vaultBefore, "vault stablecoin untouched");
+    }
+
+    /**
+     * The charge is closed structurally, rather than by naming the ways in.
+     *
+     * The two tests above block the two paths that are KNOWN: a bare relayed `payRelayerFee` and one
+     * wrapped in `multicall`. Both work by inspecting calldata, and calldata is an open set — the
+     * next entry point that delegatecalls into the account while `msg.sender` is the forwarder opens
+     * the hole again. So the charge now also requires the forwarder to be mid-settlement FOR THIS
+     * VAULT, a transient window only {BittyV1VaultForwarder-_charge} can open.
+     *
+     * Pranked as the forwarder itself, which is the strongest form of the attack: a caller that
+     * genuinely passes `msg.sender == trustedForwarder()` and still cannot charge, because nothing is
+     * being settled.
+     */
+    function test_payRelayerFeeNeedsAnOpenChargeWindow() public {
+        uint256 collectorBefore = usdc.balanceOf(BITTY_FEE_COLLECTOR);
+
+        vm.prank(BITTY_FORWARDER);
+        vm.expectRevert(NotTrustedForwarder.selector);
+        vaultA.payRelayerFee(address(usdc), 1e6);
+
+        assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), collectorBefore, "nothing charged outside a settlement");
+    }
+
+    /**
+     * The window is shut whenever anyone can see it, and shut again afterwards.
+     *
+     * Open only between the relayed work finishing and the charge returning, so no relayed calldata
+     * ever runs with it open — and a settlement that charged does not leave it open for the next
+     * call in the same transaction.
+     */
+    function test_chargeWindowIsShutOutsideASettlement() public {
+        assertEq(fwd.chargingVault(), address(0), "shut before");
+
+        ERC2771Forwarder.ForwardRequestData memory r =
+            _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+        vm.prank(relayer);
+        fwd.executeWithFee(r, address(usdc), 1e6);
+
+        assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 1e6, "the settlement still charges");
+        assertEq(fwd.chargingVault(), address(0), "and shut after");
+    }
+
+    /**
+     * Nesting does not smuggle it in either: the account rejects the selector at EVERY multicall
+     * layer, so a multicall of a multicall is no better than one.
+     */
+    function test_nestedMulticallCannotBypassPayRelayerFeeGuard() public {
+        (address attacker, uint256 attackerPk) = makeAddrAndKey("nested-attacker");
+        bytes[] memory inner = new bytes[](1);
+        inner[0] = abi.encodeWithSelector(BittyV1Vault.payRelayerFee.selector, address(usdc), 1e6);
+        bytes[] memory outer = new bytes[](1);
+        outer[0] = abi.encodeWithSignature("multicall(bytes[])", inner);
+        bytes memory data = abi.encodeWithSignature("multicall(bytes[])", outer);
+        ERC2771Forwarder.ForwardRequestData memory r = _sign(_req(attacker, address(vaultA), data), attackerPk);
+
+        uint256 collectorBefore = usdc.balanceOf(BITTY_FEE_COLLECTOR);
+        vm.prank(attacker);
+        try fwd.execute(r) {} catch {}
+
+        assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), collectorBefore, "no fee drained via nested multicall");
     }
 
     /**
