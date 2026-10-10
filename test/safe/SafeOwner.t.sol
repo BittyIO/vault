@@ -13,13 +13,7 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {BittyV1VaultForwarder} from "../../src/BittyV1VaultForwarder.sol";
 import {InvalidActivationSignature} from "../../src/interfaces/IBittyV1VaultFactory.sol";
-import {
-    BITTY_GUARD,
-    BITTY_FORWARDER,
-    BITTY_VAULT_BOOTSTRAP,
-    CFG_GAS_WRAPPED,
-    CFG_OWNER
-} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_FORWARDER, BITTY_VAULT_BOOTSTRAP, CFG_GAS_WRAPPED, CFG_OWNER, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
 
 // The Safe (v1.4.1) is deployed by BYTECODE via vm.deployCode — never imported as source — so its
 // pre-memory-safe assembly does not drag this test's vault compilation off via_ir. These minimal
@@ -206,7 +200,13 @@ contract SafeOwnerTest is Test {
     function test_aSafeOperatesTheVaultItOwns() public {
         assertEq(vault.owner(), address(safe), "the Safe owns it");
 
-        _exec(address(vault), abi.encodeCall(BittyV1VaultDeFiFacet.setAssetManager, (makeAddr("manager"), 0)));
+        _exec(
+            address(vault),
+            abi.encodeCall(
+                BittyV1VaultDeFiFacet.setAssetManager,
+                (makeAddr("manager"), 0, PERM_YIELD | PERM_SUPPLY | PERM_INTENT)
+            )
+        );
         (address manager,,,) = BittyV1VaultDeFiFacet(payable(address(vault))).getAssetManagerSettings();
         assertEq(manager, makeAddr("manager"), "and appointed an asset manager");
     }

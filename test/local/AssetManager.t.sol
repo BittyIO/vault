@@ -13,7 +13,14 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield, IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
 import {AssetManagerExpiryInPast} from "../../src/interfaces/IBittyV1DeFi.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
+
+/*
+ * The capabilities these tests appoint a manager for: the jobs a managed vault is actually given —
+ * yield, lending and the intent orders it signs — and NOT trading at market, which the owner has to
+ * grant by name. See {PERM_YIELD} and the note above it.
+ */
+uint32 constant MANAGER_PERMS = PERM_YIELD | PERM_SUPPLY | PERM_INTENT;
 
 /**
  * The DeFi manager: the main vault's trading delegate.
@@ -25,6 +32,7 @@ import {BITTY_GUARD} from "../../src/logic/Constants.sol";
  *
  * What it must NOT be able to do is the larger half of this file.
  */
+
 contract AssetManagerTest is Test {
     BittyV1Vault vault;
     BittyV1VaultDeFiFacet facet;
@@ -74,7 +82,7 @@ contract AssetManagerTest is Test {
 
     function _appoint(uint64 expiresAt) internal {
         vm.prank(owner);
-        _f().setAssetManager(manager, expiresAt);
+        _f().setAssetManager(manager, expiresAt, MANAGER_PERMS);
     }
 
     // ── what the manager is for ──────────────────────────────────────────────
@@ -154,7 +162,7 @@ contract AssetManagerTest is Test {
         _appoint(0);
         vm.prank(manager);
         vm.expectRevert();
-        _f().setAssetManager(stranger, 0);
+        _f().setAssetManager(stranger, 0, MANAGER_PERMS);
     }
 
     function test_aStrangerIsStillAStranger() public {
@@ -193,7 +201,7 @@ contract AssetManagerTest is Test {
     function test_revokingIsImmediate() public {
         _appoint(0);
         vm.prank(owner);
-        _f().setAssetManager(address(0), 0);
+        _f().setAssetManager(address(0), 0, MANAGER_PERMS);
 
         vm.prank(manager);
         vm.expectRevert();
@@ -204,7 +212,7 @@ contract AssetManagerTest is Test {
     function test_revokingClearsTheDeadline() public {
         _appoint(START + GRANT);
         vm.prank(owner);
-        _f().setAssetManager(address(0), 0);
+        _f().setAssetManager(address(0), 0, MANAGER_PERMS);
         (, uint64 exp,,) = _f().getAssetManagerSettings();
         assertEq(exp, 0, "deadline cleared with the grant");
     }
@@ -212,7 +220,7 @@ contract AssetManagerTest is Test {
     function test_aGrantThatHasAlreadyLapsedIsRefused() public {
         vm.prank(owner);
         vm.expectRevert(AssetManagerExpiryInPast.selector);
-        _f().setAssetManager(manager, START);
+        _f().setAssetManager(manager, START, MANAGER_PERMS);
     }
 
     // ── renounce fires every delegate ─────────────────────────────────────────
@@ -266,7 +274,7 @@ contract AssetManagerTest is Test {
     function test_appointingWaitsOutTheTimelock() public {
         _withTimelock();
         vm.prank(owner);
-        _f().setAssetManager(manager, 0);
+        _f().setAssetManager(manager, 0, MANAGER_PERMS);
 
         (address live,, address pending, uint64 at) = _f().getAssetManagerSettings();
         assertEq(live, address(0), "not live yet");
@@ -282,7 +290,7 @@ contract AssetManagerTest is Test {
     function test_aQueuedGrantGoesLiveOnItsOwn() public {
         _withTimelock();
         vm.prank(owner);
-        _f().setAssetManager(manager, 0);
+        _f().setAssetManager(manager, 0, MANAGER_PERMS);
 
         vm.warp(START + TIMELOCK);
         (address live,,,) = _f().getAssetManagerSettings();
@@ -297,10 +305,10 @@ contract AssetManagerTest is Test {
     function test_theOwnerCanCancelAQueuedGrant() public {
         _withTimelock();
         vm.prank(owner);
-        _f().setAssetManager(manager, 0);
+        _f().setAssetManager(manager, 0, MANAGER_PERMS);
 
         vm.prank(owner);
-        _f().setAssetManager(address(0), 0);
+        _f().setAssetManager(address(0), 0, MANAGER_PERMS);
 
         vm.warp(START + TIMELOCK);
         (address live,, address pending,) = _f().getAssetManagerSettings();
@@ -317,7 +325,7 @@ contract AssetManagerTest is Test {
         _withTimelock();
 
         vm.prank(owner);
-        _f().setAssetManager(address(0), 0);
+        _f().setAssetManager(address(0), 0, MANAGER_PERMS);
 
         vm.prank(manager);
         vm.expectRevert();
@@ -330,13 +338,13 @@ contract AssetManagerTest is Test {
         _withTimelock();
 
         vm.prank(owner);
-        _f().setAssetManager(manager, START + 1 days);
+        _f().setAssetManager(manager, START + 1 days, MANAGER_PERMS);
         (, uint64 exp, address pending,) = _f().getAssetManagerSettings();
         assertEq(exp, START + 1 days, "shortened at once");
         assertEq(pending, address(0), "nothing queued");
 
         vm.prank(owner);
-        _f().setAssetManager(manager, START + GRANT);
+        _f().setAssetManager(manager, START + GRANT, MANAGER_PERMS);
         (, uint64 stillShort, address queued,) = _f().getAssetManagerSettings();
         assertEq(stillShort, START + 1 days, "extension has not landed");
         assertEq(queued, manager, "it is queued instead");

@@ -17,7 +17,14 @@ import {
     NotPayoutOperator,
     OnlyImmutablePayableAfterRenounce
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
+
+/*
+ * The capabilities these tests appoint a manager for: the jobs a managed vault is actually given —
+ * yield, lending and the intent orders it signs — and NOT trading at market, which the owner has to
+ * grant by name. See {PERM_YIELD} and the note above it.
+ */
+uint32 constant MANAGER_PERMS = PERM_YIELD | PERM_SUPPLY | PERM_INTENT;
 
 /**
  * The whole point of the machinery, told as one story: the owner's key is compromised, the owner
@@ -91,7 +98,7 @@ contract CompromisedKeyTest is Test {
         // A vault in normal service: a trading delegate, a keeper, and a standing payment to the
         // person this vault exists for.
         vm.startPrank(owner);
-        _f().setAssetManager(manager, 0);
+        _f().setAssetManager(manager, 0, MANAGER_PERMS);
         _f().setAutoYieldTrigger(keeper);
         rescueId = vault.addScheduledPayment(
             IBittyV1Vault.ScheduledPayment({
@@ -134,7 +141,7 @@ contract CompromisedKeyTest is Test {
         vm.expectRevert(_notOwner(owner));
         vault.transferOwnership(owner);
         vm.expectRevert(_notOwner(owner));
-        _f().setAssetManager(owner, 0);
+        _f().setAssetManager(owner, 0, MANAGER_PERMS);
         vm.stopPrank();
 
         // The delegates appointed BEFORE the compromise are the subtle part: the attacker inherits

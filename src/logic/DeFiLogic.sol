@@ -37,6 +37,7 @@ import {
     Deprecated
 } from "../interfaces/IBittyV1Vault.sol";
 import {BittyStorage, DeFiStorage} from "./BittyStorage.sol";
+import {RouteGuard} from "./RouteGuard.sol";
 import {TimelockLib} from "./TimelockLib.sol";
 import {BITTY_GUARD, MAX_DURATION, PROTOCOL_MARKET_TRADE} from "./Constants.sol";
 
@@ -69,6 +70,11 @@ library DeFiLogic {
     event AutoYieldTriggerSet(address indexed trigger);
     event AssetManagerSet(address indexed assetManager, uint64 expiresAt);
     event AssetManagerPending(address indexed assetManager, uint64 expiresAt, uint64 effectiveAt);
+    /**
+     * @dev Its own event rather than a third field on {AssetManagerSet}: that one is already indexed
+     *      by anything watching these vaults, and a changed signature is a changed topic.
+     */
+    event AssetManagerPermissionsSet(address indexed assetManager, uint32 permissions);
 
     using SafeERC20 for IERC20;
 
@@ -143,7 +149,19 @@ library DeFiLogic {
         return BittyStorage.defi().autoYieldTrigger;
     }
 
-    function setAssetManager(address assetManager, uint64 expiresAt) external {
+    /**
+     * Appoint an asset manager, saying what for.
+     *
+     * `permissions` is the mask of capabilities — see {PERM_YIELD} and the note above it. It is
+     * always given: there is no form of this call that hands over everything, because the grant
+     * someone makes without reading it is the one that costs them.
+     *
+     * Tightening lands at once, loosening waits out the change timelock — the same rule the allow
+     * list and the expiry already follow. Dropping a capability is self-restriction and a stolen
+     * owner key cannot use it to reach further; ADDING one is reach, the market-trade bit most of
+     * all, so it queues where the owner can still see it coming.
+     */
+    function setAssetManager(address assetManager, uint64 expiresAt, uint32 permissions) external {
         if (expiresAt != 0) {
             if (expiresAt <= block.timestamp) revert AssetManagerExpiryInPast();
             if (expiresAt > block.timestamp + MAX_DURATION) revert GrantTooLong();
@@ -156,25 +174,32 @@ library DeFiLogic {
         if (assetManager == address(0)) {
             delete $.assetManager;
             delete $.assetManagerExpiresAt;
+            delete $.assetManagerPerms;
             _clearPendingAssetManager($);
             emit AssetManagerSet(address(0), 0);
             return;
         }
 
         uint64 current = $.assetManagerExpiresAt;
-        bool shortening = assetManager == $.assetManager && expiresAt != 0 && (current == 0 || expiresAt < current);
+        bool sameManager = assetManager == $.assetManager;
+        bool noLaterExpiry = expiresAt != 0 && (current == 0 || expiresAt <= current);
+        bool noNewPermission = permissions & ~$.assetManagerPerms == 0;
+        bool tightening = sameManager && noLaterExpiry && noNewPermission;
         uint64 timelock = TimelockLib.effective(BittyStorage.vault().riskConfig.changeTimelock);
 
-        if (shortening || timelock == 0) {
+        if (tightening || timelock == 0) {
             $.assetManager = assetManager;
             $.assetManagerExpiresAt = expiresAt;
+            $.assetManagerPerms = permissions;
             _clearPendingAssetManager($);
             emit AssetManagerSet(assetManager, expiresAt);
+            emit AssetManagerPermissionsSet(assetManager, permissions);
             return;
         }
 
         $.pendingAssetManager = assetManager;
         $.pendingAssetManagerExpiresAt = expiresAt;
+        $.pendingAssetManagerPerms = permissions;
         $.pendingAssetManagerAt = uint64(block.timestamp) + timelock;
         emit AssetManagerPending(assetManager, expiresAt, $.pendingAssetManagerAt);
     }
@@ -184,6 +209,7 @@ library DeFiLogic {
         if (at != 0 && block.timestamp >= at) {
             $.assetManager = $.pendingAssetManager;
             $.assetManagerExpiresAt = $.pendingAssetManagerExpiresAt;
+            $.assetManagerPerms = $.pendingAssetManagerPerms;
             _clearPendingAssetManager($);
         }
     }
@@ -191,15 +217,20 @@ library DeFiLogic {
     function _clearPendingAssetManager(DeFiStorage storage $) private {
         delete $.pendingAssetManager;
         delete $.pendingAssetManagerExpiresAt;
+        delete $.pendingAssetManagerPerms;
         delete $.pendingAssetManagerAt;
     }
 
-    function _liveGrant(DeFiStorage storage $) private view returns (address manager, uint64 expiresAt) {
+    function _liveGrant(DeFiStorage storage $)
+        private
+        view
+        returns (address manager, uint64 expiresAt, uint32 permissions)
+    {
         uint64 at = $.pendingAssetManagerAt;
         if (at != 0 && block.timestamp >= at) {
-            return ($.pendingAssetManager, $.pendingAssetManagerExpiresAt);
+            return ($.pendingAssetManager, $.pendingAssetManagerExpiresAt, $.pendingAssetManagerPerms);
         }
-        return ($.assetManager, $.assetManagerExpiresAt);
+        return ($.assetManager, $.assetManagerExpiresAt, $.assetManagerPerms);
     }
 
     function getAssetManagerSettings()
@@ -208,14 +239,25 @@ library DeFiLogic {
         returns (address manager, uint64 expiresAt, address pendingManager, uint64 pendingAt)
     {
         DeFiStorage storage $ = BittyStorage.defi();
-        (manager, expiresAt) = _liveGrant($);
+        (manager, expiresAt,) = _liveGrant($);
         return (manager, expiresAt, $.pendingAssetManager, $.pendingAssetManagerAt);
+    }
+
+    /**
+     * What the live manager may do, as a bit set. Zero when there is no live manager.
+     */
+    function assetManagerPermissions() external view returns (uint32) {
+        (address manager, uint64 expiresAt, uint32 permissions) = _liveGrant(BittyStorage.defi());
+        if (manager == address(0)) return 0;
+        if (expiresAt != 0 && block.timestamp >= expiresAt) return 0;
+        return permissions;
     }
 
     function clearDelegates() external {
         DeFiStorage storage $ = BittyStorage.defi();
         delete $.assetManager;
         delete $.assetManagerExpiresAt;
+        delete $.assetManagerPerms;
         delete $.pendingAssetManager;
         delete $.pendingAssetManagerExpiresAt;
         delete $.pendingAssetManagerAt;
@@ -226,9 +268,24 @@ library DeFiLogic {
 
     function isActiveAssetManager(address account) external view returns (bool) {
         if (account == address(0)) return false;
-        (address manager, uint64 expiresAt) = _liveGrant(BittyStorage.defi());
+        (address manager, uint64 expiresAt,) = _liveGrant(BittyStorage.defi());
         if (account != manager) return false;
         return expiresAt == 0 || block.timestamp < expiresAt;
+    }
+
+    /**
+     * Is `account` a live manager AND granted every bit in `permissions`?
+     *
+     * One question rather than two, so a caller cannot check the grant and forget the capability.
+     * The owner never passes through here: the facet asks this first and falls back to its own
+     * owner check, which is what keeps every one of these surfaces the owner's own.
+     */
+    function assetManagerCan(address account, uint32 permissions) external view returns (bool) {
+        if (account == address(0)) return false;
+        (address manager, uint64 expiresAt, uint32 granted) = _liveGrant(BittyStorage.defi());
+        if (account != manager) return false;
+        if (expiresAt != 0 && block.timestamp >= expiresAt) return false;
+        return granted & permissions == permissions;
     }
 
     function upgradeProtocol(address protocol, address newImplementation) external {
@@ -497,6 +554,7 @@ library DeFiLogic {
         _requireAmmLiquid(buyToken);
 
         address clone = _cloneProtocol($, ammProtocol);
+        RouteGuard.check(path, _requireRouteAsset, clone);
         if (sellToken != address(0) && sellAmount > 0 && IERC20(sellToken).allowance(address(this), clone) < sellAmount)
         {
             IERC20(sellToken).forceApprove(clone, type(uint256).max);
@@ -523,11 +581,31 @@ library DeFiLogic {
         _requireAmmLiquid(buyToken);
 
         address clone = _cloneProtocol($, ammProtocol);
+        RouteGuard.check(reversedPath, _requireRouteAsset, clone);
         if (sellToken != address(0) && IERC20(sellToken).allowance(address(this), clone) < sellAmountMax) {
             IERC20(sellToken).forceApprove(clone, type(uint256).max);
         }
         bytes memory data = abi.encode(sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
         IBittyV1MarketTradeProtocol(clone).swapExactOut(data, address(this));
+    }
+
+    /**
+     * @dev The test {RouteGuard} applies to every asset on the route.
+     *
+     * Reads the storage pointer itself rather than taking one, because it is passed as a function
+     * value and an internal function pointer carries no bound arguments. Same rule as the ends of
+     * the trade: registered on the guard, and on this vault's list when the owner keeps one.
+     *
+     * The zero address is the chain's native currency, which a v4 leg names when it routes through
+     * an ETH pool. It is reached only by wrapping or unwrapping the WETH the router is configured
+     * with — not a token anyone can mint — and the vault's own WETH is checked as an end of the
+     * trade, so it is exempt rather than unregistered.
+     */
+    function _requireRouteAsset(address token) private view {
+        if (token == address(0)) return;
+        DeFiStorage storage $ = BittyStorage.defi();
+        if (!IBittyV1Guard(BITTY_GUARD).isAssetRegistered(token)) revert NotRegistered();
+        if (_allowlistActiveView($) && !$.assets[token]) revert NotRegistered();
     }
 
     function _requireAmmLiquid(address token) private view {

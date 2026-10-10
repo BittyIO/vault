@@ -23,11 +23,39 @@ import {
     InvalidDepositableProtocol,
     MarketTradeNotSupported
 } from "../../src/interfaces/IBittyV1DeFi.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {
+    BITTY_GUARD,
+    PERM_YIELD,
+    PERM_SUPPLY,
+    PERM_MARKET_TRADE,
+    PERM_MARKET_MAKER,
+    PERM_INTENT
+} from "../../src/logic/Constants.sol";
+import {
+    RouteCommandNotAllowed,
+    RouteRecipientNotAllowed,
+    RouteHookNotAllowed,
+    RouteMalformed
+} from "../../src/logic/RouteGuard.sol";
+import {UniversalRoute} from "protocol-contracts/src/libs/uniswap/universal/UniversalRouter.sol";
+
+/*
+ * The capabilities these tests appoint a manager for: the jobs a managed vault is actually given —
+ * yield, lending and the intent orders it signs — and NOT trading at market, which the owner has to
+ * grant by name. See {PERM_YIELD} and the note above it.
+ */
+uint32 constant MANAGER_PERMS = PERM_YIELD | PERM_SUPPLY | PERM_INTENT;
 
 // The AMM-liquid category bit (mirrors DeFiLogic.ASSET_AMM_LIQUID). Market buy/sell requires BOTH
 // legs to carry it; it is owner-curated data on the guard, so the guard contract is unchanged.
 uint8 constant ASSET_AMM_LIQUID = 4;
+
+interface IOffchain {
+    function isOffchainOrderAuthorized(address signer, address sellToken, address buyToken, uint256 sellAmount)
+        external
+        view
+        returns (bool);
+}
 
 interface IFacet {
     function deposit(address protocol, address asset, uint256 amount) external;
@@ -70,6 +98,28 @@ interface IFacet {
     function autoYieldTrigger() external view returns (address);
     function cancelIntentOrders(address intent, bytes[] calldata uids) external;
     function guard() external view returns (address);
+    function setAssetManager(address assetManager_, uint64 expiresAt, uint32 permissions) external;
+    function assetManagerPermissions() external view returns (uint32);
+}
+
+/**
+ *  Mirrors {RouteGuard}'s v4 structs, so a test can encode the action parameters it decodes.
+ */
+struct RouteGuardV4Key {
+    address currency0;
+    address currency1;
+    uint24 fee;
+    int24 tickSpacing;
+    address hooks;
+}
+
+struct RouteGuardV4Single {
+    RouteGuardV4Key poolKey;
+    bool zeroForOne;
+    uint128 amountIn;
+    uint128 amountOutMinimum;
+    uint256 minHopPriceX36;
+    bytes hookData;
 }
 
 /// A position NFT that records whether the vault ever granted blanket approval.
@@ -175,6 +225,41 @@ contract DeFiGuardrailsTest is Test {
         return new address[](0);
     }
 
+    /**
+     * A packed Uniswap v3 path: `token ‖ fee ‖ token`, one hop.
+     */
+    function _v3Path(address a, address b) internal pure returns (bytes memory) {
+        return abi.encodePacked(a, uint24(3000), b);
+    }
+
+    /**
+     * Two hops, through `mid`.
+     */
+    function _v3Path(address a, address mid, address b) internal pure returns (bytes memory) {
+        return abi.encodePacked(a, uint24(3000), mid, uint24(3000), b);
+    }
+
+    /**
+     * A tagged Universal route carrying one command and its input.
+     */
+    function _universal(uint8 command, bytes memory input) internal view returns (bytes memory) {
+        bytes[] memory inputs = new bytes[](1);
+        inputs[0] = input;
+        return UniversalRoute.encode(abi.encodePacked(bytes1(command)), inputs, block.timestamp + 60);
+    }
+
+    /**
+     * The Universal Router's `V3_SWAP_EXACT_IN` input, as the quoting service encodes it.
+     */
+    function _v3SwapIn(address recipient, bytes memory path) internal pure returns (bytes memory) {
+        return abi.encode(recipient, uint256(1e6), uint256(0), path, true, new uint256[](0));
+    }
+
+    function _bothLegsLiquid() internal {
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+    }
+
     // ── deprecation ───────────────────────────────────────────────────────────
 
     function test_aDeprecatedProtocolTakesNoNewDeposits() public {
@@ -213,7 +298,7 @@ contract DeFiGuardrailsTest is Test {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
-        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, "");
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, _v3Path(address(usdc), address(dai)));
         // The gate passed and the swap dispatched to the AMM clone (which the vault approved to spend).
         assertEq(
             usdc.allowance(address(vault), _f().getClone(address(tradeAmm))),
@@ -242,7 +327,7 @@ contract DeFiGuardrailsTest is Test {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
-        _f().marketBuy(address(tradeAmm), address(usdc), 1e6, address(dai), 1e18, "");
+        _f().marketBuy(address(tradeAmm), address(usdc), 1e6, address(dai), 1e18, _v3Path(address(dai), address(usdc)));
         assertEq(
             usdc.allowance(address(vault), _f().getClone(address(tradeAmm))),
             type(uint256).max,
@@ -735,5 +820,285 @@ contract DeFiGuardrailsTest is Test {
         vm.prank(owner);
         vm.expectRevert(NotRegistered.selector);
         _f().addLiquidity(address(amm), address(usdc), 1e6, address(rnd), 1e18, "");
+    }
+
+    // ── the route itself, not just the two ends of it ─────────────────────────
+    //
+    // Both ends of a market swap were checked — registered, allowed, AMM-liquid — and the road
+    // between them was whatever the caller wrote. So a key that may TRADE could sell the vault's
+    // balance along `USDC → JUNK → DAI` through pools it was the only liquidity provider in, and
+    // collect the proceeds by withdrawing its own liquidity. {RouteGuard} walks the route and holds
+    // every asset on it to the vault's own allow list.
+
+    /// An intermediate token nobody registered is refused, in a packed v3 path.
+    function test_marketSell_refusesAnUnregisteredHop() public {
+        _bothLegsLiquid();
+        MockERC20 junk = new MockERC20("Junk", "JUNK", 18);
+        vm.prank(owner);
+        vm.expectRevert(NotRegistered.selector);
+        _f()
+            .marketSell(
+                address(tradeAmm),
+                address(usdc),
+                1e6,
+                address(dai),
+                0,
+                _v3Path(address(usdc), address(junk), address(dai))
+            );
+    }
+
+    /// Registered on the guard is not enough while the vault keeps its own list.
+    function test_marketSell_refusesAHopOffTheVaultsOwnList() public {
+        _bothLegsLiquid();
+        MockERC20 mid = new MockERC20("Mid", "MID", 18);
+        guard.setAsset(address(mid), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+
+        vm.startPrank(owner);
+        _f().enableAllowlist();
+        _f().updateAssets(_one(address(usdc)), _none());
+        _f().updateAssets(_one(address(dai)), _none());
+        _f().updateProtocols(_one(address(tradeAmm)), _none());
+        vm.stopPrank();
+
+        vm.prank(owner);
+        vm.expectRevert(NotRegistered.selector);
+        _f()
+            .marketSell(
+                address(tradeAmm),
+                address(usdc),
+                1e6,
+                address(dai),
+                0,
+                _v3Path(address(usdc), address(mid), address(dai))
+            );
+    }
+
+    /// A hop through an asset the vault does hold is fine — the check is the allow list, not the hop count.
+    function test_marketSell_allowsAHopThroughAnAllowedAsset() public {
+        _bothLegsLiquid();
+        MockERC20 mid = new MockERC20("Mid", "MID", 18);
+        guard.setAsset(address(mid), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        vm.prank(owner);
+        _f()
+            .marketSell(
+                address(tradeAmm),
+                address(usdc),
+                1e6,
+                address(dai),
+                0,
+                _v3Path(address(usdc), address(mid), address(dai))
+            );
+        assertEq(usdc.allowance(address(vault), _f().getClone(address(tradeAmm))), type(uint256).max);
+    }
+
+    /// The same check inside a Universal route's own v3 command.
+    function test_marketSell_refusesAnUnregisteredHopInsideAUniversalRoute() public {
+        _bothLegsLiquid();
+        MockERC20 junk = new MockERC20("Junk", "JUNK", 18);
+        bytes memory route =
+            _universal(0x00, _v3SwapIn(address(1), _v3Path(address(usdc), address(junk), address(dai))));
+        vm.prank(owner);
+        vm.expectRevert(NotRegistered.selector);
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, route);
+    }
+
+    /// The output has to come back to the adapter. A route that pays a stranger is refused outright.
+    function test_marketSell_refusesARouteThatPaysSomeoneElse() public {
+        _bothLegsLiquid();
+        address thief = makeAddr("thief");
+        bytes memory route = _universal(0x00, _v3SwapIn(thief, _v3Path(address(usdc), address(dai))));
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(RouteRecipientNotAllowed.selector, thief));
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, route);
+    }
+
+    /**
+     * A command this library cannot read is refused rather than relayed.
+     *
+     * 0x0e is one of the router's transfer commands: it moves a token to an address of the caller's
+     * choosing, which is value leaving by a door nothing here checks. Anything not in the known set
+     * lands in the same place.
+     */
+    function test_marketSell_refusesAnUnknownRouterCommand() public {
+        _bothLegsLiquid();
+        bytes memory route = _universal(0x0e, abi.encode(address(usdc), makeAddr("thief"), uint256(1e6)));
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(RouteCommandNotAllowed.selector, uint8(0x0e)));
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, route);
+    }
+
+    /// Nor one that is allowed to fail silently: 0x80 is the router's "may revert" flag.
+    function test_marketSell_refusesACommandMarkedMayRevert() public {
+        _bothLegsLiquid();
+        bytes memory route = _universal(0x80, _v3SwapIn(address(1), _v3Path(address(usdc), address(dai))));
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(RouteCommandNotAllowed.selector, uint8(0x80)));
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, route);
+    }
+
+    /// An empty or truncated path is malformed: the adapter would read a token out of the next bytes.
+    function test_marketSell_refusesAMalformedPath() public {
+        _bothLegsLiquid();
+        vm.prank(owner);
+        vm.expectRevert(RouteMalformed.selector);
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, "");
+    }
+
+    /// A hooked v4 pool runs its author's code inside the vault's transaction. Refused.
+    function test_marketSell_refusesAHookedV4Pool() public {
+        _bothLegsLiquid();
+        address hook = makeAddr("hook");
+        bytes memory params = abi.encode(
+            RouteGuardV4Single({
+                poolKey: RouteGuardV4Key({
+                    currency0: address(usdc), currency1: address(dai), fee: 500, tickSpacing: 10, hooks: hook
+                }),
+                zeroForOne: true,
+                amountIn: 1e6,
+                amountOutMinimum: 0,
+                minHopPriceX36: 0,
+                hookData: ""
+            })
+        );
+        bytes[] memory v4Params = new bytes[](1);
+        v4Params[0] = params;
+        bytes memory route = _universal(0x10, abi.encode(abi.encodePacked(bytes1(uint8(0x06))), v4Params));
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(RouteHookNotAllowed.selector, hook));
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, route);
+    }
+
+    // ── who may trade at market ──────────────────────────────────────────────
+
+    /**
+     * The asset manager may NOT. A market order's price is whatever the caller passes, and the key
+     * that is trusted to choose a trade is not trusted to choose its rate — see the facet's note.
+     */
+    function test_theAssetManagerCannotTradeAtMarket() public {
+        _bothLegsLiquid();
+        address manager = makeAddr("manager");
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, MANAGER_PERMS);
+
+        vm.prank(manager);
+        vm.expectRevert();
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, _v3Path(address(usdc), address(dai)));
+
+        vm.prank(manager);
+        vm.expectRevert();
+        _f().marketBuy(address(tradeAmm), address(usdc), 1e6, address(dai), 1e18, _v3Path(address(dai), address(usdc)));
+    }
+
+    /// And the manager keeps the surface it is there for: intent orders it signs off chain.
+    function test_theAssetManagerStillSignsIntentOrders() public {
+        address manager = makeAddr("manager");
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, MANAGER_PERMS);
+        assertTrue(
+            IOffchain(address(vault)).isOffchainOrderAuthorized(manager, address(usdc), address(dai), 100e6),
+            "limit and TWAP stay open to the manager"
+        );
+    }
+
+    // ── what the owner hands over, capability by capability ──────────────────
+    //
+    // The grant used to be all-or-nothing: a key appointed to put idle dollars into Sky could also
+    // sell the whole balance at market. The owner now names the job — yield, lending, market trade,
+    // liquidity, intents — and the vault holds the manager to it.
+
+    /// A grant says what it is for. Nothing is implied — a mask of zero is a key that can do nothing.
+    function test_aGrantIsExactlyWhatWasAskedFor() public {
+        address manager = makeAddr("manager");
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, PERM_YIELD | PERM_INTENT);
+        assertEq(_f().assetManagerPermissions(), PERM_YIELD | PERM_INTENT, "the mask the owner passed");
+
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, 0);
+        assertEq(_f().assetManagerPermissions(), 0, "and zero grants nothing");
+    }
+
+    /// Granted by name, the manager trades at market like the owner does.
+    function test_aManagerGrantedMarketTradeMayTradeAtMarket() public {
+        _bothLegsLiquid();
+        address manager = makeAddr("manager");
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, PERM_MARKET_TRADE);
+
+        vm.prank(manager);
+        _f().marketSell(address(tradeAmm), address(usdc), 1e6, address(dai), 0, _v3Path(address(usdc), address(dai)));
+        assertEq(usdc.allowance(address(vault), _f().getClone(address(tradeAmm))), type(uint256).max);
+    }
+
+    /// And a grant for one job is not a grant for another.
+    function test_aManagerGrantedOnlyMarketTradeCannotProvideLiquidity() public {
+        address manager = makeAddr("manager");
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, PERM_MARKET_TRADE);
+
+        vm.prank(manager);
+        vm.expectRevert();
+        _f().addLiquidity(address(amm), address(usdc), 1e6, address(dai), 1e18, "");
+    }
+
+    function test_aManagerWithoutTheIntentBitCannotSignOrders() public {
+        address manager = makeAddr("manager");
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, PERM_YIELD);
+        assertFalse(
+            IOffchain(address(vault)).isOffchainOrderAuthorized(manager, address(usdc), address(dai), 1e6),
+            "limit and TWAP are not part of this grant"
+        );
+    }
+
+    /// Lending and yielding are one function and two capabilities, told apart by the adapter.
+    function test_aYieldOnlyManagerCannotLend() public {
+        address manager = makeAddr("manager");
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, PERM_YIELD);
+
+        // `proto` is registered on the guard as a LENDING adapter, so this needs PERM_SUPPLY.
+        vm.prank(manager);
+        vm.expectRevert();
+        _f().deposit(address(proto), address(usdc), 1e6);
+
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, PERM_SUPPLY);
+        vm.prank(manager);
+        _f().deposit(address(proto), address(usdc), 1e6);
+        assertEq(usdc.balanceOf(_f().getClone(address(proto))), 1e6, "the lending grant works");
+    }
+
+    /// A bit nobody defined authorises nothing: every check asks for one bit by name.
+    function test_anUndefinedPermissionBitGrantsNothing() public {
+        address manager = makeAddr("manager");
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, uint32(1 << 20));
+
+        vm.prank(manager);
+        vm.expectRevert();
+        _f().deposit(address(proto), address(usdc), 1e6);
+    }
+
+    /**
+     * Dropping a capability lands at once; adding one waits. The same rule the allow list and the
+     * grant's own expiry follow, so a stolen owner key cannot widen a manager's reach in one go.
+     */
+    function test_narrowingIsImmediateAndWideningQueues() public {
+        address manager = makeAddr("manager");
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, PERM_YIELD | PERM_SUPPLY);
+        assertEq(_f().assetManagerPermissions(), PERM_YIELD | PERM_SUPPLY);
+
+        // Narrowing is self-restriction: it lands even with a timelock set, which this vault has not.
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, PERM_YIELD);
+        assertEq(_f().assetManagerPermissions(), PERM_YIELD, "narrowing took effect at once");
+
+        // Widening with no timelock configured also lands at once — the queue is what a timelock
+        // buys, and {AssetManager} covers the queued path for the grant as a whole.
+        vm.prank(owner);
+        _f().setAssetManager(manager, 0, PERM_YIELD | PERM_MARKET_TRADE);
+        assertEq(_f().assetManagerPermissions(), PERM_YIELD | PERM_MARKET_TRADE, "widening, no timelock");
     }
 }

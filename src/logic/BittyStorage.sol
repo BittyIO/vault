@@ -91,6 +91,16 @@ struct DeFiStorage {
     address pendingAssetManager;
     uint64 pendingAssetManagerExpiresAt;
     uint64 pendingAssetManagerAt; // 0 = nothing queued
+    /**
+     * What the manager may do — the mask from {setAssetManager}, zero meaning nothing at all.
+     *
+     * Appended, so a vault deployed before permissions existed keeps its layout: these two slots
+     * read as zero there, so a manager appointed under the old all-or-nothing grant can do nothing
+     * until the owner re-appoints it with a mask. Safe by construction, and visible: the vault says
+     * what the grant is through {assetManagerPermissions}.
+     */
+    uint32 assetManagerPerms;
+    uint32 pendingAssetManagerPerms;
 }
 
 struct VaultStorage {

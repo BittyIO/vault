@@ -7,7 +7,7 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BITTY_GUARD, BITTY_FORWARDER} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_FORWARDER, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
 
 /// The facet's views, reached through the host's fallback — `allowlistEnabled` lives on the shared
 /// DeFi facet, not on the vault, so a plain BittyV1Vault handle cannot see it.
@@ -85,7 +85,9 @@ contract MulticallTest is Test {
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(BittyV1Vault.enableAllowlist, ());
         // The second entry reverts (an over-long manager grant), taking the first with it.
-        calls[1] = abi.encodeCall(BittyV1VaultDeFiFacet.setAssetManager, (keeper, type(uint64).max));
+        calls[1] = abi.encodeCall(
+            BittyV1VaultDeFiFacet.setAssetManager, (keeper, type(uint64).max, PERM_YIELD | PERM_SUPPLY | PERM_INTENT)
+        );
 
         vm.prank(owner);
         vm.expectRevert();

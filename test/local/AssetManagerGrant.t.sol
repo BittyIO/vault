@@ -12,10 +12,17 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {GrantTooLong, AssetManagerExpiryInPast} from "../../src/interfaces/IBittyV1DeFi.sol";
-import {BITTY_GUARD, MAX_DURATION} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MAX_DURATION, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
+
+/*
+ * The capabilities these tests appoint a manager for: the jobs a managed vault is actually given —
+ * yield, lending and the intent orders it signs — and NOT trading at market, which the owner has to
+ * grant by name. See {PERM_YIELD} and the note above it.
+ */
+uint32 constant MANAGER_PERMS = PERM_YIELD | PERM_SUPPLY | PERM_INTENT;
 
 interface IFacet {
-    function setAssetManager(address assetManager, uint64 expiresAt) external;
+    function setAssetManager(address assetManager, uint64 expiresAt, uint32 permissions) external;
     function getAssetManagerSettings()
         external
         view
@@ -77,7 +84,7 @@ contract AssetManagerGrantTest is Test {
 
     function _set(address who, uint64 expiresAt) internal {
         vm.prank(owner);
-        _f().setAssetManager(who, expiresAt);
+        _f().setAssetManager(who, expiresAt, MANAGER_PERMS);
     }
 
     // ── granting ──────────────────────────────────────────────────────────────
@@ -131,13 +138,13 @@ contract AssetManagerGrantTest is Test {
     function test_anExpiryAlreadyPastIsRefused() public {
         vm.prank(owner);
         vm.expectRevert(AssetManagerExpiryInPast.selector);
-        _f().setAssetManager(manager, uint64(block.timestamp));
+        _f().setAssetManager(manager, uint64(block.timestamp), MANAGER_PERMS);
     }
 
     function test_anExpiryBeyondTheCeilingIsRefused() public {
         vm.prank(owner);
         vm.expectRevert(GrantTooLong.selector);
-        _f().setAssetManager(manager, uint64(block.timestamp + MAX_DURATION + 1));
+        _f().setAssetManager(manager, uint64(block.timestamp + MAX_DURATION + 1), MANAGER_PERMS);
     }
 
     function test_anExpiryExactlyAtTheCeilingIsAccepted() public {
@@ -234,7 +241,7 @@ contract AssetManagerGrantTest is Test {
     function test_onlyTheOwnerNamesTheManager() public {
         vm.prank(stranger);
         vm.expectRevert();
-        _f().setAssetManager(manager, 0);
+        _f().setAssetManager(manager, 0, MANAGER_PERMS);
     }
 
     // ── unwinding is always open ──────────────────────────────────────────────
