@@ -21,7 +21,7 @@
     }
   },
   "lib/protocol-contracts": {
-    "rev": "cfe66eb4065f832763337bb89fce20e1032cfe1d"
+    "rev": "157e0531f772eb565e8176f334de98bc85acf6bf"
   },
   "lib/safe-smart-account": {
     "tag": {
