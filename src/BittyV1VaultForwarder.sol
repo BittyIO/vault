@@ -86,9 +86,6 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
      */
     bytes32 private constant _NONCE_TARGET_SLOT = 0x8df4084eac8b84d2f835fdd215c47aed36ec12bae0062c9cfc227df184580f00; // keccak256("bitty.v1.forwarder.nonceTarget")
 
-    /**
-     * @notice The next nonce `signer` must sign for a request targeting `target`.
-     */
     function nonceFor(address signer, address target) public view returns (uint64) {
         return _laneNonce[signer][target];
     }
@@ -112,10 +109,6 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
      */
     bytes32 private constant _CHARGING_SLOT = 0x118462e6d7d9c109e6aaaa07552c6f72e83745f9f6921f9ba4a142b4ad0e06a1; // keccak256("bitty.v1.forwarder.charging")
 
-    /**
-     * @notice The vault this forwarder is charging in this call, or the zero address.
-     * @dev Read by the account from inside {IBittyV1Vault-payRelayerFee} — see {IBittyV1Forwarder}.
-     */
     function chargingVault() external view returns (address vault) {
         assembly ("memory-safe") {
             vault := tload(_CHARGING_SLOT)
@@ -188,7 +181,6 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
     }
 
     /**
-     * @notice Not supported — use {executeBatchWithFee}.
      * @dev OpenZeppelin's batch is non-atomic, so a partial failure would leave some requests executed
      *      and others not. {executeBatchWithFee} is atomic and single-target, which is also what lets it
      *      declare a nonce target per request.
@@ -203,13 +195,8 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
     }
 
     /**
-     * @notice Relay a signed request and reclaim `fee` of `stableCoinAddress` from the target vault.
-     * @dev Charging AFTER the call, so a request that reverts costs the vault nothing. The budget is
-     *      checked BEFORE it, so a relay that could never be paid for fails while it is still cheap
-     *      instead of after the work is done.
-     * @param request The owner- or asset-manager-signed ForwardRequest.
-     * @param stableCoinAddress A stablecoin registered on the target vault.
-     * @param fee Amount to reclaim, in `stableCoinAddress` units. 0 relays without charging.
+     * @dev Charge after the call so a reverted request costs the vault nothing. Check the budget first
+     *      so a relay that could never be paid for fails before doing the work.
      */
     function executeWithFee(ForwardRequestData calldata request, address stableCoinAddress, uint256 fee)
         external
@@ -232,7 +219,6 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
     }
 
     /**
-     * @notice Relay several signed requests for ONE vault and charge a single fee for the lot.
      * @dev The reason to prefer this over repeated {executeWithFee}: each separate relay pays the
      *      21,000-gas transaction floor, the signature machinery and — the big one — a fresh ERC-20
      *      transfer plus budget write to collect its fee. Batching pays the floor once and collects
@@ -245,10 +231,6 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
      *      Atomic. OZ's non-atomic mode exists to refund unspent ETH on partial failure, which cannot
      *      arise here — these requests carry no value — and partial success would leave the owner
      *      charged for work that did not happen.
-     * @param requests Signed requests, all with `to` equal to `vault`.
-     * @param vault The target vault, charged once for the whole batch.
-     * @param stableCoinAddress A stable coin the vault's owner listed for gas.
-     * @param fee Total to reclaim for the batch. 0 relays without charging.
      */
     function executeBatchWithFee(
         ForwardRequestData[] calldata requests,

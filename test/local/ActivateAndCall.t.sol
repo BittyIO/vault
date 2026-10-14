@@ -16,6 +16,7 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
+import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {InvalidActivationSignature} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BITTY_GUARD, BITTY_VAULT_BOOTSTRAP, BITTY_FEE_COLLECTOR, CFG_GAS_WRAPPED} from "../../src/logic/Constants.sol";
@@ -25,7 +26,7 @@ interface IFacet {
     function updateAssets(address[] calldata add, address[] calldata remove) external;
     function updateProtocols(address[] calldata add, address[] calldata remove) external;
     function getClone(address protocol) external view returns (address);
-    function allowlistEnabled() external view returns (bool);
+    function usingBittyAllowList() external view returns (bool);
     function isProtocolAllowed(address protocol) external view returns (bool);
     function isAssetAllowed(address asset) external view returns (bool);
 }
@@ -62,7 +63,7 @@ contract ReenteringProtocol is IBittyV1Protocol, IBittyV1Yield, Ownable, Initial
     function deposit(address asset, uint256 amount) external override onlyOwner {
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         calledBack = true;
-        try BittyV1Vault(payable(msg.sender)).enableAllowlist() {
+        try BittyV1VaultDeFiFacet(payable(msg.sender)).useBittyAllowList(false) {
             callbackSucceeded = true;
         } catch {}
     }
@@ -92,6 +93,9 @@ contract ReenteringProtocol is IBittyV1Protocol, IBittyV1Yield, Ownable, Initial
  * activation cannot have calls added by the relayer; and a failing entry leaves no vault behind.
  */
 contract ActivateAndCallTest is Test {
+    /// Existing tests are not about expiry, so they sign a deadline that never passes.
+    uint256 constant DEADLINE = type(uint256).max;
+
     BittyV1VaultFactory factory;
     BittyV1Vault impl;
     MockGuard guard;
@@ -145,11 +149,14 @@ contract ActivateAndCallTest is Test {
         calls[2] = abi.encodeCall(IFacet.deposit, (address(proto), address(usdc), depositAmount));
     }
 
-    function _sign(address o, address asset, uint256 amount, bool allowlistEnabled, bytes[] memory calls, uint256 pk)
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _sign(
+        address o,
+        address asset,
+        uint256 amount,
+        bool restrictToOwnAllowList,
+        bytes[] memory calls,
+        uint256 pk
+    ) internal view returns (bytes memory) {
         bytes32[] memory hashes = new bytes32[](calls.length);
         for (uint256 i; i < calls.length; ++i) {
             hashes[i] = keccak256(calls[i]);
@@ -157,13 +164,14 @@ contract ActivateAndCallTest is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled,bytes[] calls)"
+                    "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool restrictToOwnAllowList,bytes[] calls,uint256 deadline)"
                 ),
                 o,
                 asset,
                 amount,
-                allowlistEnabled,
-                keccak256(abi.encodePacked(hashes))
+                restrictToOwnAllowList,
+                keccak256(abi.encodePacked(hashes)),
+                DEADLINE
             )
         );
         bytes32 domain = keccak256(
@@ -189,7 +197,7 @@ contract ActivateAndCallTest is Test {
 
         assertEq(vault, _predicted(), "the address did not move");
         assertEq(BittyV1Vault(payable(vault)).owner(), owner, "owned by the caller");
-        assertTrue(IFacet(vault).allowlistEnabled(), "activated with the allowlist on");
+        assertFalse(IFacet(vault).usingBittyAllowList(), "activated with the allowlist on");
         assertTrue(IFacet(vault).isAssetAllowed(address(usdc)), "the batch listed the asset");
         assertTrue(IFacet(vault).isProtocolAllowed(address(proto)), "the batch enabled the protocol");
         address clone = IFacet(vault).getClone(address(proto));
@@ -239,11 +247,11 @@ contract ActivateAndCallTest is Test {
         address vault = factory.activateVault(false, new bytes[](0));
         assertFalse(BittyV1Vault(payable(vault)).isTrustedForwarder(address(factory)), "not trusted at rest");
 
-        bytes memory forged = abi.encodePacked(abi.encodeCall(BittyV1Vault.enableAllowlist, ()), owner);
+        bytes memory forged = abi.encodePacked(abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false)), owner);
         vm.prank(address(factory));
         (bool ok,) = vault.call(forged);
         assertFalse(ok, "the suffix is ignored, so the factory is not the owner");
-        assertFalse(IFacet(vault).allowlistEnabled(), "and nothing changed");
+        assertTrue(IFacet(vault).usingBittyAllowList(), "and nothing changed");
     }
 
     /**
@@ -265,7 +273,7 @@ contract ActivateAndCallTest is Test {
         ReenteringProtocol clone = ReenteringProtocol(IFacet(vault).getClone(address(trap)));
         assertTrue(clone.calledBack(), "the callback was attempted");
         assertFalse(clone.callbackSucceeded(), "and refused");
-        assertFalse(IFacet(vault).allowlistEnabled(), "the owner-only switch stayed off");
+        assertTrue(IFacet(vault).usingBittyAllowList(), "the owner-only switch stayed off");
         assertEq(clone.getBalance(address(usdc)), 100e6, "the deposit itself went through");
     }
 
@@ -293,7 +301,7 @@ contract ActivateAndCallTest is Test {
         bytes memory sig = _sign(owner, address(usdc), 2e6, true, calls, ownerPk);
 
         vm.prank(relayer);
-        address vault = factory.activateVaultByAsset(owner, address(usdc), 2e6, true, calls, sig);
+        address vault = factory.activateVaultByAsset(owner, address(usdc), 2e6, true, calls, DEADLINE, sig);
 
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 2e6, "the relayer's fee was collected");
         address clone = IFacet(vault).getClone(address(proto));
@@ -307,7 +315,7 @@ contract ActivateAndCallTest is Test {
 
         vm.prank(relayer);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _onboarding(999e6), sig);
+        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _onboarding(999e6), DEADLINE, sig);
     }
 
     function test_theRelayerCannotAppendACall() public {
@@ -318,14 +326,14 @@ contract ActivateAndCallTest is Test {
         extra[0] = abi.encodeCall(IFacet.updateProtocols, (_one(address(proto)), _none()));
         vm.prank(relayer);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, extra, sig);
+        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, extra, DEADLINE, sig);
     }
 
     function test_aSignatureOverAnEmptyBatchStillOnlyActivates() public {
         usdc.mint(_predicted(), 100e6);
         bytes memory sig = _sign(owner, address(usdc), 2e6, true, new bytes[](0), ownerPk);
         vm.prank(relayer);
-        address vault = factory.activateVaultByAsset(owner, address(usdc), 2e6, true, new bytes[](0), sig);
+        address vault = factory.activateVaultByAsset(owner, address(usdc), 2e6, true, new bytes[](0), DEADLINE, sig);
         assertEq(BittyV1Vault(payable(vault)).owner(), owner);
         assertEq(usdc.balanceOf(vault), 98e6);
     }

@@ -12,11 +12,7 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {
-    IBittyV1Vault,
-    NotPayoutOperator,
-    OnlyImmutablePayableAfterRenounce
-} from "../../src/interfaces/IBittyV1Vault.sol";
+import {AutoYield, IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
 
 /*
@@ -28,12 +24,26 @@ uint32 constant MANAGER_PERMS = PERM_YIELD | PERM_SUPPLY | PERM_INTENT;
 
 /**
  * The whole point of the machinery, told as one story: the owner's key is compromised, the owner
- * renounces, and the vault keeps paying the person it was always meant to pay.
+ * locks the vault for ever, and goes on using it.
  *
- * Renouncing is the last thing an owner can do with a key they no longer trust. It is worth having
- * only if two things hold afterwards. The key must buy the attacker nothing — including through any
- * delegate the owner had appointed before the compromise, which the attacker inherits. And the
- * beneficiary must still be paid, with nobody left holding a key to make that happen.
+ * This used to end in a renounce — ownership thrown away, delegates fired, the vault left to pay its
+ * standing payments with nobody holding a key. That worked, and it cost the owner everything the
+ * vault was for: a position entered before the renounce could never be chosen out of, a balance in
+ * the wrong token could never be converted, and the only money that ever moved again was whatever
+ * had been scheduled in advance. The owner was protected from the thief by being locked out
+ * alongside them.
+ *
+ * {BittyV1Vault-foreverLock} is the better trade, and this file is the argument for it. The key
+ * stays live and so does the owner: they still pay the destinations they vetted, still push the
+ * standing payments, still sell holdings into stablecoins through a limit order, still unwind every
+ * position. What they can never do again — and therefore what the thief can never do either — is
+ * add risk. No new destination, no looser limit, no new delegate, no handover, no new code, and
+ * nothing taken away either, since removing an option the owner still has would be an attack in its
+ * own right.
+ *
+ * So the test of the design is not "is the attacker shut out", which no lock can achieve while they
+ * hold the key. It is: can the attacker profit, and can the owner still live in their vault. The
+ * answers below are no and yes.
  */
 contract CompromisedKeyTest is Test {
     BittyV1Vault vault;
@@ -41,6 +51,7 @@ contract CompromisedKeyTest is Test {
     MockGuard guard;
     MockERC20 usdc;
     MockLendingProtocol sky;
+    MockERC20 weth; // something the rescue payment is NOT denominated in
 
     address owner = makeAddr("owner"); // the key that gets compromised
     address manager = makeAddr("manager"); // appointed before the compromise
@@ -54,7 +65,7 @@ contract CompromisedKeyTest is Test {
     uint64 constant SUB_GRANT = 90 days;
 
     uint256 subId;
-    uint256 rescueId;
+    uint256 coldId;
 
     /// @dev A bare expectRevert would pass on any revert at all, including the wrong one.
     function _notOwner(address who) internal pure returns (bytes memory) {
@@ -91,155 +102,99 @@ contract CompromisedKeyTest is Test {
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
         sky = new MockLendingProtocol();
+        weth = new MockERC20("Wrapped Ether", "WETH", 18);
         guard.setAsset(address(usdc), ASSET_STABLE_COIN);
+        guard.setAsset(address(weth), ASSET_STABLE_COIN);
         guard.setProtocol(address(sky), LENDING_ID);
         usdc.mint(address(vault), 10_000e6);
+        weth.mint(address(vault), 5e18);
 
-        // A vault in normal service: a trading delegate, a keeper, and a standing payment to the
-        // person this vault exists for.
+        // A vault in normal service: a trading delegate, a keeper, and a destination the owner
+        // vetted long before anything went wrong.
         vm.startPrank(owner);
         _f().setAssetManager(manager, 0, MANAGER_PERMS);
         _f().setAutoYieldTrigger(keeper);
-        rescueId = vault.addScheduledPayment(
-            IBittyV1Vault.ScheduledPayment({
-                recipient: heir,
-                remainingPaymentCount: type(uint256).max,
-                isImmutable: true,
-                payWithInsufficientBalance: false,
-                trigger: address(0),
-                assetAddress: address(usdc),
-                amount: 500e6,
-                startTimestamp: block.timestamp,
-                paymentInterval: 30 days
-            })
-        );
+        coldId = vault.addWhitelistedRecipient(heir, address(0));
         vm.stopPrank();
     }
 
-    /// Everything is live before the compromise, so the test that follows is about what CHANGES.
-    function test_theVaultWorksBeforeTheCompromise() public {
+    /**
+     * The compromise, and the answer to it. One call, by the owner, with no preparation and no way
+     * back — because anything reversible is reversible by whoever else holds the key, and anything
+     * that had to be queued could be cancelled inside the queue.
+     */
+    function test_theForeverLockIsOneCallAndCannotBeUndone() public {
+        vm.prank(owner);
+        vault.foreverLock();
+        assertEq(vault.lockLevel(), 2);
+
+        vm.prank(owner);
+        vm.expectRevert();
+        vault.unlock();
+        assertEq(vault.lockLevel(), 2, "no key undoes this, including the owner's own");
+    }
+
+    /// The delegate the attacker inherits is held to the same line: it may unwind, never invest.
+    function test_theInheritedDelegateCanOnlyBringValueHome() public {
         vm.prank(manager);
         _f().deposit(address(sky), address(usdc), 1_000e6);
 
-        vault.payScheduled(rescueId, new address[](0));
-        assertEq(usdc.balanceOf(heir), 500e6, "the heir is being paid");
-    }
-
-    /**
-     * The compromise. The owner renounces, naming the immutable payment as the rescue target, and the
-     * key that was stolen is worth nothing from that block on — including the delegates it inherited.
-     */
-    function test_renouncingDisarmsTheStolenKeyAndEveryDelegateItHeld() public {
         vm.prank(owner);
-        vault.renounceVaultOwnership(rescueId);
-        assertEq(vault.owner(), address(0), "ownerless");
-
-        // The attacker holds the owner key. It opens nothing.
-        vm.startPrank(owner);
-        vm.expectRevert(NotPayoutOperator.selector);
-        vault.send(owner, address(usdc), 1e6, new address[](0), new uint256[](0));
-        vm.expectRevert(_notOwner(owner));
-        vault.transferOwnership(owner);
-        vm.expectRevert(_notOwner(owner));
-        _f().setAssetManager(owner, 0, MANAGER_PERMS);
-        vm.stopPrank();
-
-        // The delegates appointed BEFORE the compromise are the subtle part: the attacker inherits
-        // them, so renounce fires them rather than leaving a second key alive on an ownerless vault.
-        (address live,, address pending,) = _f().getAssetManagerSettings();
-        assertEq(live, address(0), "asset manager fired");
-        assertEq(pending, address(0), "and nothing queued behind them");
-        assertEq(_f().autoYieldTrigger(), address(0), "auto-yield trigger cleared");
+        vault.foreverLock();
 
         vm.prank(manager);
-        vm.expectRevert(_notOwner(manager));
-        _f().deposit(address(sky), address(usdc), 100e6);
+        vm.expectRevert();
+        _f().deposit(address(sky), address(usdc), 1_000e6);
 
-        assertEq(usdc.balanceOf(owner), 0, "the stolen key extracted nothing");
-        assertEq(usdc.balanceOf(manager), 0);
+        vm.prank(manager);
+        _f().withdraw(address(sky), address(usdc), 1_000e6);
+        assertEq(usdc.balanceOf(address(vault)), 10_000e6, "home, where the standing payments are paid from");
     }
 
-    /// The other half: the beneficiary keeps being paid, by anyone, forever, with no key in existence.
-    function test_theHeirKeepsBeingPaidWithNoKeyLeft() public {
+    /// And the keeper's sweep stops, because putting idle money to work is adding a position.
+    function test_theInheritedKeeperStops() public {
         vm.prank(owner);
-        vault.renounceVaultOwnership(rescueId);
+        _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(sky)}));
+        vm.prank(owner);
+        vault.foreverLock();
 
-        for (uint256 i; i < 4; ++i) {
-            vm.warp(START + (i + 1) * 30 days);
-            vm.prank(stranger); // a stranger pushes it through; nobody is privileged
-            vault.payScheduled(rescueId, new address[](0));
-        }
-        assertEq(usdc.balanceOf(heir), 4 * 500e6, "paid four times after the vault lost its owner");
+        vm.prank(keeper);
+        vm.expectRevert();
+        _f().autoYield(address(usdc));
     }
 
     /**
-     * The attacker cannot leave itself a DELAYED backdoor either: an immutable payment queued inside
-     * its protection window just before the renounce is invisible to the rescue check and locks only
-     * after — when nobody is left who could remove it. The payable set is frozen at the renounce, so
-     * such a payment must never pay, however long the attacker waits.
+     * The half the renounce could never do. A locked vault's holdings are not stuck in whatever
+     * token they happened to be in: the owner signs a limit order, solvers compete to fill it, and
+     * the proceeds arrive here in the asset the payments are denominated in. Buying anything else is
+     * refused, so the open trade is a conversion and not an exit.
      */
-    function test_paymentQueuedInsideItsWindowBeforeRenounceNeverPays() public {
-        address attacker = makeAddr("attacker");
-        uint256 unchanged = type(uint256).max;
-
-        // The compromised key queues a drain-everything payment to itself, still inside the protection
-        // window (raising the window is a tightening, so it applies immediately).
-        vm.startPrank(owner);
-        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(1 days, unchanged, unchanged, unchanged));
-        uint256 evilId = vault.addScheduledPayment(
-            IBittyV1Vault.ScheduledPayment({
-                recipient: attacker,
-                remainingPaymentCount: type(uint256).max,
-                isImmutable: true,
-                payWithInsufficientBalance: true,
-                trigger: attacker,
-                assetAddress: address(usdc),
-                amount: 10_000e6,
-                startTimestamp: block.timestamp,
-                paymentInterval: 0
-            })
-        );
-        vm.stopPrank();
-
-        // The legitimate holder renounces; the rescue payment is locked, so the renounce succeeds.
+    function test_theOwnerCanStillSellHoldingsIntoStablecoins() public {
+        MockERC20 shiny = new MockERC20("Shiny", "SHINY", 18);
+        guard.setAsset(address(shiny), 2);
         vm.prank(owner);
-        vault.renounceVaultOwnership(rescueId);
+        _f().updateAssets(_one(address(shiny)), new address[](0));
 
-        // One protection window later the attacker's payment would be "locked immutable" — but it was
-        // not locked AT the renounce, so it stays unpayable forever.
-        vm.warp(block.timestamp + 1 days + 1);
-        vm.prank(attacker);
-        vm.expectRevert(OnlyImmutablePayableAfterRenounce.selector);
-        vault.payScheduled(evilId, new address[](0));
-        assertEq(usdc.balanceOf(attacker), 0, "the backdoor paid nothing");
+        vm.prank(owner);
+        vault.foreverLock();
 
-        // While the heir — locked before the renounce — is still paid.
-        vault.payScheduled(rescueId, new address[](0));
-        assertEq(usdc.balanceOf(heir), 500e6, "the rescue payment survived");
+        assertTrue(
+            _f().isOffchainOrderAuthorized(owner, address(weth), address(usdc), 1e18), "into the payments' asset: yes"
+        );
+        assertFalse(
+            _f().isOffchainOrderAuthorized(owner, address(usdc), address(shiny), 1e6), "out into something else: no"
+        );
     }
 
-    /// Nothing else can be paid — the rescue payment is the only way value leaves an ownerless vault.
-    function test_onlyTheRescuePaymentSurvivesRenounce() public {
+    /**
+     * The gas budget closes with the lock. A thief cannot otherwise spend the vault's own money on
+     * relaying the calls that remain open — which costs them nothing, pays Bitty rather than
+     * themselves, and would drain the budget day after day. Relayed calls still work; the submitter
+     * pays, from an address the thief does not hold.
+     */
+    function test_theStolenKeyCannotSpendTheVaultsGasBudget() public {
         vm.prank(owner);
-        uint256 ordinary = vault.addScheduledPayment(
-            IBittyV1Vault.ScheduledPayment({
-                recipient: stranger,
-                remainingPaymentCount: 5,
-                isImmutable: false,
-                payWithInsufficientBalance: false,
-                trigger: address(0),
-                assetAddress: address(usdc),
-                amount: 100e6,
-                startTimestamp: block.timestamp,
-                paymentInterval: 0
-            })
-        );
-
-        vm.prank(owner);
-        vault.renounceVaultOwnership(rescueId);
-
-        vm.expectRevert(OnlyImmutablePayableAfterRenounce.selector);
-        vault.payScheduled(ordinary, new address[](0));
-        assertEq(usdc.balanceOf(stranger), 0, "a mutable payment cannot pay after renounce");
+        vault.foreverLock();
+        assertEq(vault.gasBudgetRemaining(), 0);
     }
 }

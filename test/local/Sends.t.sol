@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
+import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
@@ -12,7 +13,6 @@ import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {
     AddressZero,
     AmountIsZero,
-    NotPayoutOperator,
     PaymentNotStableCoin,
     PaymentExceedsRiskCap,
     PaymentExceedsPeriodLimit
@@ -22,9 +22,9 @@ import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 /**
  * One-off sends, and the two limits an owner can put on themselves.
  *
- * `maxSendValue` bounds a single transaction; `maxSendInterval` turns it into a rolling budget. Both
- * exist so a compromised owner key is rate-limited rather than instant — the delay window is what the
- * real owner uses to notice and react.
+ * `sendDailyAllowance` bounds a single transaction AND the day's total, which is one number doing both
+ * jobs: it exists so a compromised owner key is rate-limited rather than instant, and the day it
+ * takes to spend the next tranche is the time the real owner has to notice and lock.
  */
 contract SendsTest is Test {
     BittyV1Vault vault;
@@ -54,9 +54,6 @@ contract SendsTest is Test {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         usdc.mint(address(vault), 100_000e6);
         other.mint(address(vault), 100_000e18);
-
-        vm.prank(owner);
-        vault.updatePayoutOperator(operator, true);
     }
 
     function _send(address as_, address to, address asset, uint256 amount) internal {
@@ -71,12 +68,7 @@ contract SendsTest is Test {
 
     function _cap(uint256 c) internal {
         vm.prank(owner);
-        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(UNCHANGED, c, UNCHANGED, UNCHANGED));
-    }
-
-    function _window(uint256 w) internal {
-        vm.prank(owner);
-        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(UNCHANGED, UNCHANGED, w, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, c));
     }
 
     // ── the unrestricted default ──────────────────────────────────────────────
@@ -135,15 +127,20 @@ contract SendsTest is Test {
         assertEq(usdc.balanceOf(payee), 600e6);
     }
 
-    // ── the rolling window ────────────────────────────────────────────────────
+    // ── the rolling day ───────────────────────────────────────────────────────
 
     /**
-     * With an interval, the cap becomes a budget PER WINDOW rather than per transaction — so a
-     * compromised key cannot simply repeat a permitted send until the vault is empty.
+     * The cap is a budget per DAY rather than per transaction, so a compromised key cannot simply
+     * repeat a permitted send until the vault is empty.
+     *
+     * The period used to be a fifth risk number the owner set alongside the cap. It is a day now and
+     * cannot be set: a cap with a settable period is two numbers answering one question, and an
+     * owner who wants less out per day says so in the cap. A vault configured with a longer period
+     * before the collapse keeps it, since the same cap over a week lets less out than over a day —
+     * see {TimelockLib-sendPeriod}.
      */
-    function test_theWindowLimitsTotalOutflowNotJustOneSend() public {
+    function test_theSendDailyAllowanceLimitsTotalOutflowNotJustOneSend() public {
         _cap(1000);
-        _window(1 days);
 
         _send(owner, payee, address(usdc), 600e6);
         vm.prank(owner);
@@ -154,10 +151,9 @@ contract SendsTest is Test {
         assertEq(usdc.balanceOf(payee), 1000e6);
     }
 
-    /// It is a ROLLING window: it refills on its own once the interval has passed.
-    function test_theWindowRefillsAfterTheInterval() public {
+    /// It ROLLS: the allowance refills on its own once the day has passed.
+    function test_theSendDailyAllowanceRefillsAfterADay() public {
         _cap(1000);
-        _window(1 days);
         _send(owner, payee, address(usdc), 1000e6);
 
         vm.prank(owner);
@@ -166,47 +162,16 @@ contract SendsTest is Test {
 
         vm.warp(block.timestamp + 1 days);
         _send(owner, payee, address(usdc), 1000e6);
-        assertEq(usdc.balanceOf(payee), 2000e6, "a fresh window, a fresh budget");
-    }
-
-    // ── proposals ─────────────────────────────────────────────────────────────
-
-    /// A payout operator's send is a PROPOSAL: nothing moves until the owner approves it.
-    function test_operatorProposesAndOwnerApproves() public {
-        vm.prank(operator);
-        vault.send(payee, address(usdc), 10e6, new address[](0), new uint256[](0));
-        assertEq(usdc.balanceOf(payee), 0, "nothing moved yet");
-
-        vm.prank(owner);
-        vault.approveSend(0);
-        assertEq(usdc.balanceOf(payee), 10e6, "the owner released it");
-    }
-
-    function test_ownerCancelsAProposedSend() public {
-        vm.prank(operator);
-        vault.send(payee, address(usdc), 10e6, new address[](0), new uint256[](0));
-        vm.prank(owner);
-        vault.cancelSend(0);
-
-        vm.prank(owner);
-        vm.expectRevert();
-        vault.approveSend(0);
-        assertEq(usdc.balanceOf(payee), 0);
-    }
-
-    function test_operatorCannotApproveTheirOwnProposal() public {
-        vm.prank(operator);
-        vault.send(payee, address(usdc), 10e6, new address[](0), new uint256[](0));
-        vm.prank(operator);
-        vm.expectRevert();
-        vault.approveSend(0);
+        assertEq(usdc.balanceOf(payee), 2000e6, "a fresh day, a fresh budget");
     }
 
     // ── access and input ──────────────────────────────────────────────────────
 
     function test_strangersCannotSend() public {
         vm.prank(makeAddr("stranger"));
-        vm.expectRevert(NotPayoutOperator.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, makeAddr("stranger"))
+        );
         vault.send(payee, address(usdc), 1e6, new address[](0), new uint256[](0));
     }
 
@@ -217,19 +182,5 @@ contract SendsTest is Test {
         vm.expectRevert(AmountIsZero.selector);
         vault.send(payee, address(usdc), 0, new address[](0), new uint256[](0));
         vm.stopPrank();
-    }
-
-    function test_payoutOperatorCannotAlsoBeTheOwner() public {
-        vm.prank(owner);
-        vm.expectRevert();
-        vault.updatePayoutOperator(owner, true);
-    }
-
-    function test_ownerCanRemoveAnOperator() public {
-        vm.prank(owner);
-        vault.updatePayoutOperator(operator, false);
-        vm.prank(operator);
-        vm.expectRevert(NotPayoutOperator.selector);
-        vault.send(payee, address(usdc), 1e6, new address[](0), new uint256[](0));
     }
 }

@@ -23,10 +23,10 @@ import {
 } from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
 
 interface IVaultLP {
-    function addLiquidity(address amm, address token0, uint256 amount0, address token1, uint256 amount1, bytes calldata data)
+    function addLiquidity(address marketMaker, address token0, uint256 amount0, address token1, uint256 amount1, bytes calldata data)
         external;
-    function removeLiquidity(address amm, bytes calldata data) external;
-    function claimAMMFees(address amm, bytes calldata data) external;
+    function removeLiquidity(address marketMaker, bytes calldata data) external;
+    function claimMarketMakerFees(address marketMaker, bytes calldata data) external;
 }
 
 /**
@@ -61,7 +61,7 @@ contract DeFiUniswapLPForkTest is Test {
     function setUp() public {
         vm.createSelectFork("sepolia");
 
-        // Guard the vault reads from — register the real adapter as AMM and both tokens as assets.
+        // Guard the vault reads from — register the real adapter as a market maker and both tokens as assets.
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         guard = MockGuard(BITTY_GUARD);
 
@@ -177,7 +177,7 @@ contract DeFiUniswapLPForkTest is Test {
 
     // Would REVERT ("ERC721: transfer caller is not owner nor approved") when _positionNFT can't resolve
     // the adapter's NFT-manager getter, so the vault never approved the clone to pull the position NFT.
-    function test_vault_claimAMMFees_worksThroughRealAdapter() public {
+    function test_vault_claimMarketMakerFees_worksThroughRealAdapter() public {
         uint256 tokenId = _addLiquidity();
         bytes memory data = abi.encode(
             INonfungiblePositionManager.CollectParams({
@@ -188,7 +188,7 @@ contract DeFiUniswapLPForkTest is Test {
             })
         );
         vm.prank(owner);
-        IVaultLP(address(vault)).claimAMMFees(address(uniImpl), data);
+        IVaultLP(address(vault)).claimMarketMakerFees(address(uniImpl), data);
         // The position (and its NFT) survives a fee claim.
         assertEq(IERC721(npm).ownerOf(tokenId), address(vault), "vault keeps the NFT after claim");
     }

@@ -87,6 +87,9 @@ interface ISafeFallback {
  * — which both run through {SignatureChecker} and so must fall back to ERC-1271 correctly.
  */
 contract SafeOwnerTest is Test {
+    /// Existing tests are not about expiry, so they sign a deadline that never passes.
+    uint256 constant DEADLINE = type(uint256).max;
+
     ISafe safe;
     BittyV1Vault vault;
     BittyV1VaultFactory factory;
@@ -207,11 +210,11 @@ contract SafeOwnerTest is Test {
                 (makeAddr("manager"), 0, PERM_YIELD | PERM_SUPPLY | PERM_INTENT)
             )
         );
-        (address manager,,,) = BittyV1VaultDeFiFacet(payable(address(vault))).getAssetManagerSettings();
+        (address manager,,,,,) = BittyV1VaultDeFiFacet(payable(address(vault))).getAssetManagerSettings();
         assertEq(manager, makeAddr("manager"), "and appointed an asset manager");
     }
 
-    /// Nothing in the ownership path assumes an EOA — the nominee only has to be able to call.
+    /// Nothing in the ownership path assumes an EOA: a Safe can hold a vault like any address.
     function test_ownershipCanBeHandedToASafe() public {
         address eoa = makeAddr("eoa");
         BittyV1Vault v = BittyV1Vault(
@@ -223,10 +226,7 @@ contract SafeOwnerTest is Test {
 
         vm.prank(eoa);
         v.transferOwnership(address(safe));
-        assertEq(v.owner(), eoa, "not yet - the nominee must accept");
-
-        _exec(address(v), abi.encodeCall(BittyV1Vault.acceptOwnership, ()));
-        assertEq(v.owner(), address(safe), "the Safe proved it can call, and took it");
+        assertEq(v.owner(), address(safe), "handed over in the one call");
     }
 
     // ── signed authority: ERC-1271 through SignatureChecker ───────────────────
@@ -235,45 +235,46 @@ contract SafeOwnerTest is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled,bytes[] calls)"
+                    "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool restrictToOwnAllowList,bytes[] calls,uint256 deadline)"
                 ),
                 address(safe),
                 address(0),
                 uint256(0),
                 true,
-                keccak256("")
+                keccak256(""),
+                DEADLINE
             )
         );
         bytes32 digest = _domain712("BittyV1VaultFactory", address(factory), structHash);
 
         vm.prank(relayer);
         address created =
-            factory.activateVaultByAsset(address(safe), address(0), 0, true, new bytes[](0), _sign1271(digest, 2));
+            factory.activateVaultByAsset(address(safe), address(0), 0, true, new bytes[](0), DEADLINE, _sign1271(digest, 2));
         assertEq(BittyV1Vault(payable(created)).owner(), address(safe), "born under a multisig");
     }
 
     function test_aSafeSignedRelayIsExecuted() public {
         ERC2771Forwarder.ForwardRequestData memory r =
-            _relay(address(safe), address(vault), abi.encodeCall(BittyV1Vault.enableAllowlist, ()), 2);
+            _relay(address(safe), address(vault), abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false)), 2);
         vm.prank(relayer);
         fwd.executeWithFee(r, address(usdc), 0);
-        assertTrue(BittyV1VaultDeFiFacet(payable(address(vault))).allowlistEnabled(), "relayed as the Safe");
+        assertFalse(BittyV1VaultDeFiFacet(payable(address(vault))).usingBittyAllowList(), "relayed as the Safe");
     }
 
     /// The threshold is the whole point of a multisig, so it has to survive the relay path intact.
     function test_oneSignatureIsNotEnoughForATwoOfThree() public {
         ERC2771Forwarder.ForwardRequestData memory r =
-            _relay(address(safe), address(vault), abi.encodeCall(BittyV1Vault.enableAllowlist, ()), 1);
+            _relay(address(safe), address(vault), abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false)), 1);
         vm.prank(relayer);
         vm.expectRevert();
         fwd.executeWithFee(r, address(usdc), 0);
-        assertFalse(BittyV1VaultDeFiFacet(payable(address(vault))).allowlistEnabled(), "nothing happened");
+        assertTrue(BittyV1VaultDeFiFacet(payable(address(vault))).usingBittyAllowList(), "nothing happened");
     }
 
     function test_anotherSafeSignatureDoesNotPassForThisOne() public {
         ISafe other = _deploySafe();
         ERC2771Forwarder.ForwardRequestData memory r =
-            _relay(address(other), address(vault), abi.encodeCall(BittyV1Vault.enableAllowlist, ()), 2);
+            _relay(address(other), address(vault), abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false)), 2);
         r.from = address(safe); // same signature, claimed for the wrong Safe
 
         vm.prank(relayer);
@@ -296,7 +297,7 @@ contract SafeOwnerTest is Test {
             value: 0,
             gas: 1_000_000,
             deadline: uint48(block.timestamp + 600),
-            data: abi.encodeCall(BittyV1Vault.enableAllowlist, ()),
+            data: abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false)),
             signature: ""
         });
         bytes32 structHash = keccak256(
@@ -323,8 +324,8 @@ contract SafeOwnerTest is Test {
         r.signature = _sign1271(digest, 2); // the same two owners, wrapped properly
         vm.prank(relayer);
         fwd.executeWithFee(r, address(usdc), 0);
-        assertTrue(
-            BittyV1VaultDeFiFacet(payable(address(vault))).allowlistEnabled(),
+        assertFalse(
+            BittyV1VaultDeFiFacet(payable(address(vault))).usingBittyAllowList(),
             "same signers, same digest - only the envelope differed"
         );
     }

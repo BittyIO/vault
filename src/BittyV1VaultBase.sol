@@ -2,26 +2,34 @@
 pragma solidity ^0.8.34;
 
 import {BittyV1AccountBase} from "./BittyV1AccountBase.sol";
-import {ContextUpgradeable} from "openzeppelin-contracts-upgradeable/utils/ContextUpgradeable.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {Ownable2StepUpgradeable} from "openzeppelin-contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {OwnershipNotRenounceable, ImplementationNotRegistered} from "./interfaces/IBittyV1Vault.sol";
+import {OwnershipNotRenounceable, ImplementationNotRegistered, VaultNotNewer} from "./interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD} from "./logic/Constants.sol";
+import {LockLib} from "./logic/LockLib.sol";
 import {IBittyV1Guard, IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 
 /**
  * @title BittyV1VaultBase
- * @notice The main vault's base: 2-step ownership (a mistake is terminal — no backstop) and
- *         owner-controlled UUPS upgrades. The upgrade target must be a guard-blessed implementation; the
- *         guard timelocks the blessing globally, so there is no per-vault delay. A vault stays upgradeable
- *         for life — there is no opt-out, so a bug found later is always patchable.
+ * @notice The main vault's base: ownership and owner-controlled UUPS upgrades. A handover runs on a
+ *         clock — started in one call and complete when the vault's timelock expires, with no
+ *         acceptance step — see {BittyV1Vault-transferOwnership} for why a wait beats a second
+ *         signature against a key
+ *         that has leaked, and {BittyV1Vault-owner} for how authority moves without a transaction.
+ *         Ownership cannot be given up: a vault with nobody answering for it was replaced by
+ *         {BittyV1Vault-foreverLock}, which freezes the same risk surface while leaving the owner
+ *         able to use what is left.
+ *
+ *         Upgrades are instant, and may only move forward. The target must be a guard-blessed
+ *         implementation and the guard timelocks the blessing globally, so the delay belongs there
+ *         rather than here: it is the code that has to prove itself, not the owner. A vault stays
+ *         upgradeable for life — there is no opt-out, so a bug found later is always patchable.
  */
-abstract contract BittyV1VaultBase is BittyV1AccountBase, Ownable2StepUpgradeable, UUPSUpgradeable {
-    uint256 private constant _VERSION = 1 * 1_000_000 + 0 * 1_000 + 3;
+abstract contract BittyV1VaultBase is BittyV1AccountBase, UUPSUpgradeable {
+    uint256 private constant _VERSION = 1 * 1_000_000 + 0 * 1_000 + 4;
 
-    function vaultVersion() external pure returns (uint256) {
+    function vaultVersion() external pure virtual returns (uint256) {
         return _VERSION;
     }
 
@@ -41,33 +49,23 @@ abstract contract BittyV1VaultBase is BittyV1AccountBase, Ownable2StepUpgradeabl
 
     function _authorizeUpgrade(address newImpl) internal view override {
         _checkOwner();
+        LockLib.requireNotLocked();
         if (!IBittyV1Guard(BITTY_GUARD).isImplementationRegisteredFor(newImpl, IMPLEMENTATION_VAULT)) {
             revert ImplementationNotRegistered();
         }
+        if (BittyV1VaultBase(payable(newImpl)).vaultVersion() <= this.vaultVersion()) revert VaultNotNewer();
     }
 
-    function _msgSender() internal view override(BittyV1AccountBase, ContextUpgradeable) returns (address) {
+    function _msgSender() internal view override returns (address) {
         return BittyV1AccountBase._msgSender();
     }
 
-    function _msgData() internal view override(BittyV1AccountBase, ContextUpgradeable) returns (bytes calldata) {
+    function _msgData() internal view override returns (bytes calldata) {
         return BittyV1AccountBase._msgData();
     }
 
-    function _contextSuffixLength() internal view override(BittyV1AccountBase, ContextUpgradeable) returns (uint256) {
+    function _contextSuffixLength() internal view override returns (uint256) {
         return BittyV1AccountBase._contextSuffixLength();
-    }
-
-    function transferOwnership(address newOwner)
-        public
-        override(OwnableUpgradeable, Ownable2StepUpgradeable)
-        onlyOwner
-    {
-        Ownable2StepUpgradeable.transferOwnership(newOwner);
-    }
-
-    function _transferOwnership(address newOwner) internal override(OwnableUpgradeable, Ownable2StepUpgradeable) {
-        Ownable2StepUpgradeable._transferOwnership(newOwner);
     }
 
     function renounceOwnership() public pure override {

@@ -5,11 +5,11 @@ import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {DeFiLogic} from "./logic/DeFiLogic.sol";
 import {PaymentLogic} from "./logic/PaymentLogic.sol";
-import {ScheduledPaymentLogic} from "./logic/ScheduledPaymentLogic.sol";
 import {WhitelistLogic} from "./logic/WhitelistLogic.sol";
-import {GaslessLogic} from "./logic/GaslessLogic.sol";
+import {StableCoinAsGasLogic} from "./logic/StableCoinAsGasLogic.sol";
 import {RiskLogic} from "./logic/RiskLogic.sol";
-import {BittyStorage} from "./logic/BittyStorage.sol";
+import {LockLib} from "./logic/LockLib.sol";
+import {BittyStorage, VaultStorage} from "./logic/BittyStorage.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {IERC721} from "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 import {IBittyV1Owner} from "./interfaces/IBittyV1Owner.sol";
@@ -18,12 +18,12 @@ import {
     IBittyV1Vault,
     AddressZero,
     ArrayLengthMismatch,
-    InsufficientBalance,
-    NotPayoutOperator,
     NotTrustedForwarder,
     InvalidRelayedCalldata,
-    PendingOwnerIsPayoutOperator,
-    OwnerAndPayoutOperatorMustDiffer
+    VaultLocked,
+    NoPendingOwnershipTransfer,
+    OwnershipNotRenounceable,
+    PendingChanges
 } from "./interfaces/IBittyV1Vault.sol";
 
 interface IAutoYieldTrigger {
@@ -35,8 +35,7 @@ interface IAutoYieldTrigger {
  * @notice The main vault: owner payments + the owner's own DeFi (reached through fallback → shared
  *         {BittyV1VaultDeFiFacet}) + curated/timelocked/freezable UUPS upgrades (from
  *         {BittyV1VaultBase}). Payouts to arbitrary external addresses live only here and are
- *         owner/payout-operator gated.
- * @dev Renamed to BittyV1Vault at cutover.
+ *         owner-gated.
  */
 contract BittyV1Vault is BittyV1VaultBase {
     address public immutable DEFI_FACET;
@@ -46,16 +45,10 @@ contract BittyV1Vault is BittyV1VaultBase {
         _disableInitializers();
     }
 
-    /**
-     * @dev `calls` are the owner's first operations, run here as the owner so activation and, say, the
-     *      first deposit share one transaction. Ordered after the fee and the ETH wrap on purpose: a
-     *      batch cannot spend the stable coin the relayer is owed, and any ETH the counterfactual
-     *      address was funded with is already WETH by the time a call tries to use it.
-     */
     function initialize(
         address owner_,
         address gasWrapped_,
-        bool allowlistEnabled,
+        bool restrictToOwnAllowList,
         address activationAsset,
         uint256 activationAmount,
         bytes[] calldata calls
@@ -63,11 +56,11 @@ contract BittyV1Vault is BittyV1VaultBase {
         if (owner_ == address(0) || gasWrapped_ == address(0)) revert AddressZero();
         __Ownable_init(owner_);
         PaymentLogic.initialize(gasWrapped_);
-        DeFiLogic.initialize(allowlistEnabled);
+        DeFiLogic.initialize(restrictToOwnAllowList);
         if (activationAsset != address(0) && activationAmount != 0) {
-            GaslessLogic.payActivationFee(activationAsset, activationAmount);
+            StableCoinAsGasLogic.payActivationFee(activationAsset, activationAmount);
         }
-        if (allowlistEnabled) {
+        if (restrictToOwnAllowList) {
             if (activationAsset != address(0)) {
                 DeFiLogic.listInitialAsset(activationAsset);
             }
@@ -78,13 +71,27 @@ contract BittyV1Vault is BittyV1VaultBase {
         if (calls.length != 0) _runAsOwner(owner_, calls);
     }
 
-    modifier onlyOwnerOrPayoutOperator() {
-        if (_msgSender() != owner() && !PaymentLogic.isPayoutOperator(_msgSender())) revert NotPayoutOperator();
+    modifier notLocked() {
+        LockLib.requireNotLocked();
         _;
     }
 
-    function _byOwner() private view returns (bool) {
-        return _msgSender() == owner();
+    function lockLevel() external view returns (uint8) {
+        return LockLib.level();
+    }
+
+    function emergencyLock() external onlyOwner {
+        _settleOwnership();
+        LockLib.emergencyLock();
+    }
+
+    function unlock() external onlyOwner {
+        LockLib.unlock();
+    }
+
+    function foreverLock() external onlyOwner {
+        _settleOwnership();
+        LockLib.foreverLock();
     }
 
     function _gasWrapped() private view returns (address) {
@@ -95,17 +102,52 @@ contract BittyV1Vault is BittyV1VaultBase {
         return asset == address(0) ? _gasWrapped() : asset;
     }
 
-    function acceptOwnership() public override {
-        if (PaymentLogic.isPayoutOperator(_msgSender())) revert PendingOwnerIsPayoutOperator();
-        super.acceptOwnership();
+    function transferOwnership(address newOwner) public override onlyOwner notLocked {
+        if (newOwner == address(0)) revert OwnershipNotRenounceable();
+        _settleOwnership();
+        VaultStorage storage $ = BittyStorage.vault();
+        uint64 timelock = RiskLogic.riskTimelock();
+        if (timelock == 0) {
+            $.ownershipReadyAt = 0; // drop any handover still waiting; this one happens now
+            $.pendingOwner = address(0);
+            _transferOwnership(newOwner);
+            return;
+        }
+        uint64 readyAt = uint64(block.timestamp) + timelock;
+        $.ownershipReadyAt = uint40(readyAt);
+        $.pendingOwner = newOwner;
+        emit IBittyV1Owner.OwnershipTransferQueued(newOwner, readyAt);
     }
 
-    function renounceVaultOwnership(uint256 rescueScheduledPaymentId) external onlyOwner {
-        DeFiLogic.clearDelegates();
-        PaymentLogic.prepareRenounce(rescueScheduledPaymentId);
-        address formerOwner = _msgSender();
-        _transferOwnership(address(0));
-        emit IBittyV1Owner.OwnershipRenounced(formerOwner);
+    function cancelOwnershipTransfer() external onlyOwner {
+        _settleOwnership();
+        VaultStorage storage $ = BittyStorage.vault();
+        if ($.ownershipReadyAt == 0) revert NoPendingOwnershipTransfer();
+        address cancelled = $.pendingOwner;
+        $.ownershipReadyAt = 0;
+        $.pendingOwner = address(0);
+        emit IBittyV1Owner.OwnershipTransferCancelled(cancelled);
+    }
+
+    function settleOwnershipTransfer() external {
+        _settleOwnership();
+    }
+
+    function _settleOwnership() private {
+        VaultStorage storage $ = BittyStorage.vault();
+        uint256 readyAt = $.ownershipReadyAt;
+        if (readyAt == 0 || block.timestamp < readyAt) return;
+        address next = $.pendingOwner;
+        $.ownershipReadyAt = 0; // same slot as `vaultOwner`, so the handover is one warm write
+        $.pendingOwner = address(0);
+        _transferOwnership(next);
+    }
+
+    function _pendingOwnershipTransfer() private view returns (address target, uint64 readyAt) {
+        VaultStorage storage $ = BittyStorage.vault();
+        readyAt = $.ownershipReadyAt;
+        if (readyAt == 0 || block.timestamp >= readyAt) return (address(0), 0);
+        return ($.pendingOwner, readyAt);
     }
 
     receive() external payable {
@@ -135,27 +177,15 @@ contract BittyV1Vault is BittyV1VaultBase {
         }
     }
 
-    function enableAllowlist() external onlyOwner {
-        DeFiLogic.enableAllowlist();
-    }
-
-    function disableAllowlist() external onlyOwner {
-        DeFiLogic.disableAllowlist(RiskLogic.effectiveChangeTimelock());
-    }
-
     function batchSend(
         address[] calldata recipients,
         address[] calldata assets,
         uint256[] calldata amounts,
         address[][] calldata withdrawProtocols,
         uint256[][] calldata withdrawAmounts
-    ) external onlyOwnerOrPayoutOperator {
-        if (_byOwner()) {
-            _pullFromPositions(assets, withdrawProtocols, withdrawAmounts);
-            PaymentLogic.send(recipients, assets, amounts);
-        } else {
-            PaymentLogic.proposeSend(recipients, assets, amounts, _msgSender());
-        }
+    ) external onlyOwner notLocked {
+        _pullFromPositions(assets, withdrawProtocols, withdrawAmounts);
+        PaymentLogic.send(recipients, assets, amounts);
     }
 
     function send(
@@ -164,144 +194,36 @@ contract BittyV1Vault is BittyV1VaultBase {
         uint256 amount,
         address[] calldata withdrawProtocols,
         uint256[] calldata withdrawAmounts
-    ) external onlyOwnerOrPayoutOperator {
-        if (_byOwner()) {
-            _pullOneFromPositions(asset, withdrawProtocols, withdrawAmounts);
-            address[] memory r = new address[](1);
-            address[] memory a = new address[](1);
-            uint256[] memory m = new uint256[](1);
-            r[0] = recipient;
-            a[0] = asset;
-            m[0] = amount;
-            PaymentLogic.send(r, a, m);
-        } else {
-            PaymentLogic.proposeSendOne(recipient, asset, amount, _msgSender());
-        }
-    }
-
-    function reviewSends(uint256[] calldata approveIds, uint256[] calldata cancelIds) external onlyOwner {
-        PaymentLogic.reviewSends(approveIds, cancelIds, _msgSender());
-    }
-
-    function approveSend(uint256 id) external onlyOwner {
-        PaymentLogic.approveSendOne(id);
-    }
-
-    function cancelSend(uint256 id) external onlyOwnerOrPayoutOperator {
-        PaymentLogic.cancelSendOne(id, _byOwner(), _msgSender());
-    }
-
-    function cancelSends(uint256[] calldata ids) external onlyOwnerOrPayoutOperator {
-        PaymentLogic.cancelSends(ids, _byOwner(), _msgSender());
-    }
-
-    function addScheduledPayment(IBittyV1Vault.ScheduledPayment calldata sp)
-        external
-        onlyOwnerOrPayoutOperator
-        returns (uint256)
-    {
-        return ScheduledPaymentLogic.addScheduledPaymentOne(sp, _byOwner(), _msgSender());
-    }
-
-    function updateScheduledPayments(uint256[] calldata ids, IBittyV1Vault.ScheduledPayment[] calldata sps)
-        external
-        onlyOwnerOrPayoutOperator
-    {
-        ScheduledPaymentLogic.updateScheduledPayments(ids, sps, _byOwner(), _msgSender());
-    }
-
-    function removeScheduledPayments(uint256[] calldata ids) external onlyOwnerOrPayoutOperator {
-        ScheduledPaymentLogic.removeScheduledPayments(ids, _byOwner(), _msgSender());
-    }
-
-    function reviewScheduledPayments(
-        uint256[] calldata approveIds,
-        bytes32[] calldata expectedHashes,
-        uint256[] calldata cancelIds
-    ) external onlyOwner {
-        ScheduledPaymentLogic.reviewScheduledPayments(approveIds, expectedHashes, cancelIds, _msgSender());
-    }
-
-    function payScheduled(uint256 id, address[] calldata withdrawProtocols) external {
-        (
-            bool skipped,
-            address recipient,
-            address asset,
-            address payoutToken,
-            uint256 needed,
-            uint256 have,
-            bool allowPartial,
-            uint256 count
-        ) = ScheduledPaymentLogic.accrueScheduled(id, _msgSender(), withdrawProtocols.length > 0);
-        if (skipped) return;
-        _settleScheduledPayout(id, recipient, asset, payoutToken, needed, have, allowPartial, count, withdrawProtocols);
-    }
-
-    function payScheduledAmount(uint256 id, uint256 amount, address[] calldata withdrawProtocols) external {
-        (
-            bool skipped,
-            address recipient,
-            address asset,
-            address payoutToken,
-            uint256 target,
-            uint256 have,
-            bool allowPartial,
-            uint256 count
-        ) = ScheduledPaymentLogic.accrueScheduledAmount(id, amount, _msgSender(), withdrawProtocols.length > 0);
-        if (skipped) return;
-        _settleScheduledPayout(id, recipient, asset, payoutToken, target, have, allowPartial, count, withdrawProtocols);
-    }
-
-    function _settleScheduledPayout(
-        uint256 id,
-        address recipient,
-        address asset,
-        address payoutToken,
-        uint256 needed,
-        uint256 have,
-        bool allowPartial,
-        uint256 count,
-        address[] calldata withdrawProtocols
-    ) private {
-        bool native = asset == address(0);
-        uint256 covered = have >= needed
-            ? 0
-            : _coverShortfall(withdrawProtocols, payoutToken, native ? address(this) : recipient, needed - have);
-
-        uint256 raw = (have < needed ? have : needed) + covered;
-        uint256 delivered = raw < needed ? raw : needed;
-        if (delivered == 0 || (delivered < needed && !allowPartial)) revert InsufficientBalance();
-
-        ScheduledPaymentLogic.payScheduledOut(asset, recipient, native ? delivered : (have < needed ? have : needed));
-        emit IBittyV1Vault.ScheduledPaymentPaid(id, recipient, asset, delivered, count);
+    ) external onlyOwner notLocked {
+        _pullOneFromPositions(asset, withdrawProtocols, withdrawAmounts);
+        address[] memory r = new address[](1);
+        address[] memory a = new address[](1);
+        uint256[] memory m = new uint256[](1);
+        r[0] = recipient;
+        a[0] = asset;
+        m[0] = amount;
+        PaymentLogic.send(r, a, m);
     }
 
     function addWhitelistedRecipient(address recipient, address allowedAsset)
         external
-        onlyOwnerOrPayoutOperator
+        onlyOwner
+        notLocked
         returns (uint256)
     {
-        return WhitelistLogic.addWhitelistedRecipientOne(recipient, allowedAsset, _byOwner(), _msgSender());
+        return WhitelistLogic.addWhitelistedRecipientOne(recipient, allowedAsset);
     }
 
     function updateWhitelistedRecipients(
         uint256[] calldata ids,
         address[] calldata recipients,
         address[] calldata allowedAssets
-    ) external onlyOwnerOrPayoutOperator {
-        WhitelistLogic.updateWhitelistedRecipients(ids, recipients, allowedAssets, _byOwner(), _msgSender());
+    ) external onlyOwner notLocked {
+        WhitelistLogic.updateWhitelistedRecipients(ids, recipients, allowedAssets);
     }
 
-    function removeWhitelistedRecipients(uint256[] calldata ids) external onlyOwnerOrPayoutOperator {
-        WhitelistLogic.removeWhitelistedRecipients(ids, _byOwner(), _msgSender());
-    }
-
-    function reviewWhitelistedRecipients(
-        uint256[] calldata approveIds,
-        bytes32[] calldata expectedHashes,
-        uint256[] calldata cancelIds
-    ) external onlyOwner {
-        WhitelistLogic.reviewWhitelistedRecipients(approveIds, expectedHashes, cancelIds, _msgSender());
+    function removeWhitelistedRecipients(uint256[] calldata ids) external onlyOwner notLocked {
+        WhitelistLogic.removeWhitelistedRecipients(ids);
     }
 
     function sendToWhitelistedRecipient(
@@ -315,54 +237,31 @@ contract BittyV1Vault is BittyV1VaultBase {
         WhitelistLogic.sendToWhitelistedRecipientOne(id, asset, amount);
     }
 
-    function updatePaymentRisk(IBittyV1Owner.PaymentRisk calldata paymentRisk) external onlyOwner {
-        RiskLogic.updatePaymentRisk(paymentRisk);
+    function updateRisk(IBittyV1Owner.RiskSettings calldata settings) external onlyOwner notLocked {
+        RiskLogic.updateRisk(settings);
     }
 
-    function updatePayoutOperator(address payoutOperator, bool add) external onlyOwner {
-        if (add && payoutOperator == owner()) revert OwnerAndPayoutOperatorMustDiffer();
-        PaymentLogic.updatePayoutOperatorOne(payoutOperator, add);
-        emit IBittyV1Owner.PayoutOperatorUpdated(payoutOperator, add);
+    function setStableCoinAsGas(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp)
+        external
+        onlyOwner
+        notLocked
+    {
+        StableCoinAsGasLogic.setStableCoinAsGas(assets, dailyLimit, maxFeePerOp);
     }
 
-    function setGasless(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp) external onlyOwner {
-        GaslessLogic.setGasless(assets, dailyLimit, maxFeePerOp);
+    function disableStableCoinAsGas() external onlyOwner notLocked {
+        StableCoinAsGasLogic.disableStableCoinAsGas();
     }
 
-    function disableGasless() external onlyOwner {
-        GaslessLogic.disableGasless();
-    }
-
-    /**
-     * @dev The forwarder, AND only while it is settling a fee for this vault.
-     *
-     *      `msg.sender == trustedForwarder()` is true of every relayed call as well, which is the
-     *      whole point of ERC-2771 — so on its own it authorised the charge from inside any relayed
-     *      request that could reach this function. {multicall} self-delegatecalls each entry with
-     *      `msg.sender` untouched, so `multicall([payRelayerFee(USDC, 10e6) x 10])`, signed by a key
-     *      with no role anywhere, moved a day's budget to the fee collector — of every vault, every
-     *      day, by default.
-     *
-     *      The second half asks the question that was actually meant: the forwarder opens a transient
-     *      window around its own settlement step naming the vault it is about to charge (see
-     *      {BittyV1VaultForwarder-_CHARGING_SLOT}), and nothing else can open it. Inside a relayed
-     *      request the window is shut, so the charge is refused however it was reached and however
-     *      deeply it was nested — including through paths nobody has thought of yet, which is what
-     *      the selector guards cannot promise.
-     *
-     *      Requires a forwarder that has the window. The forwarder is upgradeable and must be
-     *      upgraded FIRST: a vault on this code against an older forwarder has no `chargingVault` to
-     *      call, so the staticcall returns nothing, this reverts, and the vault simply cannot be
-     *      charged — safe, but gasless stops working for it. The other order is harmless.
-     */
     function payRelayerFee(address asset, uint256 amount) external {
         if (msg.sender != trustedForwarder() || IBittyV1Forwarder(msg.sender).chargingVault() != address(this)) {
             revert NotTrustedForwarder();
         }
-        GaslessLogic.payRelayerFee(asset, amount);
+        if (LockLib.lockedForever()) revert VaultLocked();
+        StableCoinAsGasLogic.payRelayerFee(asset, amount);
     }
 
-    function retrieve721(address contractAddress, uint256 tokenId, address to) external onlyOwner {
+    function retrieve721(address contractAddress, uint256 tokenId, address to) external onlyOwner notLocked {
         if (to == address(0)) revert AddressZero();
         DeFiLogic.checkNotProtocolNFT(contractAddress);
         IERC721(contractAddress).safeTransferFrom(address(this), to, tokenId);
@@ -400,39 +299,14 @@ contract BittyV1Vault is BittyV1VaultBase {
         }
     }
 
-    /**
-     * @dev Funds a payout shortfall from the caller-chosen list of the vault's OWN positions. Counts
-     *      only what actually ARRIVES at the sink, never what an adapter reports, and refuses an entry
-     *      that delivers nothing: an asynchronous exit (Lido's withdrawal queue) consumes the position,
-     *      returns 0 and funds nothing in this call, so trusting the list would let any caller of a
-     *      trigger-less payment unstake the owner's positions as a side effect — repeatably, one list
-     *      entry at a time. Reverting instead unwinds the queue request opened in the same call, so a
-     *      list naming an asynchronous protocol fails whole rather than succeeding with a side effect.
-     */
-    function _coverShortfall(address[] calldata withdrawProtocols, address payoutToken, address sink, uint256 shortfall)
-        private
-        returns (uint256 covered)
-    {
-        for (uint256 i = 0; i < withdrawProtocols.length && covered < shortfall; i++) {
-            address protocol = withdrawProtocols[i];
-            if (protocol == address(0)) continue;
-            uint256 available = DeFiLogic.protocolBalance(protocol, payoutToken);
-            if (available == 0) continue;
-            uint256 remaining = shortfall - covered;
-            uint256 sinkBefore = IERC20(payoutToken).balanceOf(sink);
-            DeFiLogic.withdraw(protocol, payoutToken, available < remaining ? available : remaining, sink);
-            uint256 got = IERC20(payoutToken).balanceOf(sink) - sinkBefore;
-            if (got == 0) revert InsufficientBalance();
-            covered += got;
-        }
+    function pendingChanges() external view returns (PendingChanges memory p) {
+        p = RiskLogic.pendingChanges();
+        (p.newOwner, p.newOwnerReadyAt) = _pendingOwnershipTransfer();
+        (p.newAssetManager, p.newAssetManagerAt, p.newAssetManagerPerms) = DeFiLogic._pendingAssetManagerGrant();
     }
 
-    function getRiskConfig()
-        external
-        view
-        returns (uint64 newPaymentProtection, uint64 maxSendValue, uint64 changeTimelock, uint64 maxSendInterval)
-    {
-        return RiskLogic.getRiskConfig();
+    function riskSettings() external view returns (uint64 timelock, uint64 sendDailyAllowance) {
+        return RiskLogic.riskSettings();
     }
 
     function getWhitelistedRecipients(uint256[] calldata ids)
@@ -443,16 +317,21 @@ contract BittyV1Vault is BittyV1VaultBase {
         return WhitelistLogic.getWhitelistedRecipients(ids);
     }
 
-    function gaslessConfig() external view returns (address[] memory assets, uint256 dailyLimit, uint256 maxFeePerOp) {
-        return (GaslessLogic.getGaslessAssets(), GaslessLogic.gasBudgetDailyLimit(), GaslessLogic.maxFeePerOpValue());
+    function stableCoinAsGasConfig()
+        external
+        view
+        returns (address[] memory assets, uint256 dailyLimit, uint256 maxFeePerOp)
+    {
+        return (
+            StableCoinAsGasLogic.getStableCoinAsGasAssets(),
+            StableCoinAsGasLogic.gasBudgetDailyLimit(),
+            StableCoinAsGasLogic.maxFeePerOpValue()
+        );
     }
 
     function gasBudgetRemaining() external view returns (uint256) {
-        return GaslessLogic.gasBudgetRemaining();
-    }
-
-    function isPayoutOperator(address account) external view returns (bool) {
-        return PaymentLogic.isPayoutOperator(account);
+        if (LockLib.lockedForever()) return 0;
+        return StableCoinAsGasLogic.gasBudgetRemaining();
     }
 
     function isStableCoinAllowed(address asset) external view returns (bool) {

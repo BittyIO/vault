@@ -8,6 +8,11 @@ import {ASSET_STABLE_COIN, IMPLEMENTATION_VAULT} from "guard-contracts/src/inter
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
+import {
+    VaultAlreadyActivated,
+    InvalidActivationSignature,
+    ActivationSignatureExpired
+} from "../../src/interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
@@ -29,11 +34,14 @@ import {
  * exists — which is what makes the pay-in-stable-coin path possible for someone with no ETH at all.
  */
 interface IAllowlistView {
-    function allowlistEnabled() external view returns (bool);
+    function usingBittyAllowList() external view returns (bool);
     function isAssetAllowed(address asset) external view returns (bool);
 }
 
 contract FactoryTest is Test {
+    /// Existing tests are not about expiry, so they sign a deadline that never passes.
+    uint256 constant DEADLINE = type(uint256).max;
+
     BittyV1VaultFactory factory;
     BittyV1Vault impl;
     MockGuard guard;
@@ -69,7 +77,8 @@ contract FactoryTest is Test {
         return _sign(o, asset, amount, true, pk);
     }
 
-    function _sign(address o, address asset, uint256 amount, bool allowlistEnabled, uint256 pk)
+    /// Signs an explicit `deadline`, for the tests that are about expiry.
+    function _signUntil(address o, address asset, uint256 amount, uint256 deadline, uint256 pk)
         internal
         view
         returns (bytes memory)
@@ -77,13 +86,45 @@ contract FactoryTest is Test {
         bytes32 structHash = keccak256(
             abi.encode(
                 keccak256(
-                    "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled,bytes[] calls)"
+                    "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool restrictToOwnAllowList,bytes[] calls,uint256 deadline)"
                 ),
                 o,
                 asset,
                 amount,
-                allowlistEnabled,
-                keccak256("")
+                true,
+                keccak256(""),
+                deadline
+            )
+        );
+        bytes32 domain = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("BittyV1VaultFactory"),
+                keccak256("1"),
+                block.chainid,
+                address(factory)
+            )
+        );
+        (uint8 v, bytes32 r, bytes32 sg) = vm.sign(pk, keccak256(abi.encodePacked("\x19\x01", domain, structHash)));
+        return abi.encodePacked(r, sg, v);
+    }
+
+    function _sign(address o, address asset, uint256 amount, bool restrictToOwnAllowList, uint256 pk)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool restrictToOwnAllowList,bytes[] calls,uint256 deadline)"
+                ),
+                o,
+                asset,
+                amount,
+                restrictToOwnAllowList,
+                keccak256(""),
+                DEADLINE
             )
         );
         bytes32 domain = keccak256(
@@ -143,7 +184,7 @@ contract FactoryTest is Test {
         usdc.mint(predicted, 100e6); // deposited before the vault exists
 
         factory.activateVaultByAsset(
-            owner, address(usdc), 2e6, true, _noCalls(), _sign(owner, address(usdc), 2e6, ownerPk)
+            owner, address(usdc), 2e6, true, _noCalls(), DEADLINE, _sign(owner, address(usdc), 2e6, ownerPk)
         );
 
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 2e6, "we are repaid for the gas we fronted");
@@ -157,7 +198,7 @@ contract FactoryTest is Test {
         usdc.mint(predicted, 100e6);
         vm.prank(makeAddr("relayer"));
         factory.activateVaultByAsset(
-            owner, address(usdc), 2e6, true, _noCalls(), _sign(owner, address(usdc), 2e6, ownerPk)
+            owner, address(usdc), 2e6, true, _noCalls(), DEADLINE, _sign(owner, address(usdc), 2e6, ownerPk)
         );
         assertEq(BittyV1Vault(payable(predicted)).owner(), owner);
     }
@@ -168,7 +209,7 @@ contract FactoryTest is Test {
         (, uint256 wrongPk) = makeAddrAndKey("mallory");
         vm.expectRevert(InvalidActivationSignature.selector);
         factory.activateVaultByAsset(
-            owner, address(usdc), 2e6, true, _noCalls(), _sign(owner, address(usdc), 2e6, wrongPk)
+            owner, address(usdc), 2e6, true, _noCalls(), DEADLINE, _sign(owner, address(usdc), 2e6, wrongPk)
         );
     }
 
@@ -178,7 +219,7 @@ contract FactoryTest is Test {
         usdc.mint(predicted, 100e6);
         bytes memory sig = _sign(owner, address(usdc), 2e6, ownerPk);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByAsset(owner, address(usdc), 50e6, true, _noCalls(), sig);
+        factory.activateVaultByAsset(owner, address(usdc), 50e6, true, _noCalls(), DEADLINE, sig);
     }
 
     /// And so is the coin.
@@ -187,7 +228,7 @@ contract FactoryTest is Test {
         guard.setAsset(address(other), ASSET_STABLE_COIN);
         bytes memory sig = _sign(owner, address(usdc), 2e6, ownerPk);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByAsset(owner, address(other), 2e6, true, _noCalls(), sig);
+        factory.activateVaultByAsset(owner, address(other), 2e6, true, _noCalls(), DEADLINE, sig);
     }
 
     /**
@@ -198,9 +239,9 @@ contract FactoryTest is Test {
         address predicted = factory.vaultAddress(owner);
         usdc.mint(predicted, 100e6);
         bytes memory sig = _sign(owner, address(usdc), 2e6, ownerPk);
-        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _noCalls(), sig);
+        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _noCalls(), DEADLINE, sig);
         vm.expectRevert(VaultAlreadyActivated.selector);
-        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _noCalls(), sig);
+        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _noCalls(), DEADLINE, sig);
     }
 
     // ── initialize ────────────────────────────────────────────────────────────
@@ -220,10 +261,10 @@ contract FactoryTest is Test {
         guard.setConfigAddress(CFG_GAS_WRAPPED, address(usdc)); // wrapped-gas == the fee asset for this case
         usdc.mint(factory.vaultAddress(owner), 100e6);
         address v = factory.activateVaultByAsset(
-            owner, address(usdc), 2e6, true, _noCalls(), _sign(owner, address(usdc), 2e6, ownerPk)
+            owner, address(usdc), 2e6, true, _noCalls(), DEADLINE, _sign(owner, address(usdc), 2e6, ownerPk)
         );
 
-        assertTrue(IAllowlistView(v).allowlistEnabled(), "allowlist should be on");
+        assertFalse(IAllowlistView(v).usingBittyAllowList(), "allowlist should be on");
         assertTrue(IAllowlistView(v).isAssetAllowed(address(usdc)), "the fee asset is listed");
     }
 
@@ -249,20 +290,20 @@ contract FactoryTest is Test {
         usdc.mint(factory.vaultAddress(owner), 2e6);
         bytes memory signedForOn = _sign(owner, address(usdc), 2e6, true, ownerPk);
         vm.expectRevert(InvalidActivationSignature.selector);
-        factory.activateVaultByAsset(owner, address(usdc), 2e6, false, _noCalls(), signedForOn);
+        factory.activateVaultByAsset(owner, address(usdc), 2e6, false, _noCalls(), DEADLINE, signedForOn);
     }
 
     /// Activating with the allowlist OFF leaves the guard's catalog as the only gate.
     function test_activatingWithTheAllowlistOff() public {
         address v = factory.activateVault(false, _noCalls());
-        assertFalse(IAllowlistView(v).allowlistEnabled(), "allowlist should be off");
+        assertTrue(IAllowlistView(v).usingBittyAllowList(), "allowlist should be off");
         assertTrue(IAllowlistView(v).isAssetAllowed(address(usdc)), "guard-registered asset must pass");
     }
 
     /// ...and ON restricts to what the vault itself has listed.
     function test_activatingWithTheAllowlistOn() public {
         address v = factory.activateVault(true, _noCalls());
-        assertTrue(IAllowlistView(v).allowlistEnabled(), "allowlist should be on");
+        assertFalse(IAllowlistView(v).usingBittyAllowList(), "allowlist should be on");
         assertFalse(IAllowlistView(v).isAssetAllowed(address(usdc)), "unlisted asset must not pass");
     }
 
@@ -352,5 +393,59 @@ contract FactoryTest is Test {
     function _implOf(address proxy) internal view returns (address) {
         bytes32 slot = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
         return address(uint160(uint256(vm.load(proxy, slot))));
+    }
+
+    // ── the activation signature expires (audit L-06) ─────────────────────────
+
+    /**
+     * A vault can only be activated ONCE, so before it exists an activation signature stays valid
+     * for ever. Whoever holds one — a relayer backend, a leaked copy — could therefore activate
+     * months later with settings the owner had moved on from, and the `calls` inside it run with the
+     * owner's authority at a moment when the vault's change timelock is still zero. So the owner
+     * signs an expiry, and past it the signature is no longer an instruction.
+     */
+    function test_anActivationSignatureIsRefusedAfterItsDeadline() public {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signUntil(owner, address(usdc), 2e6, deadline, ownerPk);
+        usdc.mint(factory.vaultAddress(owner), 100e6);
+
+        vm.warp(deadline + 1);
+        vm.expectRevert(ActivationSignatureExpired.selector);
+        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _noCalls(), deadline, sig);
+    }
+
+    /// On the deadline itself it still works — the boundary is inclusive.
+    function test_anActivationSignatureWorksUpToAndIncludingItsDeadline() public {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signUntil(owner, address(usdc), 2e6, deadline, ownerPk);
+        usdc.mint(factory.vaultAddress(owner), 100e6);
+
+        vm.warp(deadline);
+        address vault = factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _noCalls(), deadline, sig);
+        assertEq(BittyV1Vault(payable(vault)).owner(), owner, "activated on the last second");
+    }
+
+    /// The deadline is signed, not merely passed — submitting a later one does not extend it.
+    function test_theDeadlineCannotBeStretchedBySubmittingADifferentOne() public {
+        uint256 signed = block.timestamp + 1 hours;
+        bytes memory sig = _signUntil(owner, address(usdc), 2e6, signed, ownerPk);
+        usdc.mint(factory.vaultAddress(owner), 100e6);
+
+        vm.expectRevert(InvalidActivationSignature.selector);
+        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _noCalls(), signed + 1 days, sig);
+    }
+
+    /**
+     * The owner's own escape hatch, and the reason no nonce is needed: activating themselves makes
+     * every outstanding signature useless, because a second activation cannot happen at all.
+     */
+    function test_activatingYourselfRetiresAnyOutstandingSignature() public {
+        bytes memory sig = _signUntil(owner, address(usdc), 2e6, block.timestamp + 365 days, ownerPk);
+
+        vm.prank(owner);
+        factory.activateVault(true, _noCalls());
+
+        vm.expectRevert(VaultAlreadyActivated.selector);
+        factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _noCalls(), block.timestamp + 365 days, sig);
     }
 }

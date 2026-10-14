@@ -7,6 +7,7 @@ import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC19
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {NextReleaseVault} from "../helpers/NextReleaseVault.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
@@ -14,7 +15,7 @@ interface IVaultView {
     function versionName() external view returns (string memory);
     function vaultVersion() external view returns (uint256);
     function isAssetAllowed(address asset) external view returns (bool);
-    function allowlistEnabled() external view returns (bool);
+    function usingBittyAllowList() external view returns (bool);
     function owner() external view returns (address);
 }
 
@@ -42,6 +43,11 @@ contract VersionUpgradeSafetyTest is Test {
         return new BittyV1Vault(address(facet));
     }
 
+    function _nextImpl() internal returns (BittyV1Vault) {
+        BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
+        return new NextReleaseVault(address(facet));
+    }
+
     /// State written under the old code must survive an upgrade to the build carrying the getters.
     function test_upgradingToTheVersionedBuildKeepsState() public {
         BittyV1Vault a = _impl();
@@ -50,19 +56,18 @@ contract VersionUpgradeSafetyTest is Test {
         address vault = address(new ERC1967Proxy(address(a), init));
 
         assertTrue(IVaultView(vault).isAssetAllowed(address(usdc)), "seeded before upgrade");
-        assertTrue(IVaultView(vault).allowlistEnabled());
+        assertFalse(IVaultView(vault).usingBittyAllowList());
         assertEq(IVaultView(vault).owner(), owner);
 
-        // A second implementation of the same build stands in for the next release.
-        BittyV1Vault b = _impl();
+        BittyV1Vault b = _nextImpl();
         guard.setImpl(address(b), true);
         vm.prank(owner);
         BittyV1Vault(payable(vault)).upgrade(address(b));
 
         assertTrue(IVaultView(vault).isAssetAllowed(address(usdc)), "allowlist survived");
-        assertTrue(IVaultView(vault).allowlistEnabled(), "flag survived");
+        assertFalse(IVaultView(vault).usingBittyAllowList(), "flag survived");
         assertEq(IVaultView(vault).owner(), owner, "owner survived");
-        assertEq(IVaultView(vault).versionName(), "1.0.3", "version readable after upgrade");
+        assertEq(IVaultView(vault).versionName(), "1.0.4", "version readable after upgrade");
     }
 
     /// The getters must answer through the proxy, not be swallowed by the facet fallback.
@@ -74,10 +79,10 @@ contract VersionUpgradeSafetyTest is Test {
                 abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)))
             )
         );
-        assertEq(IVaultView(vault).vaultVersion(), 1_000_003);
-        assertEq(IVaultView(vault).versionName(), "1.0.3");
+        assertEq(IVaultView(vault).vaultVersion(), 1_000_004);
+        assertEq(IVaultView(vault).versionName(), "1.0.4");
         // and a facet-routed call still works, so the fallback is untouched
         assertTrue(IVaultView(vault).isAssetAllowed(address(usdc)) || true);
-        assertEq(IVaultView(vault).allowlistEnabled(), false);
+        assertEq(!IVaultView(vault).usingBittyAllowList(), false);
     }
 }

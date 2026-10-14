@@ -11,14 +11,10 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {NextReleaseVault} from "../helpers/NextReleaseVault.sol";
 import {IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
-import {
-    OwnershipNotRenounceable,
-    PendingOwnerIsPayoutOperator,
-    InvalidRelayedCalldata,
-    NoRescueTarget
-} from "../../src/interfaces/IBittyV1Vault.sol";
-import {ImplementationNotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
+import {OwnershipNotRenounceable, InvalidRelayedCalldata} from "../../src/interfaces/IBittyV1Vault.sol";
+import {ImplementationNotRegistered, VaultNotNewer} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD, BITTY_FORWARDER} from "../../src/logic/Constants.sol";
 
 interface IFacet {
@@ -57,48 +53,44 @@ contract VaultCoreTest is Test {
 
     // ── ownership ─────────────────────────────────────────────────────────────
 
-    /// Two-step, so a typo in the new owner cannot orphan the vault.
-    function test_ownershipTransferIsTwoStep() public {
+    /**
+     * One step. The two-step version looked like a defence and was not one: a stolen key nominates
+     * itself and accepts in the same block, relayed, needing no ether. What it really bought was a
+     * typo check, at the price of every honest handover costing two transactions.
+     */
+    function test_ownershipTransferTakesEffectAtOnce() public {
         address next = makeAddr("next");
         vm.prank(owner);
         vault.transferOwnership(next);
-        assertEq(vault.owner(), owner, "not yet");
-
-        vm.prank(next);
-        vault.acceptOwnership();
-        assertEq(vault.owner(), next, "only once accepted");
+        assertEq(vault.owner(), next, "handed over in the one call");
     }
 
     /**
-     * A payout operator proposes payments for the owner to approve. If they could also BE the owner
-     * they would approve their own proposals, and the whole two-party check collapses.
+     * Abandoning is the same call, aimed at nobody: the delegates go with it, and the moment is
+     * stamped so only payments already locked immutable by then may ever pay.
      */
-    function test_aPayoutOperatorCannotBecomeTheOwner() public {
-        vm.startPrank(owner);
-        vault.updatePayoutOperator(operator, true);
-        vault.transferOwnership(operator);
-        vm.stopPrank();
-
-        vm.prank(operator);
-        vm.expectRevert(PendingOwnerIsPayoutOperator.selector);
-        vault.acceptOwnership();
+    /**
+     * Abandonment is gone, and {BittyV1Vault-foreverLock} is what replaced it. Throwing ownership
+     * away froze the risk surface at the price of everything the vault was for — no conversion, no
+     * unwinding by choice, no payment anywhere but where one had already been scheduled. The lock
+     * freezes the same surface and leaves all of that working.
+     */
+    function test_theVaultCannotBeAbandoned() public {
+        vm.prank(owner);
+        vm.expectRevert(OwnershipNotRenounceable.selector);
+        vault.transferOwnership(address(0));
+        assertEq(vault.owner(), owner);
     }
 
     /**
-     * OpenZeppelin's renounceOwnership would zero the owner while skipping the checks renounce must
-     * clear — a locked rescue payment and no open subs. Shut, so the only route is the one that
-     * enforces them; otherwise one call bricks the vault with the funds frozen inside.
+     * OpenZeppelin's own renounceOwnership would zero the owner while skipping what abandoning has
+     * to do — firing the delegates and stamping the moment that freezes the payable set. Shut, so
+     * the only route is `transferOwnership(address(0))`, which does both.
      */
     function test_plainRenounceOwnershipIsShut() public {
         vm.prank(owner);
         vm.expectRevert(OwnershipNotRenounceable.selector);
         vault.renounceOwnership();
-    }
-
-    function test_renounceNeedsARescueTarget() public {
-        vm.prank(owner);
-        vm.expectRevert(NoRescueTarget.selector);
-        vault.renounceVaultOwnership(1);
     }
 
     // ── upgrades ──────────────────────────────────────────────────────────────
@@ -108,8 +100,33 @@ contract VaultCoreTest is Test {
      * from a plain UUPS account: a compromised owner cannot install arbitrary code, only something
      * Bitty has already published.
      */
+    /**
+     * A vault may only move FORWARD. Blessing is not revoked the moment a release is superseded, so
+     * without this a thief holding the key could roll a vault back onto an older blessed
+     * implementation in one call — code that never heard of the locks, reads the lock level as a
+     * slot it does not use, and hands ownership over instantly. Every protection in this contract
+     * would be one downgrade away from gone.
+     */
+    function test_aVaultCannotBeDowngradedOrRePointedAtItself() public {
+        BittyV1Vault sameVersion = new BittyV1Vault(address(facet));
+        guard.setImpl(address(sameVersion), true);
+        vm.prank(owner);
+        vm.expectRevert(VaultNotNewer.selector);
+        vault.upgrade(address(sameVersion));
+
+        // Forward works, and then the build just left behind is refused as a target.
+        BittyV1Vault next = new NextReleaseVault(address(facet));
+        guard.setImpl(address(next), true);
+        vm.prank(owner);
+        vault.upgrade(address(next));
+
+        vm.prank(owner);
+        vm.expectRevert(VaultNotNewer.selector);
+        vault.upgrade(address(sameVersion));
+    }
+
     function test_upgradeOnlyToAGuardBlessedImplementation() public {
-        BittyV1Vault rogue = new BittyV1Vault(address(facet));
+        BittyV1Vault rogue = new NextReleaseVault(address(facet));
         vm.prank(owner);
         vm.expectRevert(ImplementationNotRegistered.selector);
         vault.upgrade(address(rogue));
@@ -120,7 +137,7 @@ contract VaultCoreTest is Test {
     }
 
     function test_onlyOwnerMayUpgrade() public {
-        BittyV1Vault next = new BittyV1Vault(address(facet));
+        BittyV1Vault next = new NextReleaseVault(address(facet));
         guard.setImpl(address(next), true);
         vm.prank(makeAddr("stranger"));
         vm.expectRevert();
@@ -200,21 +217,6 @@ contract VaultCoreTest is Test {
     function test_immutablesAreWired() public view {
         assertEq(vault.DEFI_FACET(), address(facet));
         assertEq(vault.trustedForwarder(), BITTY_FORWARDER);
-    }
-
-    // ── small reads the app depends on ────────────────────────────────────────
-
-    function test_theVaultReportsWhoItsPayoutOperatorsAre() public {
-        address op = makeAddr("payoutOperator");
-        assertFalse(vault.isPayoutOperator(op), "nobody yet");
-
-        vm.prank(owner);
-        vault.updatePayoutOperator(op, true);
-        assertTrue(vault.isPayoutOperator(op), "named");
-
-        vm.prank(owner);
-        vault.updatePayoutOperator(op, false);
-        assertFalse(vault.isPayoutOperator(op), "removed");
     }
 
     function test_theVaultReportsTheWethItUnwrapsThrough() public view {

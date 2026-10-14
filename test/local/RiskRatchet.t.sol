@@ -7,22 +7,34 @@ import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {PaymentProtectionTooLong} from "../../src/interfaces/IBittyV1Vault.sol";
+import {PendingChanges, RiskTimelockTooLong} from "../../src/interfaces/IBittyV1Vault.sol";
 import {RiskLogic} from "../../src/logic/RiskLogic.sol";
-import {BITTY_GUARD, MAX_DURATION} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MAX_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
 import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
 
 /**
- * THE RATCHET. Tightening applies immediately; loosening waits out `changeTimelock`.
+ * TWO KNOBS, AND THE RATCHET THAT GOVERNS BOTH.
  *
- * This is the property the whole risk model rests on: it is what makes a compromised owner BOUNDED
- * rather than instant, because the one thing an attacker wants — raising a cap, shortening a window,
- * removing a limit — is the one direction that cannot take effect today. If it silently stopped
- * ratcheting, every control below would still read back plausible values while enforcing nothing.
+ * The vault used to expose four risk numbers — a protection window for new payees, a send cap, the
+ * period that cap applied over, and the timelock on changing any of it. Four, where owners only ever
+ * had two questions: how long before something new can touch my money, and how much can leave in a
+ * day. The rest was the same question asked twice. A protection window and a change timelock are
+ * both "how long do I get to notice", and once the answer is one number there is nothing left for the
+ * period to vary independently of the cap.
  *
- * The asymmetry is per-field, because "safer" points in different directions:
- *   newPaymentProtection / maxSendInterval / changeTimelock  — LOWER is looser
- *   maxSendValue                                             — a cap where 0 means "no cap"
+ * So: `timelock` and `sendDailyAllowance`.
+ *
+ * `timelock` is now the single wait in front of everything deferred — a new whitelisted recipient, a
+ * new scheduled payment, an asset-manager grant, a handover of the vault, and every loosening of
+ * these two numbers. One knob the owner can reason about: "I get N hours to see anything new."
+ *
+ * THE RATCHET is unchanged and is what the whole model rests on. Tightening applies immediately;
+ * loosening waits out the timelock. It is what makes a compromised owner BOUNDED rather than
+ * instant, because the one thing an attacker wants — a bigger allowance, a shorter wait — is the one
+ * direction that cannot take effect today. Which way is "safer" still differs by knob:
+ *
+ *   timelock        — LOWER is looser (less time to notice)
+ *   sendDailyAllowance  — a cap, where 0 means "no cap", so higher-or-zero is looser
  */
 contract RiskRatchetTest is Test {
     BittyV1Vault vault;
@@ -40,232 +52,260 @@ contract RiskRatchetTest is Test {
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
     }
 
-    function _risk(uint256 prot, uint256 maxSend, uint256 interval, uint256 timelock) internal {
+    function _risk(uint256 timelock, uint256 sendDailyAllowance) internal {
         vm.prank(owner);
-        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(prot, maxSend, interval, timelock));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(timelock, sendDailyAllowance));
     }
 
-    function _cfg() internal view returns (uint64 prot, uint64 maxSend, uint64 timelock, uint64 interval) {
-        return vault.getRiskConfig();
+    function _cfg() internal view returns (uint64 timelock, uint64 sendDailyAllowance) {
+        return vault.riskSettings();
     }
 
     // ── the two directions ────────────────────────────────────────────────────
 
     // S-10: risk values are stored as uint64. A uint256 input above that range must REVERT, not silently
-    // truncate — `maxSendValue` wrapping to 0 would read as "no cap" and quietly disable the risk limit,
+    // truncate — `sendDailyAllowance` wrapping to 0 would read as "no cap" and quietly disable the limit,
     // and any wrapped value is a risk control set to something the owner never asked for.
     function test_outOfRangeRiskValueRevertsInsteadOfTruncating() public {
-        uint256 tooBig = uint256(type(uint64).max) + 1; // uint64(tooBig) == 0
-        bytes memory overflow =
-            abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, uint8(64), tooBig);
+        uint256 tooBig = uint256(type(uint64).max) + 1;
 
-        // setCap path (maxSendValue): wrapping to 0 would silently remove the cap.
         vm.prank(owner);
-        vm.expectRevert(overflow);
-        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(UNCHANGED, tooBig, UNCHANGED, UNCHANGED));
-
-        // setHigherSafer path (maxSendInterval).
-        vm.prank(owner);
-        vm.expectRevert(overflow);
-        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(UNCHANGED, UNCHANGED, tooBig, UNCHANGED));
+        vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, 64, tooBig));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, tooBig));
     }
 
-    /// Tightening is immediate. Someone reacting to something alarming is never made to wait.
     function test_tighteningAppliesImmediately() public {
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, 2 days); // arm the timelock first
-        _risk(UNCHANGED, 1000, UNCHANGED, UNCHANGED); // set a cap: tightening from "no cap"
-        (, uint64 maxSend,,) = _cfg();
-        assertEq(maxSend, 1000, "a cap where there was none takes effect now");
+        _risk(1 days, 1_000);
 
-        _risk(UNCHANGED, 100, UNCHANGED, UNCHANGED); // lower the cap
-        (, maxSend,,) = _cfg();
-        assertEq(maxSend, 100, "lowering a cap takes effect now");
+        // Both directions of tightening: a longer wait, and a smaller allowance.
+        _risk(3 days, 500);
+        (uint64 timelock, uint64 allowance) = _cfg();
+        assertEq(timelock, 3 days, "a longer wait is safer, so it lands now");
+        assertEq(allowance, 500, "and so is a smaller allowance");
     }
 
-    /// Loosening waits. This is the half an attacker needs and cannot have.
     function test_looseningIsDeferredByTheTimelock() public {
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, 2 days);
-        _risk(UNCHANGED, 100, UNCHANGED, UNCHANGED);
+        _risk(1 days, 500);
 
-        _risk(UNCHANGED, 10_000, UNCHANGED, UNCHANGED); // raise the cap
-        (, uint64 maxSend,,) = _cfg();
-        assertEq(maxSend, 100, "still the old, tighter cap");
+        _risk(UNCHANGED, 5_000);
+        (, uint64 allowance) = _cfg();
+        assertEq(allowance, 500, "not yet: raising the allowance is what an attacker wants");
 
-        vm.warp(block.timestamp + 2 days - 1);
-        (, maxSend,,) = _cfg();
-        assertEq(maxSend, 100, "one second before the deadline, still tight");
-
-        vm.warp(block.timestamp + 1);
-        (, maxSend,,) = _cfg();
-        assertEq(maxSend, 10_000, "and only then does it loosen");
+        vm.warp(block.timestamp + 1 days);
+        (, allowance) = _cfg();
+        assertEq(allowance, 5_000, "and it lands a day later, as the owner asked");
     }
 
-    /// Clearing a cap entirely (0 = no cap) is the largest loosening there is, so it waits too.
     function test_clearingACapIsALoosening() public {
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, 2 days);
-        _risk(UNCHANGED, 100, UNCHANGED, UNCHANGED);
+        _risk(1 days, 500);
 
-        _risk(UNCHANGED, 0, UNCHANGED, UNCHANGED);
-        (, uint64 maxSend,,) = _cfg();
-        assertEq(maxSend, 100, "0 means unlimited, so it cannot be immediate");
+        _risk(UNCHANGED, 0);
+        (, uint64 allowance) = _cfg();
+        assertEq(allowance, 500, "zero means no cap at all, so it waits like any other loosening");
 
-        vm.warp(block.timestamp + 2 days);
-        (, maxSend,,) = _cfg();
-        assertEq(maxSend, 0, "unlimited only after the wait");
+        vm.warp(block.timestamp + 1 days);
+        (, allowance) = _cfg();
+        assertEq(allowance, 0, "no cap");
     }
 
-    /// For a window, LOWER is looser — the opposite direction from a cap, same rule.
-    function test_shorteningAProtectionWindowIsALoosening() public {
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, 2 days);
-        _risk(7 days, UNCHANGED, UNCHANGED, UNCHANGED);
-        (uint64 prot,,,) = _cfg();
-        assertEq(prot, 7 days, "lengthening a window is tightening: immediate");
+    function test_shorteningTheWaitIsALoosening() public {
+        _risk(3 days, UNCHANGED);
 
-        _risk(1 days, UNCHANGED, UNCHANGED, UNCHANGED);
-        (prot,,,) = _cfg();
-        assertEq(prot, 7 days, "shortening waits");
+        _risk(1 hours, UNCHANGED);
+        (uint64 timelock,) = _cfg();
+        assertEq(timelock, 3 days, "a shorter wait gives the owner less time to notice");
 
-        vm.warp(block.timestamp + 2 days);
-        (prot,,,) = _cfg();
-        assertEq(prot, 1 days, "then applies");
+        vm.warp(block.timestamp + 3 days);
+        (timelock,) = _cfg();
+        assertEq(timelock, 1 hours);
     }
-
-    // ── the timelock protecting itself ────────────────────────────────────────
 
     /**
-     * The attack the ratchet would otherwise be wide open to: shorten the delay first, then loosen
-     * everything else instantly. Shortening the timelock is itself a loosening, so it waits out the
-     * OLD value — an attacker cannot buy speed with their first transaction.
+     * The one that would unravel everything else. If shortening the timelock took effect at once, an
+     * attacker would set it to zero and then loosen every other limit in the same transaction.
      */
     function test_theTimelockCannotBeShortenedToBypassItself() public {
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, 7 days);
-        _risk(UNCHANGED, 100, UNCHANGED, UNCHANGED);
+        _risk(7 days, 500);
 
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, 0); // try to drop the delay
-        (,, uint64 timelock,) = _cfg();
-        assertEq(timelock, 7 days, "still 7 days");
+        _risk(0, UNCHANGED);
+        (uint64 timelock,) = _cfg();
+        assertEq(timelock, 7 days, "still a week");
 
-        // And a loosening attempted now is still held for the full original delay.
-        _risk(UNCHANGED, 10_000, UNCHANGED, UNCHANGED);
-        vm.warp(block.timestamp + 7 days - 1);
-        (, uint64 maxSend,,) = _cfg();
-        assertEq(maxSend, 100, "the cap did not loosen early");
+        // And while that is pending, a loosening still waits out the OLD value.
+        _risk(UNCHANGED, 9_000);
+        vm.warp(block.timestamp + 1 days);
+        (, uint64 allowance) = _cfg();
+        assertEq(allowance, 500, "a day is not a week");
+
+        vm.warp(block.timestamp + 6 days);
+        (timelock, allowance) = _cfg();
+        assertEq(timelock, 0, "the wait is gone now");
+        assertEq(allowance, 9_000, "and the loosening landed on the old schedule, not the new one");
+    }
+
+    function test_lengtheningTheTimelockIsImmediate() public {
+        _risk(1 hours, UNCHANGED);
+        _risk(30 days, UNCHANGED);
+        (uint64 timelock,) = _cfg();
+        assertEq(timelock, 30 days, "more time to notice is always safe");
+    }
+
+    function test_aTighteningCancelsAPendingLoosening() public {
+        _risk(2 days, 500);
+        _risk(UNCHANGED, 5_000);
+
+        _risk(UNCHANGED, 100);
+        vm.warp(block.timestamp + 10 days);
+        (, uint64 allowance) = _cfg();
+        assertEq(allowance, 100, "the queued loosening is gone, not merely postponed");
+    }
+
+    function test_withoutATimelockEverythingIsImmediate() public {
+        _risk(UNCHANGED, 500);
+        _risk(UNCHANGED, 9_000);
+        (, uint64 allowance) = _cfg();
+        assertEq(allowance, 9_000, "a vault given no wait has nothing to wait for");
     }
 
     /**
-     * Lengthening the delay is a TIGHTENING, so it lands at once — and the pending loosening it
-     * overwrote is discarded rather than kept.
+     * A MONTH, not ten years, and the cap is a security bound rather than a usability one.
+     *
+     * Lengthening this number is a tightening, so it lands instantly; shortening it is a loosening
+     * and waits out the value being replaced. A stolen key can therefore set it as high as the cap
+     * allows in ONE call, and nobody can bring it down again until it has run — not the real owner,
+     * and not {BittyV1Vault-emergencyLock}, which voids changes that are still pending while this
+     * one already applied. The ceiling is how long that griefing can last.
+     *
+     * It is also how long an owner waits to add a payee, so the same number has to stay usable.
      */
-    function test_lengtheningTheTimelockIsImmediate() public {
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, 1 days);
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, 30 days);
-        (,, uint64 timelock,) = _cfg();
-        assertEq(timelock, 30 days, "raising the delay is immediate");
-    }
-
-    // ── settle / overwrite semantics ──────────────────────────────────────────
-
-    /// A tightening while a loosening is pending KILLS the pending one — it must not resurface.
-    function test_aTighteningCancelsAPendingLoosening() public {
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, 2 days);
-        _risk(UNCHANGED, 100, UNCHANGED, UNCHANGED);
-
-        _risk(UNCHANGED, 10_000, UNCHANGED, UNCHANGED); // queue a loosening
-        _risk(UNCHANGED, 50, UNCHANGED, UNCHANGED); // then tighten instead
-
-        (, uint64 maxSend,,) = _cfg();
-        assertEq(maxSend, 50, "the tightening is live");
-
-        vm.warp(block.timestamp + 30 days);
-        (, maxSend,,) = _cfg();
-        assertEq(maxSend, 50, "and the abandoned loosening never arrives");
-    }
-
-    /// With no timelock configured, everything is immediate — the ratchet is opt-in.
-    function test_withoutATimelockEverythingIsImmediate() public {
-        _risk(UNCHANGED, 100, UNCHANGED, UNCHANGED);
-        _risk(UNCHANGED, 10_000, UNCHANGED, UNCHANGED);
-        (, uint64 maxSend,,) = _cfg();
-        assertEq(maxSend, 10_000, "no delay configured, so nothing is deferred");
-    }
-
-    // ── bounds and access ─────────────────────────────────────────────────────
-
-    function test_protectionWindowIsBounded() public {
+    function test_theTimelockIsBounded() public {
         vm.prank(owner);
-        vm.expectRevert(PaymentProtectionTooLong.selector);
-        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(uint256(MAX_DURATION) + 1, UNCHANGED, UNCHANGED, UNCHANGED));
+        vm.expectRevert(RiskTimelockTooLong.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(uint256(MAX_RISK_TIMELOCK) + 1, UNCHANGED));
+
+        assertEq(MAX_RISK_TIMELOCK, 30 days, "a month");
+
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MAX_RISK_TIMELOCK, UNCHANGED));
+        (uint64 timelock,) = _cfg();
+        assertEq(timelock, 30 days, "the cap itself is allowed");
     }
 
-    /// The sentinel means "leave this one alone", so a partial update cannot silently reset the rest.
+    /**
+     * The attack the cap bounds, played out: the key sets the longest wait it can, and the owner
+     * cannot undo it for exactly that long.
+     */
+    function test_aStolenKeyCanFreezeTheWaitOnlyForTheCappedPeriod() public {
+        _risk(1 days, 500);
+
+        vm.prank(owner); // the leaked key
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MAX_RISK_TIMELOCK, UNCHANGED));
+        (uint64 timelock,) = _cfg();
+        assertEq(timelock, 30 days, "a tightening, so it landed at once and unasked");
+
+        // The real owner wants it back. Shortening is a loosening, so it waits out the new value.
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, UNCHANGED));
+        vm.warp(block.timestamp + 30 days - 1);
+        (timelock,) = _cfg();
+        assertEq(timelock, 30 days, "still stuck, and nothing can hurry it");
+
+        vm.warp(block.timestamp + 1);
+        (timelock,) = _cfg();
+        assertEq(timelock, 1 days, "and a month is the whole of the damage");
+    }
+
     function test_unchangedFieldsAreLeftAlone() public {
-        _risk(3 days, 500, 1 days, 2 days);
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, UNCHANGED);
-        (uint64 prot, uint64 maxSend, uint64 timelock, uint64 interval) = _cfg();
-        assertEq(prot, 3 days);
-        assertEq(maxSend, 500);
+        _risk(2 days, 777);
+        _risk(UNCHANGED, UNCHANGED);
+        (uint64 timelock, uint64 allowance) = _cfg();
         assertEq(timelock, 2 days);
-        assertEq(interval, 1 days);
+        assertEq(allowance, 777);
     }
 
     function test_onlyOwnerMayChangeRisk() public {
         vm.prank(makeAddr("stranger"));
         vm.expectRevert();
-        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(1 days, UNCHANGED, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, UNCHANGED));
     }
 
     /**
-     * A matured pending change is folded into the live value by the NEXT write, not only by reads.
-     * Without that, the write would compare against the stale value and could misclassify a tightening
-     * as a loosening — deferring a change the owner is entitled to have immediately.
+     * A loosening whose wait has elapsed is in force whether or not anything wrote since. The next
+     * write has to notice that and bank it, otherwise it would compare against a value that is no
+     * longer live and mis-classify the new setting's direction.
      */
     function test_aMaturedLooseningIsSettledByTheNextWrite() public {
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, 2 days);
-        _risk(UNCHANGED, 100, UNCHANGED, UNCHANGED);
-        _risk(UNCHANGED, 10_000, UNCHANGED, UNCHANGED);
+        _risk(1 days, 500);
+        _risk(UNCHANGED, 5_000);
+        vm.warp(block.timestamp + 1 days);
 
-        vm.warp(block.timestamp + 2 days);
-        (, uint64 maxSend,,) = _cfg();
-        assertEq(maxSend, 10_000, "matured");
-
-        _risk(UNCHANGED, 5_000, UNCHANGED, UNCHANGED);
-        (, maxSend,,) = _cfg();
-        assertEq(maxSend, 5_000, "measured against the settled 10,000, so this is a tightening");
+        // 3_000 is a TIGHTENING against the 5_000 now in force, so it must apply at once.
+        _risk(UNCHANGED, 3_000);
+        (, uint64 allowance) = _cfg();
+        assertEq(allowance, 3_000, "banked 5_000 first, then tightened to 3_000 immediately");
     }
 
-    function test_aMaturedWindowLooseningIsSettledByTheNextWrite() public {
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, 2 days);
-        _risk(10 days, UNCHANGED, UNCHANGED, UNCHANGED);
-        _risk(1 days, UNCHANGED, UNCHANGED, UNCHANGED);
+    function test_aMaturedWaitLooseningIsSettledByTheNextWrite() public {
+        _risk(10 days, UNCHANGED);
+        _risk(2 days, UNCHANGED);
+        vm.warp(block.timestamp + 10 days);
 
-        vm.warp(block.timestamp + 2 days);
-        (uint64 prot,,,) = _cfg();
-        assertEq(prot, 1 days, "matured");
-
-        _risk(3 days, UNCHANGED, UNCHANGED, UNCHANGED);
-        (prot,,,) = _cfg();
-        assertEq(prot, 3 days, "lengthening from the settled 1 day is a tightening, so immediate");
+        _risk(5 days, UNCHANGED);
+        (uint64 timelock,) = _cfg();
+        assertEq(timelock, 5 days, "2 days was live, so 5 days is a tightening and lands now");
     }
 
-    function test_aMaturedGasBudgetLooseningIsSettledByTheNextWrite() public {
-        address[] memory none = new address[](0);
-        _risk(UNCHANGED, UNCHANGED, UNCHANGED, 2 days);
+    // ── what the one knob now governs ─────────────────────────────────────────
 
-        vm.startPrank(owner);
-        vault.setGasless(none, 10, 5);
-        vault.setGasless(none, 80, 5);
-        vm.stopPrank();
+    /**
+     * The point of the collapse. One number stands in front of everything deferred, so an owner who
+     * sets "a day" gets a day's warning on a new payee, a new delegate and a handover alike — rather
+     * than having to discover that two different numbers governed two of those three.
+     */
+    function test_theOneTimelockGovernsEveryDeferredChange() public {
+        _risk(2 days, UNCHANGED);
+        address stranger = makeAddr("stranger");
 
-        (, uint256 daily,) = vault.gaslessConfig();
-        assertEq(daily, 10, "raising the ceiling waits");
-
-        vm.warp(block.timestamp + 2 days);
-        (, daily,) = vault.gaslessConfig();
-        assertEq(daily, 80, "matured");
-
+        // a new destination
         vm.prank(owner);
-        vault.setGasless(none, 40, 5);
-        (, daily,) = vault.gaslessConfig();
-        assertEq(daily, 40, "lowering from the settled 80 is a tightening, so immediate");
+        uint256 id = vault.addWhitelistedRecipient(stranger, address(0));
+
+        // a new delegate
+        vm.prank(owner);
+        BittyV1VaultDeFiFacet(payable(address(vault))).setAssetManager(stranger, 0, 1);
+
+        // and the vault itself
+        vm.prank(owner);
+        vault.transferOwnership(stranger);
+
+        PendingChanges memory p = vault.pendingChanges();
+        assertEq(p.newAssetManagerAt, block.timestamp + 2 days, "the delegate waits two days");
+        assertEq(p.newOwnerReadyAt, uint64(block.timestamp + 2 days), "so does the handover");
+        // The destination is not in this view at all — deferred additions are unbounded in number
+        // and belong to the client, which lists them from the events that created them. What the
+        // chain owes here is the enforcement: it is not payable yet.
+        vm.prank(owner);
+        vm.expectRevert();
+        vault.sendToWhitelistedRecipient(id, address(0), 1, new address[](0), new uint256[](0));
+    }
+
+    /// A pending loosening shows up in the one read the owner is meant to be watching.
+    function test_aPendingLooseningIsReportedToTheOwner() public {
+        _risk(2 days, 500);
+        _risk(UNCHANGED, 9_000);
+
+        PendingChanges memory p = vault.pendingChanges();
+        assertEq(p.sendDailyAllowance, 9_000, "someone is trying to raise the allowance");
+        assertEq(p.sendDailyAllowanceAt, uint64(block.timestamp + 2 days));
+        assertEq(p.timelockAt, 0, "and nothing is being done to the wait itself");
+    }
+
+    function test_aTighteningIsNeverReportedAsPending() public {
+        _risk(2 days, 500);
+        _risk(5 days, 100);
+
+        PendingChanges memory p = vault.pendingChanges();
+        assertEq(p.timelockAt, 0);
+        assertEq(p.sendDailyAllowanceAt, 0, "both already applied, so there is nothing to warn about");
     }
 }

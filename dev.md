@@ -228,7 +228,7 @@ forge verify-contract --chain sepolia --watch {ADDRESS} {PATH}:{NAME}
 ```
 
 for each of `src/logic/PaymentLogic.sol:PaymentLogic`, `DeFiLogic`, `SubVaultRegistryLogic`,
-`GaslessLogic`, `RiskLogic`, `ScheduledPaymentLogic`, `WhitelistLogic`,
+`StableCoinAsGasLogic`, `RiskLogic`, `ScheduledPaymentLogic`, `WhitelistLogic`,
 `src/BittyV1ForwarderBootstrap.sol:BittyV1ForwarderBootstrap`,
 `src/BittyV1VaultBootstrap.sol:BittyV1VaultBootstrap`,
 `src/BittyV1VaultForwarder.sol:BittyV1VaultForwarder` and
@@ -257,7 +257,7 @@ forge verify-contract --chain sepolia --watch {SUB_VAULT_IMPLEMENTATION} \
 forge verify-contract --chain sepolia --watch {VAULT_IMPLEMENTATION} \
   src/BittyV1Vault.sol:BittyV1Vault \
   --libraries "src/logic/DeFiLogic.sol:DeFiLogic:{DEFI_LOGIC}" \
-  --libraries "src/logic/GaslessLogic.sol:GaslessLogic:{GASLESS_LOGIC}" \
+  --libraries "src/logic/StableCoinAsGasLogic.sol:StableCoinAsGasLogic:{STABLE_COIN_AS_GAS_LOGIC}" \
   --libraries "src/logic/PaymentLogic.sol:PaymentLogic:{PAYMENT_LOGIC}" \
   --libraries "src/logic/RiskLogic.sol:RiskLogic:{RISK_LOGIC}" \
   --libraries "src/logic/ScheduledPaymentLogic.sol:ScheduledPaymentLogic:{SCHEDULED_PAYMENT_LOGIC}" \

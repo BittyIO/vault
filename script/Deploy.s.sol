@@ -26,9 +26,8 @@ import {
 import {IBittyV1Guard, IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {PaymentLogic} from "../src/logic/PaymentLogic.sol";
 import {DeFiLogic} from "../src/logic/DeFiLogic.sol";
-import {GaslessLogic} from "../src/logic/GaslessLogic.sol";
+import {StableCoinAsGasLogic} from "../src/logic/StableCoinAsGasLogic.sol";
 import {RiskLogic} from "../src/logic/RiskLogic.sol";
-import {ScheduledPaymentLogic} from "../src/logic/ScheduledPaymentLogic.sol";
 import {WhitelistLogic} from "../src/logic/WhitelistLogic.sol";
 
 /**
@@ -106,17 +105,13 @@ contract Deploy is DeployScript {
     function _deployLogicLibraries() private {
         _deployLibrary("PaymentLogic", address(PaymentLogic), type(PaymentLogic).creationCode);
         _deployLibrary("DeFiLogic", address(DeFiLogic), type(DeFiLogic).creationCode);
-        _deployLibrary("GaslessLogic", address(GaslessLogic), type(GaslessLogic).creationCode);
+        _deployLibrary("StableCoinAsGasLogic", address(StableCoinAsGasLogic), type(StableCoinAsGasLogic).creationCode);
         _deployLibrary("RiskLogic", address(RiskLogic), type(RiskLogic).creationCode);
-        _deployLibrary(
-            "ScheduledPaymentLogic", address(ScheduledPaymentLogic), type(ScheduledPaymentLogic).creationCode
-        );
         _deployLibrary("WhitelistLogic", address(WhitelistLogic), type(WhitelistLogic).creationCode);
         saveAddress("PAYMENT_LOGIC", address(PaymentLogic));
         saveAddress("DEFI_LOGIC", address(DeFiLogic));
-        saveAddress("GASLESS_LOGIC", address(GaslessLogic));
+        saveAddress("STABLE_COIN_AS_GAS_LOGIC", address(StableCoinAsGasLogic));
         saveAddress("RISK_LOGIC", address(RiskLogic));
-        saveAddress("SCHEDULED_PAYMENT_LOGIC", address(ScheduledPaymentLogic));
         saveAddress("WHITELIST_LOGIC", address(WhitelistLogic));
     }
 

@@ -131,8 +131,8 @@ contract ForwarderTest is Test {
     }
 
     /// An owner-only call, harmless and observable.
-    function _enableAllowlistCall() internal pure returns (bytes memory) {
-        return abi.encodeWithSignature("enableAllowlist()");
+    function _restrictToOwnListCall() internal pure returns (bytes memory) {
+        return abi.encodeWithSignature("useBittyAllowList(bool)", false);
     }
 
     function _req(address from, address to, bytes memory data)
@@ -184,8 +184,8 @@ contract ForwarderTest is Test {
         return r;
     }
 
-    function _allowlistOn(BittyV1Vault v) internal view returns (bool) {
-        (, bytes memory out) = address(v).staticcall(abi.encodeWithSignature("allowlistEnabled()"));
+    function _bittyListOn(BittyV1Vault v) internal view returns (bool) {
+        (, bytes memory out) = address(v).staticcall(abi.encodeWithSignature("usingBittyAllowList()"));
         return abi.decode(out, (bool));
     }
 
@@ -193,17 +193,17 @@ contract ForwarderTest is Test {
 
     function test_relayExecutesAsTheSigner() public {
         ERC2771Forwarder.ForwardRequestData memory r =
-            _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+            _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
         vm.prank(relayer);
         fwd.executeWithFee(r, address(usdc), 2e6);
 
-        assertTrue(_allowlistOn(vaultA), "the owner's intent ran without the owner holding ETH");
+        assertFalse(_bittyListOn(vaultA), "the owner's intent ran without the owner holding ETH");
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 2e6, "and the vault paid for it");
     }
 
     function test_onlyApprovedRelayersMayCharge() public {
         ERC2771Forwarder.ForwardRequestData memory r =
-            _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+            _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
         vm.prank(makeAddr("randomRelayer"));
         vm.expectRevert(BittyV1VaultForwarder.NotApprovedRelayer.selector);
         fwd.executeWithFee(r, address(usdc), 1e6);
@@ -212,10 +212,10 @@ contract ForwarderTest is Test {
     /// Permissionless relaying at the relayer's own expense is still ERC-2771's default.
     function test_anyoneMayRelayAtTheirOwnExpense() public {
         ERC2771Forwarder.ForwardRequestData memory r =
-            _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+            _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
         vm.prank(makeAddr("goodSamaritan"));
         fwd.execute(r);
-        assertTrue(_allowlistOn(vaultA));
+        assertFalse(_bittyListOn(vaultA));
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 0, "no fee taken");
     }
 
@@ -290,7 +290,7 @@ contract ForwarderTest is Test {
         assertEq(fwd.chargingVault(), address(0), "shut before");
 
         ERC2771Forwarder.ForwardRequestData memory r =
-            _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+            _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
         vm.prank(relayer);
         fwd.executeWithFee(r, address(usdc), 1e6);
 
@@ -358,7 +358,7 @@ contract ForwarderTest is Test {
     function test_forgedSignatureRejected() public {
         (, uint256 wrongPk) = makeAddrAndKey("mallory");
         ERC2771Forwarder.ForwardRequestData memory r =
-            _sign(_req(owner, address(vaultA), _enableAllowlistCall()), wrongPk);
+            _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), wrongPk);
         vm.prank(relayer);
         vm.expectRevert();
         fwd.executeWithFee(r, address(usdc), 1e6);
@@ -366,7 +366,7 @@ contract ForwarderTest is Test {
 
     function test_expiredRequestRejected() public {
         ERC2771Forwarder.ForwardRequestData memory r =
-            _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+            _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
         vm.warp(block.timestamp + 601);
         vm.prank(relayer);
         vm.expectRevert();
@@ -378,7 +378,7 @@ contract ForwarderTest is Test {
     /// Replaying a spent request fails: its lane has moved on.
     function test_replayIsRefused() public {
         ERC2771Forwarder.ForwardRequestData memory r =
-            _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+            _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
         vm.prank(relayer);
         fwd.executeWithFee(r, address(usdc), 1e6);
         assertEq(fwd.nonceFor(owner, address(vaultA)), 1, "lane advanced");
@@ -395,12 +395,12 @@ contract ForwarderTest is Test {
      */
     function test_lanesAreIndependentPerTarget() public {
         ERC2771Forwarder.ForwardRequestData memory forB =
-            _sign(_req(owner, address(vaultB), _enableAllowlistCall()), ownerPk);
+            _sign(_req(owner, address(vaultB), _restrictToOwnListCall()), ownerPk);
 
         // Advance the owner's lane against A twice.
         for (uint256 i; i < 2; i++) {
             ERC2771Forwarder.ForwardRequestData memory rA =
-                _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+                _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
             vm.prank(relayer);
             fwd.executeWithFee(rA, address(usdc), 1e6);
         }
@@ -410,7 +410,7 @@ contract ForwarderTest is Test {
         // The B signature, made before any of that, still verifies.
         vm.prank(relayer);
         fwd.executeWithFee(forB, address(usdc), 1e6);
-        assertTrue(_allowlistOn(vaultB), "B ran on a signature made two A-relays ago");
+        assertFalse(_bittyListOn(vaultB), "B ran on a signature made two A-relays ago");
     }
 
     // ── ERC-1271 ──────────────────────────────────────────────────────────────
@@ -427,10 +427,10 @@ contract ForwarderTest is Test {
         usdc.mint(address(v), 100e6);
 
         ERC2771Forwarder.ForwardRequestData memory r =
-            _sign(_req(address(wallet), address(v), _enableAllowlistCall()), walletPk);
+            _sign(_req(address(wallet), address(v), _restrictToOwnListCall()), walletPk);
         vm.prank(relayer);
         fwd.executeWithFee(r, address(usdc), 1e6);
-        assertTrue(_allowlistOn(v), "a contract-owned vault relayed");
+        assertFalse(_bittyListOn(v), "a contract-owned vault relayed");
     }
 
     // ── fee ceilings ──────────────────────────────────────────────────────────
@@ -439,25 +439,25 @@ contract ForwarderTest is Test {
     function test_feeOverTheVaultBudgetIsRefusedUpFront() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
-        vaultA.setGasless(none, 5, 5); // 5 whole tokens a day
+        vaultA.setStableCoinAsGas(none, 5, 5); // 5 whole tokens a day
 
         ERC2771Forwarder.ForwardRequestData memory r =
-            _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+            _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
         vm.prank(relayer);
         vm.expectRevert(BittyV1VaultForwarder.FeeExceedsVaultBudget.selector);
         fwd.executeWithFee(r, address(usdc), 6e6);
 
-        assertFalse(_allowlistOn(vaultA), "the inner call never ran");
+        assertTrue(_bittyListOn(vaultA), "the inner call never ran");
         assertEq(fwd.nonceFor(owner, address(vaultA)), 0, "and the lane did not move");
     }
 
     /// Fee 0 relays without charging at all.
     function test_zeroFeeRelaysWithoutCharging() public {
         ERC2771Forwarder.ForwardRequestData memory r =
-            _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+            _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
         vm.prank(relayer);
         fwd.executeWithFee(r, address(usdc), 0);
-        assertTrue(_allowlistOn(vaultA));
+        assertFalse(_bittyListOn(vaultA));
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 0);
     }
 
@@ -466,18 +466,18 @@ contract ForwarderTest is Test {
     /// One vault, one fee, several requests — the reason the batch entry point exists.
     function test_batchChargesOnceForTheWholeLot() public {
         ERC2771Forwarder.ForwardRequestData[] memory rs = new ERC2771Forwarder.ForwardRequestData[](1);
-        rs[0] = _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+        rs[0] = _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
 
         vm.prank(relayer);
         fwd.executeBatchWithFee(rs, address(vaultA), address(usdc), 2e6);
-        assertTrue(_allowlistOn(vaultA));
+        assertFalse(_bittyListOn(vaultA));
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 2e6, "charged once");
     }
 
     /// Every request must target the named vault, or one vault would pay for another's calls.
     function test_batchRefusesAMixedTarget() public {
         ERC2771Forwarder.ForwardRequestData[] memory rs = new ERC2771Forwarder.ForwardRequestData[](1);
-        rs[0] = _sign(_req(owner, address(vaultB), _enableAllowlistCall()), ownerPk);
+        rs[0] = _sign(_req(owner, address(vaultB), _restrictToOwnListCall()), ownerPk);
 
         vm.prank(relayer);
         vm.expectRevert(BittyV1VaultForwarder.BatchTargetMismatch.selector);
@@ -494,7 +494,7 @@ contract ForwarderTest is Test {
     /// OpenZeppelin's own batch is disabled: it cannot say which vault pays, and the lane needs a target.
     function test_openZeppelinBatchIsDisabled() public {
         ERC2771Forwarder.ForwardRequestData[] memory rs = new ERC2771Forwarder.ForwardRequestData[](1);
-        rs[0] = _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+        rs[0] = _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
         vm.prank(relayer);
         vm.expectRevert(BittyV1VaultForwarder.BatchNotSupported.selector);
         fwd.executeBatch(rs, payable(relayer));
@@ -517,7 +517,7 @@ contract ForwarderTest is Test {
 
     /// The request declares the ETH it carries; the relayer must send exactly that or the call is a lie.
     function test_aRelayerCannotUnderfundTheDeclaredValue() public {
-        ERC2771Forwarder.ForwardRequestData memory r = _req(owner, address(vaultA), _enableAllowlistCall());
+        ERC2771Forwarder.ForwardRequestData memory r = _req(owner, address(vaultA), _restrictToOwnListCall());
         r.value = 1 ether;
         r = _sign(r, ownerPk);
 
@@ -532,7 +532,7 @@ contract ForwarderTest is Test {
     function test_aRequestTheVaultRejectsRevertsTheWholeRelay() public {
         uint256 strangerPk = 0xBEEF;
         ERC2771Forwarder.ForwardRequestData memory r =
-            _sign(_req(vm.addr(strangerPk), address(vaultA), _enableAllowlistCall()), strangerPk);
+            _sign(_req(vm.addr(strangerPk), address(vaultA), _restrictToOwnListCall()), strangerPk);
 
         uint256 before = usdc.balanceOf(BITTY_FEE_COLLECTOR);
         vm.prank(relayer);
@@ -544,20 +544,20 @@ contract ForwarderTest is Test {
     function test_aFailingRequestInABatchTakesTheBatchDown() public {
         uint256 strangerPk = 0xBEEF;
         ERC2771Forwarder.ForwardRequestData[] memory rs = new ERC2771Forwarder.ForwardRequestData[](2);
-        rs[0] = _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
-        rs[1] = _sign(_req(vm.addr(strangerPk), address(vaultA), _enableAllowlistCall()), strangerPk);
+        rs[0] = _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
+        rs[1] = _sign(_req(vm.addr(strangerPk), address(vaultA), _restrictToOwnListCall()), strangerPk);
 
         vm.prank(relayer);
         vm.expectRevert();
         fwd.executeBatchWithFee(rs, address(vaultA), address(usdc), 2e6);
-        assertFalse(_allowlistOn(vaultA), "the successful leg was rolled back too");
+        assertTrue(_bittyListOn(vaultA), "the successful leg was rolled back too");
     }
 
     /// The batch carries no ETH — the fee is the only value that moves — so a request declaring some
     /// is refused outright rather than silently relayed with zero.
     function test_aBatchRequestCarryingValueIsRefused() public {
         ERC2771Forwarder.ForwardRequestData[] memory rs = new ERC2771Forwarder.ForwardRequestData[](1);
-        ERC2771Forwarder.ForwardRequestData memory r = _req(owner, address(vaultA), _enableAllowlistCall());
+        ERC2771Forwarder.ForwardRequestData memory r = _req(owner, address(vaultA), _restrictToOwnListCall());
         r.value = 1;
         rs[0] = _sign(r, ownerPk);
 
@@ -568,7 +568,7 @@ contract ForwarderTest is Test {
 
     function test_onlyApprovedRelayersMayRunABatch() public {
         ERC2771Forwarder.ForwardRequestData[] memory rs = new ERC2771Forwarder.ForwardRequestData[](1);
-        rs[0] = _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+        rs[0] = _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
 
         vm.prank(makeAddr("randomRelayer"));
         vm.expectRevert(BittyV1VaultForwarder.NotApprovedRelayer.selector);
@@ -580,7 +580,7 @@ contract ForwarderTest is Test {
         fwd.setRelayerApproval(relayer, false);
 
         ERC2771Forwarder.ForwardRequestData memory r =
-            _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+            _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
         vm.prank(relayer);
         vm.expectRevert(BittyV1VaultForwarder.NotApprovedRelayer.selector);
         fwd.executeWithFee(r, address(usdc), 1e6);
@@ -588,11 +588,11 @@ contract ForwarderTest is Test {
 
     function test_aZeroFeeBatchRelaysWithoutCharging() public {
         ERC2771Forwarder.ForwardRequestData[] memory rs = new ERC2771Forwarder.ForwardRequestData[](1);
-        rs[0] = _sign(_req(owner, address(vaultA), _enableAllowlistCall()), ownerPk);
+        rs[0] = _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
 
         vm.prank(relayer);
         fwd.executeBatchWithFee(rs, address(vaultA), address(usdc), 0);
-        assertTrue(_allowlistOn(vaultA), "relayed");
+        assertFalse(_bittyListOn(vaultA), "relayed");
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 0, "and free");
     }
 
@@ -622,22 +622,22 @@ contract ForwarderTest is Test {
         assertEq(owner.balance, 0, "the owner never touched ETH");
     }
 
-    /// The vault reads the signer from the request, so a relayed operator send is still only a
-    /// PROPOSAL — the relayer's own address is never mistaken for authority.
-    function test_aRelayedOperatorSendIsStillOnlyAProposal() public {
-        uint256 operatorPk = 0x0FF1CE;
-        address operator = vm.addr(operatorPk);
+    /**
+     * The vault reads the signer out of the request, so relaying lends nobody authority. A perfectly
+     * valid relayed request signed by someone who is not the owner is refused exactly as a direct
+     * call from them would be — the relayer paid for it, and it still did nothing.
+     */
+    function test_aRelayedSendFromAStrangerIsRefused() public {
+        uint256 strangerPk = 0x0FF1CE;
+        address stranger = vm.addr(strangerPk);
         address payee = makeAddr("payee");
 
-        vm.prank(owner);
-        vaultA.updatePayoutOperator(operator, true);
-
-        _relay(_sign(_req(operator, address(vaultA), _sendCall(payee, address(usdc), 100e6)), operatorPk), 1e6);
-        assertEq(usdc.balanceOf(payee), 0, "queued, not paid");
-
-        vm.prank(owner);
-        vaultA.approveSend(0);
-        assertEq(usdc.balanceOf(payee), 100e6, "paid only once the owner approved");
+        ERC2771Forwarder.ForwardRequestData memory r =
+            _sign(_req(stranger, address(vaultA), _sendCall(payee, address(usdc), 100e6)), strangerPk);
+        vm.prank(relayer);
+        vm.expectRevert();
+        fwd.executeWithFee(r, address(usdc), 1e6);
+        assertEq(usdc.balanceOf(payee), 0, "nothing moved");
     }
 
     function test_aRelayerCannotSpendAVaultItMerelyRelaysFor() public {

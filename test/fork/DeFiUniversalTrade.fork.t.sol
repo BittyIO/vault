@@ -15,16 +15,16 @@ import {UniswapUniversalTradeProtocol} from "protocol-contracts/src/protocols/Un
 import {sepolia} from "protocol-contracts/script/addresses.sol";
 
 interface IVaultTrade {
-    function marketSell(address amm, address sellToken, uint256 sellAmount, address buyToken, uint256 buyAmountMin, bytes calldata path)
+    function marketSell(address marketTrade, address sellToken, uint256 sellAmount, address buyToken, uint256 buyAmountMin, bytes calldata path)
         external;
-    function addLiquidity(address amm, address token0, uint256 amount0, address token1, uint256 amount1, bytes calldata data)
+    function addLiquidity(address marketMaker, address token0, uint256 amount0, address token1, uint256 amount1, bytes calldata data)
         external;
     function getClone(address protocol) external view returns (address);
 }
 
 /**
  * Market swap through the VAULT and the REAL Universal Router + Permit2 — the integration a mock cannot
- * fake, and the net-new piece of the AMM split. Exercises the whole path: the vault approves the trade
+ * fake, and the net-new piece of the market split. Exercises the whole path: the vault approves the trade
  * clone, the clone pulls WETH, grants the router a Permit2 allowance, and the router routes a V3 swap on
  * the Sepolia WETH9/USDT pool, delivering USDT (net of the 0.2% output fee) back to the vault.
  *
@@ -32,7 +32,7 @@ interface IVaultTrade {
  */
 contract DeFiUniversalTradeForkTest is Test {
     uint24 constant FEE = 500; // WETH/USDT 0.05% — the Sepolia pool that has liquidity
-    uint8 constant ASSET_AMM_LIQUID = 4;
+    uint8 constant ASSET_MARKET_TRADABLE = 4;
 
     BittyV1Vault vault;
     MockGuard guard;
@@ -51,9 +51,9 @@ contract DeFiUniversalTradeForkTest is Test {
             sepolia.UNISWAP_UNIVERSAL_ROUTER, sepolia.PERMIT2, sepolia.WETH9, sepolia.BITTY_GUARD
         );
         guard.setProtocol(address(tradeImpl), MARKET_TRADE_ID);
-        // Both legs must be flagged AMM-liquid for a market swap; WETH9 crypto, USDT stable — both liquid.
-        guard.setAsset(sepolia.WETH9, ASSET_AMM_LIQUID);
-        guard.setAsset(sepolia.USDT, 1 | ASSET_AMM_LIQUID);
+        // Both legs must be flagged market-tradable for a market swap; WETH9 crypto, USDT stable — both liquid.
+        guard.setAsset(sepolia.WETH9, ASSET_MARKET_TRADABLE);
+        guard.setAsset(sepolia.USDT, 1 | ASSET_MARKET_TRADABLE);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
         BittyV1Vault impl = new BittyV1Vault(address(facet));

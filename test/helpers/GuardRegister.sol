@@ -2,7 +2,7 @@
 pragma solidity ^0.8.34;
 
 import {IBittyV1Guard, ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {LENDING_ID, STAKING_ID, AMM_ID, MARKET_TRADE_ID, MARKET_MAKER_ID, INTENT_ID} from "./CategoryIds.sol";
+import {LENDING_ID, STAKING_ID, MARKET_TRADE_ID, MARKET_TRADE_ID, MARKET_MAKER_ID, INTENT_ID} from "./CategoryIds.sol";
 
 uint8 constant ASSET_STABLE_COIN = 1;
 uint8 constant CRYPTO_CATEGORY = 2;
@@ -37,7 +37,7 @@ function detectCategory(address protocol) view returns (uint8) {
     // is the mock path, kept second so a real adapter is always classified by what it can actually do.
     if (_erc165(protocol, 0xb9f16a0c)) return LENDING_ID;
     if (_erc165(protocol, 0xc8ada217)) return STAKING_ID;
-    if (_erc165(protocol, 0x932722bd)) return AMM_ID;
+    if (_erc165(protocol, 0x932722bd)) return MARKET_TRADE_ID;
     if (_erc165(protocol, 0x1626ba7e)) return INTENT_ID;
 
     // Nothing above matched, so it is a plain depositable/withdrawable adapter. Lending and staking

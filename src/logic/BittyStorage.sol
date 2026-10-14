@@ -26,6 +26,17 @@ import {IBittyV1Vault} from "../interfaces/IBittyV1Vault.sol";
  *
  *      ── BEFORE SHIPPING AN UPGRADE, CHECK EVERY STRUCT IN THIS FILE ──────────────────────────────
  *
+ *      These rules bind from the first vault that holds somebody else's money, and NOT YET. There
+ *      are no `__deprecated` placeholders in this file, and that is deliberate rather than an
+ *      oversight: retired fields have been deleted outright while the only vaults in existence hold
+ *      team funds that can be moved by hand. The cost is that a vault deployed on an earlier layout
+ *      can no longer be upgraded onto this code — it would read the wrong slots, silently — which is
+ *      a trade worth making exactly once, before launch.
+ *
+ *      After that the rules below are absolute, and deleting from the middle of a struct stops being
+ *      tidying and becomes the silent corruption described above. Do not read the absence of
+ *      placeholders here as a precedent.
+ *
  *      An upgrade replaces the code and keeps the storage. Nothing on chain records what the old
  *      layout was, so the new implementation is simply believed: get a field's position wrong and it
  *      reads a neighbour's bytes as its own. No revert, no event, no way back except another upgrade —
@@ -47,9 +58,9 @@ import {IBittyV1Vault} from "../interfaces/IBittyV1Vault.sol";
  *      because its fields sit at consecutive slots from `keccak256(key . position)`. Those are the
  *      dangerous ones — nothing next to them says `$.slot :=` to remind you.
  *
- *      Two mapping values live in another file and so are not marked here at all:
- *      {IBittyV1Vault.ScheduledPayment} and {IBittyV1Vault.WhitelistedRecipient}. They carry the same
- *      constraint and are the likeliest to be edited by someone who never opens this file.
+ *      One mapping value lives in another file and so is not marked here at all:
+ *      {IBittyV1Vault.WhitelistedRecipient}. It carries the same constraint and is the likeliest to
+ *      be edited by someone who never opens this file.
  */
 struct TimelockedValue {
     uint64 value;
@@ -57,69 +68,44 @@ struct TimelockedValue {
     uint64 pendingAt;
 }
 
-struct RiskConfig {
-    TimelockedValue newPaymentProtection;
-    TimelockedValue maxSendValue;
-    TimelockedValue maxSendInterval;
-    TimelockedValue changeTimelock;
+struct Deferred {
+    address allowedAsset;
+    uint64 effectiveAt;
+    uint32 lockEpoch;
 }
 
-struct PendingSend {
-    address proposer;
-    address[] recipients;
-    address[] assets;
-    uint256[] amounts;
+struct RiskConfig {
+    TimelockedValue timelock;
+    TimelockedValue sendDailyAllowance;
 }
 
 struct DeFiStorage {
     bool isInitialized;
-    bool allowlistEnabled;
-    uint64 allowlistDisableAt;
-    /**
-     * Retired trade-pause deadline. The feature is removed, but the slot stays so the ERC-7201
-     * layout of already-deployed vaults survives the upgrade; any residual value is ignored. Do
-     * not reuse for anything else — a live vault may still hold a non-zero timestamp here.
-     */
-    uint64 __deprecatedTradeDisabledUntilTimestamp;
+    bool ownAllowListActive;
     mapping(bytes32 => address) clonedProtocols;
     mapping(address => address) autoYieldProtocols;
     mapping(address => bool) assets;
     mapping(address => bool) protocols;
     address autoYieldTrigger;
+
     address assetManager;
-    uint64 assetManagerExpiresAt;
-    address pendingAssetManager;
-    uint64 pendingAssetManagerExpiresAt;
-    uint64 pendingAssetManagerAt; // 0 = nothing queued
-    /**
-     * What the manager may do — the mask from {setAssetManager}, zero meaning nothing at all.
-     *
-     * Appended, so a vault deployed before permissions existed keeps its layout: these two slots
-     * read as zero there, so a manager appointed under the old all-or-nothing grant can do nothing
-     * until the owner re-appoints it with a mask. Safe by construction, and visible: the vault says
-     * what the grant is through {assetManagerPermissions}.
-     */
+    uint48 assetManagerExpiresAt;
     uint32 assetManagerPerms;
+    bool hasPendingAssetManager;
+
+    address pendingAssetManager;
+    uint48 pendingAssetManagerAt;
+    uint48 pendingAssetManagerExpiresAt;
     uint32 pendingAssetManagerPerms;
 }
 
 struct VaultStorage {
     address gasWrapped;
     bool isInitialized;
-    bool renounced;
 
-    mapping(uint256 => IBittyV1Vault.ScheduledPayment) scheduledPayments;
-    mapping(uint256 => uint256) lastReceiveTimestamps;
-    mapping(uint256 => uint256) scheduledPaymentEffectiveAt;
-    mapping(uint256 => uint256) whitelistedRecipientEffectiveAt;
-    mapping(uint256 => IBittyV1Vault.WhitelistedRecipient) whitelistedRecipients;
-    mapping(uint256 => address) scheduledPaymentPendingProposer;
-    mapping(uint256 => address) whitelistedRecipientPendingProposer;
-    mapping(uint256 => PendingSend) pendingSends;
-    mapping(address => bool) payoutOperators;
+    mapping(uint256 => Deferred) whitelistedRecipientDeferred;
+    mapping(uint256 => address) whitelistedRecipient;
     RiskConfig riskConfig;
-    uint256 nextPendingSendId;
-    uint256 nextScheduledPaymentId;
     uint256 nextWhitelistedRecipientId;
     uint64 ownerSendPeriodStart;
     uint128 ownerSentInPeriod;
@@ -128,17 +114,18 @@ struct VaultStorage {
     TimelockedValue maxFeePerOp;
     uint96 gasSpentToday;
     uint64 gasBudgetDay;
-    bool gaslessDisabled;
-    mapping(address => address) gaslessAssets;
+    bool stableCoinAsGasDisabled;
+    mapping(address => address) stableCoinAsGasAssets;
 
-    /**
-     * When the owner renounced, or 0 while owned. The set of payable schedules is FROZEN at this
-     * moment: only payments already locked immutable by then may pay afterwards. Evaluating
-     * lockedness at pay time instead would let a compromised key queue an immutable payment inside
-     * its protection window just before the renounce — invisible to the rescue check, locked only
-     * after, with nobody left who could remove it.
-     */
-    uint64 renouncedAt;
+    uint8 lockLevel; // 0 none, 1 emergency (releasable), 2 forever. See {LockLib}.
+
+    uint32 lockEpoch;
+
+    uint40 ownershipReadyAt;
+
+    address vaultOwner;
+    mapping(uint32 => uint64) lockEpochClosedAt;
+    address pendingOwner;
 }
 
 library BittyStorage {

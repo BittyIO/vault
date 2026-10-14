@@ -16,7 +16,8 @@ import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protoc
 import {IBittyV1Yield} from "protocol-contracts/src/interfaces/IBittyV1Yield.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {NotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
+import {NotRegistered, VaultLocked} from "../../src/interfaces/IBittyV1Vault.sol";
+import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {
     ProtocolNotInstantiated,
     ProtocolLineageMismatch,
@@ -185,6 +186,32 @@ contract ProtocolUpgradeTest is Test {
         vm.prank(owner);
         _f().deposit(address(v1), address(usdc), 50e6);
         assertEq(usdc.balanceOf(_f().getClone(address(v1))), 150e6);
+    }
+
+    /**
+     * Instant, even with a change timelock set, for the same reason the vault's own upgrade is: the
+     * new implementation must be registered with the guard, which timelocks registering it globally,
+     * and {DeFiLogic-upgradeProtocol} additionally holds it to the same lineage and a strictly higher
+     * version. The vetting is where the delay belongs.
+     */
+    function test_anAdapterUpgradeIsInstantEvenWithATimelockSet() public {
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, type(uint256).max));
+        address instance = _f().getClone(address(v1));
+
+        vm.prank(owner);
+        _f().upgradeProtocol(address(v1), address(v2));
+        assertEq(IBittyV1Protocol(instance).protocolVersion(), v2.protocolVersion(), "upgraded in one call");
+    }
+
+    /// But not while the vault is locked: an adapter is code, and a locked vault takes no new code.
+    function test_anAdapterUpgradeIsRefusedWhileLocked() public {
+        vm.prank(owner);
+        vault.emergencyLock();
+
+        vm.prank(owner);
+        vm.expectRevert(VaultLocked.selector);
+        _f().upgradeProtocol(address(v1), address(v2));
     }
 
     function test_nonOwnerCannotUpgrade() public {
