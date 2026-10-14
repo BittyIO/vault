@@ -20,7 +20,14 @@ remappings = [
     "protocol-contracts/=lib/protocol-contracts/",
     "solmate/=lib/solmate/src/",
     "safe-contracts/=lib/safe-smart-account/contracts/",
+    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "ds-test/=lib/solmate/lib/ds-test/src/",
+    "erc4626-tests/=lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests/",
+    "halmos-cheatcodes/=lib/protocol-contracts/lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/",
+    "safe-smart-account/=lib/safe-smart-account/",
 ]
+auto_detect_remappings = false
 
 fs_permissions = [{ access = "read-write", path = "./deployments" }]
 
@@ -60,6 +67,12 @@ remappings = [
     "protocol-contracts/=lib/protocol-contracts/",
     "solmate/=lib/solmate/src/",
     "safe-contracts/=lib/safe-smart-account/contracts/",
+    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "ds-test/=lib/solmate/lib/ds-test/src/",
+    "erc4626-tests/=lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests/",
+    "halmos-cheatcodes/=lib/protocol-contracts/lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/",
+    "safe-smart-account/=lib/safe-smart-account/",
 ]
 
 fs_permissions = [{ access = "read-write", path = "./deployments" }]
@@ -85,6 +98,12 @@ remappings = [
     "protocol-contracts/=lib/protocol-contracts/",
     "solmate/=lib/solmate/src/",
     "safe-contracts/=lib/safe-smart-account/contracts/",
+    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "ds-test/=lib/solmate/lib/ds-test/src/",
+    "erc4626-tests/=lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests/",
+    "halmos-cheatcodes/=lib/protocol-contracts/lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/",
+    "safe-smart-account/=lib/safe-smart-account/",
 ]
 
 [rpc_endpoints]
@@ -139,6 +158,12 @@ remappings = [
     "protocol-contracts/=lib/protocol-contracts/",
     "solmate/=lib/solmate/src/",
     "safe-contracts/=lib/safe-smart-account/contracts/",
+    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "ds-test/=lib/solmate/lib/ds-test/src/",
+    "erc4626-tests/=lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests/",
+    "halmos-cheatcodes/=lib/protocol-contracts/lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/",
+    "safe-smart-account/=lib/safe-smart-account/",
 ]
 
 # Gnosis Safe's assembly predates the memory-safe annotation and hits stack-too-deep under via_ir, so
