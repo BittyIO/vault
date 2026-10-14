@@ -44,6 +44,19 @@ interface IBittyV1DeFi {
     function withdraw(address withdrawProtocol, address assetAddress, uint256 amount) external;
 
     /**
+     * @notice Withdraw assets from multiple protocol positions in one call.
+     * @dev All arrays must have the same length. Use {withdraw} for a single position.
+     * @param withdrawProtocols The protocols to withdraw from.
+     * @param assetAddresses The assets to withdraw from each protocol.
+     * @param amounts The amounts to withdraw from each protocol.
+     */
+    function withdraws(
+        address[] calldata withdrawProtocols,
+        address[] calldata assetAddresses,
+        uint256[] calldata amounts
+    ) external;
+
+    /**
      * @notice Claim one finalized withdrawal.
      * @dev For protocols whose exit is asynchronous - a staking queue, a redemption delay - where
      *      {withdraw} only opens the request and the assets arrive on a later claim.

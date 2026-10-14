@@ -350,7 +350,30 @@ library DeFiLogic {
         external
         returns (uint256 delivered)
     {
+        return _withdraw(BittyStorage.defi(), withdrawProtocol, assetAddress, amount, recipient);
+    }
+
+    function withdraws(
+        address[] calldata withdrawProtocols,
+        address[] calldata assetAddresses,
+        uint256[] calldata amounts,
+        address recipient
+    ) external {
+        uint256 n = withdrawProtocols.length;
+        if (assetAddresses.length != n || amounts.length != n) revert ArrayLengthMismatch();
         DeFiStorage storage $ = BittyStorage.defi();
+        for (uint256 i; i < n; ++i) {
+            _withdraw($, withdrawProtocols[i], assetAddresses[i], amounts[i], recipient);
+        }
+    }
+
+    function _withdraw(
+        DeFiStorage storage $,
+        address withdrawProtocol,
+        address assetAddress,
+        uint256 amount,
+        address recipient
+    ) private returns (uint256 delivered) {
         _onlyInitialized($);
         if (assetAddress == address(0)) revert AddressZero();
         if (amount == 0) revert AmountIsZero();

@@ -63,6 +63,13 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         DeFiLogic.withdraw(protocol, asset, amount, address(this));
     }
 
+    function withdraws(address[] calldata protocols, address[] calldata assets, uint256[] calldata amounts)
+        external
+        onlyUnwind
+    {
+        DeFiLogic.withdraws(protocols, assets, amounts, address(this));
+    }
+
     function claimWithdrawals(address protocol, uint256[] memory ids) external onlyUnwind {
         DeFiLogic.claimWithdrawals(protocol, ids);
     }
