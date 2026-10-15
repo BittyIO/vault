@@ -15,7 +15,6 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {
     AddressZero,
     AmountIsZero,
@@ -32,6 +31,7 @@ import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 interface IFacet {
     function deposit(address protocol, address asset, uint256 amount) external;
     function withdraw(address protocol, address asset, uint256 amount) external;
+    function withdraws(address[] calldata protocols, address[] calldata assets, uint256[] calldata amounts) external;
     function claimWithdrawals(address protocol, uint256[] memory ids) external;
     function claimWithdrawal(address protocol, uint256 id) external;
     function getBalances(address[] calldata protocols, address[] calldata assets)
@@ -53,6 +53,13 @@ contract ReceiptLendingProtocol is MockLendingProtocol {
 
     function receiptTokenOf(address) external view override returns (address) {
         return receipt;
+    }
+}
+
+/// A second lending adapter lineage, so batch tests exercise distinct cloned positions.
+contract AlternateLendingProtocol is MockLendingProtocol {
+    function protocolLineage() external pure override returns (bytes32) {
+        return keccak256("bitty.mock.alternate-lending");
     }
 }
 
@@ -182,8 +189,7 @@ contract DeFiYieldTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
@@ -274,6 +280,61 @@ contract DeFiYieldTest is Test {
         vm.stopPrank();
         assertEq(usdc.balanceOf(_f().getClone(address(proto))), 0, "the whole position came back");
         assertEq(usdc.balanceOf(address(vault)), 1_000e6, "and landed in the vault");
+    }
+
+    function test_withdrawsFromMultipleProtocolsInOneCall() public {
+        AlternateLendingProtocol secondProto = new AlternateLendingProtocol();
+        guard.setProtocol(address(secondProto), LENDING_ID);
+
+        vm.startPrank(owner);
+        _f().deposit(address(proto), address(usdc), 10e6);
+        _f().deposit(address(secondProto), address(usdc), 20e6);
+        address[] memory protocols = new address[](2);
+        protocols[0] = address(proto);
+        protocols[1] = address(secondProto);
+        address[] memory assets = new address[](2);
+        assets[0] = address(usdc);
+        assets[1] = address(usdc);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 4e6;
+        amounts[1] = 6e6;
+        _f().withdraws(protocols, assets, amounts);
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(_f().getClone(address(proto))), 6e6, "first protocol keeps its remainder");
+        assertEq(usdc.balanceOf(_f().getClone(address(secondProto))), 14e6, "second protocol keeps its remainder");
+        assertEq(usdc.balanceOf(address(vault)), 980e6, "both withdrawals arrive at the vault");
+    }
+
+    function test_withdrawsRejectMismatchedArrays() public {
+        vm.prank(owner);
+        vm.expectRevert(ArrayLengthMismatch.selector);
+        _f().withdraws(_one(address(proto)), new address[](0), _ids(1e6));
+    }
+
+    function test_withdrawsAreAtomicWhenAnEntryFails() public {
+        AlternateLendingProtocol secondProto = new AlternateLendingProtocol();
+        guard.setProtocol(address(secondProto), LENDING_ID);
+
+        vm.startPrank(owner);
+        _f().deposit(address(proto), address(usdc), 10e6);
+        _f().deposit(address(secondProto), address(usdc), 5e6);
+        address[] memory protocols = new address[](2);
+        protocols[0] = address(proto);
+        protocols[1] = address(secondProto);
+        address[] memory assets = new address[](2);
+        assets[0] = address(usdc);
+        assets[1] = address(usdc);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 4e6;
+        amounts[1] = 6e6;
+        vm.expectRevert(InsufficientBalance.selector);
+        _f().withdraws(protocols, assets, amounts);
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(_f().getClone(address(proto))), 10e6, "earlier item rolled back");
+        assertEq(usdc.balanceOf(_f().getClone(address(secondProto))), 5e6, "failing position is unchanged");
+        assertEq(usdc.balanceOf(address(vault)), 985e6, "vault balance is unchanged");
     }
 
     function test_aReceiptTokenIsApprovedBackToTheCloneOnExit() public {

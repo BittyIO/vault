@@ -7,7 +7,6 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {ImplementationNotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
@@ -23,6 +22,11 @@ interface IVaultVersion {
 }
 
 contract BittyV2Vault is BittyV1Vault {
+    /// What makes this a release rather than a re-point: upgrades may only move forward.
+    function vaultVersion() external pure override returns (uint256) {
+        return 1 * 1_000_000 + 1 * 1_000 + 0;
+    }
+
     bytes32 private constant V2_SLOT = 0x7ecb699a06ee21ad3b6687b1a055b97ffa71638bb69215fc9703e69f6463c300;
 
     struct V2Storage {
@@ -36,7 +40,7 @@ contract BittyV2Vault is BittyV1Vault {
         }
     }
 
-    constructor(address defiFacet, address subVaultImpl) BittyV1Vault(defiFacet, subVaultImpl) {}
+    constructor(address defiFacet) BittyV1Vault(defiFacet) {}
 
     /// One-time V2 migration, runnable exactly once via {reinitializer}; call it atomically in upgradeToAndCall.
     function initializeV2(string memory label_) external reinitializer(2) {
@@ -68,7 +72,6 @@ contract BittyV2Vault is BittyV1Vault {
 contract VaultUpgradeTest is Test {
     MockGuard guard;
     BittyV1VaultDeFiFacet facet;
-    BittyV1SubVault subImpl;
     BittyV1Vault vaultImpl;
     BittyV1Vault vault;
     MockERC20 usdc;
@@ -82,8 +85,7 @@ contract VaultUpgradeTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         facet = new BittyV1VaultDeFiFacet();
-        subImpl = new BittyV1SubVault(address(facet));
-        vaultImpl = new BittyV1Vault(address(facet), address(subImpl));
+        vaultImpl = new BittyV1Vault(address(facet));
 
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
@@ -94,14 +96,11 @@ contract VaultUpgradeTest is Test {
     }
 
     function _deployV2() internal returns (BittyV2Vault v2Impl) {
-        v2Impl = new BittyV2Vault(address(facet), address(subImpl));
+        v2Impl = new BittyV2Vault(address(facet));
     }
 
     function test_upgradeToV2PreservesStateAndAddsStorage() public {
-        // Build up some V1 state first: an open sub vault, plus the vault's token balance.
-        vm.prank(owner);
-        vault.createSubVault(subOwner, false, uint64(block.timestamp) + 365 days);
-        assertEq(vault.subVaultOpenCount(), 1, "pre: one sub open");
+        // Build up some V1 state first: the vault's token balance.
         assertEq(usdc.balanceOf(address(vault)), 1_000e6, "pre: balance");
 
         BittyV2Vault v2Impl = _deployV2();
@@ -124,7 +123,6 @@ contract VaultUpgradeTest is Test {
 
         // All V1 state is intact — nothing was overwritten by the new namespace.
         assertEq(vault.owner(), owner, "owner preserved");
-        assertEq(vault.subVaultOpenCount(), 1, "sub count preserved");
         assertEq(usdc.balanceOf(address(vault)), 1_000e6, "balance preserved");
     }
 
@@ -174,7 +172,7 @@ contract VaultUpgradeTest is Test {
 
     /// The vault names its own release the same way an adapter does, so one ABI reads either.
     function test_vaultReportsItsVersion() public {
-        assertEq(IVaultVersion(address(vault)).vaultVersion(), 1_000_003, "encoded 1.0.3");
-        assertEq(IVaultVersion(address(vault)).versionName(), "1.0.3", "readable form");
+        assertEq(IVaultVersion(address(vault)).vaultVersion(), 1_000_000, "encoded 1.0.0");
+        assertEq(IVaultVersion(address(vault)).versionName(), "1.0.0", "readable form");
     }
 }

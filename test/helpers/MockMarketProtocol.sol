@@ -11,9 +11,9 @@ import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/Safe
  *      as a market-trade protocol, another and register it as a market-maker protocol. The guard gates on
  *      the registered category, not on which methods exist, so implementing both is harmless.
  */
-contract MockAMMProtocol is IBittyV1MarketTradeProtocol, IBittyV1MarketMakerProtocol {
+contract MockMarketProtocol is IBittyV1MarketTradeProtocol, IBittyV1MarketMakerProtocol {
     function protocolLineage() external pure returns (bytes32) {
-        return keccak256("bitty.mock.amm");
+        return keccak256("bitty.mock.marketMaker");
     }
 
     function protocolVersion() external pure returns (uint256) {
@@ -38,7 +38,6 @@ contract MockAMMProtocol is IBittyV1MarketTradeProtocol, IBittyV1MarketMakerProt
     function swap(bytes memory, address) external payable override {}
 
     function swapExactOut(bytes memory, address) external override {}
-
     function removeLiquidity(bytes memory data) external override {
         removeLiquidityCallCount++;
         lastRemoveData = data;
@@ -49,7 +48,7 @@ contract MockAMMProtocol is IBittyV1MarketTradeProtocol, IBittyV1MarketMakerProt
         lastDecreaseData = data;
     }
 
-    function claimAMMFees(bytes memory) external override {}
+    function claimMarketMakerFees(bytes memory) external override {}
 
     function getLiquidity(bytes memory) external pure override returns (uint256) {
         return 0;

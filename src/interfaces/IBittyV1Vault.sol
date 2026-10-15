@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-// common errors
 error AddressZero();
 error NotRegistered();
 error Deprecated();
-error AssetNotRegistered();
 error AmountIsZero();
 error ArrayLengthMismatch();
 error EmptyArray();
@@ -15,32 +13,13 @@ error AlreadyInitialized();
 error InsufficientBalance();
 error ReentrantCall();
 
-// scheduledPayment errors
-error ScheduledPaymentNotFound();
-error ScheduledPaymentImmutable();
-error ScheduledPaymentPaymentCountZero();
-error ScheduledPaymentTriggerError();
-error ScheduledPaymentNotStartYet();
-error ScheduledPaymentStartTimestampInPast();
-error ScheduledPaymentInInterval();
-error AssetAddressNotContract();
 error ProtectionPeriodNotEnded();
-error PaymentProtectionTooLong();
-error PayMoreThanScheduledPaymentAmount();
-error PayScheduledPaymentAmountTriggerEmpty();
-
-error OwnerAndPayoutOperatorMustDiffer();
+error RiskTimelockTooLong();
 
 error OwnershipNotRenounceable();
-error PendingOwnerIsPayoutOperator();
+error NoPendingOwnershipTransfer();
 error ImplementationNotRegistered();
-error NoRescueTarget();
-error OnlyImmutablePayableAfterRenounce();
-error ImmutableScheduledPaymentLocked();
-
-error NotPayoutOperator();
-error PayoutOperatorNotFound();
-error PayoutOperatorAlreadyRegistered();
+error VaultNotNewer();
 
 error NotTrustedForwarder();
 error GasBudgetExceeded();
@@ -49,29 +28,14 @@ error FeeExceedsPerOpCap();
 error InvalidRelayedCalldata();
 error InvalidAsset();
 
-// payment risk-control errors
 error PaymentExceedsRiskCap();
 error PaymentExceedsPeriodLimit();
 error PaymentNotStableCoin();
 
-// whitelisted recipient errors
 error WhitelistedRecipientNotFound();
 error WhitelistedRecipientAssetNotAllowed();
 
-// payout operator approval errors
-error PaymentNotApproved();
-error NotPendingApproval();
-error NotProposalOwner();
-error ScheduledPaymentContentMismatch();
-error WhitelistedRecipientContentMismatch();
-error PendingSendNotFound();
-
-struct RiskSettings {
-    uint64 newPaymentProtection;
-    uint64 maxSendValue;
-    uint64 maxSendInterval;
-    uint64 changeTimelock;
-}
+error VaultLocked();
 
 struct AutoYield {
     address asset;
@@ -90,34 +54,62 @@ struct AutoYield {
  * 2. Provide safer options for users to manage the risk of their assets.
  * 3. Let the owner only ever lower the vault's risk.
  */
+/**
+ * Everything the vault has been told to do but has not done yet, in one read.
+ *
+ * This is the screen the whole lock design rests on. A leaked key cannot be taken away, so the
+ * owner's defence is NOTICING — seeing a handover, a delegate, a destination or a looser limit
+ * appear, and reaching {BittyV1Vault-emergencyLock} before it matures. A client that cannot show
+ * what is in flight leaves the owner nothing to act on, however well the contract behaves.
+ *
+ * Every field is a single slot, so the read costs the same whatever an attacker has queued — like the
+ * lock itself. What it deliberately does NOT list is the deferred additions: a new destination or
+ * destination is unbounded in number, and the client lists those from the events that created them,
+ * each with the protection window it is still waiting out. Putting a count here would mean the
+ * chain keeping a tally it never reads, which is what the retired pending-adds cap was.
+ */
+struct PendingChanges {
+    /**
+     * 0 unlocked, 1 emergency locked, 2 locked for ever.
+     */
+    uint8 lockLevel;
+    /**
+     * A handover under way, and when it completes by itself. Zeros once it has — by then it is the
+     * answer {IBittyV1Vault-owner} already gives, not something still to come.
+     */
+    address newOwner;
+    uint64 newOwnerReadyAt;
+    /**
+     * A queued asset-manager grant, with the capabilities it would carry.
+     */
+    address newAssetManager;
+    uint64 newAssetManagerAt;
+    uint32 newAssetManagerPerms;
+    /**
+     * The two risk numbers where one has been loosened and is waiting: the value it would take, and
+     * the moment it would take it. A zero `At` means nothing is waiting. A tightening never appears
+     * here, because it applied the moment it was asked for.
+     */
+    uint64 timelock;
+    uint64 timelockAt;
+    uint64 sendDailyAllowance;
+    uint64 sendDailyAllowanceAt;
+    uint64 gasBudgetDaily;
+    uint64 gasBudgetDailyAt;
+    uint64 maxFeePerOp;
+    uint64 maxFeePerOpAt;
+}
+
 interface IBittyV1Vault {
-    event ScheduledPaymentPaid(
-        uint256 indexed id, address recipient, address asset, uint256 amount, uint256 remainingPaymentCount
-    );
+    /**
+     * @notice Returns the vault lock level: 0 unlocked, 1 emergency locked, 2 locked forever.
+     */
+    function lockLevel() external view returns (uint8);
 
-    struct ScheduledPayment {
-        // a more complex scheduledPayment contract can be implemented for advanced users out of this repo
-        address recipient;
-        // remaining number of payments; set to type(uint256).max for an unlimited scheduled payment that
-        // never decrements and so never runs out
-        uint256 remainingPaymentCount;
-        bool isImmutable;
-        // if this is true, then the payment will not revert if the balance is insufficient
-        bool payWithInsufficientBalance;
-        // if this is not address(0), then only this trigger address can trigger the payment
-        address trigger;
-        address assetAddress;
-        uint256 amount;
-        uint256 startTimestamp;
-        uint256 paymentInterval;
-    }
-
-    struct WhitelistedRecipient {
-        // the payee address; address(0) means the entry does not exist
-        address recipient;
-        // address(0) = any token may be sent; otherwise only this asset is allowed
-        address allowedAsset;
-    }
+    /**
+     * @notice Returns all changes waiting to take effect.
+     */
+    function pendingChanges() external view returns (PendingChanges memory changes);
 
     /**
      * @notice The vault's WETH address.
@@ -143,11 +135,20 @@ interface IBittyV1Vault {
      * @return expiresAt When the grant lapses; 0 = never.
      * @return pendingManager A manager waiting out the timelock, or zero if nothing is queued.
      * @return pendingAt When that queued grant takes effect; 0 = nothing queued.
+     * @return permissions The effective grant's permission mask, or 0 if no manager is active.
+     * @return pendingPermissions The queued grant's permission mask, or 0 if nothing is queued.
      */
     function getAssetManagerSettings()
         external
         view
-        returns (address manager, uint64 expiresAt, address pendingManager, uint64 pendingAt);
+        returns (
+            address manager,
+            uint64 expiresAt,
+            address pendingManager,
+            uint64 pendingAt,
+            uint32 permissions,
+            uint32 pendingPermissions
+        );
 
     /**
      * @notice Is this asset allowed?
@@ -164,23 +165,11 @@ interface IBittyV1Vault {
     function isProtocolAllowed(address protocol) external view returns (bool);
 
     /**
-     * @notice Is this account a payout operator?
-     * @param account The address of the account to check.
-     * @return isPayoutOperator Whether the account is a payout operator.
+     * @notice Get the vault's two risk numbers.
+     * @return timelock The one wait in front of everything deferred.
+     * @return sendDailyAllowance What may leave per day through regular sends; 0 = no cap.
      */
-    function isPayoutOperator(address account) external view returns (bool);
-
-    /**
-     * @notice Get the risk config.
-     * @return newPaymentProtection The new payment protection.
-     * @return maxSendValue The max send value.
-     * @return changeTimelock The change timelock.
-     * @return maxSendInterval The max send interval.
-     */
-    function getRiskConfig()
-        external
-        view
-        returns (uint64 newPaymentProtection, uint64 maxSendValue, uint64 changeTimelock, uint64 maxSendInterval);
+    function riskSettings() external view returns (uint64 timelock, uint64 sendDailyAllowance);
 
     /**
      * @notice Get what the vault holds in withdrawable protocols.
@@ -204,12 +193,12 @@ interface IBittyV1Vault {
     function getPendingWithdrawalIds(address withdrawProtocol) external view returns (uint256[] memory ids);
 
     /**
-     * @notice Get the AMM liquidity.
-     * @param ammProtocols The AMM protocols to get the liquidity for.
+     * @notice Get the liquidity the vault holds through market-maker protocols.
+     * @param marketMakerProtocols The market-maker protocols to get the liquidity for.
      * @param data The data for the liquidity.
      * @return liquidity The liquidity.
      */
-    function getLiquidities(address[] calldata ammProtocols, bytes[] calldata data)
+    function getLiquidities(address[] calldata marketMakerProtocols, bytes[] calldata data)
         external
         view
         returns (uint256[] memory liquidity);
@@ -219,13 +208,6 @@ interface IBittyV1Vault {
      * @param assets The addresses of the assets to auto yield.
      */
     function autoYields(address[] calldata assets) external;
-
-    /**
-     * @notice Pay a scheduled payment.
-     * @param id The id of the scheduled payment.
-     * @param amount The amount to pay.
-     */
-    function payScheduledAmount(uint256 id, uint256 amount, address[] calldata withdrawProtocols) external;
 
     /**
      * @notice Wrap any native ETH the vault holds into WETH. receive() auto-wraps incoming ETH, but ETH
@@ -262,31 +244,26 @@ interface IBittyV1Vault {
      *         off: when it is on this is either the owner's figure or DAILY_MAX_GAS_BUDGET, never 0.
      * @return maxFeePerOp Ceiling on a single charge, in whole tokens. Never zero.
      */
-    function gaslessConfig() external view returns (address[] memory assets, uint256 dailyLimit, uint256 maxFeePerOp);
+    function stableCoinAsGasConfig()
+        external
+        view
+        returns (address[] memory assets, uint256 dailyLimit, uint256 maxFeePerOp);
 
     /**
      * @notice Reimburse the trusted forwarder, in stablecoin, for gas it fronted for this vault.
-     * @dev Not subject to the payment-risk controls: this is the vault settling its own gas bill, and
-     *      an owner able to block it with maxSendValue = 0 would just be relaying for free. The daily
+     * @dev Callable by the forwarder and ONLY while it is settling a fee for this vault — it must be
+     *      inside its own charge window (see {IBittyV1Forwarder}). Being the forwarder is not enough:
+     *      every relayed call has the forwarder as `msg.sender`, so that test alone let a relayed
+     *      `multicall([payRelayerFee])` signed by any key charge the budget.
+     *
+     *      Not subject to the payment-risk controls: this is the vault settling its own gas bill, and
+     *      an owner able to block it with sendDailyAllowance = 0 would just be relaying for free. The daily
      *      budget and per-charge ceiling are the controls that apply instead.
      * @param asset The asset to use for the relayer fee.
      * @param amount The amount to reclaim, in `asset` units. The payee is vault config, not an
      *        argument.
      */
     function payRelayerFee(address asset, uint256 amount) external;
-
-    /**
-     * @notice Pay a scheduled payment, funding any shortfall from the given positions.
-     * @dev If the vault already holds enough of the payment's asset, `withdrawProtocols` is ignored.
-     *      Otherwise the deficit — never a caller-supplied amount — is withdrawn from the protocols in
-     *      order, each up to its available balance, until the amount is covered. A native (ETH) payment
-     *      routes the withdrawn WETH through the vault and unwraps it; an ERC-20 payment is topped up
-     *      straight to the recipient. Reverts if the on-hand balance plus every listed protocol still
-     *      cannot cover the amount, unless the payment set payWithInsufficientBalance.
-     * @param id The id of the scheduled payment.
-     * @param withdrawProtocols The withdrawable protocols to draw a shortfall from, in priority order.
-     */
-    function payScheduled(uint256 id, address[] calldata withdrawProtocols) external;
 
     /**
      * @notice Auto yield the assets.
@@ -309,6 +286,28 @@ interface IBittyV1Vault {
      *      and shortening apply at once.
      * @param assetManager The trading delegate, or zero to revoke.
      * @param expiresAt When the grant lapses; 0 = never.
+     * @param permissions What the grant covers, as the bit set in {Constants}. There is no
+     *        "everything" and no default: zero appoints a key that can do nothing.
      */
-    function setAssetManager(address assetManager, uint64 expiresAt) external;
+    function setAssetManager(address assetManager, uint64 expiresAt, uint32 permissions) external;
+
+    /**
+     * @notice Emergency lock the vault.
+     */
+    function emergencyLock() external;
+
+    /**
+     * @notice Unlock the vault.
+     */
+    function unlock() external;
+
+    /**
+     * @notice Forever lock the vault.
+     */
+    function foreverLock() external;
+
+    /**
+     * @notice Cancel the ownership transfer.
+     */
+    function cancelOwnershipTransfer() external;
 }

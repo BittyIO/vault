@@ -27,9 +27,6 @@ jobs:
         with:
           version: v1.5.1
 
-      - name: Install forge-std
-        run: forge install foundry-rs/forge-std
-
       - name: Show Forge version
         run: |
           forge --version
@@ -55,9 +52,13 @@ jobs:
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
 
+      # Factory and ActivateAndCall are skipped here, not broken. Coverage recompiles with the optimizer
+      # off, which changes ERC1967Proxy's CBOR metadata and so its creation code; the factory constructor
+      # catches exactly that (VaultProxyInitCodeDrift) and reverts in setUp. Both suites still run in the
+      # "Run Forge tests" step above, against the production build.
       - name: Run Forge coverage
         run: |
-          forge coverage --ir-minimum --no-match-coverage 'test|node_modules|script|src/libs' --report lcov
+          forge coverage --ir-minimum --no-match-coverage 'test|node_modules|script|src/libs' --no-match-path 'test/local/{Factory,ActivateAndCall}.t.sol' --report lcov
         id: coverage
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}

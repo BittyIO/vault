@@ -26,7 +26,6 @@ import {IBittyV1Guard, IMPLEMENTATION_VAULT} from "guard-contracts/src/interface
  *      Run:  forge script script/DeployNewVersion.s.sol:DeployNewVersion --broadcast -vvvv
  */
 contract DeployNewVersion is Deploy {
-
     function deploy() public override {
         address vaultImpl = deployImplementationChain();
 
@@ -37,5 +36,4 @@ contract DeployNewVersion is Deploy {
         }
         console2.log("guard: should regist implementation in guard for vault", vaultImpl);
     }
-
 }

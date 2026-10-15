@@ -6,20 +6,23 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
-import {MockAMMProtocol} from "../helpers/MockAMMProtocol.sol";
+import {MockMarketProtocol} from "../helpers/MockMarketProtocol.sol";
 import {MockIntentProtocol} from "../helpers/MockIntentProtocol.sol";
 import {MockSettlement} from "../helpers/MockSettlement.sol";
-import {AMM_ID, MARKET_MAKER_ID, INTENT_ID, LENDING_ID} from "../helpers/CategoryIds.sol";
+import {MARKET_TRADE_ID, MARKET_MAKER_ID, INTENT_ID, LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 interface IFacet {
-    function addLiquidity(address amm, address t0, uint256 a0, address t1, uint256 a1, bytes memory data) external;
-    function removeLiquidity(address amm, bytes memory data) external;
-    function claimAMMFees(address amm, bytes memory data) external;
-    function getLiquidities(address[] calldata amms, bytes[] calldata data) external view returns (uint256[] memory);
+    function addLiquidity(address marketMaker, address t0, uint256 a0, address t1, uint256 a1, bytes memory data)
+        external;
+    function removeLiquidity(address marketMaker, bytes memory data) external;
+    function claimMarketMakerFees(address marketMaker, bytes memory data) external;
+    function getLiquidities(address[] calldata marketMakers, bytes[] calldata data)
+        external
+        view
+        returns (uint256[] memory);
     function approveIntentRelayer(address intent, address token) external;
     function cancelIntentOrder(address intent, bytes calldata uid) external;
     function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4);
@@ -28,7 +31,6 @@ interface IFacet {
         view
         returns (bool);
     function isOffchainCancellationAuthorized(address signer) external view returns (bool);
-    function disableTradeUntilTimestamp(uint256 ts) external;
     function updateAssets(address[] calldata add, address[] calldata remove) external;
     function updateProtocols(address[] calldata add, address[] calldata remove) external;
     function getClone(address protocol) external view returns (address);
@@ -45,7 +47,7 @@ contract DeFiTradingTest is Test {
     MockGuard guard;
     MockERC20 t0;
     MockERC20 t1;
-    MockAMMProtocol amm;
+    MockMarketProtocol marketMaker;
     MockIntentProtocol intent;
     MockSettlement settlement;
 
@@ -59,22 +61,21 @@ contract DeFiTradingTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
 
         t0 = new MockERC20("Token0", "T0", 18);
         t1 = new MockERC20("Token1", "T1", 18);
-        amm = new MockAMMProtocol();
+        marketMaker = new MockMarketProtocol();
         settlement = new MockSettlement();
         intent = new MockIntentProtocol();
         intent.setEndpoints(address(settlement), address(settlement));
 
         guard.setAsset(address(t0), ASSET_STABLE_COIN);
         guard.setAsset(address(t1), 2);
-        guard.setProtocol(address(amm), MARKET_MAKER_ID);
+        guard.setProtocol(address(marketMaker), MARKET_MAKER_ID);
         guard.setProtocol(address(intent), INTENT_ID);
 
         t0.mint(address(vault), 1_000e18);
@@ -90,41 +91,57 @@ contract DeFiTradingTest is Test {
         arr[0] = a;
     }
 
-    // ── AMM ───────────────────────────────────────────────────────────────────
+    // ── market making ───────────────────────────────────────────────────────────────────
 
     function test_ownerAddsAndRemovesLiquidity() public {
         vm.startPrank(owner);
-        _f().addLiquidity(address(amm), address(t0), 10e18, address(t1), 10e18, "");
-        address clone = _f().getClone(address(amm));
-        assertTrue(clone != address(0), "the AMM was cloned for this vault");
+        _f().addLiquidity(address(marketMaker), address(t0), 10e18, address(t1), 10e18, "");
+        address clone = _f().getClone(address(marketMaker));
+        assertTrue(clone != address(0), "the market maker was cloned for this vault");
 
-        _f().removeLiquidity(address(amm), "");
-        _f().claimAMMFees(address(amm), "");
+        _f().removeLiquidity(address(marketMaker), "");
+        _f().claimMarketMakerFees(address(marketMaker), "");
         vm.stopPrank();
     }
 
     function test_liquidityIsReadable() public {
         vm.prank(owner);
-        _f().addLiquidity(address(amm), address(t0), 1e18, address(t1), 1e18, "");
+        _f().addLiquidity(address(marketMaker), address(t0), 1e18, address(t1), 1e18, "");
         bytes[] memory data = new bytes[](1);
         data[0] = "";
-        assertEq(_f().getLiquidities(_one(address(amm)), data).length, 1);
+        assertEq(_f().getLiquidities(_one(address(marketMaker)), data).length, 1);
     }
 
-    /// A protocol registered under the WRONG category cannot be used as an AMM.
-    /// Liquidity is dispatched by interface, but the protocol must still be guard-curated: one the guard
-    /// never registered is refused up front, before any clone or interface call.
+    /// The protocol must be guard-curated: one the guard never registered is refused up front,
+    /// before any clone or interface call.
     function test_anUnregisteredProtocolCannotProvideLiquidity() public {
-        MockAMMProtocol stranger = new MockAMMProtocol(); // never registered with the guard
+        MockMarketProtocol stranger = new MockMarketProtocol(); // never registered with the guard
         vm.prank(owner);
         vm.expectRevert();
         _f().addLiquidity(address(stranger), address(t0), 1e18, address(t1), 1e18, "");
     }
 
+    /// Market makers carry their own guard category, so being registered is not enough - a protocol
+    /// filed under any other category is refused even when it implements the market-maker interface.
+    /// Without the category check, `addLiquidity` would approve the vault's tokens to the clone of a
+    /// protocol the guard never blessed for market making.
+    function test_aProtocolFiledUnderAnotherCategoryCannotProvideLiquidity() public {
+        MockMarketProtocol miscategorised = new MockMarketProtocol();
+        MockGuard(BITTY_GUARD).setProtocol(address(miscategorised), MARKET_TRADE_ID);
+        vm.prank(owner);
+        vm.expectRevert();
+        _f().addLiquidity(address(miscategorised), address(t0), 1e18, address(t1), 1e18, "");
+
+        MockGuard(BITTY_GUARD).setProtocol(address(miscategorised), LENDING_ID);
+        vm.prank(owner);
+        vm.expectRevert();
+        _f().addLiquidity(address(miscategorised), address(t0), 1e18, address(t1), 1e18, "");
+    }
+
     function test_onlyOwnerMayProvideLiquidity() public {
         vm.prank(makeAddr("stranger"));
         vm.expectRevert();
-        _f().addLiquidity(address(amm), address(t0), 1e18, address(t1), 1e18, "");
+        _f().addLiquidity(address(marketMaker), address(t0), 1e18, address(t1), 1e18, "");
     }
 
     // ── intent ────────────────────────────────────────────────────────────────
@@ -142,7 +159,7 @@ contract DeFiTradingTest is Test {
     function test_aNonIntentProtocolCannotBeApproved() public {
         vm.prank(owner);
         vm.expectRevert();
-        _f().approveIntentRelayer(address(amm), address(t0));
+        _f().approveIntentRelayer(address(marketMaker), address(t0));
     }
 
     function test_ownerCancelsAnIntentOrder() public {
@@ -174,7 +191,7 @@ contract DeFiTradingTest is Test {
     function test_aNonIntentCloneIsNeverAskedToSign() public {
         vm.prank(owner);
         _f().updateProtocols(_one(address(intent)), new address[](0));
-        guard.setProtocol(address(intent), AMM_ID); // recategorised
+        guard.setProtocol(address(intent), MARKET_TRADE_ID); // recategorised
         assertEq(_f().isValidSignature(keccak256("order"), hex"00"), INVALID, "skipped on category");
     }
 
@@ -195,16 +212,5 @@ contract DeFiTradingTest is Test {
     /// And it must be backed: an over-signed order simply stops authorising once its backing is gone.
     function test_orderRefusedWhenUnbacked() public {
         assertFalse(_f().isOffchainOrderAuthorized(owner, address(t0), address(t1), 10_000e18));
-    }
-
-    /**
-     * Pausing trading stops new orders but NOT cancellation — otherwise pausing would be the one
-     * action guaranteeing the orders already signed keep filling.
-     */
-    function test_pausingStopsOrdersButNotCancellation() public {
-        vm.prank(owner);
-        _f().disableTradeUntilTimestamp(block.timestamp + 7 days);
-        assertFalse(_f().isOffchainOrderAuthorized(owner, address(t0), address(t1), 1e18), "no new orders");
-        assertTrue(_f().isOffchainCancellationAuthorized(owner), "but cancelling still works");
     }
 }

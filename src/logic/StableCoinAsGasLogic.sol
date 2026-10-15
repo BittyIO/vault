@@ -4,7 +4,6 @@ pragma solidity ^0.8.34;
 import {
     NotInitialized,
     AmountIsZero,
-    OnlyImmutablePayableAfterRenounce,
     InvalidAsset,
     InsufficientBalance,
     FeeExceedsPerOpCap,
@@ -28,12 +27,12 @@ import {
 } from "./Constants.sol";
 
 /**
- * @title GaslessLogic
+ * @title StableCoinAsGasLogic
  * @notice The main vault's relayed-gas surface: the per-UTC-day stablecoin budget the vault will pay a
  *         trusted forwarder from, its config, the one-time activation fee, and the per-relay charge.
  *         Split out of {PaymentLogic}; operates on the same ERC-7201 {VaultStorage}.
  */
-library GaslessLogic {
+library StableCoinAsGasLogic {
     using SafeERC20 for IERC20;
 
     function _onlyInitialized(VaultStorage storage vaultStorage) private view {
@@ -41,7 +40,7 @@ library GaslessLogic {
     }
 
     function _dailyLimit(VaultStorage storage vaultStorage) private view returns (uint64) {
-        if (vaultStorage.gaslessDisabled) return 0;
+        if (vaultStorage.stableCoinAsGasDisabled) return 0;
         uint64 owned = TimelockLib.effective(vaultStorage.gasBudgetDaily);
         return owned == 0 ? SYSTEM_DAILY_MAX_GAS_BUDGET : owned;
     }
@@ -51,20 +50,20 @@ library GaslessLogic {
         return owned == 0 ? SYSTEM_MAX_FEE_PER_OP : owned;
     }
 
-    function disableGasless() external {
+    function disableStableCoinAsGas() external {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         _onlyInitialized(vaultStorage);
-        vaultStorage.gaslessDisabled = true;
-        emit IBittyV1Owner.GaslessSet(false, new address[](0), 0, 0);
+        vaultStorage.stableCoinAsGasDisabled = true;
+        emit IBittyV1Owner.StableCoinAsGasSet(false, new address[](0), 0, 0);
     }
 
-    function setGasless(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp) external {
+    function setStableCoinAsGas(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp) external {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         _onlyInitialized(vaultStorage);
         if (dailyLimit > SYSTEM_DAILY_MAX_GAS_BUDGET) revert GasBudgetTooHigh();
         if (maxFeePerOp > SYSTEM_MAX_FEE_PER_OP) revert FeeExceedsPerOpCap();
 
-        mapping(address => address) storage allowed = vaultStorage.gaslessAssets;
+        mapping(address => address) storage allowed = vaultStorage.stableCoinAsGasAssets;
         address entry = allowed[SENTINEL];
         while (entry != SENTINEL && entry != address(0)) {
             address next = allowed[entry];
@@ -81,15 +80,15 @@ library GaslessLogic {
             allowed[SENTINEL] = asset;
         }
 
-        vaultStorage.gaslessDisabled = false;
-        uint64 timelock = TimelockLib.effective(vaultStorage.riskConfig.changeTimelock);
+        vaultStorage.stableCoinAsGasDisabled = false;
+        uint64 timelock = TimelockLib.effective(vaultStorage.riskConfig.timelock);
         TimelockLib.setGasBudget(vaultStorage.gasBudgetDaily, dailyLimit, timelock);
         TimelockLib.setGasBudget(vaultStorage.maxFeePerOp, maxFeePerOp, timelock);
-        emit IBittyV1Owner.GaslessSet(true, assets, dailyLimit, maxFeePerOp);
+        emit IBittyV1Owner.StableCoinAsGasSet(true, assets, dailyLimit, maxFeePerOp);
     }
 
-    function getGaslessAssets() external view returns (address[] memory) {
-        mapping(address => address) storage allowed = BittyStorage.vault().gaslessAssets;
+    function getStableCoinAsGasAssets() external view returns (address[] memory) {
+        mapping(address => address) storage allowed = BittyStorage.vault().stableCoinAsGasAssets;
         uint256 n;
         for (address a = allowed[SENTINEL]; a != SENTINEL && a != address(0); a = allowed[a]) {
             n++;
@@ -129,22 +128,25 @@ library GaslessLogic {
         emit IBittyV1Owner.ActivationFeePaid(asset, amount);
     }
 
-    function _gaslessAssetAllowed(VaultStorage storage vaultStorage, address asset) private view returns (bool) {
+    function _stableCoinAsGasAssetAllowed(VaultStorage storage vaultStorage, address asset)
+        private
+        view
+        returns (bool)
+    {
         if (asset == address(0) || asset == SENTINEL) return false;
         if ((IBittyV1Guard(BITTY_GUARD).assetCategory(asset) & ASSET_STABLE_COIN) == 0) return false;
-        address head = vaultStorage.gaslessAssets[SENTINEL];
+        address head = vaultStorage.stableCoinAsGasAssets[SENTINEL];
         if (head == address(0) || head == SENTINEL) {
             return true;
         }
-        return vaultStorage.gaslessAssets[asset] != address(0);
+        return vaultStorage.stableCoinAsGasAssets[asset] != address(0);
     }
 
     function payRelayerFee(address asset, uint256 amount) external {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         _onlyInitialized(vaultStorage);
         if (amount == 0) revert AmountIsZero();
-        if (vaultStorage.renounced) revert OnlyImmutablePayableAfterRenounce();
-        if (!_gaslessAssetAllowed(vaultStorage, asset)) revert InvalidAsset();
+        if (!_stableCoinAsGasAssetAllowed(vaultStorage, asset)) revert InvalidAsset();
 
         uint256 value = Math.mulDiv(amount, 1e18, 10 ** IERC20Metadata(asset).decimals(), Math.Rounding.Ceil);
         if (value > uint256(_feePerOpCap(vaultStorage)) * 1e18) revert FeeExceedsPerOpCap();

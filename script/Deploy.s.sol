@@ -10,7 +10,6 @@ import {BittyV1VaultBootstrap} from "../src/BittyV1VaultBootstrap.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC1967Utils} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {BittyV1SubVault} from "../src/subvault/BittyV1SubVault.sol";
 import {BittyV1VaultDeFiFacet} from "../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1VaultFactory} from "../src/BittyV1VaultFactory.sol";
 import {BittyV1VaultForwarder} from "../src/BittyV1VaultForwarder.sol";
@@ -27,10 +26,8 @@ import {
 import {IBittyV1Guard, IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {PaymentLogic} from "../src/logic/PaymentLogic.sol";
 import {DeFiLogic} from "../src/logic/DeFiLogic.sol";
-import {SubVaultRegistryLogic} from "../src/logic/SubVaultRegistryLogic.sol";
-import {GaslessLogic} from "../src/logic/GaslessLogic.sol";
+import {StableCoinAsGasLogic} from "../src/logic/StableCoinAsGasLogic.sol";
 import {RiskLogic} from "../src/logic/RiskLogic.sol";
-import {ScheduledPaymentLogic} from "../src/logic/ScheduledPaymentLogic.sol";
 import {WhitelistLogic} from "../src/logic/WhitelistLogic.sol";
 
 /**
@@ -86,8 +83,7 @@ contract Deploy is DeployScript {
     function deployImplementationChain() internal returns (address vaultImpl) {
         _deployLogicLibraries();
         address defiFacet = _deployFacet();
-        address subImpl = _deploySubImplementation(defiFacet);
-        vaultImpl = _deployImplementation(defiFacet, subImpl);
+        vaultImpl = _deployImplementation(defiFacet);
     }
 
     /**
@@ -101,7 +97,7 @@ contract Deploy is DeployScript {
     }
 
     /**
-     * @dev ALL SEVEN, not the three that used to be listed here. Every one of them is delegatecalled by
+     * @dev ALL SIX, not a subset. Every one of them is delegatecalled by
      *      the vault at an address solc baked in at compile time, so a library that is linked but never
      *      deployed leaves the implementation calling into empty code - which does not revert at deploy
      *      time, only later, on the first call that touches it.
@@ -109,21 +105,13 @@ contract Deploy is DeployScript {
     function _deployLogicLibraries() private {
         _deployLibrary("PaymentLogic", address(PaymentLogic), type(PaymentLogic).creationCode);
         _deployLibrary("DeFiLogic", address(DeFiLogic), type(DeFiLogic).creationCode);
-        _deployLibrary(
-            "SubVaultRegistryLogic", address(SubVaultRegistryLogic), type(SubVaultRegistryLogic).creationCode
-        );
-        _deployLibrary("GaslessLogic", address(GaslessLogic), type(GaslessLogic).creationCode);
+        _deployLibrary("StableCoinAsGasLogic", address(StableCoinAsGasLogic), type(StableCoinAsGasLogic).creationCode);
         _deployLibrary("RiskLogic", address(RiskLogic), type(RiskLogic).creationCode);
-        _deployLibrary(
-            "ScheduledPaymentLogic", address(ScheduledPaymentLogic), type(ScheduledPaymentLogic).creationCode
-        );
         _deployLibrary("WhitelistLogic", address(WhitelistLogic), type(WhitelistLogic).creationCode);
         saveAddress("PAYMENT_LOGIC", address(PaymentLogic));
         saveAddress("DEFI_LOGIC", address(DeFiLogic));
-        saveAddress("SUB_VAULT_REGISTRY_LOGIC", address(SubVaultRegistryLogic));
-        saveAddress("GASLESS_LOGIC", address(GaslessLogic));
+        saveAddress("STABLE_COIN_AS_GAS_LOGIC", address(StableCoinAsGasLogic));
         saveAddress("RISK_LOGIC", address(RiskLogic));
-        saveAddress("SCHEDULED_PAYMENT_LOGIC", address(ScheduledPaymentLogic));
         saveAddress("WHITELIST_LOGIC", address(WhitelistLogic));
     }
 
@@ -241,14 +229,8 @@ contract Deploy is DeployScript {
         console2.log("keeper trusts forwarder        ", forwarder);
     }
 
-    function _deploySubImplementation(address defiFacet) private returns (address subImpl) {
-        bytes memory initCode = abi.encodePacked(type(BittyV1SubVault).creationCode, abi.encode(defiFacet));
-        subImpl = _create2("BittyV1SubVault", initCode);
-        saveAddress("SUB_VAULT_IMPLEMENTATION", subImpl);
-    }
-
-    function _deployImplementation(address defiFacet, address subImpl) private returns (address vaultImpl) {
-        bytes memory initCode = abi.encodePacked(type(BittyV1Vault).creationCode, abi.encode(defiFacet, subImpl));
+    function _deployImplementation(address defiFacet) private returns (address vaultImpl) {
+        bytes memory initCode = abi.encodePacked(type(BittyV1Vault).creationCode, abi.encode(defiFacet));
         vaultImpl = _create2("BittyV1Vault", initCode);
         _reportIfMoved("VAULT_IMPLEMENTATION", vaultImpl);
         saveAddress("VAULT_IMPLEMENTATION", vaultImpl);

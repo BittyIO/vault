@@ -7,16 +7,16 @@ import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/Owna
 import {MulticallUpgradeable} from "openzeppelin-contracts-upgradeable/utils/MulticallUpgradeable.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
 import {BITTY_FORWARDER} from "./logic/Constants.sol";
+import {BittyStorage, VaultStorage} from "./logic/BittyStorage.sol";
 
 /**
  * @title BittyV1AccountBase
  * @notice The shared context every account and the shared DeFi facet inherit: ERC-2771 relaying against
- *         the fixed Bitty forwarder, plus {OwnableUpgradeable} so `owner()` lives at OZ's fixed ERC-7201
- *         slot. That fixed slot is what lets the delegatecalled facet's `_msgSender() == owner()` resolve
- *         to the *host's* owner — the main owner in the main vault, the sub owner in a sub vault.
- * @dev The main vault layers {Ownable2StepUpgradeable} on top for 2-step transfer; the sub vault keeps
- *      plain 1-step ownership driven by its parent. Both share the same `owner()` slot, so the facet is
- *      indifferent to which host it runs in.
+ *         the fixed Bitty forwarder, and the vault's authority. The owner is read from a FIXED ERC-7201
+ *         slot ({BittyStorage}), which is what lets the delegatecalled facet's `_msgSender() == owner()`
+ *         resolve to the *host's* owner — the main owner in the main vault, the sub owner in a sub vault.
+ * @dev `owner()` is overridden here rather than on the vault, because a matured handover takes effect
+ *      on a clock and both contracts have to agree about it — see the override below.
  *
  *      Batching lives here rather than on either account, so a sub vault gets it on the same terms as
  *      the main one. {MulticallUpgradeable} self-delegatecalls each entry, so `msg.sender` and storage
@@ -46,9 +46,8 @@ abstract contract BittyV1AccountBase is ERC2771ContextUpgradeable, OwnableUpgrad
     }
 
     /**
-     * @dev The fixed forwarder, plus whoever opened the activation window - and only for as long as
-     *      it is open. A contract that re-enters during the window is not the activator, so it gets
-     *      no suffix and is attributed to itself.
+     * @dev A contract that re-enters during the activation window is not the activator, so it gets no
+     *      suffix and is attributed to itself.
      */
     function isTrustedForwarder(address forwarder) public view virtual override returns (bool) {
         if (forwarder == BITTY_FORWARDER) return true;
@@ -61,10 +60,9 @@ abstract contract BittyV1AccountBase is ERC2771ContextUpgradeable, OwnableUpgrad
     }
 
     /**
-     * @dev Run `calls` through this account as `owner_`, in the caller's activation window. Each entry
-     *      is self-delegatecalled with the owner appended as the ERC-2771 suffix, which is what
-     *      {_msgSender} reads while `msg.sender` (the activator) is trusted. Reverts bubble up, so an
-     *      activation with a failing entry leaves no account behind.
+     * @dev The owner is appended to each entry as the ERC-2771 suffix, which is what {_msgSender}
+     *      reads while `msg.sender` (the activator) is trusted. Reverts bubble up, so an activation
+     *      with a failing entry leaves no account behind.
      */
     function _runAsOwner(address owner_, bytes[] calldata calls) internal {
         bytes32 slot = _ACTIVATOR_TSLOT;
@@ -79,16 +77,6 @@ abstract contract BittyV1AccountBase is ERC2771ContextUpgradeable, OwnableUpgrad
         }
     }
 
-    /**
-     * @dev `payRelayerFee` moves the vault's gas budget and is authorised only by `msg.sender ==
-     *      trustedForwarder()` — it is meant to be charged by the forwarder ALONE during settlement,
-     *      never as a relayed user op. The forwarder blocks it as a TOP-LEVEL relayed call by inspecting
-     *      the outer selector, but {multicall} self-delegatecalls each entry with `msg.sender` still the
-     *      forwarder, so a relayed `multicall([payRelayerFee(...)])` would slip past that guard and drain
-     *      the budget to the fee collector (audit S-01). Reject the selector here too — at EVERY multicall
-     *      layer, so nesting can't smuggle it in. Legitimate charging goes straight through the forwarder,
-     *      not multicall, so nothing real is lost.
-     */
     error PayRelayerFeeNotRelayable();
 
     bytes4 private constant _PAY_RELAYER_FEE_SELECTOR = bytes4(keccak256("payRelayerFee(address,uint256)"));
@@ -109,6 +97,20 @@ abstract contract BittyV1AccountBase is ERC2771ContextUpgradeable, OwnableUpgrad
             }
             results[i] = Address.functionDelegateCall(address(this), bytes.concat(data[i], context));
         }
+    }
+
+    function owner() public view virtual override returns (address) {
+        VaultStorage storage $ = BittyStorage.vault();
+        uint256 readyAt = $.ownershipReadyAt;
+        if (readyAt != 0 && block.timestamp >= readyAt) return $.pendingOwner;
+        return $.vaultOwner;
+    }
+
+    function _transferOwnership(address newOwner) internal virtual override {
+        VaultStorage storage $ = BittyStorage.vault();
+        address previous = $.vaultOwner;
+        $.vaultOwner = newOwner;
+        emit OwnershipTransferred(previous, newOwner);
     }
 
     function _msgSender()

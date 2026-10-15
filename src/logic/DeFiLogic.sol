@@ -3,7 +3,14 @@ pragma solidity ^0.8.34;
 
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts/contracts/proxy/utils/UUPSUpgradeable.sol";
-import {IBittyV1Guard, ASSET_STABLE_COIN, PROTOCOL_INTENT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {
+    IBittyV1Guard,
+    ASSET_STABLE_COIN,
+    ASSET_AMM_LIQUID,
+    PROTOCOL_INTENT,
+    PROTOCOL_MARKET_TRADE,
+    PROTOCOL_MARKET_MAKER
+} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1Yield} from "protocol-contracts/src/interfaces/IBittyV1Yield.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
 import {IBittyV1MarketTradeProtocol} from "protocol-contracts/src/interfaces/IBittyV1MarketTradeProtocol.sol";
@@ -11,8 +18,6 @@ import {IBittyV1MarketMakerProtocol} from "protocol-contracts/src/interfaces/IBi
 import {
     InvalidDepositableProtocol,
     InvalidWithdrawableProtocol,
-    disableTradeUntilTimestampTooEarly,
-    disableTradeUntilTimestampTooLong,
     InvalidMarketTradeProtocol,
     InvalidMarketMakerProtocol,
     InvalidIntentProtocol,
@@ -21,10 +26,8 @@ import {
     ProtocolNotNewer,
     ProtocolNFT,
     AssetManagerExpiryInPast,
-    AssetManagerNotForSubVault,
     GrantTooLong,
-    MarketTradeNotSupported,
-    TradingDisabled
+    MarketTradeNotSupported
 } from "../interfaces/IBittyV1DeFi.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -42,7 +45,7 @@ import {
 } from "../interfaces/IBittyV1Vault.sol";
 import {BittyStorage, DeFiStorage} from "./BittyStorage.sol";
 import {TimelockLib} from "./TimelockLib.sol";
-import {BITTY_GUARD, MAX_DURATION, TRADE_DISABLE_MAX_DURATION, PROTOCOL_MARKET_TRADE} from "./Constants.sol";
+import {BITTY_GUARD, MAX_GRANT_DURATION} from "./Constants.sol";
 
 /**
  * @dev Minimal view into an intent protocol's settlement addresses (CoW-style): the relayer a gasless
@@ -59,7 +62,8 @@ interface IIntentSettlement {
 
 /**
  * @title DeFiLogic
- * @notice The full DeFi surface — yield (deposit/withdraw/auto-yield), AMM liquidity, and intent orders
+ * @notice The full DeFi surface — yield (deposit/withdraw/auto-yield), market making, market trading
+ * and intent orders
  *         — shared by the main vault (owner-operated) and every sub vault (sub-owner-operated). Operates
  *         on the co-located {DeFiStorage} at the ERC-7201 DEFI_SLOT, so the same code serves whichever
  *         host delegatecalls it.
@@ -73,17 +77,17 @@ library DeFiLogic {
     event AutoYieldTriggerSet(address indexed trigger);
     event AssetManagerSet(address indexed assetManager, uint64 expiresAt);
     event AssetManagerPending(address indexed assetManager, uint64 expiresAt, uint64 effectiveAt);
+    event AssetManagerPermissionsSet(address indexed assetManager, uint32 permissions);
 
     using SafeERC20 for IERC20;
 
-    uint8 internal constant ASSET_AMM_LIQUID = 4;
     using Address for address;
 
-    function initialize(bool allowlistEnabled) external {
+    function initialize(bool restrictToOwnAllowList) external {
         DeFiStorage storage $ = BittyStorage.defi();
         if ($.isInitialized) revert AlreadyInitialized();
         $.isInitialized = true;
-        $.allowlistEnabled = allowlistEnabled;
+        $.ownAllowListActive = restrictToOwnAllowList;
     }
 
     function listInitialAsset(address asset) external {
@@ -98,42 +102,20 @@ library DeFiLogic {
         if (!$.isInitialized) revert NotInitialized();
     }
 
-    function _allowlistActive(DeFiStorage storage $) private returns (bool) {
-        if (!$.allowlistEnabled) return false;
-        if ($.allowlistDisableAt != 0 && block.timestamp >= $.allowlistDisableAt) {
-            $.allowlistEnabled = false;
-            $.allowlistDisableAt = 0;
-            return false;
-        }
-        return true;
-    }
-
-    function _allowlistActiveView(DeFiStorage storage $) private view returns (bool) {
-        if (!$.allowlistEnabled) return false;
-        return !($.allowlistDisableAt != 0 && block.timestamp >= $.allowlistDisableAt);
-    }
-
-    function enableAllowlist() external {
+    function activateOwnAllowList() external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
-        $.allowlistEnabled = true;
-        $.allowlistDisableAt = 0;
+        $.ownAllowListActive = true;
     }
 
-    function disableAllowlist(uint64 timelock) external {
+    function deactivateOwnAllowList() external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
-        if (!$.allowlistEnabled) return;
-        if (timelock == 0) {
-            $.allowlistEnabled = false;
-            $.allowlistDisableAt = 0;
-        } else {
-            $.allowlistDisableAt = uint64(block.timestamp) + timelock;
-        }
+        $.ownAllowListActive = false;
     }
 
-    function allowlistEnabled() external view returns (bool) {
-        return _allowlistActiveView(BittyStorage.defi());
+    function ownAllowListActive() external view returns (bool) {
+        return BittyStorage.defi().ownAllowListActive;
     }
 
     function setAutoYieldTrigger(address trigger) external {
@@ -147,11 +129,10 @@ library DeFiLogic {
         return BittyStorage.defi().autoYieldTrigger;
     }
 
-    function setAssetManager(address assetManager, uint64 expiresAt) external {
-        if (BittyStorage.subVault().vault != address(0)) revert AssetManagerNotForSubVault();
+    function setAssetManager(address assetManager, uint64 expiresAt, uint32 permissions) external {
         if (expiresAt != 0) {
             if (expiresAt <= block.timestamp) revert AssetManagerExpiryInPast();
-            if (expiresAt > block.timestamp + MAX_DURATION) revert GrantTooLong();
+            if (expiresAt > block.timestamp + MAX_GRANT_DURATION) revert GrantTooLong();
         }
 
         DeFiStorage storage $ = BittyStorage.defi();
@@ -161,34 +142,43 @@ library DeFiLogic {
         if (assetManager == address(0)) {
             delete $.assetManager;
             delete $.assetManagerExpiresAt;
+            delete $.assetManagerPerms;
             _clearPendingAssetManager($);
             emit AssetManagerSet(address(0), 0);
             return;
         }
 
         uint64 current = $.assetManagerExpiresAt;
-        bool shortening = assetManager == $.assetManager && expiresAt != 0 && (current == 0 || expiresAt < current);
-        uint64 timelock = TimelockLib.effective(BittyStorage.vault().riskConfig.changeTimelock);
+        bool sameManager = assetManager == $.assetManager;
+        bool noLaterExpiry = expiresAt != 0 && (current == 0 || expiresAt <= current);
+        bool noNewPermission = permissions & ~$.assetManagerPerms == 0;
+        bool tightening = sameManager && noLaterExpiry && noNewPermission;
+        uint64 timelock = TimelockLib.effective(BittyStorage.vault().riskConfig.timelock);
 
-        if (shortening || timelock == 0) {
+        if (tightening || timelock == 0) {
             $.assetManager = assetManager;
-            $.assetManagerExpiresAt = expiresAt;
+            $.assetManagerExpiresAt = uint48(expiresAt);
+            $.assetManagerPerms = permissions;
             _clearPendingAssetManager($);
             emit AssetManagerSet(assetManager, expiresAt);
+            emit AssetManagerPermissionsSet(assetManager, permissions);
             return;
         }
 
         $.pendingAssetManager = assetManager;
-        $.pendingAssetManagerExpiresAt = expiresAt;
-        $.pendingAssetManagerAt = uint64(block.timestamp) + timelock;
+        $.pendingAssetManagerExpiresAt = uint48(expiresAt);
+        $.pendingAssetManagerPerms = permissions;
+        $.pendingAssetManagerAt = uint48(uint64(block.timestamp) + timelock);
+        $.hasPendingAssetManager = true;
         emit AssetManagerPending(assetManager, expiresAt, $.pendingAssetManagerAt);
     }
 
     function _settleAssetManager(DeFiStorage storage $) private {
-        uint64 at = $.pendingAssetManagerAt;
-        if (at != 0 && block.timestamp >= at) {
+        if (!$.hasPendingAssetManager) return;
+        if (block.timestamp >= $.pendingAssetManagerAt) {
             $.assetManager = $.pendingAssetManager;
             $.assetManagerExpiresAt = $.pendingAssetManagerExpiresAt;
+            $.assetManagerPerms = $.pendingAssetManagerPerms;
             _clearPendingAssetManager($);
         }
     }
@@ -196,49 +186,61 @@ library DeFiLogic {
     function _clearPendingAssetManager(DeFiStorage storage $) private {
         delete $.pendingAssetManager;
         delete $.pendingAssetManagerExpiresAt;
+        delete $.pendingAssetManagerPerms;
         delete $.pendingAssetManagerAt;
+        delete $.hasPendingAssetManager;
     }
 
-    function _liveGrant(DeFiStorage storage $) private view returns (address manager, uint64 expiresAt) {
-        uint64 at = $.pendingAssetManagerAt;
-        if (at != 0 && block.timestamp >= at) {
-            return ($.pendingAssetManager, $.pendingAssetManagerExpiresAt);
+    function _liveGrant(DeFiStorage storage $)
+        private
+        view
+        returns (address manager, uint64 expiresAt, uint32 permissions)
+    {
+        if ($.hasPendingAssetManager && block.timestamp >= $.pendingAssetManagerAt) {
+            return ($.pendingAssetManager, $.pendingAssetManagerExpiresAt, $.pendingAssetManagerPerms);
         }
-        return ($.assetManager, $.assetManagerExpiresAt);
+        return ($.assetManager, $.assetManagerExpiresAt, $.assetManagerPerms);
     }
 
     function getAssetManagerSettings()
         external
         view
-        returns (address manager, uint64 expiresAt, address pendingManager, uint64 pendingAt)
+        returns (
+            address manager,
+            uint64 expiresAt,
+            address pendingManager,
+            uint64 pendingAt,
+            uint32 permissions,
+            uint32 pendingPermissions
+        )
     {
         DeFiStorage storage $ = BittyStorage.defi();
-        (manager, expiresAt) = _liveGrant($);
-        return (manager, expiresAt, $.pendingAssetManager, $.pendingAssetManagerAt);
+        (manager, expiresAt, permissions) = _liveGrant($);
+        if (manager == address(0) || (expiresAt != 0 && block.timestamp >= expiresAt)) permissions = 0;
+        pendingManager = $.pendingAssetManager;
+        pendingAt = $.pendingAssetManagerAt;
+        pendingPermissions = $.hasPendingAssetManager ? $.pendingAssetManagerPerms : 0;
     }
 
-    function clearDelegates() external {
+    function _pendingAssetManagerGrant() internal view returns (address manager, uint64 at, uint32 permissions) {
         DeFiStorage storage $ = BittyStorage.defi();
-        delete $.assetManager;
-        delete $.assetManagerExpiresAt;
-        delete $.pendingAssetManager;
-        delete $.pendingAssetManagerExpiresAt;
-        delete $.pendingAssetManagerAt;
-        delete $.autoYieldTrigger;
-        emit AssetManagerSet(address(0), 0);
-        emit AutoYieldTriggerSet(address(0));
-    }
-
-    function subOwnerLapsed() external view returns (bool) {
-        uint64 expiresAt = BittyStorage.subVault().subOwnerExpiresAt;
-        return expiresAt != 0 && block.timestamp >= expiresAt;
+        if (!$.hasPendingAssetManager) return (address(0), 0, 0);
+        return ($.pendingAssetManager, $.pendingAssetManagerAt, $.pendingAssetManagerPerms);
     }
 
     function isActiveAssetManager(address account) external view returns (bool) {
         if (account == address(0)) return false;
-        (address manager, uint64 expiresAt) = _liveGrant(BittyStorage.defi());
+        (address manager, uint64 expiresAt,) = _liveGrant(BittyStorage.defi());
         if (account != manager) return false;
         return expiresAt == 0 || block.timestamp < expiresAt;
+    }
+
+    function assetManagerCan(address account, uint32 permissions) external view returns (bool) {
+        if (account == address(0)) return false;
+        (address manager, uint64 expiresAt, uint32 granted) = _liveGrant(BittyStorage.defi());
+        if (account != manager) return false;
+        if (expiresAt != 0 && block.timestamp >= expiresAt) return false;
+        return granted & permissions == permissions;
     }
 
     function upgradeProtocol(address protocol, address newImplementation) external {
@@ -289,7 +291,7 @@ library DeFiLogic {
 
     function _assetOK(DeFiStorage storage $, address asset) private returns (bool) {
         if (!IBittyV1Guard(BITTY_GUARD).isAssetRegistered(asset)) return false;
-        return !_allowlistActive($) || $.assets[asset];
+        return !$.ownAllowListActive || $.assets[asset];
     }
 
     function _requireAsset(DeFiStorage storage $, address asset) private {
@@ -299,37 +301,32 @@ library DeFiLogic {
     function assetAllowed(address asset) external view returns (bool) {
         DeFiStorage storage $ = BittyStorage.defi();
         if (!IBittyV1Guard(BITTY_GUARD).isAssetRegistered(asset)) return false;
-        return !_allowlistActiveView($) || $.assets[asset];
+        return !$.ownAllowListActive || $.assets[asset];
     }
 
     function stableCoinAllowed(address asset) external view returns (bool) {
         DeFiStorage storage $ = BittyStorage.defi();
         if ((IBittyV1Guard(BITTY_GUARD).assetCategory(asset) & ASSET_STABLE_COIN) == 0) return false;
         if (!IBittyV1Guard(BITTY_GUARD).isAssetRegistered(asset)) return false;
-        return !_allowlistActiveView($) || $.assets[asset];
+        return !$.ownAllowListActive || $.assets[asset];
     }
 
-    function _depositProtocolOK(DeFiStorage storage $, address protocol) private returns (bool) {
+    function _depositProtocolOK(DeFiStorage storage $, address protocol) private view returns (bool) {
         IBittyV1Guard guard = IBittyV1Guard(BITTY_GUARD);
         if (!guard.isProtocolRegistered(protocol)) return false;
         if (guard.isProtocolDeprecated(protocol)) return false;
-        return !_allowlistActive($) || $.protocols[protocol];
+        return !$.ownAllowListActive || $.protocols[protocol];
     }
 
-    function _categoryProtocolOK(DeFiStorage storage $, uint8 category, address protocol) private returns (bool) {
+    function _categoryProtocolOK(DeFiStorage storage $, uint8 category, address protocol) private view returns (bool) {
         if (IBittyV1Guard(BITTY_GUARD).protocolCategory(protocol) != category) return false;
-        return !_allowlistActive($) || $.protocols[protocol];
-    }
-
-    function _registeredProtocolOK(DeFiStorage storage $, address protocol) private returns (bool) {
-        if (!IBittyV1Guard(BITTY_GUARD).isProtocolRegistered(protocol)) return false;
-        return !_allowlistActive($) || $.protocols[protocol];
+        return !$.ownAllowListActive || $.protocols[protocol];
     }
 
     function isProtocolAllowed(address protocol) external view returns (bool) {
         DeFiStorage storage $ = BittyStorage.defi();
         if (!IBittyV1Guard(BITTY_GUARD).isProtocolRegistered(protocol)) return false;
-        return !_allowlistActiveView($) || $.protocols[protocol];
+        return !$.ownAllowListActive || $.protocols[protocol];
     }
 
     function deposit(address depositProtocol, address assetAddress, uint256 amount) external {
@@ -353,7 +350,30 @@ library DeFiLogic {
         external
         returns (uint256 delivered)
     {
+        return _withdraw(BittyStorage.defi(), withdrawProtocol, assetAddress, amount, recipient);
+    }
+
+    function withdraws(
+        address[] calldata withdrawProtocols,
+        address[] calldata assetAddresses,
+        uint256[] calldata amounts,
+        address recipient
+    ) external {
+        uint256 n = withdrawProtocols.length;
+        if (assetAddresses.length != n || amounts.length != n) revert ArrayLengthMismatch();
         DeFiStorage storage $ = BittyStorage.defi();
+        for (uint256 i; i < n; ++i) {
+            _withdraw($, withdrawProtocols[i], assetAddresses[i], amounts[i], recipient);
+        }
+    }
+
+    function _withdraw(
+        DeFiStorage storage $,
+        address withdrawProtocol,
+        address assetAddress,
+        uint256 amount,
+        address recipient
+    ) private returns (uint256 delivered) {
         _onlyInitialized($);
         if (assetAddress == address(0)) revert AddressZero();
         if (amount == 0) revert AmountIsZero();
@@ -365,10 +385,6 @@ library DeFiLogic {
         }
         _approveReceiptToken(clone, assetAddress);
         return IBittyV1Yield(clone).withdraw(assetAddress, amount, recipient);
-    }
-
-    function protocolBalance(address withdrawProtocol, address assetAddress) external view returns (uint256) {
-        return _getBalance(BittyStorage.defi(), withdrawProtocol, assetAddress);
     }
 
     function getBalances(address[] calldata withdrawProtocols, address[] calldata assetAddresses)
@@ -468,7 +484,7 @@ library DeFiLogic {
     }
 
     function addLiquidity(
-        address ammProtocol,
+        address marketMakerProtocol,
         address token0,
         uint256 amount0,
         address token1,
@@ -477,12 +493,14 @@ library DeFiLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
-        if (!_registeredProtocolOK($, ammProtocol)) revert InvalidMarketMakerProtocol();
-        if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
+        if (!_categoryProtocolOK($, PROTOCOL_MARKET_MAKER, marketMakerProtocol)) {
+            revert InvalidMarketMakerProtocol();
+        }
+        if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(marketMakerProtocol)) revert Deprecated();
         _requireAsset($, token0);
         _requireAsset($, token1);
 
-        address clone = _cloneProtocol($, ammProtocol);
+        address clone = _cloneProtocol($, marketMakerProtocol);
         if (token0 != address(0) && amount0 > 0) IERC20(token0).forceApprove(clone, amount0);
         if (token1 != address(0) && amount1 > 0) IERC20(token1).forceApprove(clone, amount1);
         _approveNFTIfNeeded(clone);
@@ -490,7 +508,7 @@ library DeFiLogic {
     }
 
     function marketSell(
-        address ammProtocol,
+        address marketTradeProtocol,
         address sellToken,
         uint256 sellAmount,
         address buyToken,
@@ -499,15 +517,14 @@ library DeFiLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
-        _requireTradingEnabled($);
-        if (!_categoryProtocolOK($, PROTOCOL_MARKET_TRADE, ammProtocol)) revert InvalidMarketTradeProtocol();
-        if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
+        if (!_categoryProtocolOK($, PROTOCOL_MARKET_TRADE, marketTradeProtocol)) revert InvalidMarketTradeProtocol();
+        if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(marketTradeProtocol)) revert Deprecated();
         _requireAsset($, sellToken);
         _requireAsset($, buyToken);
-        _requireAmmLiquid(sellToken);
-        _requireAmmLiquid(buyToken);
+        _requireMarketTradable(sellToken);
+        _requireMarketTradable(buyToken);
 
-        address clone = _cloneProtocol($, ammProtocol);
+        address clone = _cloneProtocol($, marketTradeProtocol);
         if (sellToken != address(0) && sellAmount > 0 && IERC20(sellToken).allowance(address(this), clone) < sellAmount)
         {
             IERC20(sellToken).forceApprove(clone, type(uint256).max);
@@ -517,7 +534,7 @@ library DeFiLogic {
     }
 
     function marketBuy(
-        address ammProtocol,
+        address marketTradeProtocol,
         address sellToken,
         uint256 sellAmountMax,
         address buyToken,
@@ -526,15 +543,14 @@ library DeFiLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
-        _requireTradingEnabled($);
-        if (!_categoryProtocolOK($, PROTOCOL_MARKET_TRADE, ammProtocol)) revert InvalidMarketTradeProtocol();
-        if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(ammProtocol)) revert Deprecated();
+        if (!_categoryProtocolOK($, PROTOCOL_MARKET_TRADE, marketTradeProtocol)) revert InvalidMarketTradeProtocol();
+        if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(marketTradeProtocol)) revert Deprecated();
         _requireAsset($, sellToken);
         _requireAsset($, buyToken);
-        _requireAmmLiquid(sellToken);
-        _requireAmmLiquid(buyToken);
+        _requireMarketTradable(sellToken);
+        _requireMarketTradable(buyToken);
 
-        address clone = _cloneProtocol($, ammProtocol);
+        address clone = _cloneProtocol($, marketTradeProtocol);
         if (sellToken != address(0) && IERC20(sellToken).allowance(address(this), clone) < sellAmountMax) {
             IERC20(sellToken).forceApprove(clone, type(uint256).max);
         }
@@ -542,55 +558,45 @@ library DeFiLogic {
         IBittyV1MarketTradeProtocol(clone).swapExactOut(data, address(this));
     }
 
-    /**
-     * @dev The owner's trade pause, applied to market (AMM) swaps. The same test gates intent orders in
-     *      the facet's {isOffchainOrderAuthorized}; without it here a paused manager could still swap
-     *      through the AMM. Unwind paths (remove liquidity, cancel, withdraw) stay open on purpose.
-     */
-    function _requireTradingEnabled(DeFiStorage storage $) private view {
-        uint64 disabledUntil = $.tradeDisabledUntilTimestamp;
-        if (disabledUntil != 0 && block.timestamp < disabledUntil) revert TradingDisabled();
-    }
-
-    function _requireAmmLiquid(address token) private view {
+    function _requireMarketTradable(address token) private view {
         if ((IBittyV1Guard(BITTY_GUARD).assetCategory(token) & ASSET_AMM_LIQUID) == 0) {
             revert MarketTradeNotSupported();
         }
     }
 
-    function removeLiquidity(address ammProtocol, bytes memory data) external {
-        address clone = _ammClone(ammProtocol);
+    function removeLiquidity(address marketMakerProtocol, bytes memory data) external {
+        address clone = _marketMakerClone(marketMakerProtocol);
         _approveNFTIfNeeded(clone);
         IBittyV1MarketMakerProtocol(clone).removeLiquidity(data);
     }
 
-    function decreaseLiquidity(address ammProtocol, bytes memory data) external {
-        address clone = _ammClone(ammProtocol);
+    function decreaseLiquidity(address marketMakerProtocol, bytes memory data) external {
+        address clone = _marketMakerClone(marketMakerProtocol);
         _approveNFTIfNeeded(clone);
         IBittyV1MarketMakerProtocol(clone).decreaseLiquidity(data);
     }
 
-    function claimAMMFees(address ammProtocol, bytes memory data) external {
-        address clone = _ammClone(ammProtocol);
+    function claimMarketMakerFees(address marketMakerProtocol, bytes memory data) external {
+        address clone = _marketMakerClone(marketMakerProtocol);
         _approveNFTIfNeeded(clone);
-        IBittyV1MarketMakerProtocol(clone).claimAMMFees(data);
+        IBittyV1MarketMakerProtocol(clone).claimMarketMakerFees(data);
     }
 
-    function _ammClone(address ammProtocol) private view returns (address clone) {
-        clone = _instanceOf(BittyStorage.defi(), ammProtocol);
+    function _marketMakerClone(address marketMakerProtocol) private view returns (address clone) {
+        clone = _instanceOf(BittyStorage.defi(), marketMakerProtocol);
         if (clone == address(0)) revert InvalidMarketMakerProtocol();
     }
 
-    function getLiquidities(address[] calldata ammProtocols, bytes[] calldata data)
+    function getLiquidities(address[] calldata marketMakerProtocols, bytes[] calldata data)
         external
         view
         returns (uint256[] memory liquidities)
     {
-        if (ammProtocols.length != data.length) revert ArrayLengthMismatch();
+        if (marketMakerProtocols.length != data.length) revert ArrayLengthMismatch();
         DeFiStorage storage $ = BittyStorage.defi();
-        liquidities = new uint256[](ammProtocols.length);
-        for (uint256 i; i < ammProtocols.length; ++i) {
-            address clone = _instanceOf($, ammProtocols[i]);
+        liquidities = new uint256[](marketMakerProtocols.length);
+        for (uint256 i; i < marketMakerProtocols.length; ++i) {
+            address clone = _instanceOf($, marketMakerProtocols[i]);
             liquidities[i] = clone == address(0) ? 0 : IBittyV1MarketMakerProtocol(clone).getLiquidity(data[i]);
         }
     }
@@ -614,22 +620,9 @@ library DeFiLogic {
         IIntentSettlement(IIntentRelayerSource(intentProtocol).settlement()).invalidateOrder(orderUid);
     }
 
-    function _checkIntentProtocol(DeFiStorage storage $, address intentProtocol) private {
+    function _checkIntentProtocol(DeFiStorage storage $, address intentProtocol) private view {
         if (!_categoryProtocolOK($, PROTOCOL_INTENT, intentProtocol)) revert InvalidIntentProtocol();
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(intentProtocol)) revert Deprecated();
-    }
-
-    function disableTradeUntilTimestamp(uint256 timestamp) external {
-        DeFiStorage storage $ = BittyStorage.defi();
-        _onlyInitialized($);
-        if (timestamp == 0) return;
-        if (timestamp < $.tradeDisabledUntilTimestamp) revert disableTradeUntilTimestampTooEarly();
-        if (timestamp > block.timestamp + TRADE_DISABLE_MAX_DURATION) revert disableTradeUntilTimestampTooLong();
-        $.tradeDisabledUntilTimestamp = uint64(timestamp);
-    }
-
-    function tradeDisabledUntil() external view returns (uint256) {
-        return BittyStorage.defi().tradeDisabledUntilTimestamp;
     }
 
     function getClone(address protocol) external view returns (address) {

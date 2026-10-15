@@ -21,9 +21,8 @@ import {BITTY_GUARD, CFG_OWNER} from "./logic/Constants.sol";
  *
  *      It deliberately does NOT inspect what is being signed. ERC-1271 receives only a hash, so it
  *      could not anyway — but it does not need to: with `request.from` set to this keeper, the vault
- *      sees a caller that is neither its owner nor a payout operator, and {IBittyV1Vault-autoYield}
- *      is the only function that check passes for. The vault does the authorisation; this
- *      contract only does authentication.
+ *      sees a caller that is not its owner, and {IBittyV1Vault-autoYield} is the only function that
+ *      check passes for. The vault does the authorisation; this contract only does authentication.
  */
 contract BittyV1AutoYieldKeeper {
     bytes4 private constant MAGIC_VALUE = 0x1626ba7e;
@@ -73,25 +72,18 @@ contract BittyV1AutoYieldKeeper {
         emit ForwarderSet(forwarder, trusted);
     }
 
-    /**
-     * @notice Authorise `signer` to sign sweeps until `expiresAt`, or revoke it with 0.
-     */
     function setSigner(address signer, uint64 expiresAt) external onlyOwner {
         if (expiresAt != 0 && expiresAt <= block.timestamp) revert ExpiryInPast();
         signerExpiresAt[signer] = expiresAt;
         emit SignerSet(signer, expiresAt);
     }
 
-    /**
-     * @notice Whether `signer` may sign right now.
-     */
     function isActiveSigner(address signer) public view returns (bool) {
         uint64 expiresAt = signerExpiresAt[signer];
         return expiresAt != 0 && expiresAt >= block.timestamp;
     }
 
     /**
-     * @notice The signature format this keeper accepts: `abi.encode(signer, innerSignature)`.
      * @dev The signer is NAMED rather than recovered. Recovery can only ever produce the address of an
      *      EOA, so it made a contract signer structurally impossible — not merely unsupported — and a
      *      key set that can never include a multisig is a key set that can never stop depending on one

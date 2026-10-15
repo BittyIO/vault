@@ -3,13 +3,22 @@ pragma solidity ^0.8.34;
 
 import {BittyV1AccountBase} from "./BittyV1AccountBase.sol";
 import {DeFiLogic} from "./logic/DeFiLogic.sol";
+import {LockLib} from "./logic/LockLib.sol";
+import {PaymentCore} from "./logic/PaymentCore.sol";
 import {BittyStorage} from "./logic/BittyStorage.sol";
 import {IBittyV1Guard, PROTOCOL_INTENT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {AutoYield} from "./interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD} from "./logic/Constants.sol";
-import {SubOwnerExpired} from "./interfaces/IBittyV1SubVault.sol";
+import {
+    BITTY_GUARD,
+    PERM_YIELD,
+    PERM_SUPPLY,
+    PERM_MARKET_TRADE,
+    PERM_MARKET_MAKER,
+    PERM_INTENT
+} from "./logic/Constants.sol";
+import {IBittyV1Guard as IGuard, PROTOCOL_STAKING} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1DeFi} from "./interfaces/IBittyV1DeFi.sol";
 
 /**
@@ -28,28 +37,37 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
 
     error NotAutoYieldTrigger();
 
-    modifier onlyAssetManager() {
-        if (!DeFiLogic.isActiveAssetManager(_msgSender())) _checkOwner();
+    modifier onlyManagerWith(uint32 permission) {
+        if (!DeFiLogic.assetManagerCan(_msgSender(), permission)) _checkOwner();
+        _;
+    }
+
+    modifier notLocked() {
+        LockLib.requireNotLocked();
         _;
     }
 
     modifier onlyUnwind() {
-        if (!DeFiLogic.subOwnerLapsed() && !DeFiLogic.isActiveAssetManager(_msgSender())) _checkOwner();
+        if (!DeFiLogic.isActiveAssetManager(_msgSender())) _checkOwner();
         _;
     }
 
-    function _checkOwner() internal view override {
-        super._checkOwner();
-        uint64 expiresAt = BittyStorage.subVault().subOwnerExpiresAt;
-        if (expiresAt != 0 && block.timestamp >= expiresAt) revert SubOwnerExpired();
-    }
-
-    function deposit(address protocol, address asset, uint256 amount) external onlyAssetManager {
+    function deposit(address protocol, address asset, uint256 amount) external notLocked {
+        uint32 permission =
+            IGuard(BITTY_GUARD).protocolCategory(protocol) == PROTOCOL_STAKING ? PERM_YIELD : PERM_SUPPLY;
+        if (!DeFiLogic.assetManagerCan(_msgSender(), permission)) _checkOwner();
         DeFiLogic.deposit(protocol, asset, amount);
     }
 
     function withdraw(address protocol, address asset, uint256 amount) external onlyUnwind {
         DeFiLogic.withdraw(protocol, asset, amount, address(this));
+    }
+
+    function withdraws(address[] calldata protocols, address[] calldata assets, uint256[] calldata amounts)
+        external
+        onlyUnwind
+    {
+        DeFiLogic.withdraws(protocols, assets, amounts, address(this));
     }
 
     function claimWithdrawals(address protocol, uint256[] memory ids) external onlyUnwind {
@@ -79,25 +97,32 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
     function _onlyAutoYieldTrigger() private view {
         if (msg.sender == address(this)) return;
         address s = _msgSender();
-        if (s == owner() && !DeFiLogic.subOwnerLapsed()) return;
+        if (s == owner()) return;
         address trigger = DeFiLogic.autoYieldTrigger();
         if (trigger != address(0) && s == trigger) return;
         revert NotAutoYieldTrigger();
     }
 
-    function setAssetManager(address assetManager_, uint64 expiresAt) external onlyOwner {
-        DeFiLogic.setAssetManager(assetManager_, expiresAt);
+    function setAssetManager(address assetManager_, uint64 expiresAt, uint32 permissions) external onlyOwner notLocked {
+        DeFiLogic.setAssetManager(assetManager_, expiresAt, permissions);
     }
 
     function getAssetManagerSettings()
         external
         view
-        returns (address manager, uint64 expiresAt, address pendingManager, uint64 pendingAt)
+        returns (
+            address manager,
+            uint64 expiresAt,
+            address pendingManager,
+            uint64 pendingAt,
+            uint32 permissions,
+            uint32 pendingPermissions
+        )
     {
         return DeFiLogic.getAssetManagerSettings();
     }
 
-    function setAutoYieldTrigger(address trigger) external onlyOwner {
+    function setAutoYieldTrigger(address trigger) external onlyOwner notLocked {
         DeFiLogic.setAutoYieldTrigger(trigger);
     }
 
@@ -105,21 +130,21 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         return DeFiLogic.autoYieldTrigger();
     }
 
-    function autoYield(address asset) external {
+    function autoYield(address asset) external notLocked {
         _onlyAutoYieldTrigger();
         DeFiLogic.autoYieldOne(asset);
     }
 
-    function autoYields(address[] calldata assets) external {
+    function autoYields(address[] calldata assets) external notLocked {
         _onlyAutoYieldTrigger();
         DeFiLogic.autoYield(assets);
     }
 
-    function setAutoYielding(AutoYield calldata route) external onlyOwner {
+    function setAutoYielding(AutoYield calldata route) external onlyOwner notLocked {
         DeFiLogic.setAutoYieldingOne(route);
     }
 
-    function setAutoYieldings(AutoYield[] calldata routes) external onlyOwner {
+    function setAutoYieldings(AutoYield[] calldata routes) external onlyOwner notLocked {
         DeFiLogic.setAutoYieldings(routes);
     }
 
@@ -128,80 +153,79 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
     }
 
     function addLiquidity(
-        address amm,
+        address marketMaker,
         address token0,
         uint256 amount0,
         address token1,
         uint256 amount1,
         bytes memory data
-    ) external onlyAssetManager {
-        DeFiLogic.addLiquidity(amm, token0, amount0, token1, amount1, data);
+    ) external onlyManagerWith(PERM_MARKET_MAKER) notLocked {
+        DeFiLogic.addLiquidity(marketMaker, token0, amount0, token1, amount1, data);
     }
 
     function marketSell(
-        address amm,
+        address marketTrade,
         address sellToken,
         uint256 sellAmount,
         address buyToken,
         uint256 buyAmountMin,
         bytes memory path
-    ) external onlyAssetManager {
-        DeFiLogic.marketSell(amm, sellToken, sellAmount, buyToken, buyAmountMin, path);
+    ) external onlyManagerWith(PERM_MARKET_TRADE) notLocked {
+        DeFiLogic.marketSell(marketTrade, sellToken, sellAmount, buyToken, buyAmountMin, path);
     }
 
     function marketBuy(
-        address amm,
+        address marketTrade,
         address sellToken,
         uint256 sellAmountMax,
         address buyToken,
         uint256 buyAmount,
         bytes memory reversedPath
-    ) external onlyAssetManager {
-        DeFiLogic.marketBuy(amm, sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
+    ) external onlyManagerWith(PERM_MARKET_TRADE) notLocked {
+        DeFiLogic.marketBuy(marketTrade, sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
     }
 
-    function removeLiquidity(address amm, bytes memory data) external onlyUnwind {
-        DeFiLogic.removeLiquidity(amm, data);
+    function removeLiquidity(address marketMaker, bytes memory data) external onlyUnwind {
+        DeFiLogic.removeLiquidity(marketMaker, data);
     }
 
-    function decreaseLiquidity(address amm, bytes memory data) external onlyUnwind {
-        DeFiLogic.decreaseLiquidity(amm, data);
+    function decreaseLiquidity(address marketMaker, bytes memory data) external onlyUnwind {
+        DeFiLogic.decreaseLiquidity(marketMaker, data);
     }
 
-    function claimAMMFees(address amm, bytes memory data) external onlyUnwind {
-        DeFiLogic.claimAMMFees(amm, data);
+    function claimMarketMakerFees(address marketMaker, bytes memory data) external onlyUnwind {
+        DeFiLogic.claimMarketMakerFees(marketMaker, data);
     }
 
-    function getLiquidities(address[] calldata amms, bytes[] calldata data) external view returns (uint256[] memory) {
-        return DeFiLogic.getLiquidities(amms, data);
+    function getLiquidities(address[] calldata marketMakerProtocols, bytes[] calldata data)
+        external
+        view
+        returns (uint256[] memory)
+    {
+        return DeFiLogic.getLiquidities(marketMakerProtocols, data);
     }
 
-    function approveIntentRelayer(address intent, address token) external onlyAssetManager {
+    function approveIntentRelayer(address intent, address token) external onlyManagerWith(PERM_INTENT) {
         DeFiLogic.approveIntentRelayer(intent, token);
     }
 
-    function cancelIntentOrders(address intent, bytes[] calldata uids) external onlyUnwind {
+    function cancelIntentOrders(address intent, bytes[] calldata uids) external onlyUnwind notLocked {
         DeFiLogic.cancelIntentOrders(intent, uids);
     }
 
-    function cancelIntentOrder(address intent, bytes calldata uid) external onlyUnwind {
+    function cancelIntentOrder(address intent, bytes calldata uid) external onlyUnwind notLocked {
         DeFiLogic.cancelIntentOrderOne(intent, uid);
     }
 
-    function disableTradeUntilTimestamp(uint256 ts) external onlyOwner {
-        DeFiLogic.disableTradeUntilTimestamp(ts);
-        emit IBittyV1DeFi.TradingDisabledUntil(ts);
-    }
-
-    function updateProtocols(address[] calldata add, address[] calldata remove) external onlyOwner {
+    function updateProtocols(address[] calldata add, address[] calldata remove) external onlyOwner notLocked {
         DeFiLogic.updateProtocols(add, remove);
     }
 
-    function upgradeProtocol(address protocol, address newImplementation) external onlyOwner {
+    function upgradeProtocol(address protocol, address newImplementation) external onlyOwner notLocked {
         DeFiLogic.upgradeProtocol(protocol, newImplementation);
     }
 
-    function updateAssets(address[] calldata add, address[] calldata remove) external onlyOwner {
+    function updateAssets(address[] calldata add, address[] calldata remove) external onlyOwner notLocked {
         DeFiLogic.updateAssets(add, remove);
     }
 
@@ -213,8 +237,17 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         return DeFiLogic.assetAllowed(asset);
     }
 
-    function allowlistEnabled() external view returns (bool) {
-        return DeFiLogic.allowlistEnabled();
+    function usingBittyAllowList() external view returns (bool) {
+        return !DeFiLogic.ownAllowListActive();
+    }
+
+    function useBittyAllowList(bool use) external onlyOwner {
+        if (use) {
+            DeFiLogic.deactivateOwnAllowList();
+        } else {
+            LockLib.requireNotLocked();
+            DeFiLogic.activateOwnAllowList();
+        }
     }
 
     function guard() external pure returns (IBittyV1Guard) {
@@ -248,16 +281,16 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         view
         returns (bool)
     {
-        if ((signer != owner() || DeFiLogic.subOwnerLapsed()) && !DeFiLogic.isActiveAssetManager(signer)) {
+        if (signer != owner() && !DeFiLogic.assetManagerCan(signer, PERM_INTENT)) {
             return false;
         }
-        uint256 disabledUntil = DeFiLogic.tradeDisabledUntil();
-        if (disabledUntil > 0 && block.timestamp < disabledUntil) return false;
         if (!DeFiLogic.assetAllowed(buyToken)) return false;
+        if (LockLib.level() != 0 && !PaymentCore.stableCoinAllowed(buyToken)) return false;
         return IERC20(sellToken).balanceOf(address(this)) >= sellAmount;
     }
 
     function isOffchainCancellationAuthorized(address signer) external view returns (bool) {
+        if (LockLib.level() != 0) return false;
         return signer == owner() || DeFiLogic.isActiveAssetManager(signer);
     }
 }

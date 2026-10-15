@@ -11,7 +11,6 @@ import {MockGuard} from "../helpers/MockGuard.sol";
 import {MARKET_MAKER_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 import {UniswapV3MarketMakerProtocol} from "protocol-contracts/src/protocols/UniswapV3MarketMakerProtocol.sol";
@@ -24,10 +23,10 @@ import {
 } from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
 
 interface IVaultLP {
-    function addLiquidity(address amm, address token0, uint256 amount0, address token1, uint256 amount1, bytes calldata data)
+    function addLiquidity(address marketMaker, address token0, uint256 amount0, address token1, uint256 amount1, bytes calldata data)
         external;
-    function removeLiquidity(address amm, bytes calldata data) external;
-    function claimAMMFees(address amm, bytes calldata data) external;
+    function removeLiquidity(address marketMaker, bytes calldata data) external;
+    function claimMarketMakerFees(address marketMaker, bytes calldata data) external;
 }
 
 /**
@@ -62,7 +61,7 @@ contract DeFiUniswapLPForkTest is Test {
     function setUp() public {
         vm.createSelectFork("sepolia");
 
-        // Guard the vault reads from — register the real adapter as AMM and both tokens as assets.
+        // Guard the vault reads from — register the real adapter as a market maker and both tokens as assets.
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         guard = MockGuard(BITTY_GUARD);
 
@@ -74,8 +73,7 @@ contract DeFiUniswapLPForkTest is Test {
 
         // The vault (facet behind an ERC1967 proxy), allowlist off.
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
@@ -179,7 +177,7 @@ contract DeFiUniswapLPForkTest is Test {
 
     // Would REVERT ("ERC721: transfer caller is not owner nor approved") when _positionNFT can't resolve
     // the adapter's NFT-manager getter, so the vault never approved the clone to pull the position NFT.
-    function test_vault_claimAMMFees_worksThroughRealAdapter() public {
+    function test_vault_claimMarketMakerFees_worksThroughRealAdapter() public {
         uint256 tokenId = _addLiquidity();
         bytes memory data = abi.encode(
             INonfungiblePositionManager.CollectParams({
@@ -190,7 +188,7 @@ contract DeFiUniswapLPForkTest is Test {
             })
         );
         vm.prank(owner);
-        IVaultLP(address(vault)).claimAMMFees(address(uniImpl), data);
+        IVaultLP(address(vault)).claimMarketMakerFees(address(uniImpl), data);
         // The position (and its NFT) survives a fee claim.
         assertEq(IERC721(npm).ownerOf(tokenId), address(vault), "vault keeps the NFT after claim");
     }

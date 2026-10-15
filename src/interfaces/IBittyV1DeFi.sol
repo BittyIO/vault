@@ -9,14 +9,10 @@ error InvalidIntentProtocol();
 error ProtocolNotInstantiated();
 error ProtocolLineageMismatch();
 error ProtocolNotNewer();
-error disableTradeUntilTimestampTooEarly();
-error disableTradeUntilTimestampTooLong();
 error ProtocolNFT();
 error GrantTooLong();
 error AssetManagerExpiryInPast();
-error AssetManagerNotForSubVault();
 error MarketTradeNotSupported();
-error TradingDisabled();
 
 /**
  * @title IBittyV1DeFi
@@ -28,8 +24,6 @@ error TradingDisabled();
  *         (getBalances, getLiquidity, protocol getters, …) live in {IBittyV1Vault}.
  */
 interface IBittyV1DeFi {
-    event TradingDisabledUntil(uint256 timestamp);
-
     /**
      * @notice Put an asset into a depositable protocol.
      * @dev One entry for every protocol the vault can deposit into. Supply and stake were the same
@@ -50,6 +44,19 @@ interface IBittyV1DeFi {
     function withdraw(address withdrawProtocol, address assetAddress, uint256 amount) external;
 
     /**
+     * @notice Withdraw assets from multiple protocol positions in one call.
+     * @dev All arrays must have the same length. Use {withdraw} for a single position.
+     * @param withdrawProtocols The protocols to withdraw from.
+     * @param assetAddresses The assets to withdraw from each protocol.
+     * @param amounts The amounts to withdraw from each protocol.
+     */
+    function withdraws(
+        address[] calldata withdrawProtocols,
+        address[] calldata assetAddresses,
+        uint256[] calldata amounts
+    ) external;
+
+    /**
      * @notice Claim one finalized withdrawal.
      * @dev For protocols whose exit is asynchronous - a staking queue, a redemption delay - where
      *      {withdraw} only opens the request and the assets arrive on a later claim.
@@ -66,8 +73,8 @@ interface IBittyV1DeFi {
     function claimWithdrawals(address withdrawProtocol, uint256[] memory ids) external;
 
     /**
-     * @notice Add liquidity to an AMM protocol.
-     * @param ammProtocol The AMM protocol to add liquidity to.
+     * @notice Add liquidity through a market-maker protocol.
+     * @param marketMakerProtocol The market-maker protocol to add liquidity through.
      * @param token0 The first token to add liquidity from.
      * @param amount0 The amount of the first token to add liquidity from.
      * @param token1 The second token to add liquidity from.
@@ -75,7 +82,7 @@ interface IBittyV1DeFi {
      * @param data The data for the add.
      */
     function addLiquidity(
-        address ammProtocol,
+        address marketMakerProtocol,
         address token0,
         uint256 amount0,
         address token1,
@@ -84,31 +91,25 @@ interface IBittyV1DeFi {
     ) external;
 
     /**
-     * @notice Remove liquidity from an AMM protocol.
-     * @param ammProtocol The AMM protocol to remove liquidity from.
+     * @notice Remove liquidity from a market-maker protocol.
+     * @param marketMakerProtocol The market-maker protocol to remove liquidity from.
      * @param data The data for the remove.
      */
-    function removeLiquidity(address ammProtocol, bytes memory data) external;
+    function removeLiquidity(address marketMakerProtocol, bytes memory data) external;
 
     /**
-     * @notice Decrease liquidity from an AMM protocol.
-     * @param ammProtocol The AMM protocol to decrease liquidity from.
+     * @notice Decrease liquidity in a market-maker protocol.
+     * @param marketMakerProtocol The market-maker protocol to decrease liquidity in.
      * @param data The data for the decrease.
      */
-    function decreaseLiquidity(address ammProtocol, bytes memory data) external;
+    function decreaseLiquidity(address marketMakerProtocol, bytes memory data) external;
 
     /**
-     * @notice Claim fees from an AMM protocol.
-     * @param ammProtocol The AMM protocol to claim fees from.
+     * @notice Claim fees from a market-maker position.
+     * @param marketMakerProtocol The market-maker protocol holding the position.
      * @param data The data for the claim.
      */
-    function claimAMMFees(address ammProtocol, bytes memory data) external;
-
-    /**
-     * @notice Disable trading until a timestamp.
-     * @param timestamp The timestamp when trading should be disabled.
-     */
-    function disableTradeUntilTimestamp(uint256 timestamp) external;
+    function claimMarketMakerFees(address marketMakerProtocol, bytes memory data) external;
 
     /**
      * @notice Approve the intent protocol's settlement relayer for a token.
@@ -118,14 +119,14 @@ interface IBittyV1DeFi {
     function approveIntentRelayer(address intentProtocol, address token) external;
 
     /**
-     * @notice Cancel a gasless off-chain order.
+     * @notice Cancel a stablecoin-as-gas off-chain order.
      * @param intentProtocol The intent protocol to cancel the order from.
      * @param orderUid The UID of the order to cancel.
      */
     function cancelIntentOrder(address intentProtocol, bytes calldata orderUid) external;
 
     /**
-     * @notice Cancel multiple gasless off-chain orders.
+     * @notice Cancel multiple stablecoin-as-gas off-chain orders.
      * @param intentProtocol The intent protocol to cancel the orders from.
      * @param orderUids The UIDs of the orders to cancel.
      */
