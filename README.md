@@ -11,7 +11,7 @@ flowchart TB
     Vault["Bitty Vault<br/>asset container and policy layer"]
     Guard["Bitty Guard<br/>registered assets and protocols"]
     Recipients["Recipients<br/>whitelisted payees, sends"]
-    Protocols["Protocol adapters<br/>AMM, staking, lending"]
+    Protocols["Protocol adapters<br/>market trade, market maker, staking, lending, intent"]
 
     Owner -->|"&nbsp;configure assets, protocols, payouts, rules&nbsp;"| Vault
     AssetManager -->|"&nbsp;execute allowed operations&nbsp;"| Vault

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {ASSET_STABLE_COIN, ASSET_AMM_LIQUID} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test, console2} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -22,7 +22,6 @@ abstract contract Base is Test {
     MockERC20 mid;
     MockERC20 dai;
     address owner = makeAddr("owner");
-    uint8 constant TRADABLE = 4;
 
     function _build() internal {
         vm.warp(1_000_000);
@@ -41,9 +40,9 @@ abstract contract Base is Test {
         mid = new MockERC20("MID", "MID", 18);
         dai = new MockERC20("DAI", "DAI", 18);
         trade = new MockMarketProtocol();
-        MockGuard(BITTY_GUARD).setAsset(address(usdc), ASSET_STABLE_COIN | TRADABLE);
-        MockGuard(BITTY_GUARD).setAsset(address(mid), TRADABLE);
-        MockGuard(BITTY_GUARD).setAsset(address(dai), ASSET_STABLE_COIN | TRADABLE);
+        MockGuard(BITTY_GUARD).setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        MockGuard(BITTY_GUARD).setAsset(address(mid), ASSET_AMM_LIQUID);
+        MockGuard(BITTY_GUARD).setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         MockGuard(BITTY_GUARD).setProtocol(address(trade), MARKET_TRADE_ID);
         usdc.mint(address(vault), 1_000_000e6);
         _sell(_path2()); // clone, approvals and every fixture warmed in setUp's own transaction

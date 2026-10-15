@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.34;
 
-import {IBittyV1Guard, ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IBittyV1Guard, ASSET_STABLE_COIN, ASSET_CRYPTO} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {LENDING_ID, STAKING_ID, MARKET_TRADE_ID, MARKET_TRADE_ID, MARKET_MAKER_ID, INTENT_ID} from "./CategoryIds.sol";
 
-uint8 constant ASSET_STABLE_COIN = 1;
-uint8 constant CRYPTO_CATEGORY = 2;
 
 /**
  * @dev Registration helpers for tests.
@@ -66,7 +64,7 @@ function _hasSelector(address account, bytes4 selector) view returns (bool) {
 }
 
 function guardAddAssets(address guard, address[] memory assets) {
-    IBittyV1Guard(guard).addAssets(assets, _fill(assets.length, CRYPTO_CATEGORY));
+    IBittyV1Guard(guard).addAssets(assets, _fill(assets.length, ASSET_CRYPTO));
 }
 
 /**

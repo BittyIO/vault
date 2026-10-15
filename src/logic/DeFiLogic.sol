@@ -3,7 +3,14 @@ pragma solidity ^0.8.34;
 
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts/contracts/proxy/utils/UUPSUpgradeable.sol";
-import {IBittyV1Guard, ASSET_STABLE_COIN, PROTOCOL_INTENT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {
+    IBittyV1Guard,
+    ASSET_STABLE_COIN,
+    ASSET_AMM_LIQUID,
+    PROTOCOL_INTENT,
+    PROTOCOL_MARKET_TRADE,
+    PROTOCOL_MARKET_MAKER
+} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1Yield} from "protocol-contracts/src/interfaces/IBittyV1Yield.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
 import {IBittyV1MarketTradeProtocol} from "protocol-contracts/src/interfaces/IBittyV1MarketTradeProtocol.sol";
@@ -38,7 +45,7 @@ import {
 } from "../interfaces/IBittyV1Vault.sol";
 import {BittyStorage, DeFiStorage} from "./BittyStorage.sol";
 import {TimelockLib} from "./TimelockLib.sol";
-import {BITTY_GUARD, MAX_GRANT_DURATION, PROTOCOL_MARKET_TRADE} from "./Constants.sol";
+import {BITTY_GUARD, MAX_GRANT_DURATION} from "./Constants.sol";
 
 /**
  * @dev Minimal view into an intent protocol's settlement addresses (CoW-style): the relayer a gasless
@@ -73,8 +80,6 @@ library DeFiLogic {
     event AssetManagerPermissionsSet(address indexed assetManager, uint32 permissions);
 
     using SafeERC20 for IERC20;
-
-    uint8 internal constant ASSET_MARKET_TRADABLE = 4;
 
     using Address for address;
 
@@ -318,11 +323,6 @@ library DeFiLogic {
         return !$.ownAllowListActive || $.protocols[protocol];
     }
 
-    function _registeredProtocolOK(DeFiStorage storage $, address protocol) private view returns (bool) {
-        if (!IBittyV1Guard(BITTY_GUARD).isProtocolRegistered(protocol)) return false;
-        return !$.ownAllowListActive || $.protocols[protocol];
-    }
-
     function isProtocolAllowed(address protocol) external view returns (bool) {
         DeFiStorage storage $ = BittyStorage.defi();
         if (!IBittyV1Guard(BITTY_GUARD).isProtocolRegistered(protocol)) return false;
@@ -493,7 +493,9 @@ library DeFiLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         _onlyInitialized($);
-        if (!_registeredProtocolOK($, marketMakerProtocol)) revert InvalidMarketMakerProtocol();
+        if (!_categoryProtocolOK($, PROTOCOL_MARKET_MAKER, marketMakerProtocol)) {
+            revert InvalidMarketMakerProtocol();
+        }
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(marketMakerProtocol)) revert Deprecated();
         _requireAsset($, token0);
         _requireAsset($, token1);
@@ -557,7 +559,7 @@ library DeFiLogic {
     }
 
     function _requireMarketTradable(address token) private view {
-        if ((IBittyV1Guard(BITTY_GUARD).assetCategory(token) & ASSET_MARKET_TRADABLE) == 0) {
+        if ((IBittyV1Guard(BITTY_GUARD).assetCategory(token) & ASSET_AMM_LIQUID) == 0) {
             revert MarketTradeNotSupported();
         }
     }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {ASSET_STABLE_COIN, ASSET_AMM_LIQUID} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -39,9 +39,8 @@ import {
  */
 uint32 constant MANAGER_PERMS = PERM_YIELD | PERM_SUPPLY | PERM_INTENT;
 
-// The market-tradable category bit (mirrors DeFiLogic.ASSET_MARKET_TRADABLE). Market buy/sell requires BOTH
-// legs to carry it; it is owner-curated data on the guard, so the guard contract is unchanged.
-uint8 constant ASSET_MARKET_TRADABLE = 4;
+// Market buy/sell requires BOTH legs to carry {ASSET_AMM_LIQUID}; it is owner-curated data on the
+// guard, so the guard contract is unchanged.
 
 interface IOffchain {
     function isOffchainOrderAuthorized(address signer, address sellToken, address buyToken, uint256 sellAmount)
@@ -231,8 +230,8 @@ contract DeFiGuardrailsTest is Test {
     }
 
     function _bothLegsLiquid() internal {
-        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
-        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
     }
 
     // ── deprecation ───────────────────────────────────────────────────────────
@@ -270,8 +269,8 @@ contract DeFiGuardrailsTest is Test {
     // or an unflagged buy token is refused before it ever reaches the pool.
 
     function test_marketSell_bothLegsMarketTradable_reachesTheProtocol() public {
-        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
-        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
         _f().marketSell(address(marketTrade), address(usdc), 1e6, address(dai), 0, _v3Path(address(usdc), address(dai)));
         // The gate passed and the swap dispatched to the adapter clone (which the vault approved to spend).
@@ -284,14 +283,14 @@ contract DeFiGuardrailsTest is Test {
 
     function test_marketSell_sellLegNotMarketTradable_reverts() public {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN); // sell leg: not flagged market-tradable
-        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
         vm.expectRevert(MarketTradeNotSupported.selector);
         _f().marketSell(address(marketTrade), address(usdc), 1e6, address(dai), 0, "");
     }
 
     function test_marketSell_buyLegNotMarketTradable_reverts() public {
-        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         guard.setAsset(address(dai), ASSET_STABLE_COIN); // buy leg: not flagged market-tradable
         vm.prank(owner);
         vm.expectRevert(MarketTradeNotSupported.selector);
@@ -299,8 +298,8 @@ contract DeFiGuardrailsTest is Test {
     }
 
     function test_marketBuy_bothLegsMarketTradable_reachesTheProtocol() public {
-        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
-        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
         _f()
             .marketBuy(
@@ -315,14 +314,14 @@ contract DeFiGuardrailsTest is Test {
 
     function test_marketBuy_sellLegNotMarketTradable_reverts() public {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN); // sell leg: not flagged market-tradable
-        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
         vm.expectRevert(MarketTradeNotSupported.selector);
         _f().marketBuy(address(marketTrade), address(usdc), 1e6, address(dai), 1e18, "");
     }
 
     function test_marketBuy_buyLegNotMarketTradable_reverts() public {
-        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         guard.setAsset(address(dai), ASSET_STABLE_COIN); // buy leg: not flagged market-tradable
         vm.prank(owner);
         vm.expectRevert(MarketTradeNotSupported.selector);
@@ -333,16 +332,16 @@ contract DeFiGuardrailsTest is Test {
     // not one (or one the guard has retired) is refused up front, whatever the legs look like.
 
     function test_marketSell_throughAProtocolOfTheWrongCategory_reverts() public {
-        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
-        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
         vm.expectRevert(InvalidMarketTradeProtocol.selector);
         _f().marketSell(address(proto), address(usdc), 1e6, address(dai), 0, "");
     }
 
     function test_marketSell_throughADeprecatedProtocol_reverts() public {
-        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
-        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         guard.setDeprecated(address(marketTrade), true);
         vm.prank(owner);
         vm.expectRevert(Deprecated.selector);
@@ -350,16 +349,16 @@ contract DeFiGuardrailsTest is Test {
     }
 
     function test_marketBuy_throughAProtocolOfTheWrongCategory_reverts() public {
-        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
-        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         vm.prank(owner);
         vm.expectRevert(InvalidMarketTradeProtocol.selector);
         _f().marketBuy(address(proto), address(usdc), 1e6, address(dai), 1e18, "");
     }
 
     function test_marketBuy_throughADeprecatedProtocol_reverts() public {
-        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
-        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_MARKET_TRADABLE);
+        guard.setAsset(address(usdc), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+        guard.setAsset(address(dai), ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         guard.setDeprecated(address(marketTrade), true);
         vm.prank(owner);
         vm.expectRevert(Deprecated.selector);

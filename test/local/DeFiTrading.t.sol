@@ -112,14 +112,30 @@ contract DeFiTradingTest is Test {
         assertEq(_f().getLiquidities(_one(address(marketMaker)), data).length, 1);
     }
 
-    /// A protocol registered under the WRONG category cannot be used as a market maker.
-    /// Liquidity is dispatched by interface, but the protocol must still be guard-curated: one the guard
-    /// never registered is refused up front, before any clone or interface call.
+    /// The protocol must be guard-curated: one the guard never registered is refused up front,
+    /// before any clone or interface call.
     function test_anUnregisteredProtocolCannotProvideLiquidity() public {
         MockMarketProtocol stranger = new MockMarketProtocol(); // never registered with the guard
         vm.prank(owner);
         vm.expectRevert();
         _f().addLiquidity(address(stranger), address(t0), 1e18, address(t1), 1e18, "");
+    }
+
+    /// Market makers carry their own guard category, so being registered is not enough - a protocol
+    /// filed under any other category is refused even when it implements the market-maker interface.
+    /// Without the category check, `addLiquidity` would approve the vault's tokens to the clone of a
+    /// protocol the guard never blessed for market making.
+    function test_aProtocolFiledUnderAnotherCategoryCannotProvideLiquidity() public {
+        MockMarketProtocol miscategorised = new MockMarketProtocol();
+        MockGuard(BITTY_GUARD).setProtocol(address(miscategorised), MARKET_TRADE_ID);
+        vm.prank(owner);
+        vm.expectRevert();
+        _f().addLiquidity(address(miscategorised), address(t0), 1e18, address(t1), 1e18, "");
+
+        MockGuard(BITTY_GUARD).setProtocol(address(miscategorised), LENDING_ID);
+        vm.prank(owner);
+        vm.expectRevert();
+        _f().addLiquidity(address(miscategorised), address(t0), 1e18, address(t1), 1e18, "");
     }
 
     function test_onlyOwnerMayProvideLiquidity() public {

@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
+import {ASSET_AMM_LIQUID} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {MARKET_TRADE_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
@@ -32,7 +33,6 @@ interface IVaultTrade {
  */
 contract DeFiUniversalTradeForkTest is Test {
     uint24 constant FEE = 500; // WETH/USDT 0.05% — the Sepolia pool that has liquidity
-    uint8 constant ASSET_MARKET_TRADABLE = 4;
 
     BittyV1Vault vault;
     MockGuard guard;
@@ -47,13 +47,12 @@ contract DeFiUniversalTradeForkTest is Test {
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         guard = MockGuard(BITTY_GUARD);
 
-        tradeImpl = new UniswapUniversalTradeProtocol(
-            sepolia.UNISWAP_UNIVERSAL_ROUTER, sepolia.PERMIT2, sepolia.WETH9, sepolia.BITTY_GUARD
-        );
+        tradeImpl =
+            new UniswapUniversalTradeProtocol(sepolia.UNISWAP_UNIVERSAL_ROUTER, sepolia.PERMIT2, sepolia.BITTY_GUARD);
         guard.setProtocol(address(tradeImpl), MARKET_TRADE_ID);
         // Both legs must be flagged market-tradable for a market swap; WETH9 crypto, USDT stable — both liquid.
-        guard.setAsset(sepolia.WETH9, ASSET_MARKET_TRADABLE);
-        guard.setAsset(sepolia.USDT, 1 | ASSET_MARKET_TRADABLE);
+        guard.setAsset(sepolia.WETH9, ASSET_AMM_LIQUID);
+        guard.setAsset(sepolia.USDT, 1 | ASSET_AMM_LIQUID);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
         BittyV1Vault impl = new BittyV1Vault(address(facet));
