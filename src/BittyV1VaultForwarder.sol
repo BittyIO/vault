@@ -8,9 +8,9 @@ import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptography/SignatureChecker.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IBittyV1Vault} from "./interfaces/IBittyV1Vault.sol";
-import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IBittyV1Guard, CFG_OWNER} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {BITTY_GUARD, CFG_OWNER} from "./logic/Constants.sol";
+import {BITTY_GUARD} from "./logic/Constants.sol";
 
 /**
  * @dev The forwarder must have no constructor arguments — they would be appended to the init code and
@@ -86,11 +86,49 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
      */
     bytes32 private constant _NONCE_TARGET_SLOT = 0x8df4084eac8b84d2f835fdd215c47aed36ec12bae0062c9cfc227df184580f00; // keccak256("bitty.v1.forwarder.nonceTarget")
 
-    /**
-     * @notice The next nonce `signer` must sign for a request targeting `target`.
-     */
     function nonceFor(address signer, address target) public view returns (uint64) {
         return _laneNonce[signer][target];
+    }
+
+    /**
+     * @dev The CHARGE WINDOW: the vault this forwarder is settling a fee for, for the length of that
+     *      one call and no longer.
+     *
+     *      It exists because `msg.sender == trustedForwarder()` cannot tell a settlement from a
+     *      relayed user op — the forwarder is the caller for both. So the account could not
+     *      distinguish "the forwarder is charging me" from "the forwarder is relaying something that
+     *      calls me", and anything a relayed request could reach could reach the charge. Blocking the
+     *      `payRelayerFee` selector, at the top level here and at every {multicall} layer in the
+     *      account, closes the paths that are known; the window closes the question.
+     *
+     *      Transient, like {_NONCE_TARGET_SLOT}: it is meaningful for exactly the length of one call
+     *      and must never survive it. Opened AFTER the relayed work has run and closed before the
+     *      settlement returns, so no relayed calldata ever executes with it open — and even if an
+     *      ERC-20 callback inside the charge re-entered {execute}, a relayed `payRelayerFee` is still
+     *      refused by the selector guards, so the two defences do not depend on each other.
+     */
+    bytes32 private constant _CHARGING_SLOT = 0x118462e6d7d9c109e6aaaa07552c6f72e83745f9f6921f9ba4a142b4ad0e06a1; // keccak256("bitty.v1.forwarder.charging")
+
+    function chargingVault() external view returns (address vault) {
+        assembly ("memory-safe") {
+            vault := tload(_CHARGING_SLOT)
+        }
+    }
+
+    /**
+     * @dev Collect the fee with the window open for this vault, and shut it again. The only path to
+     *      `payRelayerFee` in this contract: both settlement entry points go through here, so there
+     *      is no second place that could charge with the window shut — which the account would
+     *      refuse — or forget to shut it.
+     */
+    function _charge(address vault, address stableCoinAddress, uint256 fee) private {
+        assembly ("memory-safe") {
+            tstore(_CHARGING_SLOT, vault)
+        }
+        IBittyV1Vault(vault).payRelayerFee(stableCoinAddress, fee);
+        assembly ("memory-safe") {
+            tstore(_CHARGING_SLOT, 0)
+        }
     }
 
     function _setNonceTarget(address target) private {
@@ -120,7 +158,10 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
      *      every other entry point, so the nonce target and the `payRelayerFee` guard both still apply.
      *
      *      `payRelayerFee` is charged by the forwarder directly during a settlement, never relayed as a
-     *      user op — relaying it would let anyone drain a vault's gas budget through {execute}.
+     *      user op — relaying it would let anyone drain a vault's gas budget through {execute}. This
+     *      selector check is now one of three layers, and the shallowest: the account rejects the same
+     *      selector at every {multicall} layer, and the charge window (see {_CHARGING_SLOT}) refuses a
+     *      charge that did not come from a settlement at all, whatever path found it.
      *
      *      The nonce target is bound here, from this request's own `to`, immediately before {_useNonce}
      *      consumes it inside `super._execute`. Doing it per request rather than once per entry point
@@ -140,7 +181,6 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
     }
 
     /**
-     * @notice Not supported — use {executeBatchWithFee}.
      * @dev OpenZeppelin's batch is non-atomic, so a partial failure would leave some requests executed
      *      and others not. {executeBatchWithFee} is atomic and single-target, which is also what lets it
      *      declare a nonce target per request.
@@ -155,13 +195,8 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
     }
 
     /**
-     * @notice Relay a signed request and reclaim `fee` of `stableCoinAddress` from the target vault.
-     * @dev Charging AFTER the call, so a request that reverts costs the vault nothing. The budget is
-     *      checked BEFORE it, so a relay that could never be paid for fails while it is still cheap
-     *      instead of after the work is done.
-     * @param request The owner- or asset-manager-signed ForwardRequest.
-     * @param stableCoinAddress A stablecoin registered on the target vault.
-     * @param fee Amount to reclaim, in `stableCoinAddress` units. 0 relays without charging.
+     * @dev Charge after the call so a reverted request costs the vault nothing. Check the budget first
+     *      so a relay that could never be paid for fails before doing the work.
      */
     function executeWithFee(ForwardRequestData calldata request, address stableCoinAddress, uint256 fee)
         external
@@ -179,12 +214,11 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
         }
 
         if (fee != 0) {
-            IBittyV1Vault(request.to).payRelayerFee(stableCoinAddress, fee);
+            _charge(request.to, stableCoinAddress, fee);
         }
     }
 
     /**
-     * @notice Relay several signed requests for ONE vault and charge a single fee for the lot.
      * @dev The reason to prefer this over repeated {executeWithFee}: each separate relay pays the
      *      21,000-gas transaction floor, the signature machinery and — the big one — a fresh ERC-20
      *      transfer plus budget write to collect its fee. Batching pays the floor once and collects
@@ -197,10 +231,6 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
      *      Atomic. OZ's non-atomic mode exists to refund unspent ETH on partial failure, which cannot
      *      arise here — these requests carry no value — and partial success would leave the owner
      *      charged for work that did not happen.
-     * @param requests Signed requests, all with `to` equal to `vault`.
-     * @param vault The target vault, charged once for the whole batch.
-     * @param stableCoinAddress A stable coin the vault's owner listed for gas.
-     * @param fee Total to reclaim for the batch. 0 relays without charging.
      */
     function executeBatchWithFee(
         ForwardRequestData[] calldata requests,
@@ -225,7 +255,7 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
         }
 
         if (fee != 0) {
-            IBittyV1Vault(vault).payRelayerFee(stableCoinAddress, fee);
+            _charge(vault, stableCoinAddress, fee);
         }
     }
 

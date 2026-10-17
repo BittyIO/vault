@@ -3,23 +3,22 @@ pragma solidity ^0.8.34;
 
 import {ASSET_STABLE_COIN, ASSET_CRYPTO} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
+import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
+import {MockChargeWindow} from "../helpers/MockChargeWindow.sol";
 import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     AddressZero,
     ArrayLengthMismatch,
     FeeExceedsPerOpCap,
     InsufficientBalance,
-    InvalidAsset,
-    NotPayoutOperator,
-    OnlyImmutablePayableAfterRenounce
+    InvalidAsset
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     BITTY_GUARD,
@@ -35,7 +34,7 @@ interface IFacet {
 }
 
 interface IFacetView {
-    function allowlistEnabled() external view returns (bool);
+    function usingBittyAllowList() external view returns (bool);
     function isAssetAllowed(address asset) external view returns (bool);
 }
 
@@ -91,8 +90,7 @@ contract VaultEntrypointsTest is Test {
 
         gasWrapped = new WETHStub();
         facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        impl = new BittyV1Vault(address(facet), address(subImpl));
+        impl = new BittyV1Vault(address(facet));
         vault = _newVault(0, address(0), 0);
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
@@ -101,8 +99,10 @@ contract VaultEntrypointsTest is Test {
         guard.setProtocol(address(proto), LENDING_ID);
         usdc.mint(address(vault), 1_000e6);
 
-        vm.prank(owner);
-        vault.updatePayoutOperator(operator, true);
+        // The charge asks the forwarder whether it is settling for this vault; the three fee tests
+        // below call it directly, so the window is held open. See {MockChargeWindow}.
+        vm.etch(BITTY_FORWARDER, address(new MockChargeWindow()).code);
+        MockChargeWindow(BITTY_FORWARDER).setChargingVault(address(vault));
     }
 
     function _newVault(uint256 value, address activationAsset, uint256 activationAmount)
@@ -222,14 +222,6 @@ contract VaultEntrypointsTest is Test {
         _newVault(0, address(fee), 5e6);
     }
 
-    // ── auth ──────────────────────────────────────────────────────────────────
-
-    function test_aStrangerIsNeitherOwnerNorOperator() public {
-        vm.prank(stranger);
-        vm.expectRevert(NotPayoutOperator.selector);
-        vault.removeScheduledPayments(new uint256[](0));
-    }
-
     // ── paired-array checks on the convenience calls ──────────────────────────
 
     function test_aBatchSendWithARaggedWithdrawListIsRefused() public {
@@ -337,116 +329,17 @@ contract VaultEntrypointsTest is Test {
         assertEq(usdc.balanceOf(payee), 10e6, "paid from balance");
     }
 
-    // ── sub-vault convenience ─────────────────────────────────────────────────
-
-    function test_creatingAFundedSubWithRaggedArraysIsRefused() public {
-        vm.prank(owner);
-        vm.expectRevert(ArrayLengthMismatch.selector);
-        vault.createSubVaultWithDeposits(
-            makeAddr("subOwner"), false, uint64(block.timestamp) + 365 days, _addr(address(usdc)), new uint256[](0)
-        );
-    }
-
-    // ── scheduled-payment shortfall cover ─────────────────────────────────────
-
-    function _immutableSchedule(uint256 amount) internal returns (uint256 id) {
-        IBittyV1Vault.ScheduledPayment memory sp = IBittyV1Vault.ScheduledPayment({
-            recipient: payee,
-            remainingPaymentCount: 5,
-            isImmutable: true,
-            payWithInsufficientBalance: false,
-            trigger: address(0),
-            assetAddress: address(usdc),
-            amount: amount,
-            startTimestamp: block.timestamp,
-            paymentInterval: 0
-        });
-        vm.prank(owner);
-        id = vault.addScheduledPayment(sp);
-    }
-
-    function test_aShortfallIsToppedUpFromTheNamedPosition() public {
-        vm.prank(owner);
-        IFacet(address(vault)).deposit(address(proto), address(usdc), 950e6);
-        uint256 id = _immutableSchedule(200e6);
-
-        vault.payScheduled(id, _addr(address(proto)));
-        assertEq(usdc.balanceOf(payee), 200e6, "balance plus position covered it");
-    }
-
-    function test_aZeroProtocolInTheCoverListIsSkipped() public {
-        vm.prank(owner);
-        IFacet(address(vault)).deposit(address(proto), address(usdc), 950e6);
-        uint256 id = _immutableSchedule(200e6);
-
-        address[] memory list = new address[](2);
-        list[0] = address(0);
-        list[1] = address(proto);
-        vault.payScheduled(id, list);
-        assertEq(usdc.balanceOf(payee), 200e6, "the empty slot was ignored, the real one used");
-    }
-
-    /// A protocol the vault HAS used but has since emptied is skipped without a withdraw call, so a
-    /// caller cannot pad the cover list with drained positions to burn the payer's gas.
-    function test_aPositionWithNothingInItIsSkipped() public {
-        EmptyLendingProtocol empty = new EmptyLendingProtocol();
-        guard.setProtocol(address(empty), LENDING_ID);
-
-        vm.startPrank(owner);
-        IFacet(address(vault)).deposit(address(empty), address(usdc), 10e6);
-        (bool ok,) = address(vault)
-            .call(abi.encodeWithSignature("withdraw(address,address,uint256)", address(empty), address(usdc), 10e6));
-        assertTrue(ok, "drained again");
-        IFacet(address(vault)).deposit(address(proto), address(usdc), 950e6);
-        vm.stopPrank();
-
-        assertEq(usdc.balanceOf(_f2().getClone(address(empty))), 0, "that position is empty");
-
-        uint256 id = _immutableSchedule(200e6);
-        address[] memory list = new address[](2);
-        list[0] = address(empty);
-        list[1] = address(proto);
-        vault.payScheduled(id, list);
-        assertEq(usdc.balanceOf(payee), 200e6, "the empty one contributed nothing, the real one covered it");
-    }
-
-    /// payScheduledAmount can now source a partial payment from a yield position, not just liquid balance.
-    function test_triggerPaysAPartialAmountFromAPosition() public {
-        address trigger = makeAddr("trigger");
-        vm.prank(owner);
-        IFacet(address(vault)).deposit(address(proto), address(usdc), 950e6); // vault liquid now 50e6
-
-        IBittyV1Vault.ScheduledPayment memory sp = IBittyV1Vault.ScheduledPayment({
-            recipient: payee,
-            remainingPaymentCount: 2,
-            isImmutable: false,
-            payWithInsufficientBalance: false,
-            trigger: trigger,
-            assetAddress: address(usdc),
-            amount: 500e6,
-            startTimestamp: block.timestamp,
-            paymentInterval: 0
-        });
-        vm.prank(owner);
-        uint256 id = vault.addScheduledPayment(sp);
-
-        // Pay 300 (< the 500 scheduled): 50 from liquid + 250 pulled from the position.
-        vm.prank(trigger);
-        vault.payScheduledAmount(id, 300e6, _addr(address(proto)));
-        assertEq(usdc.balanceOf(payee), 300e6, "partial amount, topped up from the yield position");
-    }
-
     function _f2() internal view returns (IFacet) {
         return IFacet(address(vault));
     }
 
-    // ── gasless config edges ──────────────────────────────────────────────────
+    // ── stablecoin-as-gas config edges ──────────────────────────────────────────────────
 
     function test_narrowingToAnUnregisteredCoinIsRefused() public {
         MockERC20 rnd = new MockERC20("Random", "RND", 18);
         vm.prank(owner);
         vm.expectRevert(InvalidAsset.selector);
-        vault.setGasless(_addr(address(rnd)), 50, 5);
+        vault.setStableCoinAsGas(_addr(address(rnd)), 50, 5);
     }
 
     function test_narrowingToACryptoCoinIsRefused() public {
@@ -454,7 +347,7 @@ contract VaultEntrypointsTest is Test {
         guard.setAsset(address(gasWrapped), ASSET_CRYPTO);
         vm.prank(owner);
         vm.expectRevert(InvalidAsset.selector);
-        vault.setGasless(_addr(address(gasWrapped)), 50, 5);
+        vault.setStableCoinAsGas(_addr(address(gasWrapped)), 50, 5);
     }
 
     function test_aRepeatedCoinIsStoredOnce() public {
@@ -462,9 +355,9 @@ contract VaultEntrypointsTest is Test {
         two[0] = address(usdc);
         two[1] = address(usdc);
         vm.prank(owner);
-        vault.setGasless(two, 50, 5);
+        vault.setStableCoinAsGas(two, 50, 5);
 
-        (address[] memory got,,) = vault.gaslessConfig();
+        (address[] memory got,,) = vault.stableCoinAsGasConfig();
         assertEq(got.length, 1, "the duplicate collapsed");
         assertEq(got[0], address(usdc), "and it is the coin named");
     }
@@ -475,9 +368,9 @@ contract VaultEntrypointsTest is Test {
         list[0] = SENTINEL;
         list[1] = address(usdc);
         vm.prank(owner);
-        vault.setGasless(list, 50, 5);
+        vault.setStableCoinAsGas(list, 50, 5);
 
-        (address[] memory got,,) = vault.gaslessConfig();
+        (address[] memory got,,) = vault.stableCoinAsGasConfig();
         assertEq(got.length, 1, "the list terminator is not a payable coin");
         assertEq(got[0], address(usdc));
     }
@@ -487,11 +380,11 @@ contract VaultEntrypointsTest is Test {
         guard.setAsset(address(dai), ASSET_STABLE_COIN);
 
         vm.startPrank(owner);
-        vault.setGasless(_addr(address(usdc)), 50, 5);
-        vault.setGasless(_addr(address(dai)), 50, 5);
+        vault.setStableCoinAsGas(_addr(address(usdc)), 50, 5);
+        vault.setStableCoinAsGas(_addr(address(dai)), 50, 5);
         vm.stopPrank();
 
-        (address[] memory got,,) = vault.gaslessConfig();
+        (address[] memory got,,) = vault.stableCoinAsGasConfig();
         assertEq(got.length, 1, "the old list was cleared");
         assertEq(got[0], address(dai), "only the newest narrowing stands");
     }
@@ -506,16 +399,6 @@ contract VaultEntrypointsTest is Test {
         vm.prank(BITTY_FORWARDER);
         vm.expectRevert(InvalidAsset.selector);
         vault.payRelayerFee(SENTINEL, 1e6);
-    }
-
-    function test_aRenouncedVaultPaysNoMoreRelayerFees() public {
-        uint256 id = _immutableSchedule(10e6);
-        vm.prank(owner);
-        vault.renounceVaultOwnership(id);
-
-        vm.prank(BITTY_FORWARDER);
-        vm.expectRevert(OnlyImmutablePayableAfterRenounce.selector);
-        vault.payRelayerFee(address(usdc), 1e6);
     }
 
     /**
@@ -536,7 +419,7 @@ contract VaultEntrypointsTest is Test {
         );
         BittyV1Vault v = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
 
-        assertTrue(IFacetView(address(v)).allowlistEnabled(), "allowlist should be on");
+        assertFalse(IFacetView(address(v)).usingBittyAllowList(), "allowlist should be on");
         assertTrue(IFacetView(address(v)).isAssetAllowed(address(coin)), "activation asset not listed");
         assertTrue(IFacetView(address(v)).isAssetAllowed(address(gasWrapped)), "gasWrapped not listed");
     }
@@ -560,7 +443,7 @@ contract VaultEntrypointsTest is Test {
         );
         BittyV1Vault v = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
 
-        assertFalse(IFacetView(address(v)).allowlistEnabled(), "allowlist should be off");
+        assertTrue(IFacetView(address(v)).usingBittyAllowList(), "allowlist should be off");
         // Still usable: with no allowlist the guard alone decides.
         assertTrue(IFacetView(address(v)).isAssetAllowed(address(coin)), "guard-registered asset must pass");
     }

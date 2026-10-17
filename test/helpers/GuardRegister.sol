@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.34;
 
-import {IBittyV1Guard, ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {LENDING_ID, STAKING_ID, AMM_ID, MARKET_TRADE_ID, MARKET_MAKER_ID, INTENT_ID} from "./CategoryIds.sol";
+import {IBittyV1Guard, ASSET_STABLE_COIN, ASSET_CRYPTO} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {LENDING_ID, STAKING_ID, MARKET_TRADE_ID, INTENT_ID} from "./CategoryIds.sol";
 
-uint8 constant ASSET_STABLE_COIN = 1;
-uint8 constant CRYPTO_CATEGORY = 2;
 
 /**
  * @dev Registration helpers for tests.
@@ -28,7 +26,6 @@ function detectCategory(address protocol) view returns (uint8) {
     // one as an argument - so this looks for a function only that category has, by scanning the
     // runtime bytecode for its selector. Cruder than supportsInterface, but it needs no cooperation
     // from the adapter and cannot be fooled by a call that reverts for its own reasons.
-    if (_hasSelector(protocol, bytes4(keccak256("removeLiquidity(bytes)")))) return MARKET_MAKER_ID;
     if (_hasSelector(protocol, bytes4(keccak256("swap(bytes,address)")))) return MARKET_TRADE_ID;
     if (_hasSelector(protocol, bytes4(keccak256("isValidSignature(bytes32,bytes)")))) return INTENT_ID;
 
@@ -37,7 +34,7 @@ function detectCategory(address protocol) view returns (uint8) {
     // is the mock path, kept second so a real adapter is always classified by what it can actually do.
     if (_erc165(protocol, 0xb9f16a0c)) return LENDING_ID;
     if (_erc165(protocol, 0xc8ada217)) return STAKING_ID;
-    if (_erc165(protocol, 0x932722bd)) return AMM_ID;
+    if (_erc165(protocol, 0x932722bd)) return MARKET_TRADE_ID;
     if (_erc165(protocol, 0x1626ba7e)) return INTENT_ID;
 
     // Nothing above matched, so it is a plain depositable/withdrawable adapter. Lending and staking
@@ -66,7 +63,7 @@ function _hasSelector(address account, bytes4 selector) view returns (bool) {
 }
 
 function guardAddAssets(address guard, address[] memory assets) {
-    IBittyV1Guard(guard).addAssets(assets, _fill(assets.length, CRYPTO_CATEGORY));
+    IBittyV1Guard(guard).addAssets(assets, _fill(assets.length, ASSET_CRYPTO));
 }
 
 /**

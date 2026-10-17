@@ -10,11 +10,17 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield, IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
-import {AssetManagerExpiryInPast, AssetManagerNotForSubVault} from "../../src/interfaces/IBittyV1DeFi.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {AssetManagerExpiryInPast} from "../../src/interfaces/IBittyV1DeFi.sol";
+import {BITTY_GUARD, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
+
+/*
+ * The capabilities these tests appoint a manager for: the jobs a managed vault is actually given —
+ * yield, lending and the intent orders it signs — and NOT trading at market, which the owner has to
+ * grant by name. See {PERM_YIELD} and the note above it.
+ */
+uint32 constant MANAGER_PERMS = PERM_YIELD | PERM_SUPPLY | PERM_INTENT;
 
 /**
  * The DeFi manager: the main vault's trading delegate.
@@ -26,9 +32,9 @@ import {BITTY_GUARD} from "../../src/logic/Constants.sol";
  *
  * What it must NOT be able to do is the larger half of this file.
  */
+
 contract AssetManagerTest is Test {
     BittyV1Vault vault;
-    BittyV1SubVault subImpl;
     BittyV1VaultDeFiFacet facet;
     MockGuard guard;
     MockERC20 usdc;
@@ -46,7 +52,7 @@ contract AssetManagerTest is Test {
 
     function _withTimelock() internal {
         vm.prank(owner);
-        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(UNCHANGED, UNCHANGED, UNCHANGED, TIMELOCK));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, UNCHANGED, UNCHANGED));
     }
 
     function setUp() public {
@@ -55,8 +61,7 @@ contract AssetManagerTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         facet = new BittyV1VaultDeFiFacet();
-        subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         vault = BittyV1Vault(
             payable(new ERC1967Proxy(
                     address(impl),
@@ -77,14 +82,14 @@ contract AssetManagerTest is Test {
 
     function _appoint(uint64 expiresAt) internal {
         vm.prank(owner);
-        _f().setAssetManager(manager, expiresAt);
+        _f().setAssetManager(manager, expiresAt, MANAGER_PERMS);
     }
 
     // ── what the manager is for ──────────────────────────────────────────────
 
     /// The whole point: put idle USDC to work under a delegated key.
     function test_theManagerCanPutIdleFundsToWork() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         vm.prank(manager);
         _f().deposit(address(sky), address(usdc), 400e6);
         assertEq(usdc.balanceOf(_f().getClone(address(sky))), 400e6, "the manager deposited");
@@ -96,7 +101,7 @@ contract AssetManagerTest is Test {
 
     /// Intent orders are signed OFF-CHAIN, so without this the manager could not trade at all.
     function test_theManagerMaySignIntentOrders() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         assertTrue(
             _f().isOffchainOrderAuthorized(manager, address(usdc), address(usdc), 100e6), "manager may sign a swap"
         );
@@ -104,7 +109,7 @@ contract AssetManagerTest is Test {
     }
 
     function test_theOwnerStillTradesAlongsideTheManager() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         vm.prank(owner);
         _f().deposit(address(sky), address(usdc), 100e6);
         assertEq(usdc.balanceOf(_f().getClone(address(sky))), 100e6);
@@ -114,7 +119,7 @@ contract AssetManagerTest is Test {
 
     /// It may work inside the boundary; only the owner moves the boundary.
     function test_theManagerCannotWidenWhatIsReachable() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         address[] memory add = new address[](1);
         add[0] = address(usdc);
         address[] memory none = new address[](0);
@@ -129,10 +134,6 @@ contract AssetManagerTest is Test {
 
         vm.prank(manager);
         vm.expectRevert();
-        _f().disableTradeUntilTimestamp(START + 1 days);
-
-        vm.prank(manager);
-        vm.expectRevert();
         _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(sky)}));
 
         vm.prank(manager);
@@ -142,7 +143,7 @@ contract AssetManagerTest is Test {
 
     /// The payment surface lives on the vault, which the facet cannot reach. No outflow, ever.
     function test_theManagerCannotPayAnyone() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         address[] memory none = new address[](0);
         uint256[] memory noAmounts = new uint256[](0);
 
@@ -152,37 +153,56 @@ contract AssetManagerTest is Test {
 
         vm.prank(manager);
         vm.expectRevert();
-        vault.addWhitelistedRecipient(manager, address(usdc));
+        vault.addWhitelistedRecipient(manager);
 
         assertEq(usdc.balanceOf(manager), 0, "the manager never received anything");
     }
 
     function test_theManagerCannotAppointOrReplaceItself() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         vm.prank(manager);
         vm.expectRevert();
-        _f().setAssetManager(stranger, 0);
+        _f().setAssetManager(stranger, uint64(block.timestamp + 365 days), MANAGER_PERMS);
     }
 
     function test_aStrangerIsStillAStranger() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         vm.prank(stranger);
         vm.expectRevert();
         _f().deposit(address(sky), address(usdc), 100e6);
         assertFalse(_f().isOffchainOrderAuthorized(stranger, address(usdc), address(usdc), 1), "cannot sign either");
     }
 
+    /// Unwinding needs no permission bit, but it does need the grant: a stranger unwinds nothing.
+    function test_aStrangerCannotUnwind() public {
+        _appoint(START + 365 days);
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", stranger));
+        _f().withdraw(address(sky), address(usdc), 1);
+    }
+
+    /// No manager reads as the zero address, so the zero address must never pass as the manager.
+    function test_theZeroAddressIsNeverAnActiveManager() public view {
+        assertFalse(_f().isOffchainCancellationAuthorized(address(0)));
+    }
+
+    /// An address that is not a protocol has no lineage, so it has no clone either.
+    function test_aNonProtocolHasNoClone() public view {
+        assertEq(_f().getClone(stranger), address(0), "an EOA");
+        assertEq(_f().getClone(address(usdc)), address(0), "a token");
+    }
+
     // ── the grant ─────────────────────────────────────────────────────────────
 
     function test_thereIsNoManagerUntilOneIsNamed() public view {
-        (address op, uint64 exp,,) = _f().getAssetManagerSettings();
+        (address op, uint64 exp,,,,) = _f().getAssetManagerSettings();
         assertEq(op, address(0), "the owner alone trades");
         assertEq(exp, 0);
     }
 
     function test_theGrantLapsesOnTime() public {
         _appoint(START + GRANT);
-        (address op, uint64 exp,,) = _f().getAssetManagerSettings();
+        (address op, uint64 exp,,,,) = _f().getAssetManagerSettings();
         assertEq(op, manager);
         assertEq(exp, START + GRANT);
 
@@ -198,9 +218,9 @@ contract AssetManagerTest is Test {
     }
 
     function test_revokingIsImmediate() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         vm.prank(owner);
-        _f().setAssetManager(address(0), 0);
+        _f().setAssetManager(address(0), 0, MANAGER_PERMS);
 
         vm.prank(manager);
         vm.expectRevert();
@@ -211,81 +231,60 @@ contract AssetManagerTest is Test {
     function test_revokingClearsTheDeadline() public {
         _appoint(START + GRANT);
         vm.prank(owner);
-        _f().setAssetManager(address(0), 0);
-        (, uint64 exp,,) = _f().getAssetManagerSettings();
+        _f().setAssetManager(address(0), 0, MANAGER_PERMS);
+        (, uint64 exp,,,,) = _f().getAssetManagerSettings();
         assertEq(exp, 0, "deadline cleared with the grant");
     }
 
     function test_aGrantThatHasAlreadyLapsedIsRefused() public {
         vm.prank(owner);
         vm.expectRevert(AssetManagerExpiryInPast.selector);
-        _f().setAssetManager(manager, START);
+        _f().setAssetManager(manager, START, MANAGER_PERMS);
     }
 
-    // ── renounce fires every delegate ─────────────────────────────────────────
+    // ── a lock narrows every delegate ─────────────────────────────────────────
 
     /**
-     * A renounced vault must have nobody left acting on it. A surviving manager could route the
-     * rescue payment's asset into a token that payment cannot pay in — defeating the one mechanism
-     * renounce leaves behind, with no owner remaining to revoke them.
+     * A renounce used to fire the manager and the keeper outright, because an abandoned vault had
+     * nobody left who could revoke them and a surviving manager could have routed the rescue
+     * payment's asset into a token that payment could not pay in.
+     *
+     * A lock does not need to fire anyone, and should not: the manager holds its own key, which is
+     * not the one that leaked, and firing it would cost the owner the help they appointed at exactly
+     * the moment they need it. Instead the lock narrows what the grant can reach to the half that
+     * cannot be abused — value coming home. The route that worried the renounce is shut by the same
+     * rule, since putting money into a position is adding one.
      */
-    function test_renounceClearsTheManagerAndTheTrigger() public {
-        _appoint(0);
+    function test_aForeverLockNarrowsTheManagerToUnwinding() public {
+        _appoint(START + 365 days);
         vm.prank(owner);
         _f().setAutoYieldTrigger(makeAddr("keeper"));
 
-        IBittyV1Vault.ScheduledPayment memory sp = IBittyV1Vault.ScheduledPayment({
-            recipient: makeAddr("payee"),
-            remainingPaymentCount: 5,
-            isImmutable: true,
-            payWithInsufficientBalance: false,
-            trigger: address(0),
-            assetAddress: address(usdc),
-            amount: 10e6,
-            startTimestamp: block.timestamp,
-            paymentInterval: 0
-        });
-        vm.prank(owner);
-        uint256 rescue = vault.addScheduledPayment(sp);
+        vm.prank(manager);
+        _f().deposit(address(sky), address(usdc), 900e6);
 
+        // The forever lock needs a destination the vault can still pay out to.
         vm.prank(owner);
-        vault.renounceVaultOwnership(rescue);
-        assertEq(vault.owner(), address(0), "ownerless");
+        uint256 escape = vault.addWhitelistedRecipient(owner);
+        vm.warp(block.timestamp + 31 days);
+        vm.prank(owner);
+        vault.foreverLock(escape);
 
-        (address live,, address pending,) = _f().getAssetManagerSettings();
-        assertEq(live, address(0), "manager fired");
-        assertEq(pending, address(0), "and nothing queued behind them");
-        assertEq(_f().autoYieldTrigger(), address(0), "trigger cleared too");
+        (address live,, address pending,,,) = _f().getAssetManagerSettings();
+        assertEq(live, manager, "still appointed: it is not their key that leaked");
+        assertEq(pending, address(0));
+        assertEq(_f().autoYieldTrigger(), makeAddr("keeper"), "and the keeper is still named");
 
         vm.prank(manager);
         vm.expectRevert();
-        _f().deposit(address(sky), address(usdc), 900e6);
+        _f().deposit(address(sky), address(usdc), 100e6);
+
+        vm.prank(manager);
+        _f().withdraw(address(sky), address(usdc), 900e6);
+        assertEq(usdc.balanceOf(address(vault)), 1_000e6, "but it can still bring value back");
     }
 
     // ── sub vaults have no manager ───────────────────────────────────────────
-
-    /// A sub owner is already the constrained delegate, and a sub cannot send anywhere but its parent,
-    /// so there is nothing for an manager to add — and sub-delegation would make the parent's record
-    /// of who trades its sub untrue.
-    function test_aSubVaultRefusesAManager() public {
-        vm.prank(owner);
-        (, address account) = vault.createSubVault(makeAddr("subOwner"), false, uint64(block.timestamp) + 365 days);
-
-        vm.prank(makeAddr("subOwner"));
-        vm.expectRevert(AssetManagerNotForSubVault.selector);
-        BittyV1VaultDeFiFacet(payable(account)).setAssetManager(stranger, 0);
-    }
-
-    /// The main vault's manager has no standing inside a sub vault: separate account, separate owner.
-    function test_theMainManagerHasNoReachIntoASub() public {
-        _appoint(0);
-        vm.prank(owner);
-        (, address account) = vault.createSubVault(makeAddr("subOwner"), false, uint64(block.timestamp) + 365 days);
-
-        vm.prank(manager);
-        vm.expectRevert();
-        BittyV1VaultDeFiFacet(payable(account)).deposit(address(sky), address(usdc), 1);
-    }
 
     // ── the ratchet ───────────────────────────────────────────────────────────
     //
@@ -296,9 +295,9 @@ contract AssetManagerTest is Test {
     function test_appointingWaitsOutTheTimelock() public {
         _withTimelock();
         vm.prank(owner);
-        _f().setAssetManager(manager, 0);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
 
-        (address live,, address pending, uint64 at) = _f().getAssetManagerSettings();
+        (address live,, address pending, uint64 at,,) = _f().getAssetManagerSettings();
         assertEq(live, address(0), "not live yet");
         assertEq(pending, manager, "queued");
         assertEq(at, START + TIMELOCK, "and dated");
@@ -312,10 +311,10 @@ contract AssetManagerTest is Test {
     function test_aQueuedGrantGoesLiveOnItsOwn() public {
         _withTimelock();
         vm.prank(owner);
-        _f().setAssetManager(manager, 0);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
 
         vm.warp(START + TIMELOCK);
-        (address live,,,) = _f().getAssetManagerSettings();
+        (address live,,,,,) = _f().getAssetManagerSettings();
         assertEq(live, manager, "promoted without a write");
 
         vm.prank(manager);
@@ -327,13 +326,13 @@ contract AssetManagerTest is Test {
     function test_theOwnerCanCancelAQueuedGrant() public {
         _withTimelock();
         vm.prank(owner);
-        _f().setAssetManager(manager, 0);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
 
         vm.prank(owner);
-        _f().setAssetManager(address(0), 0);
+        _f().setAssetManager(address(0), 0, MANAGER_PERMS);
 
         vm.warp(START + TIMELOCK);
-        (address live,, address pending,) = _f().getAssetManagerSettings();
+        (address live,, address pending,,,) = _f().getAssetManagerSettings();
         assertEq(live, address(0), "nothing landed");
         assertEq(pending, address(0), "queue cleared");
 
@@ -343,11 +342,11 @@ contract AssetManagerTest is Test {
     }
 
     function test_revokingIsImmediateEvenWithATimelock() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         _withTimelock();
 
         vm.prank(owner);
-        _f().setAssetManager(address(0), 0);
+        _f().setAssetManager(address(0), 0, MANAGER_PERMS);
 
         vm.prank(manager);
         vm.expectRevert();
@@ -360,14 +359,14 @@ contract AssetManagerTest is Test {
         _withTimelock();
 
         vm.prank(owner);
-        _f().setAssetManager(manager, START + 1 days);
-        (, uint64 exp, address pending,) = _f().getAssetManagerSettings();
+        _f().setAssetManager(manager, START + 1 days, MANAGER_PERMS);
+        (, uint64 exp, address pending,,,) = _f().getAssetManagerSettings();
         assertEq(exp, START + 1 days, "shortened at once");
         assertEq(pending, address(0), "nothing queued");
 
         vm.prank(owner);
-        _f().setAssetManager(manager, START + GRANT);
-        (, uint64 stillShort, address queued,) = _f().getAssetManagerSettings();
+        _f().setAssetManager(manager, START + GRANT, MANAGER_PERMS);
+        (, uint64 stillShort, address queued,,,) = _f().getAssetManagerSettings();
         assertEq(stillShort, START + 1 days, "extension has not landed");
         assertEq(queued, manager, "it is queued instead");
     }

@@ -6,13 +6,12 @@ import {guardAddAssets, guardAddStableCoins, guardAddProtocols} from "./GuardReg
 import {GUARD_DEPLOYER} from "./GuardDeployer.sol";
 import {AaveV3Protocol} from "protocol-contracts/src/protocols/AaveV3Protocol.sol";
 import {LidoV2Protocol} from "protocol-contracts/src/protocols/LidoV2Protocol.sol";
-import {UniswapV3MarketMakerProtocol} from "protocol-contracts/src/protocols/UniswapV3MarketMakerProtocol.sol";
 import {mainnet} from "protocol-contracts/script/addresses.sol";
 import {Path} from "protocol-contracts/src/libs/uniswap/v3/Uniswap.sol";
 import {BittyV1Guard} from "guard-contracts/src/BittyV1Guard.sol";
 
 /**
- *  @dev Mainnet fork setup with real Aave, Lido, and Uniswap V3 provider templates.
+ *  @dev Mainnet fork setup with real Aave and Lido provider templates.
  */
 abstract contract ProtocolTestSetup is Test {
     using Path for bytes;
@@ -21,7 +20,6 @@ abstract contract ProtocolTestSetup is Test {
 
     AaveV3Protocol internal aaveProtocol;
     LidoV2Protocol internal lidoProtocol;
-    UniswapV3MarketMakerProtocol internal uniswapV3Protocol;
 
     /**
      * @dev `guard` is etched, with its roles and registry already configured, BEFORE any fork exists.
@@ -47,9 +45,6 @@ abstract contract ProtocolTestSetup is Test {
         lidoProtocol = new LidoV2Protocol(mainnet.STETH, mainnet.UNSTETH, mainnet.WETH);
         lidoProtocol.initialize(address(this));
 
-        uniswapV3Protocol = new UniswapV3MarketMakerProtocol(mainnet.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER);
-        uniswapV3Protocol.initialize(address(this));
-
         vm.stopPrank();
 
         // Registering a protocol is a guard-admin write, and the guard's admin is its hardcoded
@@ -57,7 +52,6 @@ abstract contract ProtocolTestSetup is Test {
         vm.startPrank(GUARD_DEPLOYER, GUARD_DEPLOYER);
         guardAddProtocols(address(guard), _single(address(aaveProtocol)));
         guardAddProtocols(address(guard), _single(address(lidoProtocol)));
-        guardAddProtocols(address(guard), _single(address(uniswapV3Protocol)));
         vm.stopPrank();
     }
 

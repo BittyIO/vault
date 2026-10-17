@@ -13,12 +13,13 @@ import {IBittyV1Guard, ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/I
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
-import {BittyStorage, VaultStorage, DeFiStorage} from "./BittyStorage.sol";
+import {LockLib} from "./LockLib.sol";
+import {BittyStorage, Deferred, VaultStorage, DeFiStorage} from "./BittyStorage.sol";
 import {BITTY_GUARD} from "./Constants.sol";
 
 /**
  * @title PaymentCore
- * @notice Primitives shared by {PaymentLogic} (sends), {ScheduledPaymentLogic}, and {WhitelistLogic}:
+ * @notice Primitives shared by {PaymentLogic} (sends) and {WhitelistLogic}:
  *         the reentrancy-guarded native/ERC-20 payout, the stablecoin check, the protection-window
  *         helpers, and the locked-immutable test. Internal, so each consumer inlines what it uses.
  */
@@ -39,9 +40,8 @@ library PaymentCore {
 
     function stableCoinAllowed(address asset) internal view returns (bool) {
         if ((IBittyV1Guard(BITTY_GUARD).assetCategory(asset) & ASSET_STABLE_COIN) == 0) return false;
-        DeFiStorage storage d = BittyStorage.defi();
-        if (d.allowlistEnabled && !(d.allowlistDisableAt != 0 && block.timestamp >= d.allowlistDisableAt)) {
-            if (!d.assets[asset]) return false;
+        if (BittyStorage.vault().ownAllowListActive) {
+            if (!BittyStorage.defi().assets[asset]) return false;
         }
         return true;
     }
@@ -86,18 +86,7 @@ library PaymentCore {
         return protection == 0 ? 0 : block.timestamp + protection;
     }
 
-    function immutableLockDeadlineFromWindow(uint64 window) internal view returns (uint256) {
-        return block.timestamp + window;
-    }
-
     function requireProtectionElapsed(uint256 effectiveAt) internal view {
         if (block.timestamp < effectiveAt) revert ProtectionPeriodNotEnded();
-    }
-
-    function isLockedImmutable(VaultStorage storage vaultStorage, uint256 id) internal view returns (bool) {
-        IBittyV1Vault.ScheduledPayment storage p = vaultStorage.scheduledPayments[id];
-        return p.isImmutable && p.remainingPaymentCount > 0
-            && vaultStorage.scheduledPaymentPendingProposer[id] == address(0)
-            && block.timestamp >= vaultStorage.scheduledPaymentEffectiveAt[id];
     }
 }

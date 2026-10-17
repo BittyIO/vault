@@ -5,9 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {PaymentLogic} from "../../src/logic/PaymentLogic.sol";
 import {DeFiLogic} from "../../src/logic/DeFiLogic.sol";
-import {GaslessLogic} from "../../src/logic/GaslessLogic.sol";
+import {StableCoinAsGasLogic} from "../../src/logic/StableCoinAsGasLogic.sol";
 import {RiskLogic} from "../../src/logic/RiskLogic.sol";
-import {ScheduledPaymentLogic} from "../../src/logic/ScheduledPaymentLogic.sol";
 import {WhitelistLogic} from "../../src/logic/WhitelistLogic.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
@@ -19,44 +18,36 @@ import {BITTY_GUARD} from "../../src/logic/Constants.sol";
  * an ERC-1967 proxy would have done. Every call here runs the library against genuinely blank storage.
  */
 contract UninitializedAccount {
-    function initPayments(address gasWrapped) external {
-        PaymentLogic.initialize(gasWrapped);
-    }
-
-    function initDeFi(bool allowlistEnabled) external {
-        DeFiLogic.initialize(allowlistEnabled);
+    function initialize(address gasWrapped) external {
+        PaymentLogic.initialize(gasWrapped, false);
     }
 
     function send(address[] memory r, address[] memory a, uint256[] memory m) external {
         PaymentLogic.send(r, a, m);
     }
 
-    function updatePayoutOperator(address account, bool add) external {
-        PaymentLogic.updatePayoutOperatorOne(account, add);
+    function updateRisk(IBittyV1Owner.RiskSettings calldata risk) external {
+        RiskLogic.updateRisk(risk);
     }
 
-    function updateRisk(IBittyV1Owner.PaymentRisk calldata risk) external {
-        RiskLogic.updatePaymentRisk(risk);
+    function setStableCoinAsGas(address[] calldata assets, uint64 daily, uint64 perOp) external {
+        StableCoinAsGasLogic.setStableCoinAsGas(assets, daily, perOp);
     }
 
-    function setGasless(address[] calldata assets, uint64 daily, uint64 perOp) external {
-        GaslessLogic.setGasless(assets, daily, perOp);
-    }
-
-    function disableGasless() external {
-        GaslessLogic.disableGasless();
+    function disableStableCoinAsGas() external {
+        StableCoinAsGasLogic.disableStableCoinAsGas();
     }
 
     function payRelayerFee(address asset, uint256 amount) external {
-        GaslessLogic.payRelayerFee(asset, amount);
+        StableCoinAsGasLogic.payRelayerFee(asset, amount);
     }
 
-    function enableAllowlist() external {
-        DeFiLogic.enableAllowlist();
+    function activateOwnAllowList() external {
+        DeFiLogic.activateOwnAllowList();
     }
 
-    function disableAllowlist(uint64 timelock) external {
-        DeFiLogic.disableAllowlist(timelock);
+    function deactivateOwnAllowList() external {
+        DeFiLogic.deactivateOwnAllowList();
     }
 
     function updateAssets(address[] calldata add, address[] calldata remove) external {
@@ -67,12 +58,8 @@ contract UninitializedAccount {
         DeFiLogic.deposit(protocol, asset, amount);
     }
 
-    function addScheduledPayment(IBittyV1Vault.ScheduledPayment calldata sp) external returns (uint256) {
-        return ScheduledPaymentLogic.addScheduledPaymentOne(sp, true, address(this));
-    }
-
-    function addWhitelistedRecipient(address recipient, address asset) external returns (uint256) {
-        return WhitelistLogic.addWhitelistedRecipientOne(recipient, asset, true, address(this));
+    function addWhitelistedRecipient(address recipient) external returns (uint256) {
+        return WhitelistLogic.addWhitelistedRecipientOne(recipient);
     }
 }
 
@@ -116,54 +103,30 @@ contract LogicGuardsTest is Test {
         account.send(_addr(payee), _addr(asset), _amt(1));
     }
 
-    function test_payoutOperatorsCannotBeSetBeforeInitialization() public {
-        vm.expectRevert(NotInitialized.selector);
-        account.updatePayoutOperator(payee, true);
-    }
-
-    function test_scheduledPaymentsRefuseToRunBeforeInitialization() public {
-        IBittyV1Vault.ScheduledPayment memory sp = IBittyV1Vault.ScheduledPayment({
-            recipient: payee,
-            remainingPaymentCount: 1,
-            isImmutable: false,
-            payWithInsufficientBalance: false,
-            trigger: address(0),
-            assetAddress: address(0),
-            amount: 1,
-            startTimestamp: block.timestamp,
-            paymentInterval: 0
-        });
-        vm.expectRevert(NotInitialized.selector);
-        account.addScheduledPayment(sp);
-    }
-
     function test_theWhitelistRefusesToRunBeforeInitialization() public {
         vm.expectRevert(NotInitialized.selector);
-        account.addWhitelistedRecipient(payee, asset);
+        account.addWhitelistedRecipient(payee);
     }
 
-    // ── risk and gasless ──────────────────────────────────────────────────────
+    // ── risk and stablecoin-as-gas ──────────────────────────────────────────────────────
 
     function test_riskCannotBeConfiguredBeforeInitialization() public {
         vm.expectRevert(NotInitialized.selector);
         account.updateRisk(
-            IBittyV1Owner.PaymentRisk({
-                maxSendValue: UNCHANGED,
-                maxSendInterval: UNCHANGED,
-                newPaymentProtection: UNCHANGED,
-                changeTimelock: 1 days
+            IBittyV1Owner.RiskSettings({
+                timelock: 1 days, sendDailyAllowance: UNCHANGED, marketTradeDailyLossAllowance: UNCHANGED
             })
         );
     }
 
-    function test_gaslessCannotBeConfiguredBeforeInitialization() public {
+    function test_stableCoinAsGasCannotBeConfiguredBeforeInitialization() public {
         vm.expectRevert(NotInitialized.selector);
-        account.setGasless(new address[](0), 10, 5);
+        account.setStableCoinAsGas(new address[](0), 10, 5);
     }
 
-    function test_gaslessCannotBeDisabledBeforeInitialization() public {
+    function test_stableCoinAsGasCannotBeDisabledBeforeInitialization() public {
         vm.expectRevert(NotInitialized.selector);
-        account.disableGasless();
+        account.disableStableCoinAsGas();
     }
 
     function test_noRelayerFeeIsPayableBeforeInitialization() public {
@@ -175,10 +138,10 @@ contract LogicGuardsTest is Test {
 
     function test_theAllowlistCannotBeTouchedBeforeInitialization() public {
         vm.expectRevert(NotInitialized.selector);
-        account.enableAllowlist();
+        account.activateOwnAllowList();
 
         vm.expectRevert(NotInitialized.selector);
-        account.disableAllowlist(0);
+        account.deactivateOwnAllowList();
 
         vm.expectRevert(NotInitialized.selector);
         account.updateAssets(_addr(asset), new address[](0));
@@ -189,29 +152,21 @@ contract LogicGuardsTest is Test {
         account.deposit(makeAddr("protocol"), asset, 1);
     }
 
-    // ── and neither half initializes twice ────────────────────────────────────
+    // ── and one initialization, exactly once, for both halves ─────────────────
 
-    function test_paymentsInitializeExactlyOnce() public {
-        account.initPayments(gasWrapped);
+    /**
+     * Payments and DeFi share one initialised flag — it sits in the slot the payment side writes
+     * anyway — so there is no state in which one half is live and the other is not.
+     */
+    function test_theAccountInitializesExactlyOnce() public {
+        account.initialize(gasWrapped);
         vm.expectRevert(AlreadyInitialized.selector);
-        account.initPayments(gasWrapped);
+        account.initialize(gasWrapped);
     }
 
-    function test_defiInitializesExactlyOnce() public {
-        account.initDeFi(false);
-        vm.expectRevert(AlreadyInitialized.selector);
-        account.initDeFi(false);
-    }
-
-    function test_initializingOneHalfDoesNotUnlockTheOther() public {
-        account.initPayments(gasWrapped);
-        vm.expectRevert(NotInitialized.selector);
-        account.enableAllowlist();
-    }
-
-    function test_initializingDeFiDoesNotUnlockPayments() public {
-        account.initDeFi(false);
-        vm.expectRevert(NotInitialized.selector);
-        account.updatePayoutOperator(payee, true);
+    function test_oneInitializationUnlocksBothHalves() public {
+        account.initialize(gasWrapped);
+        account.activateOwnAllowList();
+        account.deactivateOwnAllowList();
     }
 }

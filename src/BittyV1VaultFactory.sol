@@ -6,10 +6,19 @@ import {Create2} from "openzeppelin-contracts/contracts/utils/Create2.sol";
 import {EIP712} from "openzeppelin-contracts/contracts/utils/cryptography/EIP712.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptography/SignatureChecker.sol";
-import {VaultAlreadyActivated, InvalidActivationSignature} from "./interfaces/IBittyV1VaultFactory.sol";
+import {
+    VaultAlreadyActivated,
+    InvalidActivationSignature,
+    ActivationSignatureExpired
+} from "./interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1VaultBootstrap} from "./BittyV1VaultBootstrap.sol";
-import {IBittyV1Guard, IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {BITTY_GUARD, BITTY_VAULT_BOOTSTRAP, CFG_GAS_WRAPPED, CFG_OWNER} from "./logic/Constants.sol";
+import {
+    IBittyV1Guard,
+    IMPLEMENTATION_VAULT,
+    CFG_GAS_WRAPPED,
+    CFG_OWNER
+} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {BITTY_GUARD, BITTY_VAULT_BOOTSTRAP} from "./logic/Constants.sol";
 
 /**
  * @dev Only the vault's activation selector, declared here rather than imported from {BittyV1Vault}.
@@ -22,7 +31,7 @@ interface IBittyV1VaultActivation {
     function initialize(
         address owner,
         address gasWrapped,
-        bool allowlistEnabled,
+        bool restrictToOwnAllowList,
         address activationAsset,
         uint256 activationAmount,
         bytes[] calldata calls
@@ -42,15 +51,47 @@ interface IBittyV1VaultActivation {
  *      factory) never move. Its upgrade owner is the guard's configured owner. Allowlist defaults ON.
  */
 contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
+    /**
+     * @dev `deadline` is part of what the owner signs, and the reason is that a vault can only be
+     *      activated ONCE: until it exists the signature stays valid, so without an expiry whoever
+     *      holds it — a relayer backend, a leaked copy — may activate months later with settings the
+     *      owner has since moved on from. The `calls` run with the owner's authority at `initialize`,
+     *      when the vault's change timelock is still zero, so a stale entry appointing an asset
+     *      manager or opening the allow list takes effect at once and waits for nothing.
+     *
+     *      An expiry is the whole fix for that. There is no nonce because there is nothing to
+     *      replay: the second activation of the same owner reverts {VaultAlreadyActivated}. An owner
+     *      who wants to revoke before the deadline still can, by calling {activateVault} themselves,
+     *      which makes every outstanding signature unusable.
+     */
     bytes32 private constant _ACTIVATION_TYPEHASH = keccak256(
-        "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool allowlistEnabled,bytes[] calls)"
+        "Activation(address owner,address stableCoinAddress,uint256 feeAmount,bool restrictToOwnAllowList,bytes[] calls,uint256 deadline)"
     );
 
+    /**
+     * @dev keccak256 of the vault proxy's CREATE2 init code: {ERC1967Proxy} creation code plus its
+     *      constructor args ({BITTY_VAULT_BOOTSTRAP}, ""). Every vault address derives from this hash,
+     *      and the creation code ends in solc's CBOR metadata, so a factory build compiled with a
+     *      different OpenZeppelin revision, solc version, or optimizer/metadata setting would silently
+     *      relocate every {vaultAddress} — stranding counterfactually funded addresses and letting an
+     *      already-activated owner activate a second vault. The constructor compares this constant
+     *      against the bytes actually compiled into the build, so a drifted toolchain reverts loudly at
+     *      deployment instead. If the proxy init code is ever changed ON PURPOSE, update this constant
+     *      knowing it moves every un-activated owner's address.
+     */
+    bytes32 private constant _VAULT_PROXY_INITCODE_HASH =
+        0x6c313cb305e616270f7a0ed3e9bb874c27e1a38fbde9d4cf2ccccb10c193a45c;
+
     error NotOwner();
+    error VaultProxyInitCodeDrift();
 
     event VaultActivated(address indexed owner, address vault);
 
     constructor() EIP712("BittyV1VaultFactory", "1") {
+        if (
+            keccak256(abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(BITTY_VAULT_BOOTSTRAP, bytes(""))))
+                != _VAULT_PROXY_INITCODE_HASH
+        ) revert VaultProxyInitCodeDrift();
         _disableInitializers();
     }
 
@@ -65,23 +106,24 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
-    function activateVault(bool allowlistEnabled, bytes[] calldata calls) external returns (address vault) {
-        return _deploy(msg.sender, address(0), 0, allowlistEnabled, calls);
+    function activateVault(bool restrictToOwnAllowList, bytes[] calldata calls) external returns (address vault) {
+        return _deploy(msg.sender, address(0), 0, restrictToOwnAllowList, calls);
     }
 
     function activateVaultByAsset(
         address owner,
         address asset,
         uint256 amount,
-        bool allowlistEnabled,
+        bool restrictToOwnAllowList,
         bytes[] calldata calls,
+        uint256 deadline,
         bytes calldata signature
     ) external returns (address vault) {
-        _checkActivationSignature(owner, asset, amount, allowlistEnabled, calls, signature);
-        return _deploy(owner, asset, amount, allowlistEnabled, calls);
+        _checkActivationSignature(owner, asset, amount, restrictToOwnAllowList, calls, deadline, signature);
+        return _deploy(owner, asset, amount, restrictToOwnAllowList, calls);
     }
 
-    function _deploy(address owner, address asset, uint256 amount, bool allowlistEnabled, bytes[] calldata calls)
+    function _deploy(address owner, address asset, uint256 amount, bool restrictToOwnAllowList, bytes[] calldata calls)
         private
         returns (address vault)
     {
@@ -95,7 +137,8 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
             .upgradeToAndCall(
                 vaultImpl,
                 abi.encodeCall(
-                    IBittyV1VaultActivation.initialize, (owner, gasWrapped, allowlistEnabled, asset, amount, calls)
+                    IBittyV1VaultActivation.initialize,
+                    (owner, gasWrapped, restrictToOwnAllowList, asset, amount, calls)
                 )
             );
         emit VaultActivated(owner, deployed);
@@ -103,29 +146,33 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
     }
 
     function _predict(bytes32 salt) private view returns (address) {
-        bytes memory bytecode =
-            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(BITTY_VAULT_BOOTSTRAP, bytes("")));
-        return Create2.computeAddress(salt, keccak256(bytecode));
+        return Create2.computeAddress(salt, _VAULT_PROXY_INITCODE_HASH);
     }
 
     function vaultAddress(address owner) external view returns (address) {
         return _predict(keccak256(abi.encodePacked(owner)));
     }
 
-    /**
-     * @dev `calls` are part of what the owner signs. A relayer that could add its own entries would be
-     *      running owner-authorised operations on a vault it does not own.
-     */
     function _checkActivationSignature(
         address owner,
         address stableCoinAddress,
         uint256 feeAmount,
-        bool allowlistEnabled,
+        bool restrictToOwnAllowList,
         bytes[] calldata calls,
+        uint256 deadline,
         bytes calldata signature
     ) private view {
+        if (block.timestamp > deadline) revert ActivationSignatureExpired();
         bytes32 structHash = keccak256(
-            abi.encode(_ACTIVATION_TYPEHASH, owner, stableCoinAddress, feeAmount, allowlistEnabled, _hashCalls(calls))
+            abi.encode(
+                _ACTIVATION_TYPEHASH,
+                owner,
+                stableCoinAddress,
+                feeAmount,
+                restrictToOwnAllowList,
+                _hashCalls(calls),
+                deadline
+            )
         );
         if (!SignatureChecker.isValidSignatureNow(owner, _hashTypedDataV4(structHash), signature)) {
             revert InvalidActivationSignature();

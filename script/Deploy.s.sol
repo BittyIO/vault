@@ -4,33 +4,35 @@ pragma solidity ^0.8.34;
 import {DeployScript} from "./BaseDeploy.sol";
 import {console2} from "forge-std/console2.sol";
 import {BittyV1Vault} from "../src/BittyV1Vault.sol";
-import {BittyV1ForwarderBootstrap} from "../src/BittyV1ForwarderBootstrap.sol";
-import {BittyV1VaultFactoryBootstrap} from "../src/BittyV1VaultFactoryBootstrap.sol";
-import {BittyV1VaultBootstrap} from "../src/BittyV1VaultBootstrap.sol";
+import {
+    VAULT_BOOTSTRAP_INITCODE,
+    VAULT_FACTORY_BOOTSTRAP_INITCODE,
+    FORWARDER_BOOTSTRAP_INITCODE,
+    FORWARDER_BOOTSTRAP
+} from "./BootstrapInitCode.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC1967Utils} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {BittyV1SubVault} from "../src/subvault/BittyV1SubVault.sol";
 import {BittyV1VaultDeFiFacet} from "../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1VaultFactory} from "../src/BittyV1VaultFactory.sol";
 import {BittyV1VaultForwarder} from "../src/BittyV1VaultForwarder.sol";
 import {BittyV1AutoYieldKeeper} from "../src/BittyV1AutoYieldKeeper.sol";
 import {
-    BITTY_FEE_COLLECTOR,
     BITTY_FORWARDER,
     BITTY_GUARD,
     BITTY_VAULT_BOOTSTRAP,
-    BITTY_VAULT_FACTORY_BOOTSTRAP,
+    BITTY_VAULT_FACTORY_BOOTSTRAP
+} from "../src/logic/Constants.sol";
+import {
+    IBittyV1Guard,
+    IMPLEMENTATION_VAULT,
     CFG_GAS_WRAPPED,
     CFG_OWNER
-} from "../src/logic/Constants.sol";
-import {IBittyV1Guard, IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {PaymentLogic} from "../src/logic/PaymentLogic.sol";
+} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {DeFiLogic} from "../src/logic/DeFiLogic.sol";
-import {SubVaultRegistryLogic} from "../src/logic/SubVaultRegistryLogic.sol";
-import {GaslessLogic} from "../src/logic/GaslessLogic.sol";
+import {MarketTradeLogic} from "../src/logic/MarketTradeLogic.sol";
+import {StableCoinAsGasLogic} from "../src/logic/StableCoinAsGasLogic.sol";
 import {RiskLogic} from "../src/logic/RiskLogic.sol";
-import {ScheduledPaymentLogic} from "../src/logic/ScheduledPaymentLogic.sol";
 import {WhitelistLogic} from "../src/logic/WhitelistLogic.sol";
 
 /**
@@ -86,8 +88,7 @@ contract Deploy is DeployScript {
     function deployImplementationChain() internal returns (address vaultImpl) {
         _deployLogicLibraries();
         address defiFacet = _deployFacet();
-        address subImpl = _deploySubImplementation(defiFacet);
-        vaultImpl = _deployImplementation(defiFacet, subImpl);
+        vaultImpl = _deployImplementation(defiFacet);
     }
 
     /**
@@ -96,34 +97,27 @@ contract Deploy is DeployScript {
      *      different bootstrap would relocate every owner's vault. See BittyV1VaultBootstrap.
      */
     function _deployBootstrap() private {
-        address bootstrap = _create2("BittyV1VaultBootstrap", type(BittyV1VaultBootstrap).creationCode);
+        address bootstrap = _create2("BittyV1VaultBootstrap", VAULT_BOOTSTRAP_INITCODE);
         require(bootstrap == BITTY_VAULT_BOOTSTRAP, "BITTY_VAULT_BOOTSTRAP constant is stale: update Constants.sol");
     }
 
     /**
-     * @dev ALL SEVEN, not the three that used to be listed here. Every one of them is delegatecalled by
+     * @dev ALL OF THEM, not a subset ({PaymentLogic} is internal and compiled into the vault, so it is
+     *      not one of them). Every one of them is delegatecalled by
      *      the vault at an address solc baked in at compile time, so a library that is linked but never
      *      deployed leaves the implementation calling into empty code - which does not revert at deploy
      *      time, only later, on the first call that touches it.
      */
     function _deployLogicLibraries() private {
-        _deployLibrary("PaymentLogic", address(PaymentLogic), type(PaymentLogic).creationCode);
         _deployLibrary("DeFiLogic", address(DeFiLogic), type(DeFiLogic).creationCode);
-        _deployLibrary(
-            "SubVaultRegistryLogic", address(SubVaultRegistryLogic), type(SubVaultRegistryLogic).creationCode
-        );
-        _deployLibrary("GaslessLogic", address(GaslessLogic), type(GaslessLogic).creationCode);
+        _deployLibrary("MarketTradeLogic", address(MarketTradeLogic), type(MarketTradeLogic).creationCode);
+        _deployLibrary("StableCoinAsGasLogic", address(StableCoinAsGasLogic), type(StableCoinAsGasLogic).creationCode);
         _deployLibrary("RiskLogic", address(RiskLogic), type(RiskLogic).creationCode);
-        _deployLibrary(
-            "ScheduledPaymentLogic", address(ScheduledPaymentLogic), type(ScheduledPaymentLogic).creationCode
-        );
         _deployLibrary("WhitelistLogic", address(WhitelistLogic), type(WhitelistLogic).creationCode);
-        saveAddress("PAYMENT_LOGIC", address(PaymentLogic));
         saveAddress("DEFI_LOGIC", address(DeFiLogic));
-        saveAddress("SUB_VAULT_REGISTRY_LOGIC", address(SubVaultRegistryLogic));
-        saveAddress("GASLESS_LOGIC", address(GaslessLogic));
+        saveAddress("MARKET_TRADE_LOGIC", address(MarketTradeLogic));
+        saveAddress("STABLE_COIN_AS_GAS_LOGIC", address(StableCoinAsGasLogic));
         saveAddress("RISK_LOGIC", address(RiskLogic));
-        saveAddress("SCHEDULED_PAYMENT_LOGIC", address(ScheduledPaymentLogic));
         saveAddress("WHITELIST_LOGIC", address(WhitelistLogic));
     }
 
@@ -195,7 +189,8 @@ contract Deploy is DeployScript {
      *      With a constant here the address survives every future forwarder release.
      */
     function _deployForwarder() private returns (address forwarder) {
-        address bootstrap = _create2("BittyV1ForwarderBootstrap", type(BittyV1ForwarderBootstrap).creationCode);
+        address bootstrap = _create2("BittyV1ForwarderBootstrap", FORWARDER_BOOTSTRAP_INITCODE);
+        require(bootstrap == FORWARDER_BOOTSTRAP, "FORWARDER_BOOTSTRAP drifted: see BootstrapInitCode.sol");
         bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(bootstrap, bytes("")));
         forwarder = _create2("BittyV1VaultForwarderProxy", initCode);
         require(forwarder == BITTY_FORWARDER, "BITTY_FORWARDER constant is stale: update Constants.sol");
@@ -206,12 +201,12 @@ contract Deploy is DeployScript {
             console2.log("forwarder moved to implementation     ", build);
         }
         BittyV1VaultForwarder fwd = BittyV1VaultForwarder(payable(forwarder));
-        if (!fwd.approvedRelayers(BITTY_FEE_COLLECTOR)) {
-            fwd.setRelayerApproval(BITTY_FEE_COLLECTOR, true);
-            console2.log("fee collector approved as relayer     ", BITTY_FEE_COLLECTOR);
-        }
+        // The relayer is the hot key that submits users' signed requests; the fee collector (a Safe)
+        // is where their fees land, and is never a relayer.
         address relayer = getAddressOr("BITTY_RELAYER", address(0));
-        if (relayer != address(0) && !fwd.approvedRelayers(relayer)) {
+        if (relayer == address(0)) {
+            console2.log("WARNING: no BITTY_RELAYER in deployments/<chain>.toml - the forwarder has no relayer");
+        } else if (!fwd.approvedRelayers(relayer)) {
             fwd.setRelayerApproval(relayer, true);
             console2.log("relayer approved                      ", relayer);
         }
@@ -241,14 +236,8 @@ contract Deploy is DeployScript {
         console2.log("keeper trusts forwarder        ", forwarder);
     }
 
-    function _deploySubImplementation(address defiFacet) private returns (address subImpl) {
-        bytes memory initCode = abi.encodePacked(type(BittyV1SubVault).creationCode, abi.encode(defiFacet));
-        subImpl = _create2("BittyV1SubVault", initCode);
-        saveAddress("SUB_VAULT_IMPLEMENTATION", subImpl);
-    }
-
-    function _deployImplementation(address defiFacet, address subImpl) private returns (address vaultImpl) {
-        bytes memory initCode = abi.encodePacked(type(BittyV1Vault).creationCode, abi.encode(defiFacet, subImpl));
+    function _deployImplementation(address defiFacet) private returns (address vaultImpl) {
+        bytes memory initCode = abi.encodePacked(type(BittyV1Vault).creationCode, abi.encode(defiFacet));
         vaultImpl = _create2("BittyV1Vault", initCode);
         _reportIfMoved("VAULT_IMPLEMENTATION", vaultImpl);
         saveAddress("VAULT_IMPLEMENTATION", vaultImpl);
@@ -270,7 +259,7 @@ contract Deploy is DeployScript {
      *      hand it to a Safe when the deploy key is not the owner.
      */
     function _deployFactoryBuild() internal returns (address factory, address build) {
-        address bootstrap = _create2("BittyV1VaultFactoryBootstrap", type(BittyV1VaultFactoryBootstrap).creationCode);
+        address bootstrap = _create2("BittyV1VaultFactoryBootstrap", VAULT_FACTORY_BOOTSTRAP_INITCODE);
         require(
             bootstrap == BITTY_VAULT_FACTORY_BOOTSTRAP,
             "BITTY_VAULT_FACTORY_BOOTSTRAP constant is stale: update Constants.sol"

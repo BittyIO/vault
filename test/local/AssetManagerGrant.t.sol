@@ -10,21 +10,30 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {
-    GrantTooLong,
-    AssetManagerExpiryInPast,
-    AssetManagerNotForSubVault
-} from "../../src/interfaces/IBittyV1DeFi.sol";
-import {BITTY_GUARD, MAX_DURATION} from "../../src/logic/Constants.sol";
+import {GrantTooLong, AssetManagerExpiryInPast} from "../../src/interfaces/IBittyV1DeFi.sol";
+import {BITTY_GUARD, MAX_GRANT_DURATION, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
+
+/*
+ * The capabilities these tests appoint a manager for: the jobs a managed vault is actually given —
+ * yield, lending and the intent orders it signs — and NOT trading at market, which the owner has to
+ * grant by name. See {PERM_YIELD} and the note above it.
+ */
+uint32 constant MANAGER_PERMS = PERM_YIELD | PERM_SUPPLY | PERM_INTENT;
 
 interface IFacet {
-    function setAssetManager(address assetManager, uint64 expiresAt) external;
+    function setAssetManager(address assetManager, uint64 expiresAt, uint32 permissions) external;
     function getAssetManagerSettings()
         external
         view
-        returns (address manager, uint64 expiresAt, address pendingManager, uint64 pendingAt);
+        returns (
+            address manager,
+            uint64 expiresAt,
+            address pendingManager,
+            uint64 pendingAt,
+            uint32 permissions,
+            uint32 pendingPermissions
+        );
     function deposit(address protocol, address asset, uint256 amount) external;
     function withdraw(address protocol, address asset, uint256 amount) external;
     function getClone(address protocol) external view returns (address);
@@ -59,8 +68,7 @@ contract AssetManagerGrantTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
@@ -78,53 +86,54 @@ contract AssetManagerGrantTest is Test {
 
     function _timelock(uint64 t) internal {
         vm.prank(owner);
-        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(UNCHANGED, UNCHANGED, UNCHANGED, t));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(t, UNCHANGED, UNCHANGED));
     }
 
     function _set(address who, uint64 expiresAt) internal {
         vm.prank(owner);
-        _f().setAssetManager(who, expiresAt);
+        _f().setAssetManager(who, expiresAt, MANAGER_PERMS);
     }
 
     // ── granting ──────────────────────────────────────────────────────────────
 
     function test_withNoTimelockTheGrantIsImmediate() public {
-        _set(manager, 0);
-        (address m, uint64 e,,) = _f().getAssetManagerSettings();
+        uint64 expiry = uint64(block.timestamp + 365 days);
+        _set(manager, expiry);
+        (address m, uint64 e,,,,) = _f().getAssetManagerSettings();
         assertEq(m, manager, "named");
-        assertEq(e, 0, "no expiry");
+        assertEq(e, expiry, "expiry");
     }
 
     function test_theManagerMayMoveMoneyBetweenVenues() public {
-        _set(manager, 0);
+        _set(manager, uint64(block.timestamp + 365 days));
         vm.prank(manager);
         _f().deposit(address(proto), address(usdc), 100e6);
         assertEq(usdc.balanceOf(_f().getClone(address(proto))), 100e6, "the desk deployed capital");
     }
 
     function test_theManagerCannotMoveMoneyOut() public {
-        _set(manager, 0);
+        _set(manager, uint64(block.timestamp + 365 days));
         vm.prank(manager);
         vm.expectRevert();
         vault.send(stranger, address(usdc), 1e6, new address[](0), new uint256[](0));
     }
 
     function test_aStrangerIsNotTheManager() public {
-        _set(manager, 0);
+        _set(manager, uint64(block.timestamp + 365 days));
         vm.prank(stranger);
         vm.expectRevert();
         _f().deposit(address(proto), address(usdc), 1e6);
     }
 
     function test_theOwnerStillActsWithAManagerNamed() public {
-        _set(manager, 0);
+        _set(manager, uint64(block.timestamp + 365 days));
         vm.prank(owner);
         _f().deposit(address(proto), address(usdc), 100e6);
     }
 
     /// An unset grant reads as address(0); the check must not treat "nobody" as a match.
     function test_theZeroAddressIsNeverTheManager() public {
-        (address m,,,) = _f().getAssetManagerSettings();
+        (address m,,,,,) = _f().getAssetManagerSettings();
         assertEq(m, address(0), "no grant at all");
 
         vm.prank(address(0));
@@ -137,18 +146,53 @@ contract AssetManagerGrantTest is Test {
     function test_anExpiryAlreadyPastIsRefused() public {
         vm.prank(owner);
         vm.expectRevert(AssetManagerExpiryInPast.selector);
-        _f().setAssetManager(manager, uint64(block.timestamp));
+        _f().setAssetManager(manager, uint64(block.timestamp), MANAGER_PERMS);
+    }
+
+    /// There is no "never": every grant expires, so a leaked key stops mattering on its own.
+    function test_aZeroExpiryIsRefused() public {
+        vm.prank(owner);
+        vm.expectRevert(AssetManagerExpiryInPast.selector);
+        _f().setAssetManager(manager, 0, MANAGER_PERMS);
+    }
+
+    /// Re-naming the live manager with expiry 0 can neither extend the grant nor slip past the
+    /// timelock as a "tightening".
+    function test_aZeroExpiryCannotReachALiveGrant() public {
+        _timelock(1 days);
+        uint64 expiry = uint64(block.timestamp + 30 days);
+        _set(manager, expiry);
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(owner);
+        vm.expectRevert(AssetManagerExpiryInPast.selector);
+        _f().setAssetManager(manager, 0, MANAGER_PERMS);
+
+        (address m, uint64 e,,,,) = _f().getAssetManagerSettings();
+        assertEq(m, manager, "still named");
+        assertEq(e, expiry, "expiry unchanged");
+    }
+
+    /// The expiry only bounds a grant; a revoke takes whatever is passed, 0 included.
+    function test_aRevokeNeedsNoExpiry() public {
+        _set(manager, uint64(block.timestamp + 365 days));
+        _set(address(0), 0);
+        (address m, uint64 e,,, uint32 perms,) = _f().getAssetManagerSettings();
+        assertEq(m, address(0), "revoked");
+        assertEq(e, 0, "no expiry without a manager");
+        assertEq(perms, 0, "no permissions without a manager");
+        assertFalse(_f().isOffchainCancellationAuthorized(manager), "the old manager is no one");
     }
 
     function test_anExpiryBeyondTheCeilingIsRefused() public {
         vm.prank(owner);
         vm.expectRevert(GrantTooLong.selector);
-        _f().setAssetManager(manager, uint64(block.timestamp + MAX_DURATION + 1));
+        _f().setAssetManager(manager, uint64(block.timestamp + MAX_GRANT_DURATION + 1), MANAGER_PERMS);
     }
 
     function test_anExpiryExactlyAtTheCeilingIsAccepted() public {
-        _set(manager, uint64(block.timestamp + MAX_DURATION));
-        (address m,,,) = _f().getAssetManagerSettings();
+        _set(manager, uint64(block.timestamp + MAX_GRANT_DURATION));
+        (address m,,,,,) = _f().getAssetManagerSettings();
         assertEq(m, manager);
     }
 
@@ -169,9 +213,9 @@ contract AssetManagerGrantTest is Test {
 
     function test_namingANewManagerWaitsOutTheTimelock() public {
         _timelock(2 days);
-        _set(manager, 0);
+        _set(manager, uint64(block.timestamp + 365 days));
 
-        (address m,, address pending, uint64 at) = _f().getAssetManagerSettings();
+        (address m,, address pending, uint64 at,,) = _f().getAssetManagerSettings();
         assertEq(m, address(0), "nobody yet");
         assertEq(pending, manager, "queued");
         assertEq(at, uint64(block.timestamp + 2 days), "and dated");
@@ -181,7 +225,7 @@ contract AssetManagerGrantTest is Test {
         _f().deposit(address(proto), address(usdc), 1e6);
 
         vm.warp(block.timestamp + 2 days);
-        (m,,,) = _f().getAssetManagerSettings();
+        (m,,,,,) = _f().getAssetManagerSettings();
         assertEq(m, manager, "live once the window passes");
         vm.prank(manager);
         _f().deposit(address(proto), address(usdc), 10e6);
@@ -190,34 +234,34 @@ contract AssetManagerGrantTest is Test {
     /// The matured grant is folded into the live slot by the next write, not only by reads.
     function test_aMaturedGrantIsSettledByTheNextWrite() public {
         _timelock(2 days);
-        _set(manager, 0);
+        _set(manager, uint64(block.timestamp + 365 days));
         vm.warp(block.timestamp + 2 days);
 
-        _set(other, 0);
-        (address m,, address pending,) = _f().getAssetManagerSettings();
+        _set(other, uint64(block.timestamp + 365 days));
+        (address m,, address pending,,,) = _f().getAssetManagerSettings();
         assertEq(m, manager, "the matured grant became the live one");
         assertEq(pending, other, "and the new name is what is now queued");
     }
 
     /// Shortening an existing manager's own expiry is a tightening, so it lands immediately.
     function test_shorteningTheirOwnExpiryIsImmediate() public {
-        _set(manager, 0);
+        _set(manager, uint64(block.timestamp + 365 days));
         _timelock(2 days);
 
         uint64 soon = uint64(block.timestamp + 1 days);
         _set(manager, soon);
-        (address m, uint64 e,, uint64 at) = _f().getAssetManagerSettings();
+        (address m, uint64 e,, uint64 at,,) = _f().getAssetManagerSettings();
         assertEq(m, manager, "same manager");
         assertEq(e, soon, "bounded right away");
         assertEq(at, 0, "nothing queued");
     }
 
     function test_revokingIsImmediateEvenUnderATimelock() public {
-        _set(manager, 0);
+        _set(manager, uint64(block.timestamp + 365 days));
         _timelock(2 days);
 
         _set(address(0), 0);
-        (address m,, address pending,) = _f().getAssetManagerSettings();
+        (address m,, address pending,,,) = _f().getAssetManagerSettings();
         assertEq(m, address(0), "gone at once");
         assertEq(pending, address(0), "and nothing queued behind it");
 
@@ -228,11 +272,11 @@ contract AssetManagerGrantTest is Test {
 
     function test_revokingAlsoDropsAPendingGrant() public {
         _timelock(2 days);
-        _set(manager, 0);
+        _set(manager, uint64(block.timestamp + 365 days));
         _set(address(0), 0);
 
         vm.warp(block.timestamp + 30 days);
-        (address m,, address pending,) = _f().getAssetManagerSettings();
+        (address m,, address pending,,,) = _f().getAssetManagerSettings();
         assertEq(m, address(0), "the queued grant never landed");
         assertEq(pending, address(0));
     }
@@ -240,13 +284,13 @@ contract AssetManagerGrantTest is Test {
     function test_onlyTheOwnerNamesTheManager() public {
         vm.prank(stranger);
         vm.expectRevert();
-        _f().setAssetManager(manager, 0);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
     }
 
     // ── unwinding is always open ──────────────────────────────────────────────
 
     function test_theManagerMayAlwaysUnwind() public {
-        _set(manager, 0);
+        _set(manager, uint64(block.timestamp + 365 days));
         vm.prank(owner);
         _f().deposit(address(proto), address(usdc), 100e6);
 
@@ -258,21 +302,9 @@ contract AssetManagerGrantTest is Test {
     // ── off-chain order authority follows the grant ───────────────────────────
 
     function test_theManagerMayCancelOrdersOffchain() public {
-        _set(manager, 0);
+        _set(manager, uint64(block.timestamp + 365 days));
         assertTrue(_f().isOffchainCancellationAuthorized(manager), "the desk may pull its own orders");
         assertTrue(_f().isOffchainCancellationAuthorized(owner), "so may the owner");
         assertFalse(_f().isOffchainCancellationAuthorized(stranger), "nobody else");
-    }
-
-    // ── a sub vault has no asset manager ──────────────────────────────────────
-
-    function test_aSubVaultCannotNameAnAssetManager() public {
-        address subOwner = makeAddr("subOwner");
-        vm.prank(owner);
-        (, address account) = vault.createSubVault(subOwner, false, uint64(block.timestamp + 30 days));
-
-        vm.prank(subOwner);
-        vm.expectRevert(AssetManagerNotForSubVault.selector);
-        IFacet(account).setAssetManager(makeAddr("desk"), 0);
     }
 }

@@ -6,7 +6,7 @@
     }
   },
   "lib/guard-contracts": {
-    "rev": "b9b7f4dae04a96c0e9bd2f66a2551e637df40cbe"
+    "rev": "96f303d5ce6b92110ceaef0c8d657ac342587228"
   },
   "lib/openzeppelin-contracts": {
     "tag": {
@@ -21,7 +21,7 @@
     }
   },
   "lib/protocol-contracts": {
-    "rev": "cfe66eb4065f832763337bb89fce20e1032cfe1d"
+    "rev": "157e0531f772eb565e8176f334de98bc85acf6bf"
   },
   "lib/safe-smart-account": {
     "tag": {

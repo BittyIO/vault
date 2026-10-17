@@ -5,15 +5,12 @@ import {IBittyV1Vault} from "../interfaces/IBittyV1Vault.sol";
 
 /**
  * @title BittyStorage
- * @notice ERC-7201 namespaced storage for the subaccount generation. Three independent contexts, each
- *         pinned to a fixed keccak-derived slot so the layout survives UUPS upgrades and so the shared
- *         {BittyV1VaultDeFiFacet} reads the right {DeFiStorage} whether it runs inside the main vault or
- *         a sub vault.
+ * @notice ERC-7201 namespaced storage. Two independent contexts, each pinned to a fixed keccak-derived
+ *         slot so the layout survives UUPS upgrades.
  *
  * @dev Slots derived as `keccak256(abi.encode(uint256(keccak256(id)) - 1)) & ~0xff`:
  *      - bitty.storage.vault.main     → VAULT_SLOT
- *      - bitty.storage.vault.defi     → DEFI_SLOT   (one per DeFi context: the main vault's, and each sub's)
- *      - bitty.storage.vault.subvault → SUBVAULT_SLOT
+ *      - bitty.storage.vault.defi     → DEFI_SLOT
  *
  *      The ids carry NO version, and that is the point. An id is not a label for a release — it is the
  *      address of the data. `keccak256("bitty.storage.vault.main")` is what produces VAULT_SLOT, so
@@ -28,6 +25,17 @@ import {IBittyV1Vault} from "../interfaces/IBittyV1Vault.sol";
  *      never renaming this one.
  *
  *      ── BEFORE SHIPPING AN UPGRADE, CHECK EVERY STRUCT IN THIS FILE ──────────────────────────────
+ *
+ *      These rules bind from the first vault that holds somebody else's money, and NOT YET. There
+ *      are no `__deprecated` placeholders in this file, and that is deliberate rather than an
+ *      oversight: retired fields have been deleted outright while the only vaults in existence hold
+ *      team funds that can be moved by hand. The cost is that a vault deployed on an earlier layout
+ *      can no longer be upgraded onto this code — it would read the wrong slots, silently — which is
+ *      a trade worth making exactly once, before launch.
+ *
+ *      After that the rules below are absolute, and deleting from the middle of a struct stops being
+ *      tidying and becomes the silent corruption described above. Do not read the absence of
+ *      placeholders here as a precedent.
  *
  *      An upgrade replaces the code and keeps the storage. Nothing on chain records what the old
  *      layout was, so the new implementation is simply believed: get a field's position wrong and it
@@ -50,9 +58,8 @@ import {IBittyV1Vault} from "../interfaces/IBittyV1Vault.sol";
  *      because its fields sit at consecutive slots from `keccak256(key . position)`. Those are the
  *      dangerous ones — nothing next to them says `$.slot :=` to remind you.
  *
- *      Two mapping values live in another file and so are not marked here at all:
- *      {IBittyV1Vault.ScheduledPayment} and {IBittyV1Vault.WhitelistedRecipient}. They carry the same
- *      constraint and are the likeliest to be edited by someone who never opens this file.
+ *      The mapping values here are {Deferred} and {WhitelistEntry}: each is pinned as above, by
+ *      being the value of a mapping in {VaultStorage}.
  */
 struct TimelockedValue {
     uint64 value;
@@ -60,92 +67,84 @@ struct TimelockedValue {
     uint64 pendingAt;
 }
 
+struct Deferred {
+    uint64 effectiveAt;
+    uint32 lockEpoch;
+}
+
+struct WhitelistEntry {
+    address recipient;
+    uint64 removeAt;
+    uint32 removeEpoch;
+}
+
 struct RiskConfig {
-    TimelockedValue newPaymentProtection;
-    TimelockedValue maxSendValue;
-    TimelockedValue maxSendInterval;
-    TimelockedValue changeTimelock;
+    TimelockedValue timelock;
+    TimelockedValue sendDailyAllowance;
+    TimelockedValue marketTradeDailyLossAllowance;
 }
 
-struct PendingSend {
-    address proposer;
-    address[] recipients;
-    address[] assets;
-    uint256[] amounts;
-}
-
-struct SubVaultEntry {
-    address account;
-    address owner;
-    bool closed;
-    uint64 expiresAt;
-    bool gaslessEnabled;
+struct ProtocolInstance {
+    address clone;
+    uint32 version;
 }
 
 struct DeFiStorage {
-    bool isInitialized;
-    bool allowlistEnabled;
-    uint64 allowlistDisableAt;
-    uint64 tradeDisabledUntilTimestamp;
-    mapping(bytes32 => address) clonedProtocols;
+    mapping(bytes32 => ProtocolInstance) clonedProtocols;
     mapping(address => address) autoYieldProtocols;
     mapping(address => bool) assets;
     mapping(address => bool) protocols;
     address autoYieldTrigger;
+
     address assetManager;
-    uint64 assetManagerExpiresAt;
+    uint48 assetManagerExpiresAt;
+    uint32 assetManagerPerms;
+    bool hasPendingAssetManager;
+
     address pendingAssetManager;
-    uint64 pendingAssetManagerExpiresAt;
-    uint64 pendingAssetManagerAt; // 0 = nothing queued
+    uint48 pendingAssetManagerAt;
+    uint48 pendingAssetManagerExpiresAt;
+    uint32 pendingAssetManagerPerms;
+
+    mapping(address => mapping(address => uint32)) receiptTokenApproved; // clone => asset => the {ProtocolInstance.version}
 }
 
 struct VaultStorage {
     address gasWrapped;
     bool isInitialized;
-    bool renounced;
+    bool ownAllowListActive;
 
-    mapping(uint256 => IBittyV1Vault.ScheduledPayment) scheduledPayments;
-    mapping(uint256 => uint256) lastReceiveTimestamps;
-    mapping(uint256 => uint256) scheduledPaymentEffectiveAt;
-    mapping(uint256 => uint256) whitelistedRecipientEffectiveAt;
-    mapping(uint256 => IBittyV1Vault.WhitelistedRecipient) whitelistedRecipients;
-    mapping(uint256 => address) scheduledPaymentPendingProposer;
-    mapping(uint256 => address) whitelistedRecipientPendingProposer;
-    mapping(uint256 => PendingSend) pendingSends;
-    mapping(address => bool) payoutOperators;
+    mapping(uint256 => Deferred) whitelistedRecipientDeferred;
+    mapping(uint256 => WhitelistEntry) whitelistedRecipient;
     RiskConfig riskConfig;
-    uint256 nextPendingSendId;
-    uint256 nextScheduledPaymentId;
     uint256 nextWhitelistedRecipientId;
     uint64 ownerSendPeriodStart;
     uint128 ownerSentInPeriod;
+
+    uint128 marketTradeLossInPeriod;
+    uint64 marketTradePeriodStart;
 
     TimelockedValue gasBudgetDaily;
     TimelockedValue maxFeePerOp;
     uint96 gasSpentToday;
     uint64 gasBudgetDay;
-    bool gaslessDisabled;
-    mapping(address => address) gaslessAssets;
+    bool stableCoinAsGasDisabled;
+    mapping(address => address) stableCoinAsGasAssets;
 
-    mapping(uint256 => SubVaultEntry) subs;
-    uint256 nextSubId;
-    uint256 openSubCount;
-}
+    uint8 lockLevel; // 0 none, 1 emergency (releasable), 2 forever. See {LockLib}.
 
-struct SubVaultStorage {
-    address vault;
-    bool gaslessEnabled;
-    uint64 gasDailyLimit;
-    uint64 maxFeePerOp;
-    uint96 gasSpentToday;
-    uint64 gasBudgetDay;
-    uint64 subOwnerExpiresAt;
+    uint32 lockEpoch;
+
+    uint40 ownershipReadyAt;
+
+    address vaultOwner;
+    mapping(uint32 => uint64) lockEpochClosedAt;
+    address pendingOwner;
 }
 
 library BittyStorage {
     bytes32 internal constant VAULT_SLOT = 0x17e3e73c9899a2a21e7ae5b2fc286a77d4903c0979f27baf0730ce5db138e400;
     bytes32 internal constant DEFI_SLOT = 0xfcb7e45a818f0ecef03db92f5b6e7b2ed559effd8e9a1c8a33ce82a8fa3b9400;
-    bytes32 internal constant SUBVAULT_SLOT = 0x1f23b54053e98ff84aecab4159c83dbe1d91d3e7726b98f9dbe948133c43d300;
 
     function vault() internal pure returns (VaultStorage storage $) {
         assembly {
@@ -156,12 +155,6 @@ library BittyStorage {
     function defi() internal pure returns (DeFiStorage storage $) {
         assembly {
             $.slot := DEFI_SLOT
-        }
-    }
-
-    function subVault() internal pure returns (SubVaultStorage storage $) {
-        assembly {
-            $.slot := SUBVAULT_SLOT
         }
     }
 }

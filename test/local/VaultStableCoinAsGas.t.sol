@@ -6,9 +6,9 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
+import {MockChargeWindow} from "../helpers/MockChargeWindow.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {
     NotTrustedForwarder,
     GasBudgetExceeded,
@@ -31,7 +31,7 @@ import {
  * Two ceilings bound what a relayer can take — a per-charge cap and a per-day budget — and the vault
  * enforces both itself, so a compromised relayer can overcharge by a bounded amount and never more.
  */
-contract VaultGaslessTest is Test {
+contract VaultStableCoinAsGasTest is Test {
     BittyV1Vault vault;
     MockGuard guard;
     MockERC20 usdc;
@@ -45,8 +45,7 @@ contract VaultGaslessTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
@@ -56,6 +55,11 @@ contract VaultGaslessTest is Test {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         usdc.mint(address(vault), 1_000_000e6);
         other.mint(address(vault), 1_000e18);
+
+        // The charge asks the forwarder whether it is settling for this vault; these tests charge it
+        // directly, so the window is held open for the whole file. See {MockChargeWindow}.
+        vm.etch(BITTY_FORWARDER, address(new MockChargeWindow()).code);
+        MockChargeWindow(BITTY_FORWARDER).setChargingVault(address(vault));
     }
 
     function _charge(address asset, uint256 amount) internal {
@@ -79,12 +83,12 @@ contract VaultGaslessTest is Test {
     // ── defaults ──────────────────────────────────────────────────────────────
 
     /**
-     * A vault that never called setGasless is relayable, at the system defaults, in any stable coin
+     * A vault that never called setStableCoinAsGas is relayable, at the system defaults, in any stable coin
      * the guard registers. An empty list means "anything permitted", not "nothing" — read the other
-     * way, gasless would be off for every fresh vault while gasBudgetRemaining reported a full day.
+     * way, stablecoin fee payments would be off for every fresh vault while gasBudgetRemaining reported a full day.
      */
     function test_freshVaultIsRelayableAtSystemDefaults() public {
-        (address[] memory assets, uint256 daily, uint256 perOp) = vault.gaslessConfig();
+        (address[] memory assets, uint256 daily, uint256 perOp) = vault.stableCoinAsGasConfig();
         assertEq(assets.length, 0, "nothing narrowed");
         assertEq(daily, SYSTEM_DAILY_MAX_GAS_BUDGET);
         assertEq(perOp, SYSTEM_MAX_FEE_PER_OP);
@@ -109,9 +113,9 @@ contract VaultGaslessTest is Test {
         only[0] = address(usdc);
 
         vm.prank(owner);
-        vault.setGasless(only, 50, 5);
+        vault.setStableCoinAsGas(only, 50, 5);
 
-        (address[] memory assets, uint256 daily, uint256 perOp) = vault.gaslessConfig();
+        (address[] memory assets, uint256 daily, uint256 perOp) = vault.stableCoinAsGasConfig();
         assertEq(assets.length, 1, "narrowed to one");
         assertEq(assets[0], address(usdc));
         assertEq(daily, 50);
@@ -128,9 +132,9 @@ contract VaultGaslessTest is Test {
         address[] memory none = new address[](0);
         vm.startPrank(owner);
         vm.expectRevert(GasBudgetTooHigh.selector);
-        vault.setGasless(none, SYSTEM_DAILY_MAX_GAS_BUDGET + 1, 1);
+        vault.setStableCoinAsGas(none, SYSTEM_DAILY_MAX_GAS_BUDGET + 1, 1);
         vm.expectRevert(FeeExceedsPerOpCap.selector);
-        vault.setGasless(none, 1, SYSTEM_MAX_FEE_PER_OP + 1);
+        vault.setStableCoinAsGas(none, 1, SYSTEM_MAX_FEE_PER_OP + 1);
         vm.stopPrank();
     }
 
@@ -147,7 +151,7 @@ contract VaultGaslessTest is Test {
     function test_dailyBudgetAccumulatesAndThenRefuses() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
-        vault.setGasless(none, 20, 10); // 20 whole tokens a day
+        vault.setStableCoinAsGas(none, 20, 10); // 20 whole tokens a day
 
         _charge(address(usdc), 10e6);
         assertEq(vault.gasBudgetRemaining(), 10e18, "half spent");
@@ -163,7 +167,7 @@ contract VaultGaslessTest is Test {
     function test_theBudgetResetsTheNextDay() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
-        vault.setGasless(none, 20, 10);
+        vault.setStableCoinAsGas(none, 20, 10);
         // Two charges, because the PER-OP cap is 10 — spending a 20-token day takes two ops.
         _charge(address(usdc), 10e6);
         _charge(address(usdc), 10e6);
@@ -186,9 +190,9 @@ contract VaultGaslessTest is Test {
 
     // ── off ───────────────────────────────────────────────────────────────────
 
-    function test_disableGaslessStopsCharging() public {
+    function test_disableStableCoinAsGasStopsCharging() public {
         vm.prank(owner);
-        vault.disableGasless();
+        vault.disableStableCoinAsGas();
         assertEq(vault.gasBudgetRemaining(), 0, "off reads as no budget");
 
         vm.prank(BITTY_FORWARDER);
@@ -206,9 +210,9 @@ contract VaultGaslessTest is Test {
         address[] memory none = new address[](0);
         vm.startPrank(makeAddr("stranger"));
         vm.expectRevert();
-        vault.setGasless(none, 10, 1);
+        vault.setStableCoinAsGas(none, 10, 1);
         vm.expectRevert();
-        vault.disableGasless();
+        vault.disableStableCoinAsGas();
         vm.stopPrank();
     }
 }

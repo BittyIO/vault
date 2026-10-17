@@ -10,9 +10,9 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {LENDING_ID, STAKING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
-import {BittyV1SubVault} from "../../src/subvault/BittyV1SubVault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
+import {PaymentNotStableCoin} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 /// Reaches the DeFi facet through the host's fallback.
@@ -27,13 +27,11 @@ interface IFacet {
     function updateProtocols(address[] calldata add, address[] calldata remove) external;
     function isAssetAllowed(address asset) external view returns (bool);
     function isProtocolAllowed(address protocol) external view returns (bool);
-    function allowlistEnabled() external view returns (bool);
-    function enableAllowlist() external;
-    function disableAllowlist() external;
+    function usingBittyAllowList() external view returns (bool);
+    function useBittyAllowList(bool use) external;
     function setAutoYielding(AutoYield calldata route) external;
     function getAutoYieldings(address[] calldata assets) external view returns (address[] memory);
     function autoYield(address asset) external;
-    function disableTradeUntilTimestamp(uint256 ts) external;
     function getClone(address protocol) external view returns (address);
 }
 
@@ -61,8 +59,7 @@ contract DeFiAllowlistTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1SubVault subImpl = new BittyV1SubVault(address(facet));
-        BittyV1Vault impl = new BittyV1Vault(address(facet), address(subImpl));
+        BittyV1Vault impl = new BittyV1Vault(address(facet));
         // allowlist OFF at birth for most tests; the ones that need it turn it on.
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
@@ -88,7 +85,7 @@ contract DeFiAllowlistTest is Test {
 
     /// With the allowlist off, anything the guard registers is available with no local setup at all.
     function test_withoutAnAllowlistTheGuardIsTheOnlyGate() public view {
-        assertFalse(_f().allowlistEnabled());
+        assertTrue(_f().usingBittyAllowList());
         assertTrue(_f().isAssetAllowed(address(usdc)));
         assertTrue(_f().isProtocolAllowed(address(proto)));
     }
@@ -120,8 +117,8 @@ contract DeFiAllowlistTest is Test {
      */
     function test_enablingTheAllowlistNarrowsAtOnce() public {
         vm.prank(owner);
-        _f().enableAllowlist();
-        assertTrue(_f().allowlistEnabled());
+        _f().useBittyAllowList(false);
+        assertFalse(_f().usingBittyAllowList());
         assertFalse(_f().isAssetAllowed(address(usdc)), "guard-registered but not named");
 
         vm.prank(owner);
@@ -130,44 +127,81 @@ contract DeFiAllowlistTest is Test {
     }
 
     /**
-     * Turning it OFF is a loosening, so it waits out the change timelock — the same ratchet the risk
-     * controls use. An attacker cannot drop the narrowing and act in the same transaction.
+     * Turning it off is immediate too, even with a timelock configured.
+     *
+     * It IS a loosening — more assets become reachable — and loosenings normally wait. This one is
+     * the exception, on the grounds that the set it widens to is Bitty's vetted catalogue rather
+     * than anything the caller chooses, and that what a thief gains by switching is market trading,
+     * which the owner key can already abuse on every asset the vault has listed. Against that, a
+     * delay meant an owner could not TRY the catalogue without committing to it for as long as the
+     * timelock, which pushed people onto a hand-made list that serves them worse.
      */
-    function test_disablingTheAllowlistWaitsOutTheTimelock() public {
+    function test_returningToTheCatalogueIsImmediate() public {
         vm.startPrank(owner);
-        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(UNCHANGED, UNCHANGED, UNCHANGED, 2 days));
-        _f().enableAllowlist();
-        _f().disableAllowlist();
+        vault.updateRisk(IBittyV1Owner.RiskSettings(30 days, UNCHANGED, UNCHANGED));
+        _f().useBittyAllowList(false);
+        assertFalse(_f().isAssetAllowed(address(usdc)), "narrowed, and the asset is not listed");
+
+        _f().useBittyAllowList(true);
         vm.stopPrank();
 
-        assertTrue(_f().allowlistEnabled(), "still on");
-        assertFalse(_f().isAssetAllowed(address(usdc)), "and still narrowing");
-
-        vm.warp(block.timestamp + 2 days);
-        assertFalse(_f().allowlistEnabled(), "off once the delay has run");
-        assertTrue(_f().isAssetAllowed(address(usdc)), "back to the guard alone");
+        assertTrue(_f().usingBittyAllowList(), "no wait");
+        assertTrue(_f().isAssetAllowed(address(usdc)), "and the guard is the only gate again");
     }
 
-    /// Without a timelock configured it is immediate — the delay is opt-in, like the rest of the ratchet.
-    function test_disablingIsImmediateWithNoTimelock() public {
+    /// Both directions settle in the call that asks for them, so nothing arrives later.
+    function test_neitherDirectionLeavesAnythingPending() public {
         vm.startPrank(owner);
-        _f().enableAllowlist();
-        _f().disableAllowlist();
-        vm.stopPrank();
-        assertFalse(_f().allowlistEnabled());
-    }
-
-    /// Re-enabling cancels a pending disable rather than letting it arrive later.
-    function test_reEnablingCancelsAPendingDisable() public {
-        vm.startPrank(owner);
-        vault.updatePaymentRisk(IBittyV1Owner.PaymentRisk(UNCHANGED, UNCHANGED, UNCHANGED, 2 days));
-        _f().enableAllowlist();
-        _f().disableAllowlist();
-        _f().enableAllowlist();
+        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED, UNCHANGED));
+        _f().useBittyAllowList(true);
+        _f().useBittyAllowList(false);
         vm.stopPrank();
 
+        assertFalse(_f().usingBittyAllowList(), "narrowed, as last asked");
         vm.warp(block.timestamp + 30 days);
-        assertTrue(_f().allowlistEnabled(), "the abandoned disable never arrives");
+        assertFalse(_f().usingBittyAllowList(), "and a month later it has not drifted");
+    }
+
+    // ── the own list narrows what a capped send may pay in ────────────────────
+
+    /**
+     * Once a daily allowance applies, only stable coins may be sent — the cap is a dollar figure and
+     * cannot bound a token it has no way to price. "Stable coin" means registered with the guard AND
+     * reachable, so narrowing to the vault's own list takes a coin out of the spendable set until the
+     * owner lists it.
+     */
+    function test_underACapAnUnlistedCoinIsNotSpendable() public {
+        _sendDailyAllowance(1_000);
+        vm.startPrank(owner);
+        _f().useBittyAllowList(false);
+
+        vm.expectRevert(PaymentNotStableCoin.selector);
+        vault.send(makeAddr("someone"), address(usdc), 1e6, new address[](0), new uint256[](0));
+        vm.stopPrank();
+    }
+
+    function test_listingTheCoinMakesItSpendableAgain() public {
+        _sendDailyAllowance(1_000);
+        address[] memory one = new address[](1);
+        one[0] = address(usdc);
+
+        vm.startPrank(owner);
+        _f().useBittyAllowList(false);
+        _f().updateAssets(one, new address[](0));
+
+        address to = makeAddr("someone");
+        vault.send(to, address(usdc), 1e6, new address[](0), new uint256[](0));
+        vm.stopPrank();
+        assertEq(usdc.balanceOf(to), 1e6, "listed, so payable");
+    }
+
+    function _sendDailyAllowance(uint64 cap) internal {
+        vm.prank(owner);
+        vault.updateRisk(
+            IBittyV1Owner.RiskSettings({
+                timelock: UNCHANGED, sendDailyAllowance: cap, marketTradeDailyLossAllowance: UNCHANGED
+            })
+        );
     }
 
     // ── deposit / withdraw ────────────────────────────────────────────────────
@@ -191,7 +225,7 @@ contract DeFiAllowlistTest is Test {
     function test_withdrawStillWorksAfterTheProtocolIsRemovedLocally() public {
         vm.startPrank(owner);
         _f().deposit(address(proto), address(usdc), 100e6);
-        _f().enableAllowlist();
+        _f().useBittyAllowList(false);
         _f().updateProtocols(new address[](0), _one(address(proto)));
 
         vm.expectRevert();
@@ -245,24 +279,6 @@ contract DeFiAllowlistTest is Test {
         vm.prank(makeAddr("stranger"));
         vm.expectRevert();
         _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(proto)}));
-    }
-
-    // ── trade pause ───────────────────────────────────────────────────────────
-
-    /// Pausing can only ever be pushed LATER, never pulled in — so it cannot be cancelled early.
-    function test_tradePauseCanOnlyBeExtended() public {
-        vm.startPrank(owner);
-        _f().disableTradeUntilTimestamp(block.timestamp + 7 days);
-        vm.expectRevert();
-        _f().disableTradeUntilTimestamp(block.timestamp + 1 days);
-        _f().disableTradeUntilTimestamp(block.timestamp + 14 days);
-        vm.stopPrank();
-    }
-
-    function test_onlyOwnerMayPauseTrading() public {
-        vm.prank(makeAddr("stranger"));
-        vm.expectRevert();
-        _f().disableTradeUntilTimestamp(block.timestamp + 1 days);
     }
 
     // ── clones ────────────────────────────────────────────────────────────────
