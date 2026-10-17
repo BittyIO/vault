@@ -39,6 +39,9 @@ import {VaultLocked} from "../interfaces/IBittyV1Vault.sol";
  * to an attacker and free to the vault. Because each closing time is kept per epoch, an entry swept
  * once is swept for ever — a later lock cannot move a freeze line past its maturity and revive it.
  *
+ * The same stamp voids a queued removal of a whitelisted recipient, which is how a lock keeps every
+ * destination the owner already had: the removal never takes effect, and the entry stays payable.
+ *
  * The handful of pending values that live in fixed slots — the risk scalars, the gas budget, the
  * manager grant — are cleared outright, since there is a fixed number of them. Clearing a
  * {TimelockedValue}'s pending half keeps every tightening, which had applied immediately, and drops
@@ -102,6 +105,7 @@ library LockLib {
 
         _dropPending($.riskConfig.timelock);
         _dropPending($.riskConfig.sendDailyAllowance);
+        _dropPending($.riskConfig.marketTradeDailyLossAllowance);
         _dropPending($.gasBudgetDaily);
         _dropPending($.maxFeePerOp);
 
@@ -140,5 +144,16 @@ library LockLib {
         if (entryEpoch == SETTLED) return false; // already recorded
         if (maturity > $.lockEpochClosedAt[entryEpoch]) revert VaultLocked();
         return true;
+    }
+
+    /**
+     * {requireHonoured} as a question rather than a gate: false for an entry a lock has voided.
+     * Says nothing about whether `maturity` has come — an entry of the current epoch is honoured
+     * however far off it is.
+     */
+    function honoured(uint32 entryEpoch, uint256 maturity) internal view returns (bool) {
+        VaultStorage storage $ = BittyStorage.vault();
+        if (entryEpoch == SETTLED || entryEpoch == $.lockEpoch) return true;
+        return maturity <= $.lockEpochClosedAt[entryEpoch];
     }
 }

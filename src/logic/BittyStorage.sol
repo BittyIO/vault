@@ -58,9 +58,8 @@ import {IBittyV1Vault} from "../interfaces/IBittyV1Vault.sol";
  *      because its fields sit at consecutive slots from `keccak256(key . position)`. Those are the
  *      dangerous ones — nothing next to them says `$.slot :=` to remind you.
  *
- *      One mapping value lives in another file and so is not marked here at all:
- *      {IBittyV1Vault.WhitelistedRecipient}. It carries the same constraint and is the likeliest to
- *      be edited by someone who never opens this file.
+ *      The mapping values here are {Deferred} and {WhitelistEntry}: each is pinned as above, by
+ *      being the value of a mapping in {VaultStorage}.
  */
 struct TimelockedValue {
     uint64 value;
@@ -69,20 +68,29 @@ struct TimelockedValue {
 }
 
 struct Deferred {
-    address allowedAsset;
     uint64 effectiveAt;
     uint32 lockEpoch;
+}
+
+struct WhitelistEntry {
+    address recipient;
+    uint64 removeAt;
+    uint32 removeEpoch;
 }
 
 struct RiskConfig {
     TimelockedValue timelock;
     TimelockedValue sendDailyAllowance;
+    TimelockedValue marketTradeDailyLossAllowance;
+}
+
+struct ProtocolInstance {
+    address clone;
+    uint32 version;
 }
 
 struct DeFiStorage {
-    bool isInitialized;
-    bool ownAllowListActive;
-    mapping(bytes32 => address) clonedProtocols;
+    mapping(bytes32 => ProtocolInstance) clonedProtocols;
     mapping(address => address) autoYieldProtocols;
     mapping(address => bool) assets;
     mapping(address => bool) protocols;
@@ -97,18 +105,24 @@ struct DeFiStorage {
     uint48 pendingAssetManagerAt;
     uint48 pendingAssetManagerExpiresAt;
     uint32 pendingAssetManagerPerms;
+
+    mapping(address => mapping(address => uint32)) receiptTokenApproved; // clone => asset => the {ProtocolInstance.version}
 }
 
 struct VaultStorage {
     address gasWrapped;
     bool isInitialized;
+    bool ownAllowListActive;
 
     mapping(uint256 => Deferred) whitelistedRecipientDeferred;
-    mapping(uint256 => address) whitelistedRecipient;
+    mapping(uint256 => WhitelistEntry) whitelistedRecipient;
     RiskConfig riskConfig;
     uint256 nextWhitelistedRecipientId;
     uint64 ownerSendPeriodStart;
     uint128 ownerSentInPeriod;
+
+    uint128 marketTradeLossInPeriod;
+    uint64 marketTradePeriodStart;
 
     TimelockedValue gasBudgetDaily;
     TimelockedValue maxFeePerOp;

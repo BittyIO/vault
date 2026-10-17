@@ -33,7 +33,7 @@ error PaymentExceedsPeriodLimit();
 error PaymentNotStableCoin();
 
 error WhitelistedRecipientNotFound();
-error WhitelistedRecipientAssetNotAllowed();
+error NoEscapeRecipient();
 
 error VaultLocked();
 
@@ -63,9 +63,10 @@ struct AutoYield {
  * what is in flight leaves the owner nothing to act on, however well the contract behaves.
  *
  * Every field is a single slot, so the read costs the same whatever an attacker has queued — like the
- * lock itself. What it deliberately does NOT list is the deferred additions: a new destination or
- * destination is unbounded in number, and the client lists those from the events that created them,
- * each with the protection window it is still waiting out. Putting a count here would mean the
+ * lock itself. What it deliberately does NOT list is the deferred whitelist edits: new destinations,
+ * and removals of existing ones, are unbounded in number, and the client lists those from the events
+ * that created them ({IBittyV1Owner-WhitelistedRecipientRemovalQueued} for a removal), each with the
+ * window it is still waiting out. Putting a count here would mean the
  * chain keeping a tally it never reads, which is what the retired pending-adds cap was.
  */
 struct PendingChanges {
@@ -86,7 +87,7 @@ struct PendingChanges {
     uint64 newAssetManagerAt;
     uint32 newAssetManagerPerms;
     /**
-     * The two risk numbers where one has been loosened and is waiting: the value it would take, and
+     * The risk numbers where one has been loosened and is waiting: the value it would take, and
      * the moment it would take it. A zero `At` means nothing is waiting. A tightening never appears
      * here, because it applied the moment it was asked for.
      */
@@ -94,10 +95,43 @@ struct PendingChanges {
     uint64 timelockAt;
     uint64 sendDailyAllowance;
     uint64 sendDailyAllowanceAt;
+    uint64 marketTradeDailyLossAllowance;
+    uint64 marketTradeDailyLossAllowanceAt;
     uint64 gasBudgetDaily;
     uint64 gasBudgetDailyAt;
     uint64 maxFeePerOp;
     uint64 maxFeePerOpAt;
+}
+
+// {WhitelistEntryView-status}: what the owner can do with an entry right now.
+uint8 constant WHITELIST_REMOVED = 0; // gone, or never issued
+uint8 constant WHITELIST_PENDING = 1; // still waiting out the timelock it was added under
+uint8 constant WHITELIST_PAYABLE = 2; // can be paid now, lock or no lock
+uint8 constant WHITELIST_VOIDED = 3; // a lock landed before it matured, so it never will
+uint8 constant WHITELIST_REMOVAL_QUEUED = 4; // payable until `removeAt`, then gone
+
+/**
+ * One whitelisted recipient as the contract sees it, so a client reads the list - the vault's way
+ * out after a key leaks - straight from state instead of rebuilding it from events.
+ */
+struct WhitelistEntryView {
+    uint256 id;
+    /**
+     * Zero once removed.
+     */
+    address recipient;
+    /**
+     * When it became, or becomes, payable; 0 if it was payable from the start.
+     */
+    uint64 effectiveAt;
+    /**
+     * When a queued removal lands; 0 if none is waiting.
+     */
+    uint64 removeAt;
+    /**
+     * One of the WHITELIST_* constants above, worked out with the same lock rules a payout uses.
+     */
+    uint8 status;
 }
 
 interface IBittyV1Vault {
@@ -110,6 +144,22 @@ interface IBittyV1Vault {
      * @notice Returns all changes waiting to take effect.
      */
     function pendingChanges() external view returns (PendingChanges memory changes);
+
+    /**
+     * @notice The whitelisted recipients, read from state: ids `fromId` up to `fromId + count`, cut
+     *         off at the last id issued. `getWhitelist(1, type(uint256).max)` returns the whole list.
+     * @dev Ids are issued in order from 1 and never reused, so a removed entry stays in the range
+     *      with {WHITELIST_REMOVED}. Each entry costs a few storage reads, which is why the range can
+     *      be narrowed: a list an attacker has flooded can still be read a page at a time.
+     * @param fromId The first id to return.
+     * @param count How many ids to return at most.
+     * @return lastId The highest id ever issued: the end of the list.
+     * @return entries One per id in the range, in order.
+     */
+    function getWhitelist(uint256 fromId, uint256 count)
+        external
+        view
+        returns (uint256 lastId, WhitelistEntryView[] memory entries);
 
     /**
      * @notice The vault's WETH address.
@@ -132,7 +182,7 @@ interface IBittyV1Vault {
     /**
      * @notice The vault's trading delegate, and anything queued behind the change timelock.
      * @return manager The asset manager, or the zero address if the owner alone may trade.
-     * @return expiresAt When the grant lapses; 0 = never.
+     * @return expiresAt When the grant lapses, or 0 if there is no manager.
      * @return pendingManager A manager waiting out the timelock, or zero if nothing is queued.
      * @return pendingAt When that queued grant takes effect; 0 = nothing queued.
      * @return permissions The effective grant's permission mask, or 0 if no manager is active.
@@ -165,11 +215,16 @@ interface IBittyV1Vault {
     function isProtocolAllowed(address protocol) external view returns (bool);
 
     /**
-     * @notice Get the vault's two risk numbers.
+     * @notice Get the vault's three risk numbers.
      * @return timelock The one wait in front of everything deferred.
      * @return sendDailyAllowance What may leave per day through regular sends; 0 = no cap.
+     * @return marketTradeDailyLossAllowance What market trades may lose against oracle value per day,
+     *         in whole USD; 0 = unprotected.
      */
-    function riskSettings() external view returns (uint64 timelock, uint64 sendDailyAllowance);
+    function riskSettings()
+        external
+        view
+        returns (uint64 timelock, uint64 sendDailyAllowance, uint64 marketTradeDailyLossAllowance);
 
     /**
      * @notice Get what the vault holds in withdrawable protocols.
@@ -191,17 +246,6 @@ interface IBittyV1Vault {
      * @return ids The pending withdrawal ids.
      */
     function getPendingWithdrawalIds(address withdrawProtocol) external view returns (uint256[] memory ids);
-
-    /**
-     * @notice Get the liquidity the vault holds through market-maker protocols.
-     * @param marketMakerProtocols The market-maker protocols to get the liquidity for.
-     * @param data The data for the liquidity.
-     * @return liquidity The liquidity.
-     */
-    function getLiquidities(address[] calldata marketMakerProtocols, bytes[] calldata data)
-        external
-        view
-        returns (uint256[] memory liquidity);
 
     /**
      * @notice Auto yield the assets.
@@ -285,9 +329,12 @@ interface IBittyV1Vault {
      *      can move money out. Appointing or extending waits out the vault's change timelock; revoking
      *      and shortening apply at once.
      * @param assetManager The trading delegate, or zero to revoke.
-     * @param expiresAt When the grant lapses; 0 = never.
+     * @param expiresAt When the grant lapses: in the future and within {MAX_GRANT_DURATION}, since every
+     *        grant expires. Ignored on a revoke.
      * @param permissions What the grant covers, as the bit set in {Constants}. There is no
-     *        "everything" and no default: zero appoints a key that can do nothing.
+     *        "everything" and no default. Unwinding needs no bit: any live manager may withdraw,
+     *        claim and cancel orders, since all of it lands back in the vault. So zero appoints a key
+     *        that can only unwind.
      */
     function setAssetManager(address assetManager, uint64 expiresAt, uint32 permissions) external;
 
@@ -303,8 +350,13 @@ interface IBittyV1Vault {
 
     /**
      * @notice Forever lock the vault.
+     * @dev Once engaged nothing can be added, so the only way money ever leaves again is a whitelisted
+     *      recipient the owner already had. The owner names one, and the lock refuses with
+     *      {NoEscapeRecipient} unless it can be paid right now: it exists, its window has run, no lock
+     *      voided it and no removal of it has landed. A removal still waiting is voided by the lock.
+     * @param escapeRecipientId A whitelisted recipient the vault can pay out to after the lock.
      */
-    function foreverLock() external;
+    function foreverLock(uint256 escapeRecipientId) external;
 
     /**
      * @notice Cancel the ownership transfer.

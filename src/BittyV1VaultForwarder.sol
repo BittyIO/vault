@@ -8,9 +8,9 @@ import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptography/SignatureChecker.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IBittyV1Vault} from "./interfaces/IBittyV1Vault.sol";
-import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IBittyV1Guard, CFG_OWNER} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {BITTY_GUARD, CFG_OWNER} from "./logic/Constants.sol";
+import {BITTY_GUARD} from "./logic/Constants.sol";
 
 /**
  * @dev The forwarder must have no constructor arguments — they would be appended to the init code and

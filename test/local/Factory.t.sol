@@ -4,7 +4,12 @@ pragma solidity ^0.8.34;
 import {BittyV1VaultBootstrap} from "../../src/BittyV1VaultBootstrap.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {ASSET_STABLE_COIN, IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {
+    ASSET_STABLE_COIN,
+    IMPLEMENTATION_VAULT,
+    CFG_GAS_WRAPPED,
+    CFG_OWNER
+} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
@@ -21,13 +26,7 @@ import {
     NotOwner as FactoryBootstrapNotOwner
 } from "../../src/BittyV1VaultFactoryBootstrap.sol";
 import {VaultAlreadyActivated, InvalidActivationSignature} from "../../src/interfaces/IBittyV1VaultFactory.sol";
-import {
-    BITTY_GUARD,
-    BITTY_FEE_COLLECTOR,
-    BITTY_VAULT_BOOTSTRAP,
-    CFG_GAS_WRAPPED,
-    CFG_OWNER
-} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_FEE_COLLECTOR, BITTY_VAULT_BOOTSTRAP} from "../../src/logic/Constants.sol";
 
 /**
  * Activation. The vault's address is derived from its OWNER alone, so it can be funded before it

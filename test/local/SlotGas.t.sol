@@ -54,7 +54,7 @@ abstract contract Base is Test {
         usdc.mint(address(vault), 1_000_000e6);
 
         vm.prank(owner);
-        id = vault.addWhitelistedRecipient(cold, address(0));
+        id = vault.addWhitelistedRecipient(cold);
         // Warm every fixture's PERSISTENT state in setUp's own transaction, so the measured call pays
         // cold reads only on the slots under test and not on first-touch SSTOREs elsewhere.
         _deposit(owner);
@@ -115,7 +115,7 @@ contract SlotGasOwnerWriteTest is Base {
     function test_ownerWrite() public {
         vm.prank(owner);
         uint256 g = gasleft();
-        vault.addWhitelistedRecipient(makeAddr("payee"), address(0));
+        vault.addWhitelistedRecipient(makeAddr("payee"));
         console2.log("addWhitelistedRecipient", g - gasleft());
     }
 }
@@ -156,7 +156,7 @@ contract SlotGasDepositByManagerTest is Base {
     function setUp() public {
         _build();
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, PERM_YIELD | PERM_SUPPLY);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD | PERM_SUPPLY);
     }
 
     function test_depositByManager() public {
@@ -200,7 +200,7 @@ contract SlotPackingTest is Base {
      */
     function test_theAuthoritySlotHoldsAllFourFields() public {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED, UNCHANGED));
         vm.prank(owner);
         vault.transferOwnership(makeAddr("successor"));
         uint40 readyAt = uint40(block.timestamp + 2 days);
@@ -235,7 +235,7 @@ contract SlotPackingTest is Base {
         vm.prank(owner);
         _f().setAssetManager(manager, expiry, PERM_YIELD);
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED, UNCHANGED));
         // Widening the grant is a loosening, so it queues — which is what sets the pending flag.
         vm.prank(owner);
         _f().setAssetManager(manager, expiry, PERM_YIELD | PERM_SUPPLY);
@@ -292,7 +292,7 @@ contract SlotGasMaturedHandoverTest is Base {
     function setUp() public {
         _build();
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED, UNCHANGED));
         vm.prank(owner);
         vault.transferOwnership(makeAddr("successor"));
         vm.warp(block.timestamp + 2 days);
@@ -326,7 +326,7 @@ contract SlotGasLockHandoverPendingTest is Base {
     function setUp() public {
         _build();
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED, UNCHANGED));
         vm.prank(owner);
         vault.transferOwnership(makeAddr("thief"));
     }

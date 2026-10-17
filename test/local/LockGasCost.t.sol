@@ -64,7 +64,7 @@ contract LockGasCostTest is Test {
         // transaction, so none of it leaves `lockLevel` warm for the measurement that follows —
         // which an owner-gated call in the test body would, making the gate look free.
         vm.startPrank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, UNCHANGED, UNCHANGED));
         _f().updateProtocols(_one(address(sky)), _none());
         _f().updateAssets(_one(address(usdc)), _none());
         _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(sky)}));
@@ -106,7 +106,7 @@ contract LockGasCostTest is Test {
      * own transaction, which is what a call from a real wallet is.
      */
     function test_gas_addWhitelistedRecipient() public {
-        _measure("addWhitelistedRecipient", abi.encodeCall(BittyV1Vault.addWhitelistedRecipient, (payee, address(0))));
+        _measure("addWhitelistedRecipient", abi.encodeCall(BittyV1Vault.addWhitelistedRecipient, (payee)));
     }
 
     function test_gas_transferOwnership() public {
@@ -114,7 +114,10 @@ contract LockGasCostTest is Test {
     }
 
     function test_gas_updateRisk() public {
-        _measure("updateRisk", abi.encodeCall(BittyV1Vault.updateRisk, (IBittyV1Owner.RiskSettings(1 days, UNCHANGED))));
+        _measure(
+            "updateRisk",
+            abi.encodeCall(BittyV1Vault.updateRisk, (IBittyV1Owner.RiskSettings(1 days, UNCHANGED, UNCHANGED)))
+        );
     }
 
     function test_gas_send() public {
@@ -141,7 +144,10 @@ contract LockGasCostTest is Test {
 
     function test_gas_setAssetManager() public {
         _measure(
-            "setAssetManager", abi.encodeCall(BittyV1VaultDeFiFacet.setAssetManager, (makeAddr("mgr"), 0, PERM_YIELD))
+            "setAssetManager",
+            abi.encodeCall(
+                BittyV1VaultDeFiFacet.setAssetManager, (makeAddr("mgr"), uint64(block.timestamp + 365 days), PERM_YIELD)
+            )
         );
     }
 
@@ -184,7 +190,7 @@ contract LockGasCostTest is Test {
         setUp();
         vm.startPrank(owner);
         for (uint256 i; i < 200; ++i) {
-            vault.addWhitelistedRecipient(address(uint160(0xbad0000 + i)), address(0));
+            vault.addWhitelistedRecipient(address(uint160(0xbad0000 + i)));
         }
         vm.stopPrank();
         console2.log("lock, 200 pending additions", _gasToLock());
@@ -193,11 +199,11 @@ contract LockGasCostTest is Test {
         // which is also why none of them occupies a place in the pending queue.
         setUp();
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(0, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(0, UNCHANGED, UNCHANGED));
         vm.warp(block.timestamp + 1 days + 1); // dropping the wait is a loosening, so it waits
         vm.startPrank(owner);
         for (uint256 i; i < 50; ++i) {
-            vault.addWhitelistedRecipient(address(uint160(0xf00d0000 + i)), address(0));
+            vault.addWhitelistedRecipient(address(uint160(0xf00d0000 + i)));
         }
         vm.stopPrank();
         console2.log("lock, 50 live destinations ", _gasToLock());

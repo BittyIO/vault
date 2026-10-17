@@ -18,12 +18,8 @@ import {BITTY_GUARD} from "../../src/logic/Constants.sol";
  * an ERC-1967 proxy would have done. Every call here runs the library against genuinely blank storage.
  */
 contract UninitializedAccount {
-    function initPayments(address gasWrapped) external {
-        PaymentLogic.initialize(gasWrapped);
-    }
-
-    function initDeFi(bool restrictToOwnAllowList) external {
-        DeFiLogic.initialize(restrictToOwnAllowList);
+    function initialize(address gasWrapped) external {
+        PaymentLogic.initialize(gasWrapped, false);
     }
 
     function send(address[] memory r, address[] memory a, uint256[] memory m) external {
@@ -62,8 +58,8 @@ contract UninitializedAccount {
         DeFiLogic.deposit(protocol, asset, amount);
     }
 
-    function addWhitelistedRecipient(address recipient, address asset) external returns (uint256) {
-        return WhitelistLogic.addWhitelistedRecipientOne(recipient, asset);
+    function addWhitelistedRecipient(address recipient) external returns (uint256) {
+        return WhitelistLogic.addWhitelistedRecipientOne(recipient);
     }
 }
 
@@ -109,14 +105,18 @@ contract LogicGuardsTest is Test {
 
     function test_theWhitelistRefusesToRunBeforeInitialization() public {
         vm.expectRevert(NotInitialized.selector);
-        account.addWhitelistedRecipient(payee, asset);
+        account.addWhitelistedRecipient(payee);
     }
 
     // ── risk and stablecoin-as-gas ──────────────────────────────────────────────────────
 
     function test_riskCannotBeConfiguredBeforeInitialization() public {
         vm.expectRevert(NotInitialized.selector);
-        account.updateRisk(IBittyV1Owner.RiskSettings({timelock: 1 days, sendDailyAllowance: UNCHANGED}));
+        account.updateRisk(
+            IBittyV1Owner.RiskSettings({
+                timelock: 1 days, sendDailyAllowance: UNCHANGED, marketTradeDailyLossAllowance: UNCHANGED
+            })
+        );
     }
 
     function test_stableCoinAsGasCannotBeConfiguredBeforeInitialization() public {
@@ -152,29 +152,21 @@ contract LogicGuardsTest is Test {
         account.deposit(makeAddr("protocol"), asset, 1);
     }
 
-    // ── and neither half initializes twice ────────────────────────────────────
+    // ── and one initialization, exactly once, for both halves ─────────────────
 
-    function test_paymentsInitializeExactlyOnce() public {
-        account.initPayments(gasWrapped);
+    /**
+     * Payments and DeFi share one initialised flag — it sits in the slot the payment side writes
+     * anyway — so there is no state in which one half is live and the other is not.
+     */
+    function test_theAccountInitializesExactlyOnce() public {
+        account.initialize(gasWrapped);
         vm.expectRevert(AlreadyInitialized.selector);
-        account.initPayments(gasWrapped);
+        account.initialize(gasWrapped);
     }
 
-    function test_defiInitializesExactlyOnce() public {
-        account.initDeFi(false);
-        vm.expectRevert(AlreadyInitialized.selector);
-        account.initDeFi(false);
-    }
-
-    function test_initializingOneHalfDoesNotUnlockTheOther() public {
-        account.initPayments(gasWrapped);
-        vm.expectRevert(NotInitialized.selector);
+    function test_oneInitializationUnlocksBothHalves() public {
+        account.initialize(gasWrapped);
         account.activateOwnAllowList();
-    }
-
-    function test_initializingDeFiDoesNotUnlockPayments() public {
-        account.initDeFi(false);
-        vm.expectRevert(NotInitialized.selector);
-        account.send(_addr(payee), _addr(asset), _amt(1));
+        account.deactivateOwnAllowList();
     }
 }

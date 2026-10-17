@@ -80,8 +80,8 @@ contract LockSweepTest is Test {
         // The vault as it stands before anything goes wrong: one vetted destination, live, and a
         // week of protection on anything added from here on.
         vm.startPrank(owner);
-        coldId = vault.addWhitelistedRecipient(cold, address(0));
-        vault.updateRisk(IBittyV1Owner.RiskSettings(PROTECTION, UNCHANGED));
+        coldId = vault.addWhitelistedRecipient(cold);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(PROTECTION, UNCHANGED, UNCHANGED));
         vm.stopPrank();
     }
 
@@ -130,7 +130,7 @@ contract LockSweepTest is Test {
         vm.startPrank(owner);
         vault.emergencyLock();
         vault.unlock();
-        uint256 id = vault.addWhitelistedRecipient(stranger, address(0));
+        uint256 id = vault.addWhitelistedRecipient(stranger);
         vm.stopPrank();
 
         vm.warp(block.timestamp + PROTECTION + 1);
@@ -148,7 +148,7 @@ contract LockSweepTest is Test {
      */
     function test_aDestinationStillWaitingAtTheLockIsDeadForever() public {
         vm.prank(owner); // the leaked key
-        uint256 thiefId = vault.addWhitelistedRecipient(thiefsAddress, address(0));
+        uint256 thiefId = vault.addWhitelistedRecipient(thiefsAddress);
 
         vm.prank(owner);
         vault.emergencyLock();
@@ -186,7 +186,7 @@ contract LockSweepTest is Test {
      */
     function test_aDestinationThatMaturedBeforeTheLockIsNotUndoneByIt() public {
         vm.prank(owner); // the leaked key
-        uint256 thiefId = vault.addWhitelistedRecipient(thiefsAddress, address(0));
+        uint256 thiefId = vault.addWhitelistedRecipient(thiefsAddress);
 
         vm.warp(block.timestamp + PROTECTION + 1); // nobody looked
         vm.prank(owner);
@@ -198,17 +198,18 @@ contract LockSweepTest is Test {
     }
 
     /**
-     * And the remedy, which is one transaction rather than a race.
+     * The other side of the rule that keeps the owner's way out. Removing a destination the owner
+     * can already pay waits out the timelock, and a lock voids anything still waiting — so a
+     * destination that matured before anyone noticed can no longer be struck off in one
+     * unlock-remove-relock transaction. Were it otherwise, the thief could strike off the owner's own
+     * destinations the same way.
      *
-     * Removing a destination is refused while locked, on purpose: a thief who could remove one would
-     * delete the owner's way out. So the sequence has to be release, remove, re-lock — and the naive
-     * reading is that this hands the thief a window in between. It does not, because {multicall}
-     * self-delegatecalls each step with the caller's authority intact, so the three run atomically
-     * and the vault is never observably open.
+     * Nothing is lost by it: a thief with a live destination can pay to it whatever the removal
+     * rules, so the owner's answer is to get there first, paying the vault out to their own.
      */
-    function test_aMaturedDestinationIsRemovedWithoutEverOpeningTheVault() public {
+    function test_aMaturedDestinationCannotBeStruckOffAtOnce() public {
         vm.prank(owner);
-        uint256 thiefId = vault.addWhitelistedRecipient(thiefsAddress, address(0));
+        uint256 thiefId = vault.addWhitelistedRecipient(thiefsAddress);
         vm.warp(block.timestamp + PROTECTION + 1);
         vm.prank(owner);
         vault.emergencyLock();
@@ -219,12 +220,16 @@ contract LockSweepTest is Test {
         steps[2] = abi.encodeCall(BittyV1Vault.emergencyLock, ());
         vm.prank(owner);
         vault.multicall(steps);
+        assertEq(vault.lockLevel(), 1, "locked again");
 
-        assertEq(vault.lockLevel(), 1, "still locked, and never observably otherwise");
+        vm.warp(block.timestamp + PROTECTION + 1);
         vm.prank(owner);
-        vm.expectRevert();
         vault.sendToWhitelistedRecipient(thiefId, address(usdc), 1e6, _none(), _noAmounts());
-        assertEq(usdc.balanceOf(thiefsAddress), 0, "the matured destination is gone");
+        assertEq(usdc.balanceOf(thiefsAddress), 1e6, "the re-lock voided the removal");
+
+        vm.prank(owner);
+        vault.sendToWhitelistedRecipient(coldId, address(usdc), 99_999e6, _none(), _noAmounts());
+        assertEq(usdc.balanceOf(address(vault)), 0, "the owner's answer: the rest went to their own");
     }
 
     // ── the griefing attempt ──────────────────────────────────────────────────
@@ -243,7 +248,7 @@ contract LockSweepTest is Test {
         setUp();
         vm.startPrank(owner);
         for (uint256 i; i < 200; ++i) {
-            vault.addWhitelistedRecipient(address(uint160(0xbad0000 + i)), address(0));
+            vault.addWhitelistedRecipient(address(uint160(0xbad0000 + i)));
         }
         vm.stopPrank();
 

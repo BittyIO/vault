@@ -2,7 +2,12 @@
 pragma solidity ^0.8.34;
 
 import {BittyV1VaultBootstrap} from "../../src/BittyV1VaultBootstrap.sol";
-import {ASSET_STABLE_COIN, IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {
+    ASSET_STABLE_COIN,
+    IMPLEMENTATION_VAULT,
+    CFG_GAS_WRAPPED,
+    CFG_OWNER
+} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC2771Forwarder} from "openzeppelin-contracts/contracts/metatx/ERC2771Forwarder.sol";
@@ -13,7 +18,14 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {BittyV1VaultForwarder} from "../../src/BittyV1VaultForwarder.sol";
 import {InvalidActivationSignature} from "../../src/interfaces/IBittyV1VaultFactory.sol";
-import {BITTY_GUARD, BITTY_FORWARDER, BITTY_VAULT_BOOTSTRAP, CFG_GAS_WRAPPED, CFG_OWNER, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
+import {
+    BITTY_GUARD,
+    BITTY_FORWARDER,
+    BITTY_VAULT_BOOTSTRAP,
+    PERM_YIELD,
+    PERM_SUPPLY,
+    PERM_INTENT
+} from "../../src/logic/Constants.sol";
 
 // The Safe (v1.4.1) is deployed by BYTECODE via vm.deployCode — never imported as source — so its
 // pre-memory-safe assembly does not drag this test's vault compilation off via_ir. These minimal
@@ -207,7 +219,7 @@ contract SafeOwnerTest is Test {
             address(vault),
             abi.encodeCall(
                 BittyV1VaultDeFiFacet.setAssetManager,
-                (makeAddr("manager"), 0, PERM_YIELD | PERM_SUPPLY | PERM_INTENT)
+                (makeAddr("manager"), uint64(block.timestamp + 365 days), PERM_YIELD | PERM_SUPPLY | PERM_INTENT)
             )
         );
         (address manager,,,,,) = BittyV1VaultDeFiFacet(payable(address(vault))).getAssetManagerSettings();
@@ -248,8 +260,9 @@ contract SafeOwnerTest is Test {
         bytes32 digest = _domain712("BittyV1VaultFactory", address(factory), structHash);
 
         vm.prank(relayer);
-        address created =
-            factory.activateVaultByAsset(address(safe), address(0), 0, true, new bytes[](0), DEADLINE, _sign1271(digest, 2));
+        address created = factory.activateVaultByAsset(
+            address(safe), address(0), 0, true, new bytes[](0), DEADLINE, _sign1271(digest, 2)
+        );
         assertEq(BittyV1Vault(payable(created)).owner(), address(safe), "born under a multisig");
     }
 

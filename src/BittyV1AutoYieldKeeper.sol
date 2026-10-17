@@ -2,8 +2,8 @@
 pragma solidity ^0.8.34;
 
 import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptography/SignatureChecker.sol";
-import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {BITTY_GUARD, CFG_OWNER} from "./logic/Constants.sol";
+import {IBittyV1Guard, CFG_OWNER} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {BITTY_GUARD} from "./logic/Constants.sol";
 
 /**
  * @title BittyV1AutoYieldKeeper

@@ -12,8 +12,13 @@ import {
     ActivationSignatureExpired
 } from "./interfaces/IBittyV1VaultFactory.sol";
 import {BittyV1VaultBootstrap} from "./BittyV1VaultBootstrap.sol";
-import {IBittyV1Guard, IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {BITTY_GUARD, BITTY_VAULT_BOOTSTRAP, CFG_GAS_WRAPPED, CFG_OWNER} from "./logic/Constants.sol";
+import {
+    IBittyV1Guard,
+    IMPLEMENTATION_VAULT,
+    CFG_GAS_WRAPPED,
+    CFG_OWNER
+} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {BITTY_GUARD, BITTY_VAULT_BOOTSTRAP} from "./logic/Constants.sol";
 
 /**
  * @dev Only the vault's activation selector, declared here rather than imported from {BittyV1Vault}.

@@ -13,7 +13,7 @@ address constant BITTY_VAULT_FACTORY_BOOTSTRAP = 0x2287De18768eD5eC5F75Ed5d0B7e3
 
 uint64 constant MAX_RISK_TIMELOCK = 30 days;
 
-uint64 constant MAX_GRANT_DURATION = 10 * 365 days;
+uint64 constant MAX_GRANT_DURATION = 365 days;
 
 uint64 constant SYSTEM_DAILY_MAX_GAS_BUDGET = 100;
 
@@ -21,13 +21,12 @@ uint64 constant SYSTEM_MAX_FEE_PER_OP = 10;
 
 address constant SENTINEL = address(0x1);
 
-bytes32 constant CFG_GAS_WRAPPED = keccak256("bitty.gasWrapped");
+uint256 constant SEQUENCER_GRACE_PERIOD = 1 hours; // L2 sequencer grace period
 
-bytes32 constant CFG_OWNER = keccak256("bitty.owner");
+uint256 constant MAX_MARKET_TRADE_SLIPPAGE_BPS = 500; // 5%
 
 uint32 constant PERM_YIELD = 1 << 0;
 uint32 constant PERM_SUPPLY = 1 << 1;
 uint32 constant PERM_MARKET_TRADE = 1 << 2;
-uint32 constant PERM_MARKET_MAKER = 1 << 3;
-uint32 constant PERM_INTENT = 1 << 4;
+uint32 constant PERM_INTENT = 1 << 3;
 

@@ -11,8 +11,8 @@ import {AutoYield, IBittyV1Vault} from "./IBittyV1Vault.sol";
  */
 interface IBittyV1Owner {
     /**
-     * The whole risk surface, in two numbers. `type(uint256).max` in either means "leave it alone",
-     * so the owner can set one without restating the other.
+     * The whole risk surface, in three numbers. `type(uint256).max` in any means "leave it alone",
+     * so the owner can set one without restating the others.
      *
      * Four numbers stood here: a protection window for new payees, a send cap, the period that cap
      * ran over, and a timelock on changing any of it. Owners only ever had two questions, and the
@@ -20,22 +20,34 @@ interface IBittyV1Owner {
      * long do I get to notice", and with one cap over a fixed day there is nothing for a separate
      * period to vary.
      *
-     * `timelock` is the single wait in front of everything deferred: a new whitelisted recipient, a
-     * an asset-manager grant, a handover of the vault, and any loosening of
-     * these two numbers. `sendDailyAllowance` is the ceiling on what may leave through regular sends
-     * picks at the time, per rolling day, with 0 meaning no ceiling.
+     * `timelock` is the single wait in front of everything deferred: a new whitelisted recipient, the
+     * removal of one the owner can already pay, an asset-manager grant, a handover of the
+     * vault, and any loosening of these numbers.
+     * `sendDailyAllowance` is the ceiling on what may leave through regular sends, in whole USD per
+     * rolling day, with 0 meaning no ceiling. Set above 0, regular sends are held to stablecoins.
      *
-     * Both move under the ratchet: tightening applies at once, loosening waits out the timelock in
-     * force when it was asked for.
+     * `marketTradeDailyLossAllowance` is the market-trade protection, and 0 — the default — leaves it
+     * off. A trade is a way out of the vault too: a leaked key that sells into a pool it set up itself
+     * takes value without sending anything. Set above 0, every market trade, the owner's or an asset
+     * manager's, is valued at oracle price (a stablecoin counts as a dollar), must come out within 5%
+     * of what it gave up, and what it came out short — price impact and fees included — is charged
+     * against this ceiling, in whole USD per rolling day. Only assets with a price feed can then be
+     * traded. At 0 no price is read and a trade is held to nothing but the minimum the caller passes.
+     * The two ceilings are kept apart so that trading never uses up what may be sent, and sending
+     * never uses up what trades may lose; a vault is only protected with both set.
+     *
+     * All three move under the ratchet: tightening applies at once, loosening waits out the timelock
+     * in force when it was asked for.
      */
     struct RiskSettings {
         uint256 timelock;
         uint256 sendDailyAllowance;
+        uint256 marketTradeDailyLossAllowance;
     }
 
-    event WhitelistedRecipientsSet(uint256[] ids, address[] recipients, address[] assets);
-    event WhitelistedRecipientSet(uint256 indexed id, address recipient, address asset);
+    event WhitelistedRecipientSet(uint256 indexed id, address recipient);
     event WhitelistedRecipientsRemoved(uint256[] ids);
+    event WhitelistedRecipientRemovalQueued(uint256 indexed id, uint64 effectiveAt);
 
     event AssetsUpdated(address[] addAssets, address[] removeAssets);
     event ProtocolsUpdated(address[] addProtocols, address[] removeProtocols);
@@ -49,8 +61,8 @@ interface IBittyV1Owner {
     event LockLevelSet(uint8 level, uint64 closedEpoch);
 
     event OwnershipTransferQueued(address indexed newOwner, uint64 readyAt);
-
     event OwnershipTransferCancelled(address indexed newOwner);
+
     /**
      * @notice Update the assets.
      * @param addAssets The assets to add.
@@ -85,8 +97,9 @@ interface IBittyV1Owner {
     function setAutoYieldings(AutoYield[] calldata routes) external;
 
     /**
-     * @notice Set the vault's wait, its regular-send daily allowance, or both.
-     * @param riskSettings The two numbers, with `type(uint256).max` in either to leave it alone.
+     * @notice Set any of the vault's wait, its regular-send daily allowance and its market-trade daily
+     *         loss allowance.
+     * @param riskSettings The three numbers, with `type(uint256).max` in any to leave it alone.
      */
     function updateRisk(RiskSettings calldata riskSettings) external;
 

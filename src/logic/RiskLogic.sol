@@ -10,15 +10,17 @@ import {LockLib} from "./LockLib.sol";
 
 /**
  * @title RiskLogic
- * @notice The main vault's risk surface, which is two numbers: {IBittyV1Owner.RiskSettings.timelock}
- *         — the one wait in front of everything deferred — and `sendDailyAllowance`, the ceiling on
- *         what may leave per day through regular sends. A sentinel partial-update lets the
- *         owner set one without restating the other; tightening applies immediately, loosening waits
- *         out the timelock in force when it was asked for.
+ * @notice The main vault's risk surface, which is three numbers: {IBittyV1Owner.RiskSettings.timelock}
+ *         — the one wait in front of everything deferred — `sendDailyAllowance`, the ceiling on
+ *         what may leave per day through regular sends, and `marketTradeDailyLossAllowance`, the
+ *         ceiling on what market trades may lose against oracle value per day (0: unprotected). A
+ *         sentinel partial-update lets the owner set one without restating the others; tightening
+ *         applies immediately, loosening waits out the timelock in force when it was asked for.
  *
- * @dev Four numbers used to live here, and the storage held four slots to match. Both are two now —
- *      see {RiskConfig} for which questions collapsed into which. The period the allowance runs over
- *      is no longer a number at all: it is a day, as {PaymentLogic} reads it.
+ * @dev Four numbers used to live here, and the storage held four slots to match. They are three
+ *      now — see {IBittyV1Owner.RiskSettings} for which questions collapsed into which, and why the
+ *      two allowances are kept apart. The period each allowance runs over is no longer a number at
+ *      all: it is a rolling day, as {PaymentLogic} and {MarketTradeLogic} read it.
  *
  *      Split out of {PaymentLogic}; operates on the same ERC-7201 {VaultStorage}.
  */
@@ -45,6 +47,9 @@ library RiskLogic {
         if (settings.sendDailyAllowance != UNCHANGED) {
             TimelockLib.setCap(r.sendDailyAllowance, settings.sendDailyAllowance, timelock);
         }
+        if (settings.marketTradeDailyLossAllowance != UNCHANGED) {
+            TimelockLib.setCap(r.marketTradeDailyLossAllowance, settings.marketTradeDailyLossAllowance, timelock);
+        }
         emit IBittyV1Owner.RiskSettingsUpdated(settings);
     }
 
@@ -54,6 +59,7 @@ library RiskLogic {
         p.lockLevel = LockLib.level();
         (p.timelock, p.timelockAt) = _waiting(r.timelock);
         (p.sendDailyAllowance, p.sendDailyAllowanceAt) = _waiting(r.sendDailyAllowance);
+        (p.marketTradeDailyLossAllowance, p.marketTradeDailyLossAllowanceAt) = _waiting(r.marketTradeDailyLossAllowance);
         (p.gasBudgetDaily, p.gasBudgetDailyAt) = _waiting($.gasBudgetDaily);
         (p.maxFeePerOp, p.maxFeePerOpAt) = _waiting($.maxFeePerOp);
     }
@@ -63,8 +69,16 @@ library RiskLogic {
         return (tv.pending, tv.pendingAt);
     }
 
-    function riskSettings() external view returns (uint64 timelock, uint64 sendDailyAllowance) {
+    function riskSettings()
+        external
+        view
+        returns (uint64 timelock, uint64 sendDailyAllowance, uint64 marketTradeDailyLossAllowance)
+    {
         RiskConfig storage r = BittyStorage.vault().riskConfig;
-        return (TimelockLib.effective(r.timelock), TimelockLib.effective(r.sendDailyAllowance));
+        return (
+            TimelockLib.effective(r.timelock),
+            TimelockLib.effective(r.sendDailyAllowance),
+            TimelockLib.effective(r.marketTradeDailyLossAllowance)
+        );
     }
 }

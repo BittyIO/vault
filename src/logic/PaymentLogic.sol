@@ -25,13 +25,17 @@ import {LockLib} from "./LockLib.sol";
  *         send daily allowance. Whitelisted-recipient payouts live in {WhitelistLogic}, the gas budget in
  *         {StableCoinAsGasLogic}, and the risk config in {RiskLogic}; shared payout/protection primitives
  *         come from {PaymentCore}.
+ * @dev Internal, so it compiles into the vault rather than being linked: a send is the commonest call a
+ *      vault takes, and reaching a separate library costs it a cold account access every time. The
+ *      other logic libraries stay external because the vault could not hold them all.
  */
 library PaymentLogic {
-    function initialize(address gasWrapped) external {
+    function initialize(address gasWrapped, bool restrictToOwnAllowList) internal {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         if (vaultStorage.isInitialized) revert AlreadyInitialized();
         vaultStorage.isInitialized = true;
         vaultStorage.gasWrapped = gasWrapped;
+        vaultStorage.ownAllowListActive = restrictToOwnAllowList;
     }
 
     function _processSendBatch(
@@ -92,7 +96,7 @@ library PaymentLogic {
         vaultStorage.ownerSentInPeriod = uint128(total);
     }
 
-    function send(address[] memory recipients, address[] memory assets, uint256[] memory amounts) external {
+    function send(address[] memory recipients, address[] memory assets, uint256[] memory amounts) internal {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         PaymentCore.onlyInitialized(vaultStorage);
         _processSendBatch(vaultStorage, recipients, assets, amounts, true, true);

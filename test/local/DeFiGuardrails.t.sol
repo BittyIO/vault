@@ -10,27 +10,19 @@ import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {MockMarketProtocol} from "../helpers/MockMarketProtocol.sol";
 import {MockIntentProtocol} from "../helpers/MockIntentProtocol.sol";
 import {MockSettlement} from "../helpers/MockSettlement.sol";
-import {MARKET_TRADE_ID, MARKET_MAKER_ID, INTENT_ID, LENDING_ID} from "../helpers/CategoryIds.sol";
+import {MARKET_TRADE_ID, INTENT_ID, LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
-import {AddressZero, ArrayLengthMismatch, Deprecated, NotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
+import {AddressZero, Deprecated, NotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     InvalidMarketTradeProtocol,
-    InvalidMarketMakerProtocol,
     InvalidIntentProtocol,
     InvalidDepositableProtocol,
     MarketTradeNotSupported
 } from "../../src/interfaces/IBittyV1DeFi.sol";
-import {
-    BITTY_GUARD,
-    PERM_YIELD,
-    PERM_SUPPLY,
-    PERM_MARKET_TRADE,
-    PERM_MARKET_MAKER,
-    PERM_INTENT
-} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, PERM_YIELD, PERM_SUPPLY, PERM_MARKET_TRADE, PERM_INTENT} from "../../src/logic/Constants.sol";
 
 /*
  * The capabilities these tests appoint a manager for: the jobs a managed vault is actually given —
@@ -63,10 +55,8 @@ interface IFacet {
     function autoYield(address asset) external;
     function autoYields(address[] calldata assets) external;
     function getClone(address protocol) external view returns (address);
-    function addLiquidity(address marketMaker, address t0, uint256 a0, address t1, uint256 a1, bytes memory data)
-        external;
     function marketSell(
-        address marketMaker,
+        address marketTrade,
         address sellToken,
         uint256 sellAmount,
         address buyToken,
@@ -74,20 +64,13 @@ interface IFacet {
         bytes memory path
     ) external;
     function marketBuy(
-        address marketMaker,
+        address marketTrade,
         address sellToken,
         uint256 sellAmountMax,
         address buyToken,
         uint256 buyAmount,
         bytes memory reversedPath
     ) external;
-    function removeLiquidity(address marketMaker, bytes memory data) external;
-    function decreaseLiquidity(address marketMaker, bytes memory data) external;
-    function claimMarketMakerFees(address marketMaker, bytes memory data) external;
-    function getLiquidities(address[] calldata marketMakers, bytes[] calldata data)
-        external
-        view
-        returns (uint256[] memory);
     function approveIntentRelayer(address intent, address token) external;
     function cancelIntentOrder(address intent, bytes calldata uid) external;
     function setAutoYieldTrigger(address trigger) external;
@@ -108,44 +91,9 @@ interface IFacet {
         );
 }
 
-/// A position NFT that records whether the vault ever granted blanket approval.
-contract PositionNFT {
-    mapping(address => mapping(address => bool)) public isApprovedForAll;
-
-    function setApprovalForAll(address operator, bool approved) external {
-        isApprovedForAll[msg.sender][operator] = approved;
-    }
-}
-
-/// A market maker whose clone reports a position NFT, so the liquidity path has an NFT to approve.
-contract NFTAwareMarketMaker is MockMarketProtocol {
-    address internal immutable _nft;
-
-    constructor(address nft) {
-        _nft = nft;
-    }
-
-    function positionManager() external view override returns (address) {
-        return _nft;
-    }
-}
-
-/// Reports a position NFT the vault cannot probe — the staticcall answers nothing usable.
-contract SilentNFTMarketMaker is MockMarketProtocol {
-    address internal immutable _nft;
-
-    constructor(address nft) {
-        _nft = nft;
-    }
-
-    function positionManager() external view override returns (address) {
-        return _nft;
-    }
-}
-
 /**
  * The guardrails around the DeFi surface: deprecation, the local allowlist's two-way switch, and the
- * argument handling on auto-yield and market-maker calls.
+ * argument handling on auto-yield calls.
  *
  * Deprecation is the guard's one-way exit — a protocol the vault may still WITHDRAW from but must not
  * put new money into. The allowlist is the owner's own narrowing, and it tightens instantly but loosens
@@ -157,7 +105,6 @@ contract DeFiGuardrailsTest is Test {
     MockERC20 usdc;
     MockERC20 dai;
     MockLendingProtocol proto;
-    MockMarketProtocol marketMaker;
     MockMarketProtocol marketTrade;
     MockIntentProtocol intent;
     MockSettlement settlement;
@@ -181,7 +128,6 @@ contract DeFiGuardrailsTest is Test {
         usdc = new MockERC20("USD Coin", "USDC", 6);
         dai = new MockERC20("Dai", "DAI", 18);
         proto = new MockLendingProtocol();
-        marketMaker = new MockMarketProtocol();
         marketTrade = new MockMarketProtocol();
         settlement = new MockSettlement();
         intent = new MockIntentProtocol();
@@ -190,7 +136,6 @@ contract DeFiGuardrailsTest is Test {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         guard.setAsset(address(dai), ASSET_STABLE_COIN);
         guard.setProtocol(address(proto), LENDING_ID);
-        guard.setProtocol(address(marketMaker), MARKET_MAKER_ID);
         guard.setProtocol(address(marketTrade), MARKET_TRADE_ID);
         guard.setProtocol(address(intent), INTENT_ID);
 
@@ -254,13 +199,6 @@ contract DeFiGuardrailsTest is Test {
             .call(abi.encodeWithSignature("withdraw(address,address,uint256)", address(proto), address(usdc), 100e6));
         assertTrue(ok, "deprecation is an exit, not a trap");
         assertEq(usdc.balanceOf(address(vault)), 1_000e6, "everything came back");
-    }
-
-    function test_aDeprecatedMarketMakerRefusesNewLiquidity() public {
-        guard.setDeprecated(address(marketMaker), true);
-        vm.prank(owner);
-        vm.expectRevert(Deprecated.selector);
-        _f().addLiquidity(address(marketMaker), address(usdc), 1e6, address(dai), 1e18, "");
     }
 
     // ── market buy / sell: both legs must be flagged market-tradable ─────────────────
@@ -392,7 +330,7 @@ contract DeFiGuardrailsTest is Test {
         assertTrue(_f().isAssetAllowed(address(usdc)), "named");
         assertFalse(_f().isAssetAllowed(address(dai)), "not named");
         assertTrue(_f().isProtocolAllowed(address(proto)), "named");
-        assertFalse(_f().isProtocolAllowed(address(marketMaker)), "not named");
+        assertFalse(_f().isProtocolAllowed(address(marketTrade)), "not named");
     }
 
     function test_theAllowlistCannotNameSomethingTheGuardRejects() public {
@@ -430,14 +368,15 @@ contract DeFiGuardrailsTest is Test {
         assertFalse(_f().isProtocolAllowed(address(proto)), "no longer named");
     }
 
-    function test_anUnnamedAssetCannotBeUsedForLiquidityWhileTheAllowlistIsOn() public {
+    function test_anUnnamedAssetCannotBeTradedWhileTheAllowlistIsOn() public {
+        _bothLegsLiquid();
         vm.startPrank(owner);
         _f().useBittyAllowList(false);
-        _f().updateProtocols(_one(address(marketMaker)), _none());
+        _f().updateProtocols(_one(address(marketTrade)), _none());
         _f().updateAssets(_one(address(usdc)), _none());
 
         vm.expectRevert(NotRegistered.selector);
-        _f().addLiquidity(address(marketMaker), address(usdc), 1e6, address(dai), 1e18, "");
+        _f().marketSell(address(marketTrade), address(usdc), 1e6, address(dai), 0, _v3Path(address(usdc), address(dai)));
         vm.stopPrank();
     }
 
@@ -449,7 +388,11 @@ contract DeFiGuardrailsTest is Test {
      */
     function test_theAllowListSwitchIsImmediateInBothDirections() public {
         vm.startPrank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings({timelock: 2 days, sendDailyAllowance: UNCHANGED}));
+        vault.updateRisk(
+            IBittyV1Owner.RiskSettings({
+                timelock: 2 days, sendDailyAllowance: UNCHANGED, marketTradeDailyLossAllowance: UNCHANGED
+            })
+        );
 
         _f().useBittyAllowList(false);
         assertFalse(_f().usingBittyAllowList(), "narrowed at once");
@@ -541,38 +484,6 @@ contract DeFiGuardrailsTest is Test {
         assertEq(dai.balanceOf(clone), 1_000e18, "dai deployed");
     }
 
-    // ── market making argument handling ─────────────────────────────────────────────────
-
-    function test_marketMakerCallsOnANeverUsedProtocolAreRefused() public {
-        vm.startPrank(owner);
-        vm.expectRevert(InvalidMarketMakerProtocol.selector);
-        _f().removeLiquidity(address(marketMaker), "");
-
-        vm.expectRevert(InvalidMarketMakerProtocol.selector);
-        _f().decreaseLiquidity(address(marketMaker), "");
-
-        vm.expectRevert(InvalidMarketMakerProtocol.selector);
-        _f().claimMarketMakerFees(address(marketMaker), "");
-        vm.stopPrank();
-    }
-
-    // Liquidity is dispatched by the market-maker interface, not a category: a registered protocol that
-    // isn't a maker (here a lending adapter, with no addLiquidity) is rejected by the interface call
-    // itself — it reverts with no matching function rather than a category error.
-    function test_aProtocolOfTheWrongCategoryCannotProvideLiquidity() public {
-        vm.prank(owner);
-        vm.expectRevert(); // no addLiquidity on a lending adapter
-        _f().addLiquidity(address(proto), address(usdc), 1e6, address(dai), 1e18, "");
-    }
-
-    function test_readingLiquiditiesWithRaggedArraysIsRefused() public {
-        address[] memory marketMakers = new address[](2);
-        marketMakers[0] = address(marketMaker);
-        marketMakers[1] = address(marketMaker);
-        vm.expectRevert(ArrayLengthMismatch.selector);
-        _f().getLiquidities(marketMakers, new bytes[](1));
-    }
-
     function test_aNonIntentProtocolCannotBeAskedToCancel() public {
         vm.prank(owner);
         vm.expectRevert(InvalidIntentProtocol.selector);
@@ -601,44 +512,6 @@ contract DeFiGuardrailsTest is Test {
 
     function test_aRegisteredStablecoinIsSpendable() public view {
         assertTrue(vault.isStableCoinAllowed(address(usdc)));
-    }
-
-    // ── position-NFT approval on the liquidity path ───────────────────────────
-
-    function test_theCloneIsGrantedTheNftItNeedsToManagePositions() public {
-        PositionNFT nft = new PositionNFT();
-        NFTAwareMarketMaker nftMarketMaker = new NFTAwareMarketMaker(address(nft));
-        guard.setProtocol(address(nftMarketMaker), MARKET_MAKER_ID);
-
-        vm.prank(owner);
-        _f().addLiquidity(address(nftMarketMaker), address(usdc), 1e6, address(dai), 1e18, "");
-
-        address clone = _f().getClone(address(nftMarketMaker));
-        assertTrue(nft.isApprovedForAll(address(vault), clone), "the clone can move the position NFT");
-    }
-
-    function test_theApprovalIsNotGrantedTwice() public {
-        PositionNFT nft = new PositionNFT();
-        NFTAwareMarketMaker nftMarketMaker = new NFTAwareMarketMaker(address(nft));
-        guard.setProtocol(address(nftMarketMaker), MARKET_MAKER_ID);
-
-        vm.startPrank(owner);
-        _f().addLiquidity(address(nftMarketMaker), address(usdc), 1e6, address(dai), 1e18, "");
-        _f().removeLiquidity(address(nftMarketMaker), "");
-        vm.stopPrank();
-
-        address clone = _f().getClone(address(nftMarketMaker));
-        assertTrue(nft.isApprovedForAll(address(vault), clone), "still approved, and not re-granted");
-    }
-
-    /// A "position NFT" that is not a contract cannot be probed; the vault skips it rather than reverting.
-    function test_anUnprobeableNftIsSkippedNotFatal() public {
-        SilentNFTMarketMaker oddMarketMaker = new SilentNFTMarketMaker(makeAddr("notAContract"));
-        guard.setProtocol(address(oddMarketMaker), MARKET_MAKER_ID);
-
-        vm.prank(owner);
-        _f().addLiquidity(address(oddMarketMaker), address(usdc), 1e6, address(dai), 1e18, "");
-        assertTrue(_f().getClone(address(oddMarketMaker)) != address(0), "liquidity still went in");
     }
 
     // ── the delegated auto-yield trigger ──────────────────────────────────────
@@ -723,42 +596,27 @@ contract DeFiGuardrailsTest is Test {
         assertEq(settlement.invalidatedCount(), 2, "both orders were withdrawn from the book");
     }
 
-    function test_decreasingLiquidityAlsoGrantsTheNftApproval() public {
-        PositionNFT nft = new PositionNFT();
-        NFTAwareMarketMaker nftMarketMaker = new NFTAwareMarketMaker(address(nft));
-        guard.setProtocol(address(nftMarketMaker), MARKET_MAKER_ID);
-
-        vm.startPrank(owner);
-        _f().addLiquidity(address(nftMarketMaker), address(usdc), 1e6, address(dai), 1e18, "");
-        _f().decreaseLiquidity(address(nftMarketMaker), "");
-        _f().claimMarketMakerFees(address(nftMarketMaker), "");
-        vm.stopPrank();
-
-        assertTrue(nft.isApprovedForAll(address(vault), _f().getClone(address(nftMarketMaker))), "still approved");
-    }
-
     /**
      * With the allowlist OFF, the guard is still the floor. A token nobody registered is refused even
      * though the owner named no local restrictions at all — "allowlist off" means "fall back to Bitty's
      * curation", never "anything goes".
      */
-    function test_anUnregisteredTokenCannotBecomeLiquidityEvenWithTheAllowlistOff() public {
+    function test_anUnregisteredTokenCannotBeSoldEvenWithTheAllowlistOff() public {
         MockERC20 rnd = new MockERC20("Random", "RND", 18);
         rnd.mint(address(vault), 100e18);
         assertTrue(_f().usingBittyAllowList(), "no local narrowing at all");
 
         vm.prank(owner);
         vm.expectRevert(NotRegistered.selector);
-        _f().addLiquidity(address(marketMaker), address(rnd), 1e18, address(dai), 1e18, "");
+        _f().marketSell(address(marketTrade), address(rnd), 1e18, address(dai), 0, _v3Path(address(rnd), address(dai)));
     }
 
-    function test_anUnregisteredSecondTokenIsCaughtToo() public {
+    function test_anUnregisteredTokenCannotBeBoughtEither() public {
         MockERC20 rnd = new MockERC20("Random", "RND", 18);
-        rnd.mint(address(vault), 100e18);
 
         vm.prank(owner);
         vm.expectRevert(NotRegistered.selector);
-        _f().addLiquidity(address(marketMaker), address(usdc), 1e6, address(rnd), 1e18, "");
+        _f().marketSell(address(marketTrade), address(usdc), 1e6, address(rnd), 0, _v3Path(address(usdc), address(rnd)));
     }
 
     // ── who may trade at market ──────────────────────────────────────────────
@@ -771,7 +629,7 @@ contract DeFiGuardrailsTest is Test {
         _bothLegsLiquid();
         address manager = makeAddr("manager");
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, MANAGER_PERMS);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
 
         vm.prank(manager);
         vm.expectRevert();
@@ -789,7 +647,7 @@ contract DeFiGuardrailsTest is Test {
     function test_theAssetManagerStillSignsIntentOrders() public {
         address manager = makeAddr("manager");
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, MANAGER_PERMS);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
         assertTrue(
             IOffchain(address(vault)).isOffchainOrderAuthorized(manager, address(usdc), address(dai), 100e6),
             "limit and TWAP stay open to the manager"
@@ -800,17 +658,17 @@ contract DeFiGuardrailsTest is Test {
     //
     // The grant used to be all-or-nothing: a key appointed to put idle dollars into Sky could also
     // sell the whole balance at market. The owner now names the job — yield, lending, market trade,
-    // liquidity, intents — and the vault holds the manager to it.
+    // intents — and the vault holds the manager to it.
 
     /// A grant says what it is for. Nothing is implied — a mask of zero is a key that can do nothing.
     function test_aGrantIsExactlyWhatWasAskedFor() public {
         address manager = makeAddr("manager");
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, PERM_YIELD | PERM_INTENT);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD | PERM_INTENT);
         assertEq(_permissions(), PERM_YIELD | PERM_INTENT, "the mask the owner passed");
 
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, 0);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), 0);
         assertEq(_permissions(), 0, "and zero grants nothing");
     }
 
@@ -819,28 +677,17 @@ contract DeFiGuardrailsTest is Test {
         _bothLegsLiquid();
         address manager = makeAddr("manager");
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, PERM_MARKET_TRADE);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_MARKET_TRADE);
 
         vm.prank(manager);
         _f().marketSell(address(marketTrade), address(usdc), 1e6, address(dai), 0, _v3Path(address(usdc), address(dai)));
         assertEq(usdc.allowance(address(vault), _f().getClone(address(marketTrade))), type(uint256).max);
     }
 
-    /// And a grant for one job is not a grant for another.
-    function test_aManagerGrantedOnlyMarketTradeCannotProvideLiquidity() public {
-        address manager = makeAddr("manager");
-        vm.prank(owner);
-        _f().setAssetManager(manager, 0, PERM_MARKET_TRADE);
-
-        vm.prank(manager);
-        vm.expectRevert();
-        _f().addLiquidity(address(marketMaker), address(usdc), 1e6, address(dai), 1e18, "");
-    }
-
     function test_aManagerWithoutTheIntentBitCannotSignOrders() public {
         address manager = makeAddr("manager");
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, PERM_YIELD);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD);
         assertFalse(
             IOffchain(address(vault)).isOffchainOrderAuthorized(manager, address(usdc), address(dai), 1e6),
             "limit and TWAP are not part of this grant"
@@ -851,7 +698,7 @@ contract DeFiGuardrailsTest is Test {
     function test_aYieldOnlyManagerCannotLend() public {
         address manager = makeAddr("manager");
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, PERM_YIELD);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD);
 
         // `proto` is registered on the guard as a LENDING adapter, so this needs PERM_SUPPLY.
         vm.prank(manager);
@@ -859,7 +706,7 @@ contract DeFiGuardrailsTest is Test {
         _f().deposit(address(proto), address(usdc), 1e6);
 
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, PERM_SUPPLY);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_SUPPLY);
         vm.prank(manager);
         _f().deposit(address(proto), address(usdc), 1e6);
         assertEq(usdc.balanceOf(_f().getClone(address(proto))), 1e6, "the lending grant works");
@@ -869,7 +716,7 @@ contract DeFiGuardrailsTest is Test {
     function test_anUndefinedPermissionBitGrantsNothing() public {
         address manager = makeAddr("manager");
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, uint32(1 << 20));
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), uint32(1 << 20));
 
         vm.prank(manager);
         vm.expectRevert();
@@ -883,18 +730,18 @@ contract DeFiGuardrailsTest is Test {
     function test_narrowingIsImmediateAndWideningQueues() public {
         address manager = makeAddr("manager");
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, PERM_YIELD | PERM_SUPPLY);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD | PERM_SUPPLY);
         assertEq(_permissions(), PERM_YIELD | PERM_SUPPLY);
 
         // Narrowing is self-restriction: it lands even with a timelock set, which this vault has not.
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, PERM_YIELD);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD);
         assertEq(_permissions(), PERM_YIELD, "narrowing took effect at once");
 
         // Widening with no timelock configured also lands at once — the queue is what a timelock
         // buys, and {AssetManager} covers the queued path for the grant as a whole.
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, PERM_YIELD | PERM_MARKET_TRADE);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD | PERM_MARKET_TRADE);
         assertEq(_permissions(), PERM_YIELD | PERM_MARKET_TRADE, "widening, no timelock");
     }
 }

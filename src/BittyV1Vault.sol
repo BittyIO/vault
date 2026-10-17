@@ -23,7 +23,8 @@ import {
     VaultLocked,
     NoPendingOwnershipTransfer,
     OwnershipNotRenounceable,
-    PendingChanges
+    PendingChanges,
+    WhitelistEntryView
 } from "./interfaces/IBittyV1Vault.sol";
 
 interface IAutoYieldTrigger {
@@ -55,8 +56,7 @@ contract BittyV1Vault is BittyV1VaultBase {
     ) external initializer {
         if (owner_ == address(0) || gasWrapped_ == address(0)) revert AddressZero();
         __Ownable_init(owner_);
-        PaymentLogic.initialize(gasWrapped_);
-        DeFiLogic.initialize(restrictToOwnAllowList);
+        PaymentLogic.initialize(gasWrapped_, restrictToOwnAllowList);
         if (activationAsset != address(0) && activationAmount != 0) {
             StableCoinAsGasLogic.payActivationFee(activationAsset, activationAmount);
         }
@@ -89,8 +89,9 @@ contract BittyV1Vault is BittyV1VaultBase {
         LockLib.unlock();
     }
 
-    function foreverLock() external onlyOwner {
+    function foreverLock(uint256 escapeRecipientId) external onlyOwner {
         _settleOwnership();
+        WhitelistLogic.requireEscape(escapeRecipientId);
         LockLib.foreverLock();
     }
 
@@ -205,21 +206,8 @@ contract BittyV1Vault is BittyV1VaultBase {
         PaymentLogic.send(r, a, m);
     }
 
-    function addWhitelistedRecipient(address recipient, address allowedAsset)
-        external
-        onlyOwner
-        notLocked
-        returns (uint256)
-    {
-        return WhitelistLogic.addWhitelistedRecipientOne(recipient, allowedAsset);
-    }
-
-    function updateWhitelistedRecipients(
-        uint256[] calldata ids,
-        address[] calldata recipients,
-        address[] calldata allowedAssets
-    ) external onlyOwner notLocked {
-        WhitelistLogic.updateWhitelistedRecipients(ids, recipients, allowedAssets);
+    function addWhitelistedRecipient(address recipient) external onlyOwner notLocked returns (uint256) {
+        return WhitelistLogic.addWhitelistedRecipientOne(recipient);
     }
 
     function removeWhitelistedRecipients(uint256[] calldata ids) external onlyOwner notLocked {
@@ -263,7 +251,6 @@ contract BittyV1Vault is BittyV1VaultBase {
 
     function retrieve721(address contractAddress, uint256 tokenId, address to) external onlyOwner notLocked {
         if (to == address(0)) revert AddressZero();
-        DeFiLogic.checkNotProtocolNFT(contractAddress);
         IERC721(contractAddress).safeTransferFrom(address(this), to, tokenId);
         emit IBittyV1Owner.Retrieved721(contractAddress, tokenId, to);
     }
@@ -305,16 +292,28 @@ contract BittyV1Vault is BittyV1VaultBase {
         (p.newAssetManager, p.newAssetManagerAt, p.newAssetManagerPerms) = DeFiLogic._pendingAssetManagerGrant();
     }
 
-    function riskSettings() external view returns (uint64 timelock, uint64 sendDailyAllowance) {
+    function riskSettings()
+        external
+        view
+        returns (uint64 timelock, uint64 sendDailyAllowance, uint64 marketTradeDailyLossAllowance)
+    {
         return RiskLogic.riskSettings();
     }
 
-    function getWhitelistedRecipients(uint256[] calldata ids)
+    function getWhitelistedRecipients(uint256[] calldata ids) external view returns (address[] memory recipients) {
+        return WhitelistLogic.getWhitelistedRecipients(ids);
+    }
+
+    function getWhitelistedRecipientRemovals(uint256[] calldata ids) external view returns (uint64[] memory) {
+        return WhitelistLogic.getWhitelistedRecipientRemovals(ids);
+    }
+
+    function getWhitelist(uint256 fromId, uint256 count)
         external
         view
-        returns (address[] memory recipients, address[] memory allowedAssets)
+        returns (uint256 lastId, WhitelistEntryView[] memory entries)
     {
-        return WhitelistLogic.getWhitelistedRecipients(ids);
+        return WhitelistLogic.getWhitelist(fromId, count);
     }
 
     function stableCoinAsGasConfig()

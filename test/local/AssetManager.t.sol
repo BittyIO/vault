@@ -52,7 +52,7 @@ contract AssetManagerTest is Test {
 
     function _withTimelock() internal {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, UNCHANGED, UNCHANGED));
     }
 
     function setUp() public {
@@ -89,7 +89,7 @@ contract AssetManagerTest is Test {
 
     /// The whole point: put idle USDC to work under a delegated key.
     function test_theManagerCanPutIdleFundsToWork() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         vm.prank(manager);
         _f().deposit(address(sky), address(usdc), 400e6);
         assertEq(usdc.balanceOf(_f().getClone(address(sky))), 400e6, "the manager deposited");
@@ -101,7 +101,7 @@ contract AssetManagerTest is Test {
 
     /// Intent orders are signed OFF-CHAIN, so without this the manager could not trade at all.
     function test_theManagerMaySignIntentOrders() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         assertTrue(
             _f().isOffchainOrderAuthorized(manager, address(usdc), address(usdc), 100e6), "manager may sign a swap"
         );
@@ -109,7 +109,7 @@ contract AssetManagerTest is Test {
     }
 
     function test_theOwnerStillTradesAlongsideTheManager() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         vm.prank(owner);
         _f().deposit(address(sky), address(usdc), 100e6);
         assertEq(usdc.balanceOf(_f().getClone(address(sky))), 100e6);
@@ -119,7 +119,7 @@ contract AssetManagerTest is Test {
 
     /// It may work inside the boundary; only the owner moves the boundary.
     function test_theManagerCannotWidenWhatIsReachable() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         address[] memory add = new address[](1);
         add[0] = address(usdc);
         address[] memory none = new address[](0);
@@ -143,7 +143,7 @@ contract AssetManagerTest is Test {
 
     /// The payment surface lives on the vault, which the facet cannot reach. No outflow, ever.
     function test_theManagerCannotPayAnyone() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         address[] memory none = new address[](0);
         uint256[] memory noAmounts = new uint256[](0);
 
@@ -153,24 +153,43 @@ contract AssetManagerTest is Test {
 
         vm.prank(manager);
         vm.expectRevert();
-        vault.addWhitelistedRecipient(manager, address(usdc));
+        vault.addWhitelistedRecipient(manager);
 
         assertEq(usdc.balanceOf(manager), 0, "the manager never received anything");
     }
 
     function test_theManagerCannotAppointOrReplaceItself() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         vm.prank(manager);
         vm.expectRevert();
-        _f().setAssetManager(stranger, 0, MANAGER_PERMS);
+        _f().setAssetManager(stranger, uint64(block.timestamp + 365 days), MANAGER_PERMS);
     }
 
     function test_aStrangerIsStillAStranger() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         vm.prank(stranger);
         vm.expectRevert();
         _f().deposit(address(sky), address(usdc), 100e6);
         assertFalse(_f().isOffchainOrderAuthorized(stranger, address(usdc), address(usdc), 1), "cannot sign either");
+    }
+
+    /// Unwinding needs no permission bit, but it does need the grant: a stranger unwinds nothing.
+    function test_aStrangerCannotUnwind() public {
+        _appoint(START + 365 days);
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", stranger));
+        _f().withdraw(address(sky), address(usdc), 1);
+    }
+
+    /// No manager reads as the zero address, so the zero address must never pass as the manager.
+    function test_theZeroAddressIsNeverAnActiveManager() public view {
+        assertFalse(_f().isOffchainCancellationAuthorized(address(0)));
+    }
+
+    /// An address that is not a protocol has no lineage, so it has no clone either.
+    function test_aNonProtocolHasNoClone() public view {
+        assertEq(_f().getClone(stranger), address(0), "an EOA");
+        assertEq(_f().getClone(address(usdc)), address(0), "a token");
     }
 
     // ── the grant ─────────────────────────────────────────────────────────────
@@ -199,7 +218,7 @@ contract AssetManagerTest is Test {
     }
 
     function test_revokingIsImmediate() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         vm.prank(owner);
         _f().setAssetManager(address(0), 0, MANAGER_PERMS);
 
@@ -237,15 +256,19 @@ contract AssetManagerTest is Test {
      * rule, since putting money into a position is adding one.
      */
     function test_aForeverLockNarrowsTheManagerToUnwinding() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         vm.prank(owner);
         _f().setAutoYieldTrigger(makeAddr("keeper"));
 
         vm.prank(manager);
         _f().deposit(address(sky), address(usdc), 900e6);
 
+        // The forever lock needs a destination the vault can still pay out to.
         vm.prank(owner);
-        vault.foreverLock();
+        uint256 escape = vault.addWhitelistedRecipient(owner);
+        vm.warp(block.timestamp + 31 days);
+        vm.prank(owner);
+        vault.foreverLock(escape);
 
         (address live,, address pending,,,) = _f().getAssetManagerSettings();
         assertEq(live, manager, "still appointed: it is not their key that leaked");
@@ -272,7 +295,7 @@ contract AssetManagerTest is Test {
     function test_appointingWaitsOutTheTimelock() public {
         _withTimelock();
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, MANAGER_PERMS);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
 
         (address live,, address pending, uint64 at,,) = _f().getAssetManagerSettings();
         assertEq(live, address(0), "not live yet");
@@ -288,7 +311,7 @@ contract AssetManagerTest is Test {
     function test_aQueuedGrantGoesLiveOnItsOwn() public {
         _withTimelock();
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, MANAGER_PERMS);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
 
         vm.warp(START + TIMELOCK);
         (address live,,,,,) = _f().getAssetManagerSettings();
@@ -303,7 +326,7 @@ contract AssetManagerTest is Test {
     function test_theOwnerCanCancelAQueuedGrant() public {
         _withTimelock();
         vm.prank(owner);
-        _f().setAssetManager(manager, 0, MANAGER_PERMS);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
 
         vm.prank(owner);
         _f().setAssetManager(address(0), 0, MANAGER_PERMS);
@@ -319,7 +342,7 @@ contract AssetManagerTest is Test {
     }
 
     function test_revokingIsImmediateEvenWithATimelock() public {
-        _appoint(0);
+        _appoint(START + 365 days);
         _withTimelock();
 
         vm.prank(owner);

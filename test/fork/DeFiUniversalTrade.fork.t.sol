@@ -18,8 +18,6 @@ import {sepolia} from "protocol-contracts/script/addresses.sol";
 interface IVaultTrade {
     function marketSell(address marketTrade, address sellToken, uint256 sellAmount, address buyToken, uint256 buyAmountMin, bytes calldata path)
         external;
-    function addLiquidity(address marketMaker, address token0, uint256 amount0, address token1, uint256 amount1, bytes calldata data)
-        external;
     function getClone(address protocol) external view returns (address);
 }
 
@@ -79,15 +77,5 @@ contract DeFiUniversalTradeForkTest is Test {
         address clone = IVaultTrade(address(vault)).getClone(address(tradeImpl));
         assertEq(IERC20(sepolia.WETH9).balanceOf(clone), 0, "no WETH left in the clone");
         assertEq(IERC20(sepolia.USDT).balanceOf(clone), 0, "no USDT left in the clone");
-    }
-
-    // Dispatch is by interface, not category: the trade adapter carries no market-maker methods, so
-    // routing liquidity through it reverts at the interface call — no category gate needed to forbid it.
-    function test_tradeAdapterCannotProvideLiquidity() public {
-        deal(sepolia.WETH9, address(vault), 0.001 ether);
-        bytes memory data = abi.encode(true, bytes("")); // shape is irrelevant; there is no addLiquidity to reach
-        vm.prank(owner);
-        vm.expectRevert();
-        IVaultTrade(address(vault)).addLiquidity(address(tradeImpl), sepolia.WETH9, 0.001 ether, sepolia.USDT, 0, data);
     }
 }

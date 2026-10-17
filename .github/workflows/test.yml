@@ -52,13 +52,14 @@ jobs:
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
 
-      # Factory and ActivateAndCall are skipped here, not broken. Coverage recompiles with the optimizer
-      # off, which changes ERC1967Proxy's CBOR metadata and so its creation code; the factory constructor
-      # catches exactly that (VaultProxyInitCodeDrift) and reverts in setUp. Both suites still run in the
+      # Factory, ActivateAndCall and BootstrapPin are skipped here, not broken. Coverage recompiles with
+      # the optimizer off, which changes ERC1967Proxy's CBOR metadata and so its creation code; the
+      # factory constructor catches exactly that (VaultProxyInitCodeDrift) and reverts in setUp, and the
+      # unoptimised bootstraps no longer match their pinned bytes. All three suites still run in the
       # "Run Forge tests" step above, against the production build.
       - name: Run Forge coverage
         run: |
-          forge coverage --ir-minimum --no-match-coverage 'test|node_modules|script|src/libs' --no-match-path 'test/local/{Factory,ActivateAndCall}.t.sol' --report lcov
+          forge coverage --ir-minimum --no-match-coverage 'test|node_modules|script|src/libs' --no-match-path 'test/local/{Factory,ActivateAndCall,BootstrapPin}.t.sol' --report lcov
         id: coverage
         env:
           ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}

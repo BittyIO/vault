@@ -40,10 +40,10 @@ abstract contract Base is Test {
         usdc.mint(address(vault), 1_000_000e6);
         if (window != 0) {
             vm.prank(owner);
-            vault.updateRisk(IBittyV1Owner.RiskSettings(window, UNCHANGED));
+            vault.updateRisk(IBittyV1Owner.RiskSettings(window, UNCHANGED, UNCHANGED));
         }
         vm.prank(owner);
-        id = vault.addWhitelistedRecipient(cold, address(0));
+        id = vault.addWhitelistedRecipient(cold);
         vm.warp(block.timestamp + 8 days);
         _send(); // warm the ERC20 balances in setUp's own transaction
     }

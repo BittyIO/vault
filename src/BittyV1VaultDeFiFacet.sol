@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import {BittyV1AccountBase} from "./BittyV1AccountBase.sol";
 import {DeFiLogic} from "./logic/DeFiLogic.sol";
+import {MarketTradeLogic} from "./logic/MarketTradeLogic.sol";
 import {LockLib} from "./logic/LockLib.sol";
 import {PaymentCore} from "./logic/PaymentCore.sol";
 import {BittyStorage} from "./logic/BittyStorage.sol";
@@ -10,14 +11,7 @@ import {IBittyV1Guard, PROTOCOL_INTENT} from "guard-contracts/src/interfaces/IBi
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {AutoYield} from "./interfaces/IBittyV1Vault.sol";
-import {
-    BITTY_GUARD,
-    PERM_YIELD,
-    PERM_SUPPLY,
-    PERM_MARKET_TRADE,
-    PERM_MARKET_MAKER,
-    PERM_INTENT
-} from "./logic/Constants.sol";
+import {BITTY_GUARD, PERM_YIELD, PERM_SUPPLY, PERM_MARKET_TRADE, PERM_INTENT} from "./logic/Constants.sol";
 import {IBittyV1Guard as IGuard, PROTOCOL_STAKING} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1DeFi} from "./interfaces/IBittyV1DeFi.sol";
 
@@ -37,8 +31,13 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
 
     error NotAutoYieldTrigger();
 
+    /**
+     * The owner is asked first. Most calls are the owner's, and the owner check is a slot the lock
+     * check reads anyway, where asking the asset-manager grant first costs an extra library call and a
+     * cold read on every one of them.
+     */
     modifier onlyManagerWith(uint32 permission) {
-        if (!DeFiLogic.assetManagerCan(_msgSender(), permission)) _checkOwner();
+        _onlyOwnerOrManagerWith(permission);
         _;
     }
 
@@ -48,14 +47,25 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
     }
 
     modifier onlyUnwind() {
-        if (!DeFiLogic.isActiveAssetManager(_msgSender())) _checkOwner();
+        address sender = _msgSender();
+        if (sender != owner() && !DeFiLogic.isActiveAssetManager(sender)) revert OwnableUnauthorizedAccount(sender);
         _;
     }
 
+    function _onlyOwnerOrManagerWith(uint32 permission) private view {
+        address sender = _msgSender();
+        if (sender != owner() && !DeFiLogic.assetManagerCan(sender, permission)) {
+            revert OwnableUnauthorizedAccount(sender);
+        }
+    }
+
     function deposit(address protocol, address asset, uint256 amount) external notLocked {
-        uint32 permission =
-            IGuard(BITTY_GUARD).protocolCategory(protocol) == PROTOCOL_STAKING ? PERM_YIELD : PERM_SUPPLY;
-        if (!DeFiLogic.assetManagerCan(_msgSender(), permission)) _checkOwner();
+        address sender = _msgSender();
+        if (sender != owner()) {
+            uint32 permission =
+                IGuard(BITTY_GUARD).protocolCategory(protocol) == PROTOCOL_STAKING ? PERM_YIELD : PERM_SUPPLY;
+            if (!DeFiLogic.assetManagerCan(sender, permission)) revert OwnableUnauthorizedAccount(sender);
+        }
         DeFiLogic.deposit(protocol, asset, amount);
     }
 
@@ -152,17 +162,6 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         return DeFiLogic.getAutoYieldings(assets);
     }
 
-    function addLiquidity(
-        address marketMaker,
-        address token0,
-        uint256 amount0,
-        address token1,
-        uint256 amount1,
-        bytes memory data
-    ) external onlyManagerWith(PERM_MARKET_MAKER) notLocked {
-        DeFiLogic.addLiquidity(marketMaker, token0, amount0, token1, amount1, data);
-    }
-
     function marketSell(
         address marketTrade,
         address sellToken,
@@ -171,7 +170,7 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         uint256 buyAmountMin,
         bytes memory path
     ) external onlyManagerWith(PERM_MARKET_TRADE) notLocked {
-        DeFiLogic.marketSell(marketTrade, sellToken, sellAmount, buyToken, buyAmountMin, path);
+        MarketTradeLogic.marketSell(marketTrade, sellToken, sellAmount, buyToken, buyAmountMin, path);
     }
 
     function marketBuy(
@@ -182,27 +181,7 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         uint256 buyAmount,
         bytes memory reversedPath
     ) external onlyManagerWith(PERM_MARKET_TRADE) notLocked {
-        DeFiLogic.marketBuy(marketTrade, sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
-    }
-
-    function removeLiquidity(address marketMaker, bytes memory data) external onlyUnwind {
-        DeFiLogic.removeLiquidity(marketMaker, data);
-    }
-
-    function decreaseLiquidity(address marketMaker, bytes memory data) external onlyUnwind {
-        DeFiLogic.decreaseLiquidity(marketMaker, data);
-    }
-
-    function claimMarketMakerFees(address marketMaker, bytes memory data) external onlyUnwind {
-        DeFiLogic.claimMarketMakerFees(marketMaker, data);
-    }
-
-    function getLiquidities(address[] calldata marketMakerProtocols, bytes[] calldata data)
-        external
-        view
-        returns (uint256[] memory)
-    {
-        return DeFiLogic.getLiquidities(marketMakerProtocols, data);
+        MarketTradeLogic.marketBuy(marketTrade, sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
     }
 
     function approveIntentRelayer(address intent, address token) external onlyManagerWith(PERM_INTENT) {

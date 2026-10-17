@@ -6,9 +6,9 @@ import {console2} from "forge-std/console2.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Create2} from "openzeppelin-contracts/contracts/utils/Create2.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {IBittyV1Guard, CFG_OWNER} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {BittyV1VaultFactory} from "../src/BittyV1VaultFactory.sol";
-import {BITTY_GUARD, BITTY_VAULT_BOOTSTRAP, CFG_OWNER} from "../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_VAULT_BOOTSTRAP} from "../src/logic/Constants.sol";
 
 /**
  * @title DeployFactoryUpgrade

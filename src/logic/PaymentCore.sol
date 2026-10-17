@@ -40,9 +40,8 @@ library PaymentCore {
 
     function stableCoinAllowed(address asset) internal view returns (bool) {
         if ((IBittyV1Guard(BITTY_GUARD).assetCategory(asset) & ASSET_STABLE_COIN) == 0) return false;
-        DeFiStorage storage d = BittyStorage.defi();
-        if (d.ownAllowListActive) {
-            if (!d.assets[asset]) return false;
+        if (BittyStorage.vault().ownAllowListActive) {
+            if (!BittyStorage.defi().assets[asset]) return false;
         }
         return true;
     }

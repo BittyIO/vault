@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {ASSET_STABLE_COIN, CFG_OWNER} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC2771Forwarder} from "openzeppelin-contracts/contracts/metatx/ERC2771Forwarder.sol";
@@ -12,7 +12,7 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultForwarder} from "../../src/BittyV1VaultForwarder.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {NotTrustedForwarder} from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR, CFG_OWNER} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR} from "../../src/logic/Constants.sol";
 
 /// Answers ERC-1271 for one key, so a contract-owned vault can be relayed.
 import {BittyV1ForwarderBootstrap, NotOwner as BootstrapNotOwner} from "../../src/BittyV1ForwarderBootstrap.sol";

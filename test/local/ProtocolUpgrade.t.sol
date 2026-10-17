@@ -59,12 +59,18 @@ contract UpgradeableLendingV1 is IBittyV1Protocol, IBittyV1Yield, Ownable, Initi
         return "1.0.0";
     }
 
-    function deposit(address asset, uint256 amount) external override onlyOwner {
+    function deposit(address asset, uint256 amount) external virtual override onlyOwner {
         depositCount++;
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    function withdraw(address asset, uint256 amount, address recipient) external override onlyOwner returns (uint256) {
+    function withdraw(address asset, uint256 amount, address recipient)
+        external
+        virtual
+        override
+        onlyOwner
+        returns (uint256)
+    {
         uint256 amt = amount == type(uint256).max ? IERC20(asset).balanceOf(address(this)) : amount;
         IERC20(asset).safeTransfer(recipient, amt);
         return amt;
@@ -196,7 +202,7 @@ contract ProtocolUpgradeTest is Test {
      */
     function test_anAdapterUpgradeIsInstantEvenWithATimelockSet() public {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, type(uint256).max));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, type(uint256).max, type(uint256).max));
         address instance = _f().getClone(address(v1));
 
         vm.prank(owner);

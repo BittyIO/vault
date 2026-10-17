@@ -112,9 +112,9 @@ contract CompromisedKeyTest is Test {
         // A vault in normal service: a trading delegate, a keeper, and a destination the owner
         // vetted long before anything went wrong.
         vm.startPrank(owner);
-        _f().setAssetManager(manager, 0, MANAGER_PERMS);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
         _f().setAutoYieldTrigger(keeper);
-        coldId = vault.addWhitelistedRecipient(heir, address(0));
+        coldId = vault.addWhitelistedRecipient(heir);
         vm.stopPrank();
     }
 
@@ -125,7 +125,7 @@ contract CompromisedKeyTest is Test {
      */
     function test_theForeverLockIsOneCallAndCannotBeUndone() public {
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
         assertEq(vault.lockLevel(), 2);
 
         vm.prank(owner);
@@ -140,7 +140,7 @@ contract CompromisedKeyTest is Test {
         _f().deposit(address(sky), address(usdc), 1_000e6);
 
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
 
         vm.prank(manager);
         vm.expectRevert();
@@ -156,7 +156,7 @@ contract CompromisedKeyTest is Test {
         vm.prank(owner);
         _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(sky)}));
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
 
         vm.prank(keeper);
         vm.expectRevert();
@@ -176,7 +176,7 @@ contract CompromisedKeyTest is Test {
         _f().updateAssets(_one(address(shiny)), new address[](0));
 
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
 
         assertTrue(
             _f().isOffchainOrderAuthorized(owner, address(weth), address(usdc), 1e18), "into the payments' asset: yes"
@@ -194,7 +194,7 @@ contract CompromisedKeyTest is Test {
      */
     function test_theStolenKeyCannotSpendTheVaultsGasBudget() public {
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
         assertEq(vault.gasBudgetRemaining(), 0);
     }
 }

@@ -70,32 +70,7 @@ contract ProposalEditsTest is Test {
 
     function _whitelist(address by) internal returns (uint256 id) {
         vm.prank(by);
-        return vault.addWhitelistedRecipient(payee, address(usdc));
-    }
-
-    function test_whitelistEditRejectsRaggedArrays() public {
-        uint256[] memory ids = new uint256[](2);
-        vm.prank(owner);
-        vm.expectRevert(ArrayLengthMismatch.selector);
-        vault.updateWhitelistedRecipients(ids, _addr(payee), _addr(address(usdc)));
-    }
-
-    function test_whitelistEditRejectsTheZeroRecipient() public {
-        uint256 id = _whitelist(owner);
-        vm.prank(owner);
-        vm.expectRevert(AddressZero.selector);
-        vault.updateWhitelistedRecipients(_ids(id), _addr(address(0)), _addr(address(usdc)));
-    }
-
-    function test_whitelistEditOfAnUnknownIdIsRefused() public {
-        vm.prank(owner);
-        vm.expectRevert(WhitelistedRecipientNotFound.selector);
-        vault.updateWhitelistedRecipients(_ids(99), _addr(payee), _addr(address(usdc)));
-    }
-
-    function test_whitelistEditOfNothingIsHarmless() public {
-        vm.prank(owner);
-        vault.updateWhitelistedRecipients(new uint256[](0), new address[](0), new address[](0));
+        return vault.addWhitelistedRecipient(payee);
     }
 
     function test_removingAnUnknownWhitelistEntryIsRefused() public {

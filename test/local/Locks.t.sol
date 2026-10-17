@@ -93,7 +93,7 @@ contract LocksTest is Test {
         // money may always be sent to.
         vm.startPrank(owner);
         _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD | PERM_SUPPLY | PERM_INTENT);
-        coldId = vault.addWhitelistedRecipient(cold, address(0));
+        coldId = vault.addWhitelistedRecipient(cold);
         vm.stopPrank();
     }
 
@@ -123,7 +123,7 @@ contract LocksTest is Test {
      * Every call that must be refused once the vault is locked, as calldata the owner would send.
      */
     function _refusedWhileLocked() internal view returns (bytes[] memory calls) {
-        IBittyV1Owner.RiskSettings memory risk = IBittyV1Owner.RiskSettings(1 days, UNCHANGED);
+        IBittyV1Owner.RiskSettings memory risk = IBittyV1Owner.RiskSettings(1 days, UNCHANGED, UNCHANGED);
 
         // Built by appending rather than by index, so removing an entry cannot silently leave a
         // hole — an empty element would reach the fallback and "pass" the refusal it was meant to
@@ -138,7 +138,9 @@ contract LocksTest is Test {
         all[n++] = abi.encodeCall(BittyV1Vault.setStableCoinAsGas, (_one(address(usdc)), 1, 1));
         all[n++] = abi.encodeCall(BittyV1Vault.disableStableCoinAsGas, ());
         all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false));
-        all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.setAssetManager, (stranger, 0, PERM_YIELD));
+        all[n++] = abi.encodeCall(
+            BittyV1VaultDeFiFacet.setAssetManager, (stranger, uint64(block.timestamp + 365 days), PERM_YIELD)
+        );
         all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.setAutoYieldTrigger, (stranger));
         all[n++] = abi.encodeCall(
             BittyV1VaultDeFiFacet.setAutoYielding, (AutoYield({asset: address(usdc), protocol: address(sky)}))
@@ -146,7 +148,7 @@ contract LocksTest is Test {
         all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.updateAssets, (_one(address(usdc)), _none()));
         all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.updateProtocols, (_one(address(sky)), _none()));
         // destinations, both directions
-        all[n++] = abi.encodeCall(BittyV1Vault.addWhitelistedRecipient, (stranger, address(0)));
+        all[n++] = abi.encodeCall(BittyV1Vault.addWhitelistedRecipient, (stranger));
         all[n++] = abi.encodeCall(BittyV1Vault.removeWhitelistedRecipients, (_one(coldId)));
         // arbitrary outflow
         all[n++] = abi.encodeCall(BittyV1Vault.send, (stranger, address(usdc), 1e6, _none(), _noAmounts()));
@@ -178,7 +180,7 @@ contract LocksTest is Test {
 
         vm.prank(manager);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, manager));
-        vault.foreverLock();
+        vault.foreverLock(coldId);
     }
 
     /// Instant both ways: the owner can try it, see what it does, and carry on.
@@ -197,7 +199,7 @@ contract LocksTest is Test {
     /// The forever lock needs no preparation and has no way back.
     function test_theForeverLockIsInstantAndFinal() public {
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
         assertEq(vault.lockLevel(), 2);
 
         vm.prank(owner);
@@ -210,10 +212,18 @@ contract LocksTest is Test {
         assertEq(vault.lockLevel(), 2, "still, and always, final");
     }
 
+    function test_theForeverLockCannotBeEngagedTwice() public {
+        vm.startPrank(owner);
+        vault.foreverLock(coldId);
+        vm.expectRevert(VaultLocked.selector);
+        vault.foreverLock(coldId);
+        vm.stopPrank();
+    }
+
     function test_anEmergencyLockCanBeEscalated() public {
         vm.startPrank(owner);
         vault.emergencyLock();
-        vault.foreverLock();
+        vault.foreverLock(coldId);
         vm.stopPrank();
         assertEq(vault.lockLevel(), 2);
     }
@@ -227,10 +237,10 @@ contract LocksTest is Test {
      */
     function test_lockingVoidsAPendingManagerGrant() public {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, UNCHANGED, UNCHANGED));
 
         vm.prank(owner);
-        _f().setAssetManager(stranger, 0, PERM_YIELD);
+        _f().setAssetManager(stranger, uint64(block.timestamp + 365 days), PERM_YIELD);
         (,, address pending,,,) = _f().getAssetManagerSettings();
         assertEq(pending, stranger, "queued behind the timelock");
 
@@ -249,14 +259,14 @@ contract LocksTest is Test {
 
     function test_lockingVoidsAPendingRiskLoosening() public {
         vm.startPrank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, UNCHANGED));
-        vault.updateRisk(IBittyV1Owner.RiskSettings(0, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(0, UNCHANGED, UNCHANGED));
         vault.emergencyLock();
         vault.unlock();
         vm.stopPrank();
 
         vm.warp(block.timestamp + 4 days);
-        (uint64 changeTimelock,) = vault.riskSettings();
+        (uint64 changeTimelock,,) = vault.riskSettings();
         assertEq(changeTimelock, 3 days, "the loosening was swept, not merely delayed");
     }
 
@@ -273,7 +283,7 @@ contract LocksTest is Test {
 
     function test_everyRiskOperationIsRefusedUnderAForeverLock() public {
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
         bytes[] memory calls = _refusedWhileLocked();
         for (uint256 i; i < calls.length; ++i) {
             _expectRefused(calls[i]);
@@ -302,7 +312,7 @@ contract LocksTest is Test {
         assertEq(usdc.balanceOf(cold), 1_000e6, "out to the address the owner chose in advance");
 
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
         vm.prank(owner);
         vault.sendToWhitelistedRecipient(coldId, address(usdc), 9_000e6, _none(), _noAmounts());
         assertEq(usdc.balanceOf(cold), 10_000e6, "and the forever lock does not close it either");
@@ -326,7 +336,7 @@ contract LocksTest is Test {
         assertEq(usdc.balanceOf(address(vault)), 7_000e6, "the manager brought some back");
 
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
         vm.prank(owner);
         _f().withdraw(address(sky), address(usdc), 2_000e6);
         assertEq(usdc.balanceOf(address(vault)), 9_000e6, "and the owner too, with no way back");
@@ -340,7 +350,7 @@ contract LocksTest is Test {
     function test_theBittyAllowListCanStillBeTurnedOnWhileLocked() public {
         vm.startPrank(owner);
         _f().useBittyAllowList(false);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
         _f().useBittyAllowList(true); // == useBittyAllowList(true)
         vm.stopPrank();
         assertTrue(_f().usingBittyAllowList(), "back to Bitty's list, which is the permissive one");
@@ -349,7 +359,7 @@ contract LocksTest is Test {
     /// But narrowing to the vault's own list takes reachable assets away, so that direction is shut.
     function test_theVaultsOwnListCannotBeNarrowedToWhileLocked() public {
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
         vm.prank(owner);
         vm.expectRevert(VaultLocked.selector);
         _f().useBittyAllowList(false);
@@ -365,7 +375,7 @@ contract LocksTest is Test {
      */
     function test_returningToBittysListIsImmediateWhileLocked() public {
         vm.startPrank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(30 days, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(30 days, UNCHANGED, UNCHANGED));
         _f().useBittyAllowList(false);
         assertFalse(_f().usingBittyAllowList(), "on the vault's own narrow list");
 
@@ -380,7 +390,7 @@ contract LocksTest is Test {
     function test_theIntentRelayerCanStillBeApprovedWhileLocked() public {
         vm.startPrank(owner);
         _f().updateProtocols(_one(address(intent)), _none());
-        vault.foreverLock();
+        vault.foreverLock(coldId);
         _f().approveIntentRelayer(address(intent), address(weth));
         vm.stopPrank();
         assertEq(weth.allowance(address(vault), address(settlement)), type(uint256).max);
@@ -417,7 +427,7 @@ contract LocksTest is Test {
     /// The manager keeps its own independent key, so its intent grant survives a lock as well.
     function test_theManagerMaySillSignStablecoinSalesWhileLocked() public {
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
         assertTrue(_f().isOffchainOrderAuthorized(manager, address(weth), address(usdc), 1e18));
     }
 
@@ -453,7 +463,7 @@ contract LocksTest is Test {
      */
     function test_theRelayerCannotChargeUnderAForeverLock() public {
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
 
         vm.prank(BITTY_FORWARDER);
         vm.expectRevert(VaultLocked.selector);
@@ -464,7 +474,7 @@ contract LocksTest is Test {
     function test_theReportedGasBudgetIsZeroUnderAForeverLock() public {
         assertGt(vault.gasBudgetRemaining(), 0, "a budget while it is owned normally");
         vm.prank(owner);
-        vault.foreverLock();
+        vault.foreverLock(coldId);
         assertEq(vault.gasBudgetRemaining(), 0, "and none a relayer could ever collect");
     }
 }

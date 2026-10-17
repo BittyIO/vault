@@ -68,7 +68,7 @@ contract SendsTest is Test {
 
     function _cap(uint256 c) internal {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, c));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, c, UNCHANGED));
     }
 
     // ── the unrestricted default ──────────────────────────────────────────────

@@ -8,7 +8,12 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {IBittyV1Guard, ASSET_STABLE_COIN, IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+import {
+    IBittyV1Guard,
+    ASSET_STABLE_COIN,
+    IMPLEMENTATION_VAULT,
+    CFG_GAS_WRAPPED
+} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
 import {IBittyV1Yield} from "protocol-contracts/src/interfaces/IBittyV1Yield.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
@@ -19,7 +24,7 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {InvalidActivationSignature} from "../../src/interfaces/IBittyV1VaultFactory.sol";
-import {BITTY_GUARD, BITTY_VAULT_BOOTSTRAP, BITTY_FEE_COLLECTOR, CFG_GAS_WRAPPED} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_VAULT_BOOTSTRAP, BITTY_FEE_COLLECTOR} from "../../src/logic/Constants.sol";
 
 interface IFacet {
     function deposit(address protocol, address asset, uint256 amount) external;

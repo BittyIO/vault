@@ -54,11 +54,11 @@ contract RiskRatchetTest is Test {
 
     function _risk(uint256 timelock, uint256 sendDailyAllowance) internal {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(timelock, sendDailyAllowance));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(timelock, sendDailyAllowance, UNCHANGED));
     }
 
     function _cfg() internal view returns (uint64 timelock, uint64 sendDailyAllowance) {
-        return vault.riskSettings();
+        (timelock, sendDailyAllowance,) = vault.riskSettings();
     }
 
     // ── the two directions ────────────────────────────────────────────────────
@@ -71,7 +71,7 @@ contract RiskRatchetTest is Test {
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, 64, tooBig));
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, tooBig));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, tooBig, UNCHANGED));
     }
 
     function test_tighteningAppliesImmediately() public {
@@ -181,12 +181,12 @@ contract RiskRatchetTest is Test {
     function test_theTimelockIsBounded() public {
         vm.prank(owner);
         vm.expectRevert(RiskTimelockTooLong.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(uint256(MAX_RISK_TIMELOCK) + 1, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(uint256(MAX_RISK_TIMELOCK) + 1, UNCHANGED, UNCHANGED));
 
         assertEq(MAX_RISK_TIMELOCK, 30 days, "a month");
 
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(MAX_RISK_TIMELOCK, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MAX_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
         (uint64 timelock,) = _cfg();
         assertEq(timelock, 30 days, "the cap itself is allowed");
     }
@@ -199,13 +199,13 @@ contract RiskRatchetTest is Test {
         _risk(1 days, 500);
 
         vm.prank(owner); // the leaked key
-        vault.updateRisk(IBittyV1Owner.RiskSettings(MAX_RISK_TIMELOCK, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MAX_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
         (uint64 timelock,) = _cfg();
         assertEq(timelock, 30 days, "a tightening, so it landed at once and unasked");
 
         // The real owner wants it back. Shortening is a loosening, so it waits out the new value.
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, UNCHANGED, UNCHANGED));
         vm.warp(block.timestamp + 30 days - 1);
         (timelock,) = _cfg();
         assertEq(timelock, 30 days, "still stuck, and nothing can hurry it");
@@ -226,7 +226,7 @@ contract RiskRatchetTest is Test {
     function test_onlyOwnerMayChangeRisk() public {
         vm.prank(makeAddr("stranger"));
         vm.expectRevert();
-        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, UNCHANGED, UNCHANGED));
     }
 
     /**
@@ -268,11 +268,11 @@ contract RiskRatchetTest is Test {
 
         // a new destination
         vm.prank(owner);
-        uint256 id = vault.addWhitelistedRecipient(stranger, address(0));
+        uint256 id = vault.addWhitelistedRecipient(stranger);
 
         // a new delegate
         vm.prank(owner);
-        BittyV1VaultDeFiFacet(payable(address(vault))).setAssetManager(stranger, 0, 1);
+        BittyV1VaultDeFiFacet(payable(address(vault))).setAssetManager(stranger, uint64(block.timestamp + 365 days), 1);
 
         // and the vault itself
         vm.prank(owner);

@@ -49,13 +49,13 @@ contract LockDosTest is Test {
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         MockGuard(BITTY_GUARD).setAsset(address(usdc), ASSET_STABLE_COIN);
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(30 days, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(30 days, UNCHANGED, UNCHANGED));
     }
 
     function _flood(uint256 n) internal {
         vm.startPrank(owner);
         for (uint256 i; i < n; ++i) {
-            vault.addWhitelistedRecipient(address(uint160(0x1000000 + i)), address(0));
+            vault.addWhitelistedRecipient(address(uint160(0x1000000 + i)));
         }
         vm.stopPrank();
     }

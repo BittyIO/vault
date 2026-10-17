@@ -138,7 +138,7 @@ contract DeFiAllowlistTest is Test {
      */
     function test_returningToTheCatalogueIsImmediate() public {
         vm.startPrank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(30 days, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(30 days, UNCHANGED, UNCHANGED));
         _f().useBittyAllowList(false);
         assertFalse(_f().isAssetAllowed(address(usdc)), "narrowed, and the asset is not listed");
 
@@ -152,7 +152,7 @@ contract DeFiAllowlistTest is Test {
     /// Both directions settle in the call that asks for them, so nothing arrives later.
     function test_neitherDirectionLeavesAnythingPending() public {
         vm.startPrank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED, UNCHANGED));
         _f().useBittyAllowList(true);
         _f().useBittyAllowList(false);
         vm.stopPrank();
@@ -197,7 +197,11 @@ contract DeFiAllowlistTest is Test {
 
     function _sendDailyAllowance(uint64 cap) internal {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings({timelock: UNCHANGED, sendDailyAllowance: cap}));
+        vault.updateRisk(
+            IBittyV1Owner.RiskSettings({
+                timelock: UNCHANGED, sendDailyAllowance: cap, marketTradeDailyLossAllowance: UNCHANGED
+            })
+        );
     }
 
     // ── deposit / withdraw ────────────────────────────────────────────────────

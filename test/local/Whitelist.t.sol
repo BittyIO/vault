@@ -15,8 +15,7 @@ import {
     AddressZero,
     AmountIsZero,
     ProtectionPeriodNotEnded,
-    WhitelistedRecipientNotFound,
-    WhitelistedRecipientAssetNotAllowed
+    WhitelistedRecipientNotFound
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
@@ -72,30 +71,24 @@ contract WhitelistTest is Test {
 
     function test_ownerAddsAndPays() public {
         vm.startPrank(owner);
-        uint256 id = vault.addWhitelistedRecipient(payee, address(usdc));
+        uint256 id = vault.addWhitelistedRecipient(payee);
         _pay(id, address(usdc), 10e6);
         vm.stopPrank();
         assertEq(usdc.balanceOf(payee), 10e6);
     }
 
-    /// An entry with no named asset accepts any asset the vault holds.
-    function test_anyAssetWhenNoneIsNamed() public {
+    /**
+     * An entry is an address and nothing else: it accepts any asset the vault holds, so that a locked
+     * vault, which cannot trade, can still pay out whatever it has.
+     */
+    function test_anEntryAcceptsAnyAsset() public {
         vm.startPrank(owner);
-        uint256 id = vault.addWhitelistedRecipient(payee, address(0));
+        uint256 id = vault.addWhitelistedRecipient(payee);
         _pay(id, address(usdc), 1e6);
         _pay(id, address(other), 1e18);
         vm.stopPrank();
         assertEq(usdc.balanceOf(payee), 1e6);
         assertEq(other.balanceOf(payee), 1e18);
-    }
-
-    /// A named asset is a restriction, not a default.
-    function test_namedAssetIsEnforced() public {
-        vm.startPrank(owner);
-        uint256 id = vault.addWhitelistedRecipient(payee, address(usdc));
-        vm.expectRevert(WhitelistedRecipientAssetNotAllowed.selector);
-        _pay(id, address(other), 1e18);
-        vm.stopPrank();
     }
 
     // ── the protection window ─────────────────────────────────────────────────
@@ -107,8 +100,8 @@ contract WhitelistTest is Test {
      */
     function test_aNewPayeeWaitsOutTheProtectionWindow() public {
         vm.startPrank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, UNCHANGED));
-        uint256 id = vault.addWhitelistedRecipient(payee, address(usdc));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, UNCHANGED, UNCHANGED));
+        uint256 id = vault.addWhitelistedRecipient(payee);
 
         vm.expectRevert(ProtectionPeriodNotEnded.selector);
         _pay(id, address(usdc), 1e6);
@@ -126,7 +119,7 @@ contract WhitelistTest is Test {
         address stranger = makeAddr("stranger");
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, stranger));
-        vault.addWhitelistedRecipient(payee, address(usdc));
+        vault.addWhitelistedRecipient(payee);
     }
 
     // ── bad input ─────────────────────────────────────────────────────────────
@@ -134,12 +127,12 @@ contract WhitelistTest is Test {
     function test_zeroRecipientRejected() public {
         vm.prank(owner);
         vm.expectRevert(AddressZero.selector);
-        vault.addWhitelistedRecipient(address(0), address(usdc));
+        vault.addWhitelistedRecipient(address(0));
     }
 
     function test_zeroAmountRejected() public {
         vm.startPrank(owner);
-        uint256 id = vault.addWhitelistedRecipient(payee, address(usdc));
+        uint256 id = vault.addWhitelistedRecipient(payee);
         vm.expectRevert(AmountIsZero.selector);
         _pay(id, address(usdc), 0);
         vm.stopPrank();
@@ -153,7 +146,7 @@ contract WhitelistTest is Test {
 
     function test_removedEntryCannotBePaid() public {
         vm.startPrank(owner);
-        uint256 id = vault.addWhitelistedRecipient(payee, address(usdc));
+        uint256 id = vault.addWhitelistedRecipient(payee);
         vault.removeWhitelistedRecipients(_one(id));
         vm.expectRevert(WhitelistedRecipientNotFound.selector);
         _pay(id, address(usdc), 1e6);
@@ -162,10 +155,9 @@ contract WhitelistTest is Test {
 
     function test_getWhitelistedRecipientsReadsBack() public {
         vm.prank(owner);
-        uint256 id = vault.addWhitelistedRecipient(payee, address(usdc));
-        (address[] memory rs, address[] memory as_) = vault.getWhitelistedRecipients(_one(id));
+        uint256 id = vault.addWhitelistedRecipient(payee);
+        address[] memory rs = vault.getWhitelistedRecipients(_one(id));
         assertEq(rs[0], payee);
-        assertEq(as_[0], address(usdc));
     }
 
     /// Pay with no position-withdrawal legs: the arrays name where the money is pulled FROM, and

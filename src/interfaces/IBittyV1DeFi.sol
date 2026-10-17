@@ -4,15 +4,18 @@ pragma solidity ^0.8.34;
 error InvalidDepositableProtocol();
 error InvalidWithdrawableProtocol();
 error InvalidMarketTradeProtocol();
-error InvalidMarketMakerProtocol();
 error InvalidIntentProtocol();
 error ProtocolNotInstantiated();
 error ProtocolLineageMismatch();
 error ProtocolNotNewer();
-error ProtocolNFT();
 error GrantTooLong();
 error AssetManagerExpiryInPast();
 error MarketTradeNotSupported();
+error MarketTradePriceTooLow();
+error MarketTradeExceedsDailyLossAllowance();
+error PriceFeedMissing(address asset);
+error PriceStale(address asset);
+error SequencerDown();
 
 /**
  * @title IBittyV1DeFi
@@ -21,7 +24,7 @@ error MarketTradeNotSupported();
  *         because the facet authorises on `owner()` and `owner()` is whoever owns the host account.
  *         There is no manager role left to name — a delegated manager IS a sub vault owned by someone
  *         else. Owner-only config (protocol add/remove) lives in {IBittyV1Owner}; the read functions
- *         (getBalances, getLiquidity, protocol getters, …) live in {IBittyV1Vault}.
+ *         (getBalances, protocol getters, …) live in {IBittyV1Vault}.
  */
 interface IBittyV1DeFi {
     /**
@@ -71,45 +74,6 @@ interface IBittyV1DeFi {
      * @param ids The pending withdrawal ids to claim.
      */
     function claimWithdrawals(address withdrawProtocol, uint256[] memory ids) external;
-
-    /**
-     * @notice Add liquidity through a market-maker protocol.
-     * @param marketMakerProtocol The market-maker protocol to add liquidity through.
-     * @param token0 The first token to add liquidity from.
-     * @param amount0 The amount of the first token to add liquidity from.
-     * @param token1 The second token to add liquidity from.
-     * @param amount1 The amount of the second token to add liquidity from.
-     * @param data The data for the add.
-     */
-    function addLiquidity(
-        address marketMakerProtocol,
-        address token0,
-        uint256 amount0,
-        address token1,
-        uint256 amount1,
-        bytes memory data
-    ) external;
-
-    /**
-     * @notice Remove liquidity from a market-maker protocol.
-     * @param marketMakerProtocol The market-maker protocol to remove liquidity from.
-     * @param data The data for the remove.
-     */
-    function removeLiquidity(address marketMakerProtocol, bytes memory data) external;
-
-    /**
-     * @notice Decrease liquidity in a market-maker protocol.
-     * @param marketMakerProtocol The market-maker protocol to decrease liquidity in.
-     * @param data The data for the decrease.
-     */
-    function decreaseLiquidity(address marketMakerProtocol, bytes memory data) external;
-
-    /**
-     * @notice Claim fees from a market-maker position.
-     * @param marketMakerProtocol The market-maker protocol holding the position.
-     * @param data The data for the claim.
-     */
-    function claimMarketMakerFees(address marketMakerProtocol, bytes memory data) external;
 
     /**
      * @notice Approve the intent protocol's settlement relayer for a token.

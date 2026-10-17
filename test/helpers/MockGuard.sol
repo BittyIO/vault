@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {ASSET_STABLE_COIN, PriceFeed, MarketTradeInfo} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
+
+interface IFeedDecimals {
+    function decimals() external view returns (uint8);
+}
+
 /**
  * @notice A configurable stand-in for the Bitty guard, covering the subset the subaccount system reads:
  *         the timelocked implementation registry plus the asset/protocol registries. Etch it at
@@ -30,8 +36,11 @@ contract MockGuard {
         return assetCategory[a] != 0;
     }
 
+    /**
+     * As in the real guard, deprecating a protocol takes it out of the registered set.
+     */
     function isProtocolRegistered(address p) external view returns (bool) {
-        return protocolCategory[p] != 0;
+        return protocolCategory[p] != 0 && !isProtocolDeprecated[p];
     }
 
     function getProtocols() external view returns (address[] memory) {
@@ -86,5 +95,70 @@ contract MockGuard {
 
     function setConfigUint(bytes32 key, uint256 value) external {
         getUint[key] = value;
+    }
+
+    // ── price feeds and the one-call market-trade read, as the real guard answers them ──
+    mapping(address => PriceFeed) internal _priceFeeds;
+    address public sequencerUptimeFeed;
+
+    function priceFeed(address asset) external view returns (PriceFeed memory) {
+        return _priceFeeds[asset];
+    }
+
+    /**
+     * @dev Reads the feed's decimals from the feed, as the real setter does. A zero feed clears it.
+     */
+    function setPriceFeed(address asset, address feed, uint32 maxAge, address quote) external {
+        if (feed == address(0)) {
+            delete _priceFeeds[asset];
+            return;
+        }
+        uint8 assetDecimals = 18;
+        if (asset != address(0)) {
+            (bool ok, bytes memory data) = asset.staticcall(abi.encodeCall(IFeedDecimals.decimals, ()));
+            assetDecimals = ok && data.length >= 32 ? abi.decode(data, (uint8)) : 0;
+        }
+        _priceFeeds[asset] = PriceFeed({
+            feed: feed,
+            maxAge: maxAge,
+            decimals: IFeedDecimals(feed).decimals(),
+            assetDecimals: assetDecimals,
+            hasQuote: quote != address(0),
+            quote: quote
+        });
+    }
+
+    function setSequencerUptimeFeed(address feed) external {
+        sequencerUptimeFeed = feed;
+    }
+
+    function marketTradeChecks(address protocol, address sellToken, address buyToken)
+        external
+        view
+        returns (uint8, bool, uint8, uint8)
+    {
+        return (protocolCategory[protocol], isProtocolDeprecated[protocol], assetCategory[sellToken], assetCategory[buyToken]);
+    }
+
+    function marketTradeInfo(address protocol, address sellToken, address buyToken)
+        external
+        view
+        returns (MarketTradeInfo memory info)
+    {
+        info.protocolCategory = protocolCategory[protocol];
+        info.protocolDeprecated = isProtocolDeprecated[protocol];
+        info.sellCategory = assetCategory[sellToken];
+        info.buyCategory = assetCategory[buyToken];
+        bool sellPriced = info.sellCategory & ASSET_STABLE_COIN == 0;
+        bool buyPriced = info.buyCategory & ASSET_STABLE_COIN == 0;
+        if (sellPriced) {
+            info.sellFeed = _priceFeeds[sellToken];
+            if (info.sellFeed.hasQuote) info.sellQuoteFeed = _priceFeeds[info.sellFeed.quote];
+        }
+        if (buyPriced) {
+            info.buyFeed = _priceFeeds[buyToken];
+            if (info.buyFeed.hasQuote) info.buyQuoteFeed = _priceFeeds[info.buyFeed.quote];
+        }
+        if ((sellPriced || buyPriced) && block.chainid != 1) info.sequencerUptimeFeed = sequencerUptimeFeed;
     }
 }

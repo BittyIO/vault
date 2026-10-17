@@ -4,7 +4,8 @@ pragma solidity ^0.8.34;
 import {Test} from "forge-std/Test.sol";
 import {BittyV1AutoYieldKeeper} from "../../src/BittyV1AutoYieldKeeper.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
-import {BITTY_GUARD, CFG_OWNER} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {CFG_OWNER} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 
 /**
  * The keeper is an IDENTITY, not an actor: vaults name one immutable address as their auto-yield
