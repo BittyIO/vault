@@ -18,7 +18,6 @@ import {BittyV1VaultFactory} from "../src/BittyV1VaultFactory.sol";
 import {BittyV1VaultForwarder} from "../src/BittyV1VaultForwarder.sol";
 import {BittyV1AutoYieldKeeper} from "../src/BittyV1AutoYieldKeeper.sol";
 import {
-    BITTY_FEE_COLLECTOR,
     BITTY_FORWARDER,
     BITTY_GUARD,
     BITTY_VAULT_BOOTSTRAP,
@@ -202,12 +201,12 @@ contract Deploy is DeployScript {
             console2.log("forwarder moved to implementation     ", build);
         }
         BittyV1VaultForwarder fwd = BittyV1VaultForwarder(payable(forwarder));
-        if (!fwd.approvedRelayers(BITTY_FEE_COLLECTOR)) {
-            fwd.setRelayerApproval(BITTY_FEE_COLLECTOR, true);
-            console2.log("fee collector approved as relayer     ", BITTY_FEE_COLLECTOR);
-        }
+        // The relayer is the hot key that submits users' signed requests; the fee collector (a Safe)
+        // is where their fees land, and is never a relayer.
         address relayer = getAddressOr("BITTY_RELAYER", address(0));
-        if (relayer != address(0) && !fwd.approvedRelayers(relayer)) {
+        if (relayer == address(0)) {
+            console2.log("WARNING: no BITTY_RELAYER in deployments/<chain>.toml - the forwarder has no relayer");
+        } else if (!fwd.approvedRelayers(relayer)) {
             fwd.setRelayerApproval(relayer, true);
             console2.log("relayer approved                      ", relayer);
         }

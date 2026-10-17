@@ -110,6 +110,7 @@ remappings = [
 sepolia = "https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}"
 mainnet = "https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
 base = "https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
+arbitrum = "https://arb1.arbitrum.io/rpc"
 # Robinhood Chain (Arbitrum Orbit L2, id 4663). The public endpoint is rate-limited; override with a
 # dedicated provider for anything heavier than a deploy.
 robinhood = "https://rpc.mainnet.chain.robinhood.com"
@@ -122,6 +123,7 @@ robinhood = "https://rpc.mainnet.chain.robinhood.com"
 sepolia = { key = "${ETHERSCAN_API_KEY}" }
 mainnet = { key = "${ETHERSCAN_API_KEY}" }
 base = { key = "${ETHERSCAN_API_KEY}", chain = 8453 }
+arbitrum = { key = "${ETHERSCAN_API_KEY}", chain = 42161 }
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
