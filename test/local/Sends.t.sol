@@ -17,7 +17,7 @@ import {
     PaymentExceedsRiskCap,
     PaymentExceedsPeriodLimit
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MAX_SEND_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 /**
  * One-off sends, and the two limits an owner can put on themselves.
@@ -61,9 +61,9 @@ contract SendsTest is Test {
         vault.send(to, asset, amount, new address[](0), new uint256[](0));
     }
 
-    function _batch(address as_, address[] memory tos, address[] memory assets, uint256[] memory amts) internal {
+    function _batch(address as_, address to, address[] memory assets, uint256[] memory amts) internal {
         vm.prank(as_);
-        vault.batchSend(tos, assets, amts, new address[][](0), new uint256[][](0));
+        vault.batchSend(to, assets, amts, new address[][](0), new uint256[][](0));
     }
 
     function _cap(uint256 c) internal {
@@ -71,12 +71,23 @@ contract SendsTest is Test {
         vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, c, UNCHANGED));
     }
 
-    // ── the unrestricted default ──────────────────────────────────────────────
+    // ── the default ───────────────────────────────────────────────────────────
 
-    /// With no cap set, any asset may be sent in any amount. The limits are opt-in.
-    function test_uncappedVaultSendsAnything() public {
-        _send(owner, payee, address(other), 5e18);
-        assertEq(other.balanceOf(payee), 5e18, "a non-stable asset is fine when no cap applies");
+    /**
+     * There is no uncapped vault. One that never set an allowance is held to the largest there is,
+     * and so, like any capped vault, sends only stablecoins.
+     */
+    function test_aVaultThatSetNothingIsStillCapped() public {
+        _send(owner, payee, address(usdc), uint256(MAX_SEND_DAILY_ALLOWANCE) * 1e6);
+        assertEq(usdc.balanceOf(payee), uint256(MAX_SEND_DAILY_ALLOWANCE) * 1e6, "up to the default");
+
+        vm.prank(owner);
+        vm.expectRevert(PaymentExceedsPeriodLimit.selector);
+        vault.send(payee, address(usdc), 1e6, new address[](0), new uint256[](0));
+
+        vm.prank(owner);
+        vm.expectRevert(PaymentNotStableCoin.selector);
+        vault.send(payee, address(other), 1e18, new address[](0), new uint256[](0));
     }
 
     // ── the per-transaction cap ───────────────────────────────────────────────
@@ -108,11 +119,8 @@ contract SendsTest is Test {
      */
     function test_capAppliesToTheBatchTotalNotEachLeg() public {
         _cap(1000);
-        address[] memory tos = new address[](2);
         address[] memory assets = new address[](2);
         uint256[] memory amts = new uint256[](2);
-        tos[0] = payee;
-        tos[1] = makeAddr("payee2");
         assets[0] = address(usdc);
         assets[1] = address(usdc);
         amts[0] = 600e6;
@@ -120,11 +128,11 @@ contract SendsTest is Test {
 
         vm.prank(owner);
         vm.expectRevert(PaymentExceedsRiskCap.selector);
-        vault.batchSend(tos, assets, amts, new address[][](0), new uint256[][](0));
+        vault.batchSend(payee, assets, amts, new address[][](0), new uint256[][](0));
 
         amts[1] = 400e6; // 1000 exactly
-        _batch(owner, tos, assets, amts);
-        assertEq(usdc.balanceOf(payee), 600e6);
+        _batch(owner, payee, assets, amts);
+        assertEq(usdc.balanceOf(payee), 1000e6);
     }
 
     // ── the rolling day ───────────────────────────────────────────────────────

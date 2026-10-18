@@ -17,7 +17,7 @@ import {
     ProtectionPeriodNotEnded,
     WhitelistedRecipientNotFound
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
 
 /**
  * Whitelisted recipients: standing payees the owner can pay on demand.
@@ -72,6 +72,7 @@ contract WhitelistTest is Test {
     function test_ownerAddsAndPays() public {
         vm.startPrank(owner);
         uint256 id = vault.addWhitelistedRecipient(payee);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         _pay(id, address(usdc), 10e6);
         vm.stopPrank();
         assertEq(usdc.balanceOf(payee), 10e6);
@@ -84,6 +85,7 @@ contract WhitelistTest is Test {
     function test_anEntryAcceptsAnyAsset() public {
         vm.startPrank(owner);
         uint256 id = vault.addWhitelistedRecipient(payee);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         _pay(id, address(usdc), 1e6);
         _pay(id, address(other), 1e18);
         vm.stopPrank();

@@ -14,7 +14,7 @@ import {
     VaultLocked,
     WhitelistedRecipientNotFound
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
 
 /**
  * Taking a whitelisted recipient away waits, like granting one does.
@@ -48,7 +48,7 @@ contract WhitelistChangesTest is Test {
     uint256 coldId;
 
     function setUp() public {
-        vm.warp(T0);
+        vm.warp(T0 - MIN_RISK_TIMELOCK);
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         guard = MockGuard(BITTY_GUARD);
 
@@ -66,9 +66,10 @@ contract WhitelistChangesTest is Test {
         usdc.mint(address(vault), 100_000e6);
         other.mint(address(vault), 100e18);
 
-        // Before anything goes wrong: one vetted destination, live, and a timelock on what follows.
+        // Before anything goes wrong: one vetted destination, live by T0, and a timelock on what follows.
         vm.startPrank(owner);
         coldId = vault.addWhitelistedRecipient(cold);
+        vm.warp(T0);
         vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, UNCHANGED, UNCHANGED));
         vm.stopPrank();
     }
@@ -188,12 +189,22 @@ contract WhitelistChangesTest is Test {
         vault.sendToWhitelistedRecipient(thiefId, address(usdc), 1e6, _none(), _noAmounts());
     }
 
-    function test_withNoTimelockARemovalIsImmediate() public {
+    /**
+     * The timelock cannot be taken away, so neither can the wait: at the shortest it may be, a
+     * removal still queues for a day and the entry stays payable until then.
+     */
+    function test_atTheShortestTimelockARemovalStillWaits() public {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(0, UNCHANGED, UNCHANGED));
-        vm.warp(block.timestamp + TIMELOCK); // the loosening lands
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
+        vm.warp(T0 + TIMELOCK); // the loosening lands
         vm.prank(owner);
         vault.removeWhitelistedRecipients(_ids(coldId));
+        assertEq(vault.getWhitelistedRecipientRemovals(_ids(coldId))[0], T0 + TIMELOCK + MIN_RISK_TIMELOCK);
+
+        _pay(coldId, address(usdc), 1e6);
+        assertEq(usdc.balanceOf(cold), 1e6, "still payable while the removal waits");
+
+        vm.warp(T0 + TIMELOCK + MIN_RISK_TIMELOCK);
         vm.prank(owner);
         vm.expectRevert(WhitelistedRecipientNotFound.selector);
         vault.sendToWhitelistedRecipient(coldId, address(usdc), 1e6, _none(), _noAmounts());

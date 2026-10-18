@@ -17,7 +17,14 @@ import {BittyV1VaultBase} from "../../src/BittyV1VaultBase.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield, IBittyV1Vault, NotTrustedForwarder, VaultLocked} from "../../src/interfaces/IBittyV1Vault.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {BITTY_GUARD, BITTY_FORWARDER, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
+import {
+    BITTY_GUARD,
+    BITTY_FORWARDER,
+    MIN_RISK_TIMELOCK,
+    PERM_YIELD,
+    PERM_SUPPLY,
+    PERM_INTENT
+} from "../../src/logic/Constants.sol";
 
 /**
  * The two locks: what they stop, what they leave alone, and which of them can be undone.
@@ -95,6 +102,7 @@ contract LocksTest is Test {
         _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD | PERM_SUPPLY | PERM_INTENT);
         coldId = vault.addWhitelistedRecipient(cold);
         vm.stopPrank();
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK); // both wait out a new vault's timelock
     }
 
     function _f() internal view returns (BittyV1VaultDeFiFacet) {
@@ -260,7 +268,7 @@ contract LocksTest is Test {
     function test_lockingVoidsAPendingRiskLoosening() public {
         vm.startPrank(owner);
         vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, UNCHANGED, UNCHANGED));
-        vault.updateRisk(IBittyV1Owner.RiskSettings(0, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
         vault.emergencyLock();
         vault.unlock();
         vm.stopPrank();

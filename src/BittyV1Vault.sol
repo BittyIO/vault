@@ -108,12 +108,6 @@ contract BittyV1Vault is BittyV1VaultBase {
         _settleOwnership();
         VaultStorage storage $ = BittyStorage.vault();
         uint64 timelock = RiskLogic.riskTimelock();
-        if (timelock == 0) {
-            $.ownershipReadyAt = 0; // drop any handover still waiting; this one happens now
-            $.pendingOwner = address(0);
-            _transferOwnership(newOwner);
-            return;
-        }
         uint64 readyAt = uint64(block.timestamp) + timelock;
         $.ownershipReadyAt = uint40(readyAt);
         $.pendingOwner = newOwner;
@@ -179,14 +173,14 @@ contract BittyV1Vault is BittyV1VaultBase {
     }
 
     function batchSend(
-        address[] calldata recipients,
+        address recipient,
         address[] calldata assets,
         uint256[] calldata amounts,
         address[][] calldata withdrawProtocols,
         uint256[][] calldata withdrawAmounts
     ) external onlyOwner notLocked {
         _pullFromPositions(assets, withdrawProtocols, withdrawAmounts);
-        PaymentLogic.send(recipients, assets, amounts);
+        PaymentLogic.batchSend(recipient, assets, amounts);
     }
 
     function send(
@@ -197,16 +191,34 @@ contract BittyV1Vault is BittyV1VaultBase {
         uint256[] calldata withdrawAmounts
     ) external onlyOwner notLocked {
         _pullOneFromPositions(asset, withdrawProtocols, withdrawAmounts);
-        address[] memory r = new address[](1);
-        address[] memory a = new address[](1);
-        uint256[] memory m = new uint256[](1);
-        r[0] = recipient;
-        a[0] = asset;
-        m[0] = amount;
-        PaymentLogic.send(r, a, m);
+        PaymentLogic.send(recipient, asset, amount);
     }
 
     function addWhitelistedRecipient(address recipient) external onlyOwner notLocked returns (uint256) {
+        return WhitelistLogic.addWhitelistedRecipientOne(recipient);
+    }
+
+    function sendAndAddWhitelistedRecipient(
+        address recipient,
+        address asset,
+        uint256 amount,
+        address[] calldata withdrawProtocols,
+        uint256[] calldata withdrawAmounts
+    ) external onlyOwner notLocked returns (uint256) {
+        _pullOneFromPositions(asset, withdrawProtocols, withdrawAmounts);
+        PaymentLogic.send(recipient, asset, amount);
+        return WhitelistLogic.addWhitelistedRecipientOne(recipient);
+    }
+
+    function batchSendAndAddWhitelistedRecipient(
+        address recipient,
+        address[] calldata assets,
+        uint256[] calldata amounts,
+        address[][] calldata withdrawProtocols,
+        uint256[][] calldata withdrawAmounts
+    ) external onlyOwner notLocked returns (uint256) {
+        _pullFromPositions(assets, withdrawProtocols, withdrawAmounts);
+        PaymentLogic.batchSend(recipient, assets, amounts);
         return WhitelistLogic.addWhitelistedRecipientOne(recipient);
     }
 

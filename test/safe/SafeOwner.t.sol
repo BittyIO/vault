@@ -22,6 +22,7 @@ import {
     BITTY_GUARD,
     BITTY_FORWARDER,
     BITTY_VAULT_BOOTSTRAP,
+    MIN_RISK_TIMELOCK,
     PERM_YIELD,
     PERM_SUPPLY,
     PERM_INTENT
@@ -222,6 +223,8 @@ contract SafeOwnerTest is Test {
                 (makeAddr("manager"), uint64(block.timestamp + 365 days), PERM_YIELD | PERM_SUPPLY | PERM_INTENT)
             )
         );
+        // The first appointment waits out the vault's timelock, a day until the owner sets one.
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         (address manager,,,,,) = BittyV1VaultDeFiFacet(payable(address(vault))).getAssetManagerSettings();
         assertEq(manager, makeAddr("manager"), "and appointed an asset manager");
     }
@@ -238,7 +241,9 @@ contract SafeOwnerTest is Test {
 
         vm.prank(eoa);
         v.transferOwnership(address(safe));
-        assertEq(v.owner(), address(safe), "handed over in the one call");
+        assertEq(v.owner(), eoa, "waits out the timelock");
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        assertEq(v.owner(), address(safe), "then the Safe holds it, with no second call");
     }
 
     // ── signed authority: ERC-1271 through SignatureChecker ───────────────────

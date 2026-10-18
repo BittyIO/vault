@@ -23,7 +23,7 @@ import {
     PriceFeedMissing
 } from "../../src/interfaces/IBittyV1DeFi.sol";
 import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE} from "../../src/logic/Constants.sol";
 import {FillingMarket, MockFeed, ITrade} from "./MarketTradeGuard.t.sol";
 
 /**
@@ -87,7 +87,7 @@ contract MarketTradeRealGuardTest is Test {
         ldo.mint(address(vault), 1_000e18);
 
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, 1_000_000));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE));
     }
 
     function _sell(address sellToken, uint256 amount, address buyToken, uint256 fill) internal {

@@ -15,7 +15,7 @@ import {NextReleaseVault} from "../helpers/NextReleaseVault.sol";
 import {IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
 import {OwnershipNotRenounceable, InvalidRelayedCalldata} from "../../src/interfaces/IBittyV1Vault.sol";
 import {ImplementationNotRegistered, VaultNotNewer} from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, BITTY_FORWARDER} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_FORWARDER, MIN_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
 
 interface IFacet {
     function getAutoYieldings(address[] calldata assets) external view returns (address[] memory);
@@ -56,13 +56,17 @@ contract VaultCoreTest is Test {
     /**
      * One step. The two-step version looked like a defence and was not one: a stolen key nominates
      * itself and accepts in the same block, relayed, needing no ether. What it really bought was a
-     * typo check, at the price of every honest handover costing two transactions.
+     * typo check, at the price of every honest handover costing two transactions. The timelock is
+     * the defence, and it completes on its own - nobody has to accept.
      */
-    function test_ownershipTransferTakesEffectAtOnce() public {
+    function test_ownershipTransferTakesEffectAfterTheTimelockWithNoSecondCall() public {
         address next = makeAddr("next");
         vm.prank(owner);
         vault.transferOwnership(next);
-        assertEq(vault.owner(), next, "handed over in the one call");
+        assertEq(vault.owner(), owner, "waits out the timelock, a day until the owner sets one");
+
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        assertEq(vault.owner(), next, "and then it is done, with no second call");
     }
 
     /**

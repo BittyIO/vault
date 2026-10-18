@@ -653,20 +653,16 @@ contract ForwarderTest is Test {
 
     function test_aRelayedBatchSendPaysEveryLeg() public {
         address one = makeAddr("one");
-        address two = makeAddr("two");
-        address[] memory rs = new address[](2);
         address[] memory as_ = new address[](2);
         uint256[] memory ms = new uint256[](2);
-        rs[0] = one;
-        rs[1] = two;
         as_[0] = address(usdc);
         as_[1] = address(usdc);
         ms[0] = 10e6;
         ms[1] = 20e6;
 
         bytes memory data = abi.encodeWithSignature(
-            "batchSend(address[],address[],uint256[],address[][],uint256[][])",
-            rs,
+            "batchSend(address,address[],uint256[],address[][],uint256[][])",
+            one,
             as_,
             ms,
             new address[](0),
@@ -674,8 +670,7 @@ contract ForwarderTest is Test {
         );
         _relay(_sign(_req(owner, address(vaultA), data), ownerPk), 1e6);
 
-        assertEq(usdc.balanceOf(one), 10e6);
-        assertEq(usdc.balanceOf(two), 20e6);
+        assertEq(usdc.balanceOf(one), 30e6, "both legs, to the one recipient");
     }
 
     /// Two relayed calls in one batch, charged once — the reason executeBatchWithFee exists.

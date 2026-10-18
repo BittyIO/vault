@@ -13,7 +13,7 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield, IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
 import {AssetManagerExpiryInPast} from "../../src/interfaces/IBittyV1DeFi.sol";
-import {BITTY_GUARD, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
 
 /*
  * The capabilities these tests appoint a manager for: the jobs a managed vault is actually given —
@@ -80,9 +80,14 @@ contract AssetManagerTest is Test {
         return BittyV1VaultDeFiFacet(payable(address(vault)));
     }
 
+    /**
+     * Appoint the manager and let the grant land: a new vault's timelock is a day, so even the first
+     * appointment waits.
+     */
     function _appoint(uint64 expiresAt) internal {
         vm.prank(owner);
         _f().setAssetManager(manager, expiresAt, MANAGER_PERMS);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
     }
 
     // ── what the manager is for ──────────────────────────────────────────────
@@ -359,15 +364,15 @@ contract AssetManagerTest is Test {
         _withTimelock();
 
         vm.prank(owner);
-        _f().setAssetManager(manager, START + 1 days, MANAGER_PERMS);
+        _f().setAssetManager(manager, START + 2 days, MANAGER_PERMS);
         (, uint64 exp, address pending,,,) = _f().getAssetManagerSettings();
-        assertEq(exp, START + 1 days, "shortened at once");
+        assertEq(exp, START + 2 days, "shortened at once");
         assertEq(pending, address(0), "nothing queued");
 
         vm.prank(owner);
         _f().setAssetManager(manager, START + GRANT, MANAGER_PERMS);
         (, uint64 stillShort, address queued,,,) = _f().getAssetManagerSettings();
-        assertEq(stillShort, START + 1 days, "extension has not landed");
+        assertEq(stillShort, START + 2 days, "extension has not landed");
         assertEq(queued, manager, "it is queued instead");
     }
 }

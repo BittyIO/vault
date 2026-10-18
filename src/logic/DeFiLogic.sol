@@ -28,7 +28,7 @@ import {
     Deprecated
 } from "../interfaces/IBittyV1Vault.sol";
 import {BittyStorage, DeFiStorage, ProtocolInstance} from "./BittyStorage.sol";
-import {TimelockLib} from "./TimelockLib.sol";
+import {RiskLogic} from "./RiskLogic.sol";
 import {BITTY_GUARD, MAX_GRANT_DURATION} from "./Constants.sol";
 
 /**
@@ -127,9 +127,9 @@ library DeFiLogic {
         bool noLaterExpiry = expiresAt <= $.assetManagerExpiresAt;
         bool noNewPermission = permissions & ~$.assetManagerPerms == 0;
         bool tightening = sameManager && noLaterExpiry && noNewPermission;
-        uint64 timelock = TimelockLib.effective(BittyStorage.vault().riskConfig.timelock);
+        uint64 timelock = RiskLogic.effectiveTimelock(BittyStorage.vault().riskConfig);
 
-        if (tightening || timelock == 0) {
+        if (tightening) {
             $.assetManager = assetManager;
             $.assetManagerExpiresAt = uint48(expiresAt);
             $.assetManagerPerms = permissions;

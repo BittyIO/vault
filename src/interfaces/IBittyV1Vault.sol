@@ -15,6 +15,8 @@ error ReentrantCall();
 
 error ProtectionPeriodNotEnded();
 error RiskTimelockTooLong();
+error RiskTimelockTooShort();
+error RiskAllowanceOutOfRange();
 
 error OwnershipNotRenounceable();
 error NoPendingOwnershipTransfer();
@@ -44,66 +46,34 @@ struct AutoYield {
 
 /**
  * @title IBittyV1Vault
- * @notice The vault's shared types, errors, and the no-role (permissionless) + read functions.
- *         Owner-only functions live in {IBittyV1Owner}; trading/yield functions live in
- *         {IBittyV1DeFi}.
- *
- * @dev Bitty Vault helps you manage your assets safely across different devices, people or AI agents.
- * There are 3 principles for Bitty Vault design:
- * 1. Provide features like traditional wallets so people can switch to it easily.
- * 2. Provide safer options for users to manage the risk of their assets.
- * 3. Let the owner only ever lower the vault's risk.
- */
-/**
- * Everything the vault has been told to do but has not done yet, in one read.
- *
- * This is the screen the whole lock design rests on. A leaked key cannot be taken away, so the
- * owner's defence is NOTICING — seeing a handover, a delegate, a destination or a looser limit
- * appear, and reaching {BittyV1Vault-emergencyLock} before it matures. A client that cannot show
- * what is in flight leaves the owner nothing to act on, however well the contract behaves.
- *
- * Every field is a single slot, so the read costs the same whatever an attacker has queued — like the
- * lock itself. What it deliberately does NOT list is the deferred whitelist edits: new destinations,
- * and removals of existing ones, are unbounded in number, and the client lists those from the events
- * that created them ({IBittyV1Owner-WhitelistedRecipientRemovalQueued} for a removal), each with the
- * window it is still waiting out. Putting a count here would mean the
- * chain keeping a tally it never reads, which is what the retired pending-adds cap was.
+ * @dev There are 3 principles for Bitty Vault design:
+ * 1. Each operation that make vault risk more, need timelock.
+ * 2. Each operation that make vault risk less, take effect immediately.
+ * 3. Even the owner private key got compromised, the timelock will make the lost in control.
  */
 struct PendingChanges {
-    /**
-     * 0 unlocked, 1 emergency locked, 2 locked for ever.
-     */
-    uint8 lockLevel;
-    /**
-     * A handover under way, and when it completes by itself. Zeros once it has — by then it is the
-     * answer {IBittyV1Vault-owner} already gives, not something still to come.
-     */
+    uint8 lockLevel; // 0 unlocked, 1 emergency locked, 2 locked for ever.
+
     address newOwner;
     uint64 newOwnerReadyAt;
-    /**
-     * A queued asset-manager grant, with the capabilities it would carry.
-     */
+
     address newAssetManager;
     uint64 newAssetManagerAt;
     uint32 newAssetManagerPerms;
-    /**
-     * The risk numbers where one has been loosened and is waiting: the value it would take, and
-     * the moment it would take it. A zero `At` means nothing is waiting. A tightening never appears
-     * here, because it applied the moment it was asked for.
-     */
+
     uint64 timelock;
     uint64 timelockAt;
     uint64 sendDailyAllowance;
     uint64 sendDailyAllowanceAt;
     uint64 marketTradeDailyLossAllowance;
     uint64 marketTradeDailyLossAllowanceAt;
+
     uint64 gasBudgetDaily;
     uint64 gasBudgetDailyAt;
     uint64 maxFeePerOp;
     uint64 maxFeePerOpAt;
 }
 
-// {WhitelistEntryView-status}: what the owner can do with an entry right now.
 uint8 constant WHITELIST_REMOVED = 0; // gone, or never issued
 uint8 constant WHITELIST_PENDING = 1; // still waiting out the timelock it was added under
 uint8 constant WHITELIST_PAYABLE = 2; // can be paid now, lock or no lock
@@ -217,9 +187,9 @@ interface IBittyV1Vault {
     /**
      * @notice Get the vault's three risk numbers.
      * @return timelock The one wait in front of everything deferred.
-     * @return sendDailyAllowance What may leave per day through regular sends; 0 = no cap.
+     * @return sendDailyAllowance What may leave per day through regular sends, in whole USD; never 0.
      * @return marketTradeDailyLossAllowance What market trades may lose against oracle value per day,
-     *         in whole USD; 0 = unprotected.
+     *         in whole USD; never 0.
      */
     function riskSettings()
         external

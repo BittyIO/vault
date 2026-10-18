@@ -19,7 +19,7 @@ import {
     VaultLocked
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
 import {IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 
 /**
@@ -96,10 +96,14 @@ contract QueuedAuthorityTest is Test {
     // -- handing the vault over -----------------------------------------------
 
     /// No timelock, no wait. A vault given no window behaves exactly as it did before.
-    function test_withoutATimelockAHandoverIsStillOneCall() public {
+    /// Every vault has a timelock - a day until the owner sets one - so no handover is one call.
+    function test_aNewVaultsHandoverWaitsOutTheDefaultTimelock() public {
         vm.prank(owner);
         vault.transferOwnership(heir);
-        assertEq(vault.owner(), heir);
+        assertEq(vault.owner(), owner, "nothing has moved yet");
+
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        assertEq(vault.owner(), heir, "a day later it has");
     }
 
     function test_withATimelockTheCallOnlyStartsTheClock() public {
@@ -356,7 +360,7 @@ contract QueuedAuthorityTest is Test {
         vm.startPrank(owner); // the leaked key, busy
         vault.transferOwnership(thief);
         BittyV1VaultDeFiFacet(payable(address(vault))).setAssetManager(thief, uint64(block.timestamp + 365 days), 1);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(0, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
         vault.addWhitelistedRecipient(thief);
         vm.stopPrank();
 
@@ -365,7 +369,7 @@ contract QueuedAuthorityTest is Test {
         assertEq(p.newOwner, thief, "a handover the owner did not ask for");
         assertEq(p.newOwnerReadyAt, uint64(block.timestamp) + WAIT);
         assertEq(p.newAssetManager, thief, "and a delegate");
-        assertEq(p.timelock, 0, "and the wait itself being taken down");
+        assertEq(p.timelock, MIN_RISK_TIMELOCK, "and the wait itself being taken down");
         assertEq(p.timelockAt, uint64(block.timestamp) + WAIT);
 
         // One call answers all of it, and the lock clears all of it.
