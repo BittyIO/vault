@@ -12,7 +12,11 @@ import {MARKET_TRADE_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {PaymentExceedsPeriodLimit, PendingChanges} from "../../src/interfaces/IBittyV1Vault.sol";
+import {
+    PaymentExceedsPeriodLimit,
+    PendingChanges,
+    RiskAllowanceOutOfRange
+} from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     MarketTradeNotSupported,
     MarketTradePriceTooLow,
@@ -21,7 +25,12 @@ import {
     PriceStale,
     SequencerDown
 } from "../../src/interfaces/IBittyV1DeFi.sol";
-import {BITTY_GUARD, PERM_MARKET_TRADE} from "../../src/logic/Constants.sol";
+import {
+    BITTY_GUARD,
+    MIN_RISK_TIMELOCK,
+    MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE,
+    PERM_MARKET_TRADE
+} from "../../src/logic/Constants.sol";
 
 interface ITrade {
     function marketSell(
@@ -91,9 +100,9 @@ contract MockFeed {
 
 /**
  * The case this guard exists for: a leaked key that sells the vault's assets into a pool it set up
- * itself. Every route is the caller's to choose, so a protected vault judges the trade by what actually
- * left and arrived, at oracle value — and caps what trades may lose per day. An owner who leaves the
- * allowance at 0, the default, opts out of all of it.
+ * itself. Every route is the caller's to choose, so the vault judges the trade by what actually left
+ * and arrived, at oracle value — and caps what trades may lose per day. There is no opting out: the
+ * allowance is at least 1, and a vault that never set it is held to the largest, 10,000.
  */
 contract MarketTradeGuardTest is Test {
     BittyV1Vault vault;
@@ -103,11 +112,12 @@ contract MarketTradeGuardTest is Test {
     MockERC20 weth;
     FillingMarket market;
     MockFeed wethFeed;
+    BittyV1Vault vaultImpl;
 
     address owner = makeAddr("owner");
     uint256 constant UNCHANGED = type(uint256).max;
     uint256 constant HEARTBEAT = 1 hours;
-    uint256 constant ROOMY = 1_000_000; // a daily allowance the price-check tests never reach
+    uint256 constant ROOMY = MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE; // the price-check tests never reach it
 
     function setUp() public {
         vm.warp(1_000_000);
@@ -115,11 +125,8 @@ contract MarketTradeGuardTest is Test {
         guard = MockGuard(BITTY_GUARD);
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
-        BittyV1Vault impl = new BittyV1Vault(address(facet));
-        bytes memory init = abi.encodeCall(
-            BittyV1Vault.initialize, (owner, makeAddr("gasWrapped"), false, address(0), 0, new bytes[](0))
-        );
-        vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
+        vaultImpl = new BittyV1Vault(address(facet));
+        vault = _freshVault();
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
         dai = new MockERC20("Dai", "DAI", 18);
@@ -140,6 +147,14 @@ contract MarketTradeGuardTest is Test {
         dai.mint(address(vault), 1_000_000e18);
 
         _risk(UNCHANGED, ROOMY);
+    }
+
+    /// A vault of the owner's with nothing configured.
+    function _freshVault() internal returns (BittyV1Vault) {
+        bytes memory init = abi.encodeCall(
+            BittyV1Vault.initialize, (owner, makeAddr("gasWrapped"), false, address(0), 0, new bytes[](0))
+        );
+        return BittyV1Vault(payable(new ERC1967Proxy(address(vaultImpl), init)));
     }
 
     function _registerFeed(address asset, address feed, uint256 maxAge) internal {
@@ -439,14 +454,19 @@ contract MarketTradeGuardTest is Test {
     }
 
     /**
-     * Turning protection off is the biggest loosening there is, so a leaked key waits it out too.
+     * Protection cannot be turned off at all - not at once, and not after a wait - so a leaked key
+     * has nothing to queue.
      */
-    function test_turningProtectionOffWaitsOutTheTimelock() public {
+    function test_protectionCannotBeTurnedOff() public {
         _risk(2 days, 1_000);
-        _risk(UNCHANGED, 0);
+        vm.prank(owner);
+        vm.expectRevert(RiskAllowanceOutOfRange.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, 0));
 
+        vm.warp(block.timestamp + 30 days);
+        wethFeed.set(2_000e8, block.timestamp, block.timestamp);
         (,, uint64 allowance) = vault.riskSettings();
-        assertEq(allowance, 1_000, "0 is unprotected, so it waits like any raise");
+        assertEq(allowance, 1_000, "still protected");
         vm.expectRevert(MarketTradePriceTooLow.selector);
         _sell(address(weth), 100e18, address(usdc), 1);
     }
@@ -478,6 +498,8 @@ contract MarketTradeGuardTest is Test {
         vm.prank(owner);
         BittyV1VaultDeFiFacet(payable(address(vault)))
             .setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_MARKET_TRADE);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK); // the grant waits out a new vault's timelock
+        wethFeed.set(2_000e8, block.timestamp, block.timestamp);
 
         vm.prank(manager);
         ITrade(address(vault)).marketSell(address(market), address(weth), 1e18, address(usdc), 0, abi.encode(1_940e6));
@@ -497,27 +519,30 @@ contract MarketTradeGuardTest is Test {
         assertEq(allowance, 1_000, "the raise was queued before the lock and died with it");
     }
 
-    // ── unprotected ─────────────────────────────────────────────────────────────────────────────
+    // ── every vault is protected ────────────────────────────────────────────────────────────────
 
     /**
-     * At 0 the owner has opted out: the trade reads no price, so it takes any fill the caller's
-     * minimum allows — the rigged pool included — and needs no feed, fresh or otherwise.
+     * There is no unprotected vault. One whose owner never set an allowance is held to the largest
+     * there is, and every trade is priced: the rigged pool is refused, and so is an asset with no feed.
      */
-    function test_anUnprotectedVaultTradesAtAnyPrice() public {
-        _risk(UNCHANGED, 0);
+    function test_aVaultThatSetNothingIsStillProtected() public {
+        BittyV1Vault fresh = _freshVault();
+        weth.mint(address(fresh), 1e18);
+        (,, uint64 allowance) = fresh.riskSettings();
+        assertEq(allowance, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "the default");
 
-        _sell(address(weth), 50e18, address(usdc), 1);
+        vm.prank(owner);
+        vm.expectRevert(MarketTradePriceTooLow.selector);
+        ITrade(address(fresh)).marketSell(address(market), address(weth), 1e18, address(usdc), 0, abi.encode(1));
 
-        MockERC20 other = _token("OTH", 18, 1e18);
-        _sell(address(other), 1e18, address(usdc), 1);
-
-        vm.warp(block.timestamp + HEARTBEAT + 1);
-        _sell(address(weth), 50e18, address(usdc), 1);
-        assertEq(weth.balanceOf(address(vault)), 0);
+        MockERC20 other = _token("OTH", 18, 0);
+        other.mint(address(fresh), 1e18);
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(PriceFeedMissing.selector, address(other)));
+        ITrade(address(fresh)).marketSell(address(market), address(other), 1e18, address(usdc), 0, abi.encode(1));
     }
 
-    function test_anUnprotectedVaultStillTradesOnlyAmmLiquidAssets() public {
-        _risk(UNCHANGED, 0);
+    function test_anIlliquidAssetIsNeverTradedAtMarket() public {
         MockERC20 illiquid = new MockERC20("ILQ", "ILQ", 18);
         guard.setAsset(address(illiquid), ASSET_CRYPTO);
         illiquid.mint(address(vault), 1e18);
@@ -526,12 +551,13 @@ contract MarketTradeGuardTest is Test {
         _sell(address(illiquid), 1e18, address(usdc), 1);
     }
 
-    function test_anUnprotectedVaultIgnoresTheSequencer() public {
-        _risk(UNCHANGED, 0);
+    /// Every trade reads a price, so every trade on an L2 asks the sequencer first.
+    function test_everyTradeAsksTheSequencer() public {
         MockFeed uptime = new MockFeed();
         uptime.set(1, block.timestamp - 2 hours, block.timestamp);
         guard.setSequencerUptimeFeed(address(uptime));
 
+        vm.expectRevert(SequencerDown.selector);
         _sell(address(weth), 1e18, address(usdc), 2_000e6);
     }
 }

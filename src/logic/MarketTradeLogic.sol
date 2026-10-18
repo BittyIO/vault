@@ -21,7 +21,7 @@ import {Deprecated, NotRegistered} from "../interfaces/IBittyV1Vault.sol";
 import {BittyStorage, DeFiStorage, VaultStorage} from "./BittyStorage.sol";
 import {DeFiLogic} from "./DeFiLogic.sol";
 import {PriceLib} from "./PriceLib.sol";
-import {TimelockLib} from "./TimelockLib.sol";
+import {RiskLogic} from "./RiskLogic.sol";
 import {BITTY_GUARD, MAX_MARKET_TRADE_SLIPPAGE_BPS} from "./Constants.sol";
 
 /**
@@ -38,9 +38,9 @@ struct MarketLegs {
 
 /**
  * @title MarketTradeLogic
- * @notice Market buys and sells. With the owner's `marketTradeDailyLossAllowance` above 0 each trade is
- *         held to oracle value and its shortfall charged to that allowance; at 0 the vault is
- *         unprotected and a trade reads no price and measures nothing.
+ * @notice Market buys and sells. Every trade is held to oracle value and its shortfall charged to the
+ *         owner's `marketTradeDailyLossAllowance`, which cannot be turned off — so only an asset with a
+ *         price feed (or a stablecoin) can be traded at market.
  * @dev Its own library because the price and allowance checks do not fit in {DeFiLogic} under the
  *      24,576-byte code size limit. The protocol, asset and clone checks are {DeFiLogic}'s own, called
  *      as internal functions and so compiled in here: one definition, no library-to-library link.
@@ -59,9 +59,7 @@ library MarketTradeLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         DeFiLogic._onlyInitialized();
-        uint64 lossAllowance = _lossAllowance();
-        (MarketLegs memory legs, MarketTradeInfo memory info) =
-            _marketLegs($, marketTradeProtocol, sellToken, buyToken, lossAllowance != 0);
+        (MarketLegs memory legs, MarketTradeInfo memory info) = _marketLegs($, marketTradeProtocol, sellToken, buyToken);
 
         address clone = DeFiLogic._cloneProtocol($, marketTradeProtocol);
         if (sellToken != address(0) && sellAmount > 0 && IERC20(sellToken).allowance(address(this), clone) < sellAmount)
@@ -70,7 +68,7 @@ library MarketTradeLogic {
         }
         bytes memory data = abi.encode(sellToken, sellAmount, buyToken, buyAmountMin, path);
         IBittyV1MarketTradeProtocol(clone).swap{value: sellToken == address(0) ? sellAmount : 0}(data, address(this));
-        if (lossAllowance != 0) _settleMarketTrade(legs, info, lossAllowance);
+        _settleMarketTrade(legs, info, _lossAllowance());
     }
 
     function marketBuy(
@@ -83,9 +81,7 @@ library MarketTradeLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         DeFiLogic._onlyInitialized();
-        uint64 lossAllowance = _lossAllowance();
-        (MarketLegs memory legs, MarketTradeInfo memory info) =
-            _marketLegs($, marketTradeProtocol, sellToken, buyToken, lossAllowance != 0);
+        (MarketLegs memory legs, MarketTradeInfo memory info) = _marketLegs($, marketTradeProtocol, sellToken, buyToken);
 
         address clone = DeFiLogic._cloneProtocol($, marketTradeProtocol);
         if (sellToken != address(0) && IERC20(sellToken).allowance(address(this), clone) < sellAmountMax) {
@@ -93,35 +89,27 @@ library MarketTradeLogic {
         }
         bytes memory data = abi.encode(sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
         IBittyV1MarketTradeProtocol(clone).swapExactOut(data, address(this));
-        if (lossAllowance != 0) _settleMarketTrade(legs, info, lossAllowance);
+        _settleMarketTrade(legs, info, _lossAllowance());
     }
 
     function _lossAllowance() private view returns (uint64) {
-        return TimelockLib.effective(BittyStorage.vault().riskConfig.marketTradeDailyLossAllowance);
+        return RiskLogic.effectiveMarketTradeDailyLossAllowance(BittyStorage.vault().riskConfig);
     }
 
     /**
-     * @dev Everything a market trade checks before it runs, from one guard read — the lean
-     *      {IBittyV1Guard-marketTradeChecks} for an unmeasured trade, so an unprotected vault never
-     *      decodes feeds it does not use: the protocol is a
-     *      live market-trade protocol and both tokens are registered, each also named on the owner's
-     *      own allow list when that is on; the tokens differ — the same token on both legs would net
-     *      its own sale against its own purchase and hide both — and both may trade at market. When
-     *      the trade is to be `measured` the read is {IBittyV1Guard-marketTradeInfo}, which also brings
-     *      the price feeds, and the vault's balance
-     *      of each token is taken just before the protocol runs.
+     * @dev Everything a market trade checks before it runs, from one guard read,
+     *      {IBittyV1Guard-marketTradeInfo}, which also brings the price feeds: the protocol is a live
+     *      market-trade protocol and both tokens are registered, each also named on the owner's own
+     *      allow list when that is on; the tokens differ — the same token on both legs would net its
+     *      own sale against its own purchase and hide both — and both may trade at market. The vault's
+     *      balance of each token is taken just before the protocol runs.
      */
-    function _marketLegs(DeFiStorage storage $, address protocol, address sellToken, address buyToken, bool measured)
+    function _marketLegs(DeFiStorage storage $, address protocol, address sellToken, address buyToken)
         private
         view
         returns (MarketLegs memory legs, MarketTradeInfo memory info)
     {
-        if (measured) {
-            info = IBittyV1Guard(BITTY_GUARD).marketTradeInfo(protocol, sellToken, buyToken);
-        } else {
-            (info.protocolCategory, info.protocolDeprecated, info.sellCategory, info.buyCategory) =
-                IBittyV1Guard(BITTY_GUARD).marketTradeChecks(protocol, sellToken, buyToken);
-        }
+        info = IBittyV1Guard(BITTY_GUARD).marketTradeInfo(protocol, sellToken, buyToken);
         bool ownList = BittyStorage.vault().ownAllowListActive;
         if (info.protocolCategory != PROTOCOL_MARKET_TRADE || (ownList && !$.protocols[protocol])) {
             revert InvalidMarketTradeProtocol();
@@ -136,10 +124,8 @@ library MarketTradeLogic {
         legs.buyToken = buyToken;
         legs.sellCategory = info.sellCategory;
         legs.buyCategory = info.buyCategory;
-        if (measured) {
-            legs.sellBefore = _balanceOf(sellToken);
-            legs.buyBefore = _balanceOf(buyToken);
-        }
+        legs.sellBefore = _balanceOf(sellToken);
+        legs.buyBefore = _balanceOf(buyToken);
     }
 
     /**

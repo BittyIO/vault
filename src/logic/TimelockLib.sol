@@ -25,7 +25,7 @@ library TimelockLib {
     }
 
     function _apply(TimelockedValue storage tv, uint64 next, bool loosen, uint64 timelock) private {
-        if (!loosen || timelock == 0) {
+        if (!loosen) {
             tv.value = next;
             tv.pending = 0;
             tv.pendingAt = 0;

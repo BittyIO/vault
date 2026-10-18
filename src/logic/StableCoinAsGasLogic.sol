@@ -18,6 +18,7 @@ import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/Safe
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {BittyStorage, VaultStorage} from "./BittyStorage.sol";
 import {TimelockLib} from "./TimelockLib.sol";
+import {RiskLogic} from "./RiskLogic.sol";
 import {
     BITTY_GUARD,
     BITTY_FEE_COLLECTOR,
@@ -81,7 +82,7 @@ library StableCoinAsGasLogic {
         }
 
         vaultStorage.stableCoinAsGasDisabled = false;
-        uint64 timelock = TimelockLib.effective(vaultStorage.riskConfig.timelock);
+        uint64 timelock = RiskLogic.effectiveTimelock(vaultStorage.riskConfig);
         TimelockLib.setGasBudget(vaultStorage.gasBudgetDaily, dailyLimit, timelock);
         TimelockLib.setGasBudget(vaultStorage.maxFeePerOp, maxFeePerOp, timelock);
         emit IBittyV1Owner.StableCoinAsGasSet(true, assets, dailyLimit, maxFeePerOp);

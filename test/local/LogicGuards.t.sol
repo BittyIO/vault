@@ -22,8 +22,12 @@ contract UninitializedAccount {
         PaymentLogic.initialize(gasWrapped, false);
     }
 
-    function send(address[] memory r, address[] memory a, uint256[] memory m) external {
+    function send(address r, address a, uint256 m) external {
         PaymentLogic.send(r, a, m);
+    }
+
+    function batchSend(address r, address[] memory a, uint256[] memory m) external {
+        PaymentLogic.batchSend(r, a, m);
     }
 
     function updateRisk(IBittyV1Owner.RiskSettings calldata risk) external {
@@ -100,7 +104,9 @@ contract LogicGuardsTest is Test {
 
     function test_paymentsRefuseToRunBeforeInitialization() public {
         vm.expectRevert(NotInitialized.selector);
-        account.send(_addr(payee), _addr(asset), _amt(1));
+        account.send(payee, asset, 1);
+        vm.expectRevert(NotInitialized.selector);
+        account.batchSend(payee, _addr(asset), _amt(1));
     }
 
     function test_theWhitelistRefusesToRunBeforeInitialization() public {

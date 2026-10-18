@@ -195,17 +195,15 @@ contract LockGasCostTest is Test {
         vm.stopPrank();
         console2.log("lock, 200 pending additions", _gasToLock());
 
-        // Fifty live destinations, so the id space and the storage are loaded. Added with no wait,
-        // which is also why none of them occupies a place in the pending queue.
+        // Fifty live destinations, so the id space and the storage are loaded. Matured before the
+        // lock, which is why none of them is still waiting for it to sweep.
         setUp();
-        vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(0, UNCHANGED, UNCHANGED));
-        vm.warp(block.timestamp + 1 days + 1); // dropping the wait is a loosening, so it waits
         vm.startPrank(owner);
         for (uint256 i; i < 50; ++i) {
             vault.addWhitelistedRecipient(address(uint160(0xf00d0000 + i)));
         }
         vm.stopPrank();
+        vm.warp(block.timestamp + 1 days + 1);
         console2.log("lock, 50 live destinations ", _gasToLock());
 
         // And on a vault with a history of locks, so the epoch counter and its record have grown.

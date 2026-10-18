@@ -16,7 +16,7 @@ import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/exten
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {BittyStorage, VaultStorage} from "./BittyStorage.sol";
 import {PaymentCore} from "./PaymentCore.sol";
-import {TimelockLib} from "./TimelockLib.sol";
+import {RiskLogic} from "./RiskLogic.sol";
 import {LockLib} from "./LockLib.sol";
 
 /**
@@ -38,52 +38,54 @@ library PaymentLogic {
         vaultStorage.ownAllowListActive = restrictToOwnAllowList;
     }
 
-    function _processSendBatch(
-        VaultStorage storage vaultStorage,
-        address[] memory recipients,
-        address[] memory assets,
-        uint256[] memory amounts,
-        bool execute,
-        bool enforceOwnerSendWindow
-    ) private {
-        uint256 length = recipients.length;
+    function send(address recipient, address asset, uint256 amount) internal {
+        VaultStorage storage vaultStorage = BittyStorage.vault();
+        PaymentCore.onlyInitialized(vaultStorage);
+        if (recipient == address(0)) revert AddressZero();
+        uint64 cap = _cap(vaultStorage);
+        uint256 value = _stableValue(asset, amount);
+        if (value > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
+        _checkOwnerSendWindow(vaultStorage, value, cap);
+        PaymentCore.payOut(vaultStorage, asset, amount, recipient);
+    }
+
+    function batchSend(address recipient, address[] memory assets, uint256[] memory amounts) internal {
+        VaultStorage storage vaultStorage = BittyStorage.vault();
+        PaymentCore.onlyInitialized(vaultStorage);
+        uint256 length = assets.length;
         if (length == 0) revert EmptyArray();
-        if (assets.length != length || amounts.length != length) revert ArrayLengthMismatch();
-        _validateSendBatch(vaultStorage, recipients, assets, amounts, execute, enforceOwnerSendWindow);
-        if (!execute) return;
+        if (amounts.length != length) revert ArrayLengthMismatch();
+        if (recipient == address(0)) revert AddressZero();
+        uint64 cap = _cap(vaultStorage);
+        uint256 total;
         for (uint256 i = 0; i < length; i++) {
-            PaymentCore.payOut(vaultStorage, assets[i], amounts[i], recipients[i]);
+            total += _stableValue(assets[i], amounts[i]);
+            if (total > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
+        }
+        _checkOwnerSendWindow(vaultStorage, total, cap);
+        for (uint256 i = 0; i < length; i++) {
+            PaymentCore.payOut(vaultStorage, assets[i], amounts[i], recipient);
         }
     }
 
-    function _validateSendBatch(
-        VaultStorage storage vaultStorage,
-        address[] memory recipients,
-        address[] memory assets,
-        uint256[] memory amounts,
-        bool execute,
-        bool enforceOwnerSendWindow
-    ) private {
-        uint64 cap = TimelockLib.effective(vaultStorage.riskConfig.sendDailyAllowance); // regular-send daily allowance
-        bool requireStable = cap != 0;
-        uint256 totalStableValue;
-        for (uint256 i = 0; i < recipients.length; i++) {
-            if (recipients[i] == address(0)) revert AddressZero();
-            if (amounts[i] == 0) revert AmountIsZero();
-            if (requireStable) {
-                if (!PaymentCore.stableCoinAllowed(assets[i])) revert PaymentNotStableCoin();
-                uint256 scale = 10 ** IERC20Metadata(assets[i]).decimals();
-                totalStableValue += Math.mulDiv(amounts[i], 1e18, scale, Math.Rounding.Ceil);
-                if (cap != 0 && totalStableValue > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
-            }
-        }
-        if (execute && enforceOwnerSendWindow) {
-            _checkOwnerSendWindow(vaultStorage, totalStableValue, cap);
-        }
+    /**
+     * Never 0: the allowance cannot be turned off, so every regular send is metered, and only a
+     * stablecoin can be metered without reading a price.
+     */
+    function _cap(VaultStorage storage vaultStorage) private view returns (uint64) {
+        return RiskLogic.effectiveSendDailyAllowance(vaultStorage.riskConfig);
+    }
+
+    /**
+     * What one leg is worth in 18-decimal dollars, rounded up so the allowance is never undercounted.
+     */
+    function _stableValue(address asset, uint256 amount) private view returns (uint256) {
+        if (amount == 0) revert AmountIsZero();
+        if (!PaymentCore.stableCoinAllowed(asset)) revert PaymentNotStableCoin();
+        return Math.mulDiv(amount, 1e18, 10 ** IERC20Metadata(asset).decimals(), Math.Rounding.Ceil);
     }
 
     function _checkOwnerSendWindow(VaultStorage storage vaultStorage, uint256 batchStableValue, uint64 cap) private {
-        if (cap == 0) return;
         uint64 periodStart = vaultStorage.ownerSendPeriodStart;
         uint256 sent = vaultStorage.ownerSentInPeriod;
         if (periodStart == 0 || block.timestamp >= uint256(periodStart) + 1 days) {
@@ -94,11 +96,5 @@ library PaymentLogic {
         if (total > uint256(cap) * 1e18) revert PaymentExceedsPeriodLimit();
         vaultStorage.ownerSendPeriodStart = periodStart;
         vaultStorage.ownerSentInPeriod = uint128(total);
-    }
-
-    function send(address[] memory recipients, address[] memory assets, uint256[] memory amounts) internal {
-        VaultStorage storage vaultStorage = BittyStorage.vault();
-        PaymentCore.onlyInitialized(vaultStorage);
-        _processSendBatch(vaultStorage, recipients, assets, amounts, true, true);
     }
 }

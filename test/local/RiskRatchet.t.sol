@@ -7,10 +7,20 @@ import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {PendingChanges, RiskTimelockTooLong} from "../../src/interfaces/IBittyV1Vault.sol";
+import {
+    PendingChanges,
+    RiskTimelockTooLong,
+    RiskTimelockTooShort,
+    RiskAllowanceOutOfRange
+} from "../../src/interfaces/IBittyV1Vault.sol";
 import {RiskLogic} from "../../src/logic/RiskLogic.sol";
-import {BITTY_GUARD, MAX_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
-import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
+import {
+    BITTY_GUARD,
+    MAX_RISK_TIMELOCK,
+    MIN_RISK_TIMELOCK,
+    MAX_SEND_DAILY_ALLOWANCE,
+    MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE
+} from "../../src/logic/Constants.sol";
 
 /**
  * TWO KNOBS, AND THE RATCHET THAT GOVERNS BOTH.
@@ -34,7 +44,11 @@ import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol
  * direction that cannot take effect today. Which way is "safer" still differs by knob:
  *
  *   timelock        — LOWER is looser (less time to notice)
- *   sendDailyAllowance  — a cap, where 0 means "no cap", so higher-or-zero is looser
+ *   sendDailyAllowance  — a cap, so higher is looser
+ *
+ * And none of them can be turned off. The timelock is at least a day and each allowance is from 1 to
+ * 10,000; a vault that never set one reads the loosest value it may hold, so the owner can only
+ * tighten from where a new vault starts.
  */
 contract RiskRatchetTest is Test {
     BittyV1Vault vault;
@@ -63,15 +77,94 @@ contract RiskRatchetTest is Test {
 
     // ── the two directions ────────────────────────────────────────────────────
 
-    // S-10: risk values are stored as uint64. A uint256 input above that range must REVERT, not silently
-    // truncate — `sendDailyAllowance` wrapping to 0 would read as "no cap" and quietly disable the limit,
-    // and any wrapped value is a risk control set to something the owner never asked for.
+    /**
+     * S-10: risk values are stored as uint64, and a uint256 input above that range must revert rather
+     * than truncate into a control the owner never asked for. The allowance ceiling now catches it
+     * long before the storage width does.
+     */
     function test_outOfRangeRiskValueRevertsInsteadOfTruncating() public {
         uint256 tooBig = uint256(type(uint64).max) + 1;
 
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(SafeCast.SafeCastOverflowedUintDowncast.selector, 64, tooBig));
+        vm.expectRevert(RiskAllowanceOutOfRange.selector);
         vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, tooBig, UNCHANGED));
+    }
+
+    // ── the bounds ────────────────────────────────────────────────────────────
+
+    /**
+     * A new vault is protected before its owner touches anything: a day's wait, and the largest
+     * allowance of each kind - the loosest it may be, so every change from here is a tightening.
+     */
+    function test_aNewVaultReadsTheDefaults() public view {
+        (uint64 timelock, uint64 sendAllowance, uint64 lossAllowance) = vault.riskSettings();
+        assertEq(timelock, MIN_RISK_TIMELOCK, "a day");
+        assertEq(sendAllowance, MAX_SEND_DAILY_ALLOWANCE, "10,000 a day");
+        assertEq(lossAllowance, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "10,000 a day");
+        assertEq(MIN_RISK_TIMELOCK, 1 days);
+        assertEq(MAX_SEND_DAILY_ALLOWANCE, 10_000);
+        assertEq(MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, 10_000);
+    }
+
+    /// The default timelock is a real one: a loosening on a vault that never set it still waits.
+    function test_theDefaultTimelockDefersALoosening() public {
+        _risk(UNCHANGED, 500);
+        (, uint64 allowance) = _cfg();
+        assertEq(allowance, 500, "below the default, so a tightening");
+
+        _risk(UNCHANGED, 9_000);
+        (, allowance) = _cfg();
+        assertEq(allowance, 500, "raising it waits");
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        (, allowance) = _cfg();
+        assertEq(allowance, 9_000, "for the default day");
+    }
+
+    function test_theTimelockCannotGoBelowADay() public {
+        vm.prank(owner);
+        vm.expectRevert(RiskTimelockTooShort.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK - 1, UNCHANGED, UNCHANGED));
+
+        vm.prank(owner);
+        vm.expectRevert(RiskTimelockTooShort.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(0, UNCHANGED, UNCHANGED));
+
+        _risk(MIN_RISK_TIMELOCK, UNCHANGED);
+        (uint64 timelock,) = _cfg();
+        assertEq(timelock, MIN_RISK_TIMELOCK, "a day itself is allowed");
+    }
+
+    function test_theSendAllowanceIsBounded() public {
+        vm.prank(owner);
+        vm.expectRevert(RiskAllowanceOutOfRange.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, 0, UNCHANGED));
+
+        vm.prank(owner);
+        vm.expectRevert(RiskAllowanceOutOfRange.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, uint256(MAX_SEND_DAILY_ALLOWANCE) + 1, UNCHANGED));
+
+        _risk(UNCHANGED, 1);
+        _risk(UNCHANGED, MAX_SEND_DAILY_ALLOWANCE);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        (, uint64 allowance) = _cfg();
+        assertEq(allowance, MAX_SEND_DAILY_ALLOWANCE, "both ends are allowed");
+    }
+
+    function test_theMarketTradeLossAllowanceIsBounded() public {
+        vm.prank(owner);
+        vm.expectRevert(RiskAllowanceOutOfRange.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, 0));
+
+        vm.prank(owner);
+        vm.expectRevert(RiskAllowanceOutOfRange.selector);
+        vault.updateRisk(
+            IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, uint256(MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE) + 1)
+        );
+
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, 1));
+        (,, uint64 lossAllowance) = vault.riskSettings();
+        assertEq(lossAllowance, 1, "the floor is allowed, and lowering lands at once");
     }
 
     function test_tighteningAppliesImmediately() public {
@@ -96,38 +189,39 @@ contract RiskRatchetTest is Test {
         assertEq(allowance, 5_000, "and it lands a day later, as the owner asked");
     }
 
-    function test_clearingACapIsALoosening() public {
+    /// There is no "no cap" to loosen to: clearing the allowance is refused outright.
+    function test_aCapCannotBeCleared() public {
         _risk(1 days, 500);
 
-        _risk(UNCHANGED, 0);
-        (, uint64 allowance) = _cfg();
-        assertEq(allowance, 500, "zero means no cap at all, so it waits like any other loosening");
+        vm.prank(owner);
+        vm.expectRevert(RiskAllowanceOutOfRange.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, 0, UNCHANGED));
 
-        vm.warp(block.timestamp + 1 days);
-        (, allowance) = _cfg();
-        assertEq(allowance, 0, "no cap");
+        vm.warp(block.timestamp + 30 days);
+        (, uint64 allowance) = _cfg();
+        assertEq(allowance, 500, "still capped");
     }
 
     function test_shorteningTheWaitIsALoosening() public {
         _risk(3 days, UNCHANGED);
 
-        _risk(1 hours, UNCHANGED);
+        _risk(MIN_RISK_TIMELOCK, UNCHANGED);
         (uint64 timelock,) = _cfg();
         assertEq(timelock, 3 days, "a shorter wait gives the owner less time to notice");
 
         vm.warp(block.timestamp + 3 days);
         (timelock,) = _cfg();
-        assertEq(timelock, 1 hours);
+        assertEq(timelock, MIN_RISK_TIMELOCK);
     }
 
     /**
      * The one that would unravel everything else. If shortening the timelock took effect at once, an
-     * attacker would set it to zero and then loosen every other limit in the same transaction.
+     * attacker would set it to the shortest and then loosen every other limit a day later.
      */
     function test_theTimelockCannotBeShortenedToBypassItself() public {
         _risk(7 days, 500);
 
-        _risk(0, UNCHANGED);
+        _risk(MIN_RISK_TIMELOCK, UNCHANGED);
         (uint64 timelock,) = _cfg();
         assertEq(timelock, 7 days, "still a week");
 
@@ -139,12 +233,12 @@ contract RiskRatchetTest is Test {
 
         vm.warp(block.timestamp + 6 days);
         (timelock, allowance) = _cfg();
-        assertEq(timelock, 0, "the wait is gone now");
+        assertEq(timelock, MIN_RISK_TIMELOCK, "the wait is down to a day now");
         assertEq(allowance, 9_000, "and the loosening landed on the old schedule, not the new one");
     }
 
     function test_lengtheningTheTimelockIsImmediate() public {
-        _risk(1 hours, UNCHANGED);
+        _risk(MIN_RISK_TIMELOCK, UNCHANGED);
         _risk(30 days, UNCHANGED);
         (uint64 timelock,) = _cfg();
         assertEq(timelock, 30 days, "more time to notice is always safe");
@@ -158,13 +252,6 @@ contract RiskRatchetTest is Test {
         vm.warp(block.timestamp + 10 days);
         (, uint64 allowance) = _cfg();
         assertEq(allowance, 100, "the queued loosening is gone, not merely postponed");
-    }
-
-    function test_withoutATimelockEverythingIsImmediate() public {
-        _risk(UNCHANGED, 500);
-        _risk(UNCHANGED, 9_000);
-        (, uint64 allowance) = _cfg();
-        assertEq(allowance, 9_000, "a vault given no wait has nothing to wait for");
     }
 
     /**

@@ -22,7 +22,14 @@ import {
     InvalidDepositableProtocol,
     MarketTradeNotSupported
 } from "../../src/interfaces/IBittyV1DeFi.sol";
-import {BITTY_GUARD, PERM_YIELD, PERM_SUPPLY, PERM_MARKET_TRADE, PERM_INTENT} from "../../src/logic/Constants.sol";
+import {
+    BITTY_GUARD,
+    MIN_RISK_TIMELOCK,
+    PERM_YIELD,
+    PERM_SUPPLY,
+    PERM_MARKET_TRADE,
+    PERM_INTENT
+} from "../../src/logic/Constants.sol";
 
 /*
  * The capabilities these tests appoint a manager for: the jobs a managed vault is actually given —
@@ -145,6 +152,15 @@ contract DeFiGuardrailsTest is Test {
 
     function _f() internal view returns (IFacet) {
         return IFacet(address(vault));
+    }
+
+    /**
+     * Grant `manager` and let it land: a new vault's timelock is a day, so even the first grant waits.
+     */
+    function _grant(address manager, uint64 expiresAt, uint32 permissions) internal {
+        vm.prank(owner);
+        _f().setAssetManager(manager, expiresAt, permissions);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
     }
 
     function _permissions() internal view returns (uint32 permissions) {
@@ -628,8 +644,7 @@ contract DeFiGuardrailsTest is Test {
     function test_theAssetManagerCannotTradeAtMarket() public {
         _bothLegsLiquid();
         address manager = makeAddr("manager");
-        vm.prank(owner);
-        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
+        _grant(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
 
         vm.prank(manager);
         vm.expectRevert();
@@ -646,8 +661,7 @@ contract DeFiGuardrailsTest is Test {
     /// And the manager keeps the surface it is there for: intent orders it signs off chain.
     function test_theAssetManagerStillSignsIntentOrders() public {
         address manager = makeAddr("manager");
-        vm.prank(owner);
-        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
+        _grant(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
         assertTrue(
             IOffchain(address(vault)).isOffchainOrderAuthorized(manager, address(usdc), address(dai), 100e6),
             "limit and TWAP stay open to the manager"
@@ -663,12 +677,12 @@ contract DeFiGuardrailsTest is Test {
     /// A grant says what it is for. Nothing is implied — a mask of zero is a key that can do nothing.
     function test_aGrantIsExactlyWhatWasAskedFor() public {
         address manager = makeAddr("manager");
-        vm.prank(owner);
-        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD | PERM_INTENT);
+        uint64 expiry = uint64(block.timestamp + 365 days);
+        _grant(manager, expiry, PERM_YIELD | PERM_INTENT);
         assertEq(_permissions(), PERM_YIELD | PERM_INTENT, "the mask the owner passed");
 
         vm.prank(owner);
-        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), 0);
+        _f().setAssetManager(manager, expiry, 0);
         assertEq(_permissions(), 0, "and zero grants nothing");
     }
 
@@ -676,8 +690,7 @@ contract DeFiGuardrailsTest is Test {
     function test_aManagerGrantedMarketTradeMayTradeAtMarket() public {
         _bothLegsLiquid();
         address manager = makeAddr("manager");
-        vm.prank(owner);
-        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_MARKET_TRADE);
+        _grant(manager, uint64(block.timestamp + 365 days), PERM_MARKET_TRADE);
 
         vm.prank(manager);
         _f().marketSell(address(marketTrade), address(usdc), 1e6, address(dai), 0, _v3Path(address(usdc), address(dai)));
@@ -686,8 +699,7 @@ contract DeFiGuardrailsTest is Test {
 
     function test_aManagerWithoutTheIntentBitCannotSignOrders() public {
         address manager = makeAddr("manager");
-        vm.prank(owner);
-        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD);
+        _grant(manager, uint64(block.timestamp + 365 days), PERM_YIELD);
         assertFalse(
             IOffchain(address(vault)).isOffchainOrderAuthorized(manager, address(usdc), address(dai), 1e6),
             "limit and TWAP are not part of this grant"
@@ -697,16 +709,14 @@ contract DeFiGuardrailsTest is Test {
     /// Lending and yielding are one function and two capabilities, told apart by the adapter.
     function test_aYieldOnlyManagerCannotLend() public {
         address manager = makeAddr("manager");
-        vm.prank(owner);
-        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD);
+        _grant(manager, uint64(block.timestamp + 365 days), PERM_YIELD);
 
         // `proto` is registered on the guard as a LENDING adapter, so this needs PERM_SUPPLY.
         vm.prank(manager);
         vm.expectRevert();
         _f().deposit(address(proto), address(usdc), 1e6);
 
-        vm.prank(owner);
-        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_SUPPLY);
+        _grant(manager, uint64(block.timestamp + 365 days), PERM_SUPPLY);
         vm.prank(manager);
         _f().deposit(address(proto), address(usdc), 1e6);
         assertEq(usdc.balanceOf(_f().getClone(address(proto))), 1e6, "the lending grant works");
@@ -715,8 +725,7 @@ contract DeFiGuardrailsTest is Test {
     /// A bit nobody defined authorises nothing: every check asks for one bit by name.
     function test_anUndefinedPermissionBitGrantsNothing() public {
         address manager = makeAddr("manager");
-        vm.prank(owner);
-        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), uint32(1 << 20));
+        _grant(manager, uint64(block.timestamp + 365 days), uint32(1 << 20));
 
         vm.prank(manager);
         vm.expectRevert();
@@ -729,19 +738,20 @@ contract DeFiGuardrailsTest is Test {
      */
     function test_narrowingIsImmediateAndWideningQueues() public {
         address manager = makeAddr("manager");
-        vm.prank(owner);
-        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD | PERM_SUPPLY);
+        uint64 expiry = uint64(block.timestamp + 365 days);
+        _grant(manager, expiry, PERM_YIELD | PERM_SUPPLY);
         assertEq(_permissions(), PERM_YIELD | PERM_SUPPLY);
 
-        // Narrowing is self-restriction: it lands even with a timelock set, which this vault has not.
+        // Narrowing is self-restriction: it lands at once, whatever the timelock.
         vm.prank(owner);
-        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD);
+        _f().setAssetManager(manager, expiry, PERM_YIELD);
         assertEq(_permissions(), PERM_YIELD, "narrowing took effect at once");
 
-        // Widening with no timelock configured also lands at once — the queue is what a timelock
-        // buys, and {AssetManager} covers the queued path for the grant as a whole.
+        // Widening waits out the timelock, which every vault has - a day until the owner sets one.
         vm.prank(owner);
-        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_YIELD | PERM_MARKET_TRADE);
-        assertEq(_permissions(), PERM_YIELD | PERM_MARKET_TRADE, "widening, no timelock");
+        _f().setAssetManager(manager, expiry, PERM_YIELD | PERM_MARKET_TRADE);
+        assertEq(_permissions(), PERM_YIELD, "widening is queued");
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        assertEq(_permissions(), PERM_YIELD | PERM_MARKET_TRADE, "and lands after the timelock");
     }
 }

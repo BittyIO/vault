@@ -18,7 +18,7 @@ import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
 import {BittyStorage, Deferred, VaultStorage, WhitelistEntry} from "./BittyStorage.sol";
 import {PaymentCore} from "./PaymentCore.sol";
 import {LockLib} from "./LockLib.sol";
-import {TimelockLib} from "./TimelockLib.sol";
+import {RiskLogic} from "./RiskLogic.sol";
 
 /**
  * @title WhitelistLogic
@@ -52,7 +52,7 @@ library WhitelistLogic {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         PaymentCore.onlyInitialized(vaultStorage);
         if (recipient == address(0)) revert AddressZero();
-        uint256 effectiveAt = PaymentCore.protectionDeadline(TimelockLib.effective(vaultStorage.riskConfig.timelock));
+        uint256 effectiveAt = PaymentCore.protectionDeadline(RiskLogic.effectiveTimelock(vaultStorage.riskConfig));
         id = ++vaultStorage.nextWhitelistedRecipientId;
         vaultStorage.whitelistedRecipient[id].recipient = recipient;
         vaultStorage.whitelistedRecipientDeferred[id] = Deferred({
@@ -78,7 +78,7 @@ library WhitelistLogic {
     function removeWhitelistedRecipients(uint256[] calldata ids) external {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         PaymentCore.onlyInitialized(vaultStorage);
-        uint64 timelock = TimelockLib.effective(vaultStorage.riskConfig.timelock);
+        uint64 timelock = RiskLogic.effectiveTimelock(vaultStorage.riskConfig);
         for (uint256 i; i < ids.length; ++i) {
             _remove(vaultStorage, ids[i], timelock);
         }
@@ -93,7 +93,7 @@ library WhitelistLogic {
         WhitelistEntry storage entry = vaultStorage.whitelistedRecipient[id];
         if (_settle(vaultStorage, id, entry) == address(0)) revert WhitelistedRecipientNotFound();
 
-        if (timelock == 0 || !_payable(vaultStorage.whitelistedRecipientDeferred[id])) {
+        if (!_payable(vaultStorage.whitelistedRecipientDeferred[id])) {
             delete vaultStorage.whitelistedRecipient[id];
             delete vaultStorage.whitelistedRecipientDeferred[id];
             return;

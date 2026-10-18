@@ -227,16 +227,14 @@ contract VaultEntrypointsTest is Test {
     function test_aBatchSendWithARaggedWithdrawListIsRefused() public {
         vm.prank(owner);
         vm.expectRevert(ArrayLengthMismatch.selector);
-        vault.batchSend(_addr(payee), _addr(address(usdc)), _amt(1e6), _legs(_addr(address(proto))), new uint256[][](0));
+        vault.batchSend(payee, _addr(address(usdc)), _amt(1e6), _legs(_addr(address(proto))), new uint256[][](0));
     }
 
     /// Ragged INSIDE one send's funding legs is refused too — the inner pair is checked per send.
     function test_aBatchSendWithARaggedInnerLegIsRefused() public {
         vm.prank(owner);
         vm.expectRevert(ArrayLengthMismatch.selector);
-        vault.batchSend(
-            _addr(payee), _addr(address(usdc)), _amt(1e6), _legs(_addr(address(proto))), _legs(new uint256[](0))
-        );
+        vault.batchSend(payee, _addr(address(usdc)), _amt(1e6), _legs(_addr(address(proto))), _legs(new uint256[](0)));
     }
 
     function test_aSingleSendWithARaggedWithdrawListIsRefused() public {
@@ -258,9 +256,7 @@ contract VaultEntrypointsTest is Test {
     function test_aBatchSendCanBeFundedStraightOutOfAPosition() public {
         vm.startPrank(owner);
         IFacet(address(vault)).deposit(address(proto), address(usdc), 900e6);
-        vault.batchSend(
-            _addr(payee), _addr(address(usdc)), _amt(500e6), _legs(_addr(address(proto))), _legs(_amt(500e6))
-        );
+        vault.batchSend(payee, _addr(address(usdc)), _amt(500e6), _legs(_addr(address(proto))), _legs(_amt(500e6)));
         vm.stopPrank();
         assertEq(usdc.balanceOf(payee), 500e6, "the position covered the batch");
     }
@@ -280,7 +276,7 @@ contract VaultEntrypointsTest is Test {
         assertEq(usdc.balanceOf(address(vault)), 100e6, "nearly everything is deployed");
 
         vault.batchSend(
-            _addr(payee),
+            payee,
             _addr(address(usdc)),
             _amt(700e6),
             _legs(_pair(address(proto), address(second))),
@@ -290,15 +286,11 @@ contract VaultEntrypointsTest is Test {
         assertEq(usdc.balanceOf(payee), 700e6, "two positions covered one payment");
     }
 
-    /// And a batch stays N independent sends: each entry draws on its own positions.
-    function test_eachSendInABatchHasItsOwnFundingLegs() public {
-        address other = makeAddr("other");
+    /// And each leg of a batch draws on its own positions.
+    function test_eachLegInABatchHasItsOwnFundingLegs() public {
         vm.startPrank(owner);
         IFacet(address(vault)).deposit(address(proto), address(usdc), 900e6);
 
-        address[] memory tos = new address[](2);
-        tos[0] = payee;
-        tos[1] = other;
         address[] memory assets = _pair(address(usdc), address(usdc));
         uint256[] memory amts = _pair(300e6, 200e6);
 
@@ -309,10 +301,14 @@ contract VaultEntrypointsTest is Test {
         legs[0] = _amt(500e6);
         legs[1] = new uint256[](0);
 
-        vault.batchSend(tos, assets, amts, protocols, legs);
+        vault.batchSend(payee, assets, amts, protocols, legs);
         vm.stopPrank();
-        assertEq(usdc.balanceOf(payee), 300e6, "first drew on a position");
-        assertEq(usdc.balanceOf(other), 200e6, "second paid from balance");
+        assertEq(usdc.balanceOf(payee), 500e6, "both legs reached the one recipient");
+        assertEq(
+            usdc.balanceOf(address(vault)),
+            100e6,
+            "the first leg drew 500 from the position, the second 200 from balance"
+        );
     }
 
     function test_aZeroProtocolEntryIsSkippedNotTreatedAsAWithdrawal() public {

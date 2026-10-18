@@ -17,7 +17,7 @@ import {
     WHITELIST_VOIDED,
     WHITELIST_REMOVAL_QUEUED
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
 
 /**
  * The whitelist read straight from state. It is the vault's way out after a key leaks, so a client
@@ -35,6 +35,7 @@ contract WhitelistReadTest is Test {
     uint256 constant UNCHANGED = type(uint256).max;
     uint64 constant TIMELOCK = 3 days;
     uint256 constant T0 = 1_000_000;
+    uint256 constant T1 = T0 + MIN_RISK_TIMELOCK;
 
     function setUp() public {
         vm.warp(T0);
@@ -59,16 +60,23 @@ contract WhitelistReadTest is Test {
         assertEq(entries.length, 0);
     }
 
-    function test_withNoTimelockAnEntryIsPayableAtOnce() public {
+    /**
+     * A vault that never set a timelock still has one - a day - so even its first entry waits.
+     */
+    function test_aNewVaultsFirstEntryWaitsOutTheDefaultTimelock() public {
         vm.prank(owner);
         uint256 id = vault.addWhitelistedRecipient(cold);
 
         WhitelistEntryView memory e = _one(id);
         assertEq(e.id, id);
         assertEq(e.recipient, cold);
-        assertEq(e.effectiveAt, 0, "payable from the start");
+        assertEq(e.effectiveAt, T0 + MIN_RISK_TIMELOCK, "payable after the default timelock");
         assertEq(e.removeAt, 0);
-        assertEq(e.status, WHITELIST_PAYABLE);
+        assertEq(e.status, WHITELIST_PENDING);
+        assertFalse(_canPay(id));
+
+        vm.warp(T0 + MIN_RISK_TIMELOCK);
+        assertEq(_one(id).status, WHITELIST_PAYABLE);
         assertTrue(_canPay(id));
     }
 
@@ -79,6 +87,7 @@ contract WhitelistReadTest is Test {
         vm.startPrank(owner);
         uint256 payableId = vault.addWhitelistedRecipient(cold);
         uint256 queuedId = vault.addWhitelistedRecipient(makeAddr("queued"));
+        vm.warp(T1); // the first two mature under the default timelock
         vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, UNCHANGED, UNCHANGED));
         uint256 voidedId = vault.addWhitelistedRecipient(makeAddr("voided"));
         vault.emergencyLock();
@@ -95,18 +104,18 @@ contract WhitelistReadTest is Test {
 
         assertEq(list[payableId - 1].status, WHITELIST_PAYABLE, "payable");
         assertEq(list[queuedId - 1].status, WHITELIST_REMOVAL_QUEUED, "removal queued");
-        assertEq(list[queuedId - 1].removeAt, T0 + TIMELOCK);
+        assertEq(list[queuedId - 1].removeAt, T1 + TIMELOCK);
         assertEq(list[voidedId - 1].status, WHITELIST_VOIDED, "voided by the lock");
-        assertEq(list[voidedId - 1].effectiveAt, T0 + TIMELOCK);
+        assertEq(list[voidedId - 1].effectiveAt, T1 + TIMELOCK);
         assertEq(list[pendingId - 1].status, WHITELIST_PENDING, "pending");
-        assertEq(list[pendingId - 1].effectiveAt, T0 + TIMELOCK);
+        assertEq(list[pendingId - 1].effectiveAt, T1 + TIMELOCK);
         assertEq(list[removedId - 1].status, WHITELIST_REMOVED, "removed");
         assertEq(list[removedId - 1].recipient, address(0));
         _assertStatusesMatchPayouts();
 
         // After the timelock: the pending entry matured, the queued removal landed, the voided entry
         // stayed voided.
-        vm.warp(T0 + TIMELOCK);
+        vm.warp(T1 + TIMELOCK);
         (, list) = vault.getWhitelist(1, type(uint256).max);
         assertEq(list[pendingId - 1].status, WHITELIST_PAYABLE, "matured");
         assertEq(list[queuedId - 1].status, WHITELIST_REMOVED, "removal landed");
@@ -122,6 +131,7 @@ contract WhitelistReadTest is Test {
     function test_underALockPayableStillMeansPayable() public {
         vm.startPrank(owner);
         uint256 coldId = vault.addWhitelistedRecipient(cold);
+        vm.warp(T1);
         vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, UNCHANGED, UNCHANGED));
         uint256 thiefId = vault.addWhitelistedRecipient(makeAddr("thief"));
         vault.removeWhitelistedRecipients(_ids(coldId));

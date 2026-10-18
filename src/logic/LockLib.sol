@@ -117,6 +117,11 @@ library LockLib {
 
         DeFiStorage storage d = BittyStorage.defi();
         if (d.hasPendingAssetManager) {
+            if (block.timestamp >= d.pendingAssetManagerAt) {
+                d.assetManager = d.pendingAssetManager;
+                d.assetManagerExpiresAt = d.pendingAssetManagerExpiresAt;
+                d.assetManagerPerms = d.pendingAssetManagerPerms;
+            }
             d.pendingAssetManager = address(0);
             d.pendingAssetManagerExpiresAt = 0;
             d.pendingAssetManagerAt = 0;

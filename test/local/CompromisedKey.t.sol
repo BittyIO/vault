@@ -13,7 +13,7 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield, IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
 
 /*
  * The capabilities these tests appoint a manager for: the jobs a managed vault is actually given —
@@ -87,7 +87,7 @@ contract CompromisedKeyTest is Test {
     }
 
     function setUp() public {
-        vm.warp(START);
+        vm.warp(START - MIN_RISK_TIMELOCK);
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         guard = MockGuard(BITTY_GUARD);
 
@@ -116,6 +116,7 @@ contract CompromisedKeyTest is Test {
         _f().setAutoYieldTrigger(keeper);
         coldId = vault.addWhitelistedRecipient(heir);
         vm.stopPrank();
+        vm.warp(START); // the grant and the destination have waited out a new vault's timelock
     }
 
     /**
