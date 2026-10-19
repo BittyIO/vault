@@ -128,8 +128,8 @@ struct VaultStorage {
     TimelockedValue maxFeePerOp;
     uint96 gasSpentToday;
     uint64 gasBudgetDay;
-    bool stableCoinAsGasDisabled;
-    mapping(address => address) stableCoinAsGasAssets;
+    bool tokenAsGasDisabled;
+    mapping(address => address) tokenAsGasAssets;
 
     uint8 lockLevel; // 0 none, 1 emergency (releasable), 2 forever. See {LockLib}.
 

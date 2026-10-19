@@ -6,7 +6,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {DeFiLogic} from "./logic/DeFiLogic.sol";
 import {PaymentLogic} from "./logic/PaymentLogic.sol";
 import {WhitelistLogic} from "./logic/WhitelistLogic.sol";
-import {StableCoinAsGasLogic} from "./logic/StableCoinAsGasLogic.sol";
+import {TokenAsGasLogic} from "./logic/TokenAsGasLogic.sol";
 import {RiskLogic} from "./logic/RiskLogic.sol";
 import {LockLib} from "./logic/LockLib.sol";
 import {BittyStorage, VaultStorage} from "./logic/BittyStorage.sol";
@@ -26,10 +26,6 @@ import {
     PendingChanges,
     WhitelistEntryView
 } from "./interfaces/IBittyV1Vault.sol";
-
-interface IAutoYieldTrigger {
-    function autoYield(address asset) external;
-}
 
 /**
  * @title BittyV1Vault
@@ -58,7 +54,7 @@ contract BittyV1Vault is BittyV1VaultBase {
         __Ownable_init(owner_);
         PaymentLogic.initialize(gasWrapped_, restrictToOwnAllowList);
         if (activationAsset != address(0) && activationAmount != 0) {
-            StableCoinAsGasLogic.payActivationFee(activationAsset, activationAmount);
+            TokenAsGasLogic.payActivationFee(activationAsset, activationAmount);
         }
         if (restrictToOwnAllowList) {
             if (activationAsset != address(0)) {
@@ -149,7 +145,6 @@ contract BittyV1Vault is BittyV1VaultBase {
         address gasWrapped = _gasWrapped();
         if (msg.value > 0 && msg.sender != gasWrapped) {
             WETH(payable(gasWrapped)).deposit{value: msg.value}();
-            try IAutoYieldTrigger(address(this)).autoYield(gasWrapped) {} catch {}
         }
     }
 
@@ -241,16 +236,16 @@ contract BittyV1Vault is BittyV1VaultBase {
         RiskLogic.updateRisk(settings);
     }
 
-    function setStableCoinAsGas(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp)
+    function setTokenAsGas(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp)
         external
         onlyOwner
         notLocked
     {
-        StableCoinAsGasLogic.setStableCoinAsGas(assets, dailyLimit, maxFeePerOp);
+        TokenAsGasLogic.setTokenAsGas(assets, dailyLimit, maxFeePerOp);
     }
 
-    function disableStableCoinAsGas() external onlyOwner notLocked {
-        StableCoinAsGasLogic.disableStableCoinAsGas();
+    function disableTokenAsGas() external onlyOwner notLocked {
+        TokenAsGasLogic.disableTokenAsGas();
     }
 
     function payRelayerFee(address asset, uint256 amount) external {
@@ -258,7 +253,7 @@ contract BittyV1Vault is BittyV1VaultBase {
             revert NotTrustedForwarder();
         }
         if (LockLib.lockedForever()) revert VaultLocked();
-        StableCoinAsGasLogic.payRelayerFee(asset, amount);
+        TokenAsGasLogic.payRelayerFee(asset, amount);
     }
 
     function retrieve721(address contractAddress, uint256 tokenId, address to) external onlyOwner notLocked {
@@ -328,21 +323,25 @@ contract BittyV1Vault is BittyV1VaultBase {
         return WhitelistLogic.getWhitelist(fromId, count);
     }
 
-    function stableCoinAsGasConfig()
+    function tokenAsGasConfig()
         external
         view
         returns (address[] memory assets, uint256 dailyLimit, uint256 maxFeePerOp)
     {
         return (
-            StableCoinAsGasLogic.getStableCoinAsGasAssets(),
-            StableCoinAsGasLogic.gasBudgetDailyLimit(),
-            StableCoinAsGasLogic.maxFeePerOpValue()
+            TokenAsGasLogic.getTokenAsGasAssets(),
+            TokenAsGasLogic.gasBudgetDailyLimit(),
+            TokenAsGasLogic.maxFeePerOpValue()
         );
     }
 
     function gasBudgetRemaining() external view returns (uint256) {
         if (LockLib.lockedForever()) return 0;
-        return StableCoinAsGasLogic.gasBudgetRemaining();
+        return TokenAsGasLogic.gasBudgetRemaining();
+    }
+
+    function relayerFeeValue(address asset, uint256 amount) external view returns (uint256) {
+        return TokenAsGasLogic.relayerFeeValue(asset, amount);
     }
 
     function isStableCoinAllowed(address asset) external view returns (bool) {

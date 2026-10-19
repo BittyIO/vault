@@ -137,7 +137,12 @@ contract MockGuard {
         view
         returns (uint8, bool, uint8, uint8)
     {
-        return (protocolCategory[protocol], isProtocolDeprecated[protocol], assetCategory[sellToken], assetCategory[buyToken]);
+        return (
+            protocolCategory[protocol],
+            isProtocolDeprecated[protocol],
+            assetCategory[sellToken],
+            assetCategory[buyToken]
+        );
     }
 
     function marketTradeInfo(address protocol, address sellToken, address buyToken)

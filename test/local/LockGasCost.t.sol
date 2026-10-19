@@ -124,12 +124,12 @@ contract LockGasCostTest is Test {
         _measure("send", abi.encodeCall(BittyV1Vault.send, (payee, address(usdc), 1e6, _none(), _noAmounts())));
     }
 
-    function test_gas_setStableCoinAsGas() public {
-        _measure("setStableCoinAsGas", abi.encodeCall(BittyV1Vault.setStableCoinAsGas, (_one(address(usdc)), 100, 10)));
+    function test_gas_setTokenAsGas() public {
+        _measure("setTokenAsGas", abi.encodeCall(BittyV1Vault.setTokenAsGas, (_one(address(usdc)), 100, 10)));
     }
 
-    function test_gas_disableStableCoinAsGas() public {
-        _measure("disableStableCoinAsGas", abi.encodeCall(BittyV1Vault.disableStableCoinAsGas, ()));
+    function test_gas_disableTokenAsGas() public {
+        _measure("disableTokenAsGas", abi.encodeCall(BittyV1Vault.disableTokenAsGas, ()));
     }
 
     function test_gas_updateAssets() public {
@@ -225,6 +225,6 @@ contract LockGasCostTest is Test {
     }
 
     function test_gas_autoYield() public {
-        _measure("autoYield", abi.encodeCall(BittyV1VaultDeFiFacet.autoYield, (address(usdc))));
+        _measure("autoYield", abi.encodeCall(BittyV1VaultDeFiFacet.autoYield, (address(usdc), type(uint256).max)));
     }
 }

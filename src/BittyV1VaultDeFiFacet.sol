@@ -140,14 +140,14 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         return DeFiLogic.autoYieldTrigger();
     }
 
-    function autoYield(address asset) external notLocked {
+    function autoYield(address asset, uint256 amount) external notLocked {
         _onlyAutoYieldTrigger();
-        DeFiLogic.autoYieldOne(asset);
+        DeFiLogic.autoYieldOne(asset, amount);
     }
 
-    function autoYields(address[] calldata assets) external notLocked {
+    function autoYields(address[] calldata assets, uint256[] calldata amounts) external notLocked {
         _onlyAutoYieldTrigger();
-        DeFiLogic.autoYield(assets);
+        DeFiLogic.autoYield(assets, amounts);
     }
 
     function setAutoYielding(AutoYield calldata route) external onlyOwner notLocked {

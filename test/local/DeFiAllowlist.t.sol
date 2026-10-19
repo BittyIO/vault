@@ -31,7 +31,7 @@ interface IFacet {
     function useBittyAllowList(bool use) external;
     function setAutoYielding(AutoYield calldata route) external;
     function getAutoYieldings(address[] calldata assets) external view returns (address[] memory);
-    function autoYield(address asset) external;
+    function autoYield(address asset, uint256 amount) external;
     function getClone(address protocol) external view returns (address);
 }
 
@@ -261,7 +261,7 @@ contract DeFiAllowlistTest is Test {
     function test_autoYieldSweepsIntoTheRoute() public {
         vm.startPrank(owner);
         _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(proto)}));
-        _f().autoYield(address(usdc));
+        _f().autoYield(address(usdc), type(uint256).max);
         vm.stopPrank();
 
         assertEq(usdc.balanceOf(address(vault)), 0, "swept");
@@ -271,7 +271,7 @@ contract DeFiAllowlistTest is Test {
     /// An asset with no route is a no-op, not a revert — a fleet sweep must not fail on one asset.
     function test_autoYieldWithNoRouteIsANoOp() public {
         vm.prank(owner);
-        _f().autoYield(address(usdc));
+        _f().autoYield(address(usdc), type(uint256).max);
         assertEq(usdc.balanceOf(address(vault)), 1_000e6, "untouched, and no revert");
     }
 

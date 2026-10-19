@@ -428,23 +428,29 @@ library DeFiLogic {
         }
     }
 
-    function autoYieldOne(address assetAddress) external {
-        _autoYield(BittyStorage.defi(), assetAddress);
+    function autoYieldOne(address assetAddress, uint256 amount) external {
+        _autoYield(BittyStorage.defi(), assetAddress, amount);
     }
 
-    function autoYield(address[] calldata assetAddresses) external {
+    function autoYield(address[] calldata assetAddresses, uint256[] calldata amounts) external {
+        if (assetAddresses.length != amounts.length) revert ArrayLengthMismatch();
         DeFiStorage storage $ = BittyStorage.defi();
         for (uint256 i; i < assetAddresses.length; ++i) {
-            _autoYield($, assetAddresses[i]);
+            _autoYield($, assetAddresses[i], amounts[i]);
         }
     }
 
-    function _autoYield(DeFiStorage storage $, address assetAddress) private {
+    /**
+     * @dev The caller names the amount so a fee float can stay behind; it is capped at the free
+     *      balance rather than refused, because that moves between the keeper reading it and this.
+     */
+    function _autoYield(DeFiStorage storage $, address assetAddress, uint256 amount) private {
         _onlyInitialized();
         address protocol = $.autoYieldProtocols[assetAddress];
         if (protocol == address(0)) return;
         if (assetAddress == address(0)) revert AddressZero();
-        uint256 amount = IERC20(assetAddress).balanceOf(address(this));
+        uint256 balance = IERC20(assetAddress).balanceOf(address(this));
+        if (amount > balance) amount = balance;
         if (amount == 0) return;
         _deposit($, protocol, assetAddress, amount);
     }

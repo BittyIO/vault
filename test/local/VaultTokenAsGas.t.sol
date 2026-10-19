@@ -7,6 +7,8 @@ import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC19
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {MockChargeWindow} from "../helpers/MockChargeWindow.sol";
+import {MockFeed} from "./MarketTradeGuard.t.sol";
+import {PriceStale, SequencerDown} from "../../src/interfaces/IBittyV1DeFi.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {
@@ -26,24 +28,27 @@ import {
 } from "../../src/logic/Constants.sol";
 
 /**
- * The main vault paying its own relayed gas, in stable coin.
+ * The main vault paying its own relayed gas, in stable coin or the vault's WETH.
  *
  * Two ceilings bound what a relayer can take — a per-charge cap and a per-day budget — and the vault
  * enforces both itself, so a compromised relayer can overcharge by a bounded amount and never more.
  */
-contract VaultStableCoinAsGasTest is Test {
+contract VaultTokenAsGasTest is Test {
     BittyV1Vault vault;
     MockGuard guard;
     MockERC20 usdc;
     MockERC20 other;
 
     address owner = makeAddr("owner");
-    address gasWrapped = makeAddr("gasWrapped");
+    MockERC20 weth;
+    MockFeed wethFeed;
 
     function setUp() public {
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         guard = MockGuard(BITTY_GUARD);
 
+        weth = new MockERC20("Wrapped Ether", "WETH", 18);
+        address gasWrapped = address(weth);
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
         BittyV1Vault impl = new BittyV1Vault(address(facet));
         bytes memory init =
@@ -55,6 +60,10 @@ contract VaultStableCoinAsGasTest is Test {
         guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         usdc.mint(address(vault), 1_000_000e6);
         other.mint(address(vault), 1_000e18);
+        weth.mint(address(vault), 10e18);
+        wethFeed = new MockFeed();
+        wethFeed.set(2_000e8, block.timestamp, block.timestamp);
+        guard.setPriceFeed(address(weth), address(wethFeed), 1 hours, address(0));
 
         // The charge asks the forwarder whether it is settling for this vault; these tests charge it
         // directly, so the window is held open for the whole file. See {MockChargeWindow}.
@@ -83,12 +92,12 @@ contract VaultStableCoinAsGasTest is Test {
     // ── defaults ──────────────────────────────────────────────────────────────
 
     /**
-     * A vault that never called setStableCoinAsGas is relayable, at the system defaults, in any stable coin
+     * A vault that never called setTokenAsGas is relayable, at the system defaults, in any stable coin
      * the guard registers. An empty list means "anything permitted", not "nothing" — read the other
      * way, stablecoin fee payments would be off for every fresh vault while gasBudgetRemaining reported a full day.
      */
     function test_freshVaultIsRelayableAtSystemDefaults() public {
-        (address[] memory assets, uint256 daily, uint256 perOp) = vault.stableCoinAsGasConfig();
+        (address[] memory assets, uint256 daily, uint256 perOp) = vault.tokenAsGasConfig();
         assertEq(assets.length, 0, "nothing narrowed");
         assertEq(daily, SYSTEM_DAILY_MAX_GAS_BUDGET);
         assertEq(perOp, SYSTEM_MAX_FEE_PER_OP);
@@ -113,9 +122,9 @@ contract VaultStableCoinAsGasTest is Test {
         only[0] = address(usdc);
 
         vm.prank(owner);
-        vault.setStableCoinAsGas(only, 50, 5);
+        vault.setTokenAsGas(only, 50, 5);
 
-        (address[] memory assets, uint256 daily, uint256 perOp) = vault.stableCoinAsGasConfig();
+        (address[] memory assets, uint256 daily, uint256 perOp) = vault.tokenAsGasConfig();
         assertEq(assets.length, 1, "narrowed to one");
         assertEq(assets[0], address(usdc));
         assertEq(daily, 50);
@@ -132,9 +141,9 @@ contract VaultStableCoinAsGasTest is Test {
         address[] memory none = new address[](0);
         vm.startPrank(owner);
         vm.expectRevert(GasBudgetTooHigh.selector);
-        vault.setStableCoinAsGas(none, SYSTEM_DAILY_MAX_GAS_BUDGET + 1, 1);
+        vault.setTokenAsGas(none, SYSTEM_DAILY_MAX_GAS_BUDGET + 1, 1);
         vm.expectRevert(FeeExceedsPerOpCap.selector);
-        vault.setStableCoinAsGas(none, 1, SYSTEM_MAX_FEE_PER_OP + 1);
+        vault.setTokenAsGas(none, 1, SYSTEM_MAX_FEE_PER_OP + 1);
         vm.stopPrank();
     }
 
@@ -151,7 +160,7 @@ contract VaultStableCoinAsGasTest is Test {
     function test_dailyBudgetAccumulatesAndThenRefuses() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
-        vault.setStableCoinAsGas(none, 20, 10); // 20 whole tokens a day
+        vault.setTokenAsGas(none, 20, 10); // 20 whole tokens a day
 
         _charge(address(usdc), 10e6);
         assertEq(vault.gasBudgetRemaining(), 10e18, "half spent");
@@ -167,7 +176,7 @@ contract VaultStableCoinAsGasTest is Test {
     function test_theBudgetResetsTheNextDay() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
-        vault.setStableCoinAsGas(none, 20, 10);
+        vault.setTokenAsGas(none, 20, 10);
         // Two charges, because the PER-OP cap is 10 — spending a 20-token day takes two ops.
         _charge(address(usdc), 10e6);
         _charge(address(usdc), 10e6);
@@ -188,11 +197,80 @@ contract VaultStableCoinAsGasTest is Test {
         assertEq(afterUsdc - vault.gasBudgetRemaining(), 3e18, "same value, same spend");
     }
 
+    // ── ETH (WETH) as gas ─────────────────────────────────────────────────────
+
+    /// WETH pays at its oracle price, against the same USD budget and per-op cap.
+    function test_wethPaysAtOraclePrice() public {
+        uint256 before = vault.gasBudgetRemaining();
+        _charge(address(weth), 0.001e18); // $2 at $2,000
+        assertEq(before - vault.gasBudgetRemaining(), 2e18, "valued in USD");
+        assertEq(weth.balanceOf(BITTY_FEE_COLLECTOR), 0.001e18);
+
+        vm.prank(BITTY_FORWARDER);
+        vm.expectRevert(FeeExceedsPerOpCap.selector);
+        vault.payRelayerFee(address(weth), 0.0051e18); // $10.20 > $10 cap
+    }
+
+    /// No trustworthy price, no ETH charge.
+    function test_wethChargeFailsClosedOnStalePrice() public {
+        vm.warp(block.timestamp + 2 hours);
+        vm.prank(BITTY_FORWARDER);
+        vm.expectRevert(abi.encodeWithSelector(PriceStale.selector, address(weth)));
+        vault.payRelayerFee(address(weth), 0.001e18);
+    }
+
+    /// On an L2, a down sequencer stops ETH charges only; a stable coin reads no feed and still pays.
+    function test_aDownSequencerStopsWethButNotStableCoins() public {
+        vm.warp(10 hours);
+        wethFeed.set(2_000e8, block.timestamp, block.timestamp);
+        MockFeed uptime = new MockFeed();
+        uptime.set(1, block.timestamp - 2 hours, block.timestamp);
+        guard.setSequencerUptimeFeed(address(uptime));
+
+        vm.prank(BITTY_FORWARDER);
+        vm.expectRevert(SequencerDown.selector);
+        vault.payRelayerFee(address(weth), 0.001e18);
+
+        _charge(address(usdc), 1e6);
+    }
+
+    /// WETH and stable coins draw on one USD budget, so mixing them cannot double the day.
+    function test_wethAndStableCoinsShareOneDailyBudget() public {
+        address[] memory none = new address[](0);
+        vm.prank(owner);
+        vault.setTokenAsGas(none, 4, 10); // $4 a day
+
+        _charge(address(usdc), 2e6); // $2
+        _charge(address(weth), 0.001e18); // $2 at $2,000
+        assertEq(vault.gasBudgetRemaining(), 0, "spent across both");
+
+        vm.prank(BITTY_FORWARDER);
+        vm.expectRevert(GasBudgetExceeded.selector);
+        vault.payRelayerFee(address(weth), 1);
+    }
+
+    /// The owner may name WETH; once narrowed to stable coins only, WETH is refused.
+    function test_ownerMayNameOrExcludeWeth() public {
+        address[] memory onlyWeth = new address[](1);
+        onlyWeth[0] = address(weth);
+        vm.prank(owner);
+        vault.setTokenAsGas(onlyWeth, 10, 1);
+        _charge(address(weth), 0.0005e18);
+
+        address[] memory onlyUsdc = new address[](1);
+        onlyUsdc[0] = address(usdc);
+        vm.prank(owner);
+        vault.setTokenAsGas(onlyUsdc, 10, 1);
+        vm.prank(BITTY_FORWARDER);
+        vm.expectRevert(InvalidAsset.selector);
+        vault.payRelayerFee(address(weth), 0.0005e18);
+    }
+
     // ── off ───────────────────────────────────────────────────────────────────
 
-    function test_disableStableCoinAsGasStopsCharging() public {
+    function test_disableTokenAsGasStopsCharging() public {
         vm.prank(owner);
-        vault.disableStableCoinAsGas();
+        vault.disableTokenAsGas();
         assertEq(vault.gasBudgetRemaining(), 0, "off reads as no budget");
 
         vm.prank(BITTY_FORWARDER);
@@ -210,9 +288,9 @@ contract VaultStableCoinAsGasTest is Test {
         address[] memory none = new address[](0);
         vm.startPrank(makeAddr("stranger"));
         vm.expectRevert();
-        vault.setStableCoinAsGas(none, 10, 1);
+        vault.setTokenAsGas(none, 10, 1);
         vm.expectRevert();
-        vault.disableStableCoinAsGas();
+        vault.disableTokenAsGas();
         vm.stopPrank();
     }
 }

@@ -22,28 +22,26 @@ interface IBittyV1VaultRelay {
         payable;
 
     /**
-     * @notice Relays a signed request and reclaims `fee` of `stableCoinAddress` from the target vault.
+     * @notice Relays a signed request and reclaims `fee` of `feeToken` from the target vault.
      * @param request The owner- or asset-manager-signed forward request.
-     * @param stableCoinAddress A stablecoin registered on the target vault.
-     * @param fee Amount to reclaim in `stableCoinAddress` units. 0 relays without charging.
+     * @param feeToken A stablecoin or the vault's WETH, allowed for gas on the target vault.
+     * @param fee Amount to reclaim in `feeToken` units. 0 relays without charging.
      */
-    function executeWithFee(
-        ERC2771Forwarder.ForwardRequestData calldata request,
-        address stableCoinAddress,
-        uint256 fee
-    ) external payable;
+    function executeWithFee(ERC2771Forwarder.ForwardRequestData calldata request, address feeToken, uint256 fee)
+        external
+        payable;
 
     /**
      * @notice Relays signed requests for one vault and charges a single fee for the batch.
      * @param requests Signed requests, all with `to` equal to `vault`.
      * @param vault The target vault, charged once for the whole batch.
-     * @param stableCoinAddress A stablecoin the vault's owner listed for gas.
+     * @param feeToken A stablecoin or the vault's WETH, allowed for gas on the vault.
      * @param fee Total to reclaim for the batch. 0 relays without charging.
      */
     function executeBatchWithFee(
         ERC2771Forwarder.ForwardRequestData[] calldata requests,
         address vault,
-        address stableCoinAddress,
+        address feeToken,
         uint256 fee
     ) external;
 }

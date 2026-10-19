@@ -4,7 +4,6 @@ pragma solidity ^0.8.34;
 import {IBittyV1Guard, ASSET_STABLE_COIN, ASSET_CRYPTO} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {LENDING_ID, STAKING_ID, MARKET_TRADE_ID, INTENT_ID} from "./CategoryIds.sol";
 
-
 /**
  * @dev Registration helpers for tests.
  *

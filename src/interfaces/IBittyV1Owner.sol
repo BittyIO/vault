@@ -60,7 +60,7 @@ interface IBittyV1Owner {
     event RiskSettingsUpdated(RiskSettings riskSettings);
     event WhitelistedRecipientPaid(uint256 indexed id, address recipient, address asset, uint256 amount);
     event Retrieved721(address indexed contractAddress, uint256 indexed tokenId, address indexed to);
-    event StableCoinAsGasSet(bool enabled, address[] assets, uint64 dailyLimit, uint64 maxFeePerOp);
+    event TokenAsGasSet(bool enabled, address[] assets, uint64 dailyLimit, uint64 maxFeePerOp);
     event ActivationFeePaid(address indexed asset, uint256 amount);
     event RelayerFeePaid(address indexed asset, uint256 amount, uint256 spentToday, uint256 remainingToday);
 
@@ -84,17 +84,17 @@ interface IBittyV1Owner {
     function updateProtocols(address[] memory addProtocols, address[] memory removeProtocols) external;
 
     /**
-     * @notice Set the stablecoin-as-gas settings.
-     * @param assets The assets to use for stablecoin-as-gas operations.
-     * @param dailyLimit The daily limit for stablecoin-as-gas operations.
-     * @param maxFeePerOp The maximum fee per operation for stablecoin-as-gas operations.
+     * @notice Set the token-as-gas settings.
+     * @param assets The assets that may pay for relayed gas: stablecoins and/or the vault's WETH.
+     * @param dailyLimit The daily limit for token-as-gas operations, in whole USD.
+     * @param maxFeePerOp The maximum fee per operation for token-as-gas operations, in whole USD.
      */
-    function setStableCoinAsGas(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp) external;
+    function setTokenAsGas(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp) external;
 
     /**
-     * @notice Disable stablecoin-as-gas operations.
+     * @notice Disable token-as-gas operations.
      */
-    function disableStableCoinAsGas() external;
+    function disableTokenAsGas() external;
 
     /**
      * @notice Set the auto yieldings.
