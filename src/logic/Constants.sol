@@ -5,7 +5,8 @@ address constant BITTY_GUARD = 0x000000000F5fcD35885BfE4c700042cE7cb39554;
 
 address constant BITTY_FORWARDER = 0xD6013C5e339cd3546c0c7E86c306554a63FbAa6F;
 
-address constant BITTY_FEE_COLLECTOR = 0x5837C8F4963F694C59e53445C070acb266187bF1;
+// Vault owned by the Safe (0x5837C8F4963F694C59e53445C070acb266187bF1)
+address constant BITTY_FEE_COLLECTOR = 0xF0E7f6998B362BD15CF819C7EBfcaCe8865FECA0;
 
 address constant BITTY_VAULT_BOOTSTRAP = 0x06dBcce6A83230B1Ea281F449f960c8F7124cc72;
 
@@ -13,12 +14,6 @@ address constant BITTY_VAULT_FACTORY_BOOTSTRAP = 0x2287De18768eD5eC5F75Ed5d0B7e3
 
 uint64 constant MAX_RISK_TIMELOCK = 30 days;
 
-/**
- * @dev The floors and ceilings of the risk settings, and the value each takes until the owner sets it.
- *      No setting can be turned off: the timelock is at least a day, and both allowances are at least 1
- *      and at most 10,000 whole USD a day. A vault that has never set one reads the loosest it can be —
- *      the shortest timelock, the largest allowance — so an owner can only tighten from there.
- */
 uint64 constant MIN_RISK_TIMELOCK = 1 days;
 
 uint64 constant MAX_SEND_DAILY_ALLOWANCE = 10_000;
