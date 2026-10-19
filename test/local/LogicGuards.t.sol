@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {PaymentLogic} from "../../src/logic/PaymentLogic.sol";
 import {DeFiLogic} from "../../src/logic/DeFiLogic.sol";
-import {StableCoinAsGasLogic} from "../../src/logic/StableCoinAsGasLogic.sol";
+import {TokenAsGasLogic} from "../../src/logic/TokenAsGasLogic.sol";
 import {RiskLogic} from "../../src/logic/RiskLogic.sol";
 import {WhitelistLogic} from "../../src/logic/WhitelistLogic.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
@@ -34,16 +34,16 @@ contract UninitializedAccount {
         RiskLogic.updateRisk(risk);
     }
 
-    function setStableCoinAsGas(address[] calldata assets, uint64 daily, uint64 perOp) external {
-        StableCoinAsGasLogic.setStableCoinAsGas(assets, daily, perOp);
+    function setTokenAsGas(address[] calldata assets, uint64 daily, uint64 perOp) external {
+        TokenAsGasLogic.setTokenAsGas(assets, daily, perOp);
     }
 
-    function disableStableCoinAsGas() external {
-        StableCoinAsGasLogic.disableStableCoinAsGas();
+    function disableTokenAsGas() external {
+        TokenAsGasLogic.disableTokenAsGas();
     }
 
     function payRelayerFee(address asset, uint256 amount) external {
-        StableCoinAsGasLogic.payRelayerFee(asset, amount);
+        TokenAsGasLogic.payRelayerFee(asset, amount);
     }
 
     function activateOwnAllowList() external {
@@ -125,14 +125,14 @@ contract LogicGuardsTest is Test {
         );
     }
 
-    function test_stableCoinAsGasCannotBeConfiguredBeforeInitialization() public {
+    function test_tokenAsGasCannotBeConfiguredBeforeInitialization() public {
         vm.expectRevert(NotInitialized.selector);
-        account.setStableCoinAsGas(new address[](0), 10, 5);
+        account.setTokenAsGas(new address[](0), 10, 5);
     }
 
-    function test_stableCoinAsGasCannotBeDisabledBeforeInitialization() public {
+    function test_tokenAsGasCannotBeDisabledBeforeInitialization() public {
         vm.expectRevert(NotInitialized.selector);
-        account.disableStableCoinAsGas();
+        account.disableTokenAsGas();
     }
 
     function test_noRelayerFeeIsPayableBeforeInitialization() public {

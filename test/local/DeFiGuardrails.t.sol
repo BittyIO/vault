@@ -15,7 +15,7 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
-import {AddressZero, Deprecated, NotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
+import {AddressZero, ArrayLengthMismatch, Deprecated, NotRegistered} from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     InvalidMarketTradeProtocol,
     InvalidIntentProtocol,
@@ -59,8 +59,8 @@ interface IFacet {
     function setAutoYielding(AutoYield calldata route) external;
     function setAutoYieldings(AutoYield[] calldata routes) external;
     function getAutoYieldings(address[] calldata assets) external view returns (address[] memory);
-    function autoYield(address asset) external;
-    function autoYields(address[] calldata assets) external;
+    function autoYield(address asset, uint256 amount) external;
+    function autoYields(address[] calldata assets, uint256[] calldata amounts) external;
     function getClone(address protocol) external view returns (address);
     function marketSell(
         address marketTrade,
@@ -468,7 +468,7 @@ contract DeFiGuardrailsTest is Test {
 
     function test_autoYieldingAnAssetWithNoRouteDoesNothing() public {
         vm.prank(owner);
-        _f().autoYield(address(usdc));
+        _f().autoYield(address(usdc), type(uint256).max);
         assertEq(usdc.balanceOf(address(vault)), 1_000e6, "untouched");
     }
 
@@ -477,7 +477,7 @@ contract DeFiGuardrailsTest is Test {
         guard.setAsset(address(empty), ASSET_STABLE_COIN);
         vm.startPrank(owner);
         _f().setAutoYielding(AutoYield({asset: address(empty), protocol: address(proto)}));
-        _f().autoYield(address(empty));
+        _f().autoYield(address(empty), type(uint256).max);
         vm.stopPrank();
         assertEq(_f().getClone(address(proto)), address(0), "nothing to deploy, so nothing was cloned");
     }
@@ -492,12 +492,43 @@ contract DeFiGuardrailsTest is Test {
         address[] memory assets = new address[](2);
         assets[0] = address(usdc);
         assets[1] = address(dai);
+        uint256[] memory all = new uint256[](2);
+        all[0] = type(uint256).max;
+        all[1] = type(uint256).max;
         vm.prank(owner);
-        _f().autoYields(assets);
+        _f().autoYields(assets, all);
 
         address clone = _f().getClone(address(proto));
         assertEq(usdc.balanceOf(clone), 1_000e6, "usdc deployed");
         assertEq(dai.balanceOf(clone), 1_000e18, "dai deployed");
+    }
+
+    /// The keeper names the amount, so the fee float stays behind instead of being swept with the rest.
+    function test_autoYieldDepositsOnlyTheNamedAmount() public {
+        vm.startPrank(owner);
+        _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(proto)}));
+        _f().autoYield(address(usdc), 990e6);
+        vm.stopPrank();
+        assertEq(usdc.balanceOf(_f().getClone(address(proto))), 990e6, "deposited");
+        assertEq(usdc.balanceOf(address(vault)), 10e6, "the float stays");
+    }
+
+    /// Capped, not refused: the balance can move between the keeper reading it and the sweep landing.
+    function test_autoYieldCapsTheAmountAtTheFreeBalance() public {
+        vm.startPrank(owner);
+        _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(proto)}));
+        _f().autoYield(address(usdc), 5_000e6);
+        vm.stopPrank();
+        assertEq(usdc.balanceOf(address(vault)), 0, "everything there was");
+    }
+
+    function test_autoYieldsRefusesRaggedAmounts() public {
+        address[] memory assets = new address[](2);
+        assets[0] = address(usdc);
+        assets[1] = address(dai);
+        vm.prank(owner);
+        vm.expectRevert(ArrayLengthMismatch.selector);
+        _f().autoYields(assets, new uint256[](1));
     }
 
     function test_aNonIntentProtocolCannotBeAskedToCancel() public {
@@ -542,7 +573,7 @@ contract DeFiGuardrailsTest is Test {
 
         vm.prank(makeAddr("stranger"));
         vm.expectRevert(BittyV1VaultDeFiFacet.NotAutoYieldTrigger.selector);
-        _f().autoYield(address(usdc));
+        _f().autoYield(address(usdc), type(uint256).max);
     }
 
     function test_theNamedTriggerMaySweepButNothingElse() public {
@@ -553,7 +584,7 @@ contract DeFiGuardrailsTest is Test {
         vm.stopPrank();
 
         vm.prank(keeper);
-        _f().autoYield(address(usdc));
+        _f().autoYield(address(usdc), type(uint256).max);
         assertEq(usdc.balanceOf(_f().getClone(address(proto))), 1_000e6, "the keeper swept it");
 
         vm.prank(keeper);
@@ -572,13 +603,13 @@ contract DeFiGuardrailsTest is Test {
 
         vm.prank(oldKeeper);
         vm.expectRevert(BittyV1VaultDeFiFacet.NotAutoYieldTrigger.selector);
-        _f().autoYield(address(usdc));
+        _f().autoYield(address(usdc), type(uint256).max);
 
         vm.prank(owner);
         _f().setAutoYieldTrigger(address(0));
         vm.prank(newKeeper);
         vm.expectRevert(BittyV1VaultDeFiFacet.NotAutoYieldTrigger.selector);
-        _f().autoYield(address(usdc));
+        _f().autoYield(address(usdc), type(uint256).max);
     }
 
     function test_onlyTheOwnerNamesTheTrigger() public {
@@ -591,7 +622,7 @@ contract DeFiGuardrailsTest is Test {
         vm.startPrank(owner);
         _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(proto)}));
         _f().setAutoYieldTrigger(makeAddr("keeper"));
-        _f().autoYield(address(usdc));
+        _f().autoYield(address(usdc), type(uint256).max);
         vm.stopPrank();
         assertEq(usdc.balanceOf(_f().getClone(address(proto))), 1_000e6, "naming a trigger does not displace the owner");
     }

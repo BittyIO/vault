@@ -143,8 +143,8 @@ contract LocksTest is Test {
         all[n++] = abi.encodeCall(BittyV1VaultBase.upgrade, (address(0xdead)));
         // risk configuration, both directions
         all[n++] = abi.encodeCall(BittyV1Vault.updateRisk, (risk));
-        all[n++] = abi.encodeCall(BittyV1Vault.setStableCoinAsGas, (_one(address(usdc)), 1, 1));
-        all[n++] = abi.encodeCall(BittyV1Vault.disableStableCoinAsGas, ());
+        all[n++] = abi.encodeCall(BittyV1Vault.setTokenAsGas, (_one(address(usdc)), 1, 1));
+        all[n++] = abi.encodeCall(BittyV1Vault.disableTokenAsGas, ());
         all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false));
         all[n++] = abi.encodeCall(
             BittyV1VaultDeFiFacet.setAssetManager, (stranger, uint64(block.timestamp + 365 days), PERM_YIELD)
@@ -162,7 +162,7 @@ contract LocksTest is Test {
         all[n++] = abi.encodeCall(BittyV1Vault.send, (stranger, address(usdc), 1e6, _none(), _noAmounts()));
         // new positions
         all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.deposit, (address(sky), address(usdc), 1e6));
-        all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.autoYield, (address(usdc)));
+        all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.autoYield, (address(usdc), type(uint256).max));
         // order cancellation
         all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.cancelIntentOrder, (address(intent), hex"beef"));
 
@@ -330,8 +330,7 @@ contract LocksTest is Test {
      * Value may always come home. Under either lock the owner and the manager can unwind — a
      * withdrawal pays the clone's owner, which is this vault, so it cannot be turned into an exit —
      * and a stranger still cannot, because being locked says nothing about the owner having stopped
-     * acting. Where a stranger genuinely needs a position unwound they reach it through
-     * {payScheduled}, which pulls from positions to pay what is already owed.
+     * acting.
      */
     function test_unwindingStillWorksWhileLocked() public {
         vm.prank(owner);

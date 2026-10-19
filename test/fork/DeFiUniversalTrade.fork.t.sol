@@ -16,8 +16,14 @@ import {UniswapUniversalTradeProtocol} from "protocol-contracts/src/protocols/Un
 import {sepolia} from "protocol-contracts/script/addresses.sol";
 
 interface IVaultTrade {
-    function marketSell(address marketTrade, address sellToken, uint256 sellAmount, address buyToken, uint256 buyAmountMin, bytes calldata path)
-        external;
+    function marketSell(
+        address marketTrade,
+        address sellToken,
+        uint256 sellAmount,
+        address buyToken,
+        uint256 buyAmountMin,
+        bytes calldata path
+    ) external;
     function getClone(address protocol) external view returns (address);
 }
 
@@ -70,9 +76,7 @@ contract DeFiUniversalTradeForkTest is Test {
         IVaultTrade(address(vault)).marketSell(address(tradeImpl), sepolia.WETH9, sellAmount, sepolia.USDT, 0, path);
 
         assertEq(IERC20(sepolia.WETH9).balanceOf(address(vault)), 0, "the full sell amount left the vault");
-        assertGt(
-            IERC20(sepolia.USDT).balanceOf(address(vault)), usdtBefore, "USDT came back from the universal router"
-        );
+        assertGt(IERC20(sepolia.USDT).balanceOf(address(vault)), usdtBefore, "USDT came back from the universal router");
         // No dust stranded in the clone.
         address clone = IVaultTrade(address(vault)).getClone(address(tradeImpl));
         assertEq(IERC20(sepolia.WETH9).balanceOf(clone), 0, "no WETH left in the clone");

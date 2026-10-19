@@ -220,8 +220,9 @@ interface IBittyV1Vault {
     /**
      * @notice Auto yield the assets.
      * @param assets The addresses of the assets to auto yield.
+     * @param amounts How much of each to deposit, capped at its free balance.
      */
-    function autoYields(address[] calldata assets) external;
+    function autoYields(address[] calldata assets, uint256[] calldata amounts) external;
 
     /**
      * @notice Wrap any native ETH the vault holds into WETH. receive() auto-wraps incoming ETH, but ETH
@@ -240,11 +241,18 @@ interface IBittyV1Vault {
 
     /**
      * @notice What the forwarder may still reclaim from this vault today, as an 18-decimal
-     *         whole-stable-coin-token value. Resets at 00:00 UTC.
+     *         USD value. Resets at 00:00 UTC.
      * @dev Read before relaying: exceeding the ceiling reverts the whole relayed call, so the caller
      *      should fall back to paying its own gas rather than submit and lose it.
      */
     function gasBudgetRemaining() external view returns (uint256);
+
+    /**
+     * @notice A relayer fee as the vault will count it against its ceilings: an 18-decimal USD value,
+     *         rounded up. A stablecoin is a dollar; the vault's WETH is priced off the guard's feed.
+     * @dev Reverts where {payRelayerFee} would on price: a stale feed or a down L2 sequencer.
+     */
+    function relayerFeeValue(address asset, uint256 amount) external view returns (uint256);
 
     /**
      * @notice The terms on which this vault will pay for relayed gas.
@@ -252,19 +260,16 @@ interface IBittyV1Vault {
      *      {gasBudgetRemaining} — that is live state with its own getter, read on-chain by the
      *      forwarder — nor an `enabled` flag, which `dailyLimit` already carries.
      * @return assets The assets that may pay for relayed gas. Activation seeds this with the
-     *         guard's stable coins; EMPTY means NOTHING may pay, so relaying cannot be charged and
+     *         guard's stable coins (the vault's WETH may also be listed); EMPTY means NOTHING may pay, so relaying cannot be charged and
      *         no relayed call will go through.
-     * @return dailyLimit Per-UTC-day ceiling in whole tokens, as in force. ZERO means relaying is
+     * @return dailyLimit Per-UTC-day ceiling in whole USD, as in force. ZERO means relaying is
      *         off: when it is on this is either the owner's figure or DAILY_MAX_GAS_BUDGET, never 0.
-     * @return maxFeePerOp Ceiling on a single charge, in whole tokens. Never zero.
+     * @return maxFeePerOp Ceiling on a single charge, in whole USD. Never zero.
      */
-    function stableCoinAsGasConfig()
-        external
-        view
-        returns (address[] memory assets, uint256 dailyLimit, uint256 maxFeePerOp);
+    function tokenAsGasConfig() external view returns (address[] memory assets, uint256 dailyLimit, uint256 maxFeePerOp);
 
     /**
-     * @notice Reimburse the trusted forwarder, in stablecoin, for gas it fronted for this vault.
+     * @notice Reimburse the trusted forwarder, in a stablecoin or the vault's WETH, for gas it fronted for this vault.
      * @dev Callable by the forwarder and ONLY while it is settling a fee for this vault — it must be
      *      inside its own charge window (see {IBittyV1Forwarder}). Being the forwarder is not enough:
      *      every relayed call has the forwarder as `msg.sender`, so that test alone let a relayed
@@ -280,10 +285,11 @@ interface IBittyV1Vault {
     function payRelayerFee(address asset, uint256 amount) external;
 
     /**
-     * @notice Auto yield the assets.
+     * @notice Auto yield an asset.
      * @param asset The address of the asset to auto yield.
+     * @param amount How much to deposit, capped at the free balance; the rest stays, e.g. as a fee float.
      */
-    function autoYield(address asset) external;
+    function autoYield(address asset, uint256 amount) external;
 
     /**
      * @notice Name the address, besides the owner, that may trigger an auto yield sweep.

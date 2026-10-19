@@ -7,6 +7,7 @@ import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC19
 import {ERC2771Forwarder} from "openzeppelin-contracts/contracts/metatx/ERC2771Forwarder.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
+import {MockFeed} from "./MarketTradeGuard.t.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultForwarder} from "../../src/BittyV1VaultForwarder.sol";
@@ -439,7 +440,7 @@ contract ForwarderTest is Test {
     function test_feeOverTheVaultBudgetIsRefusedUpFront() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
-        vaultA.setStableCoinAsGas(none, 5, 5); // 5 whole tokens a day
+        vaultA.setTokenAsGas(none, 5, 5); // 5 whole tokens a day
 
         ERC2771Forwarder.ForwardRequestData memory r =
             _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
@@ -449,6 +450,30 @@ contract ForwarderTest is Test {
 
         assertTrue(_bittyListOn(vaultA), "the inner call never ran");
         assertEq(fwd.nonceFor(owner, address(vaultA)), 0, "and the lane did not move");
+    }
+
+    /// A WETH fee is valued in USD up front, as the vault values it — not as one token, one dollar.
+    function test_aWethFeeOverTheVaultBudgetIsRefusedUpFront() public {
+        MockERC20 weth = new MockERC20("Wrapped Ether", "WETH", 18);
+        MockFeed feed = new MockFeed();
+        feed.set(2_000e8, block.timestamp, block.timestamp);
+        guard.setPriceFeed(address(weth), address(feed), 1 hours, address(0));
+        bytes memory init =
+            abi.encodeCall(BittyV1Vault.initialize, (owner, address(weth), false, address(0), 0, new bytes[](0)));
+        BittyV1Vault v = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
+        weth.mint(address(v), 1e18);
+        address[] memory none = new address[](0);
+        vm.prank(owner);
+        v.setTokenAsGas(none, 5, 5); // $5 a day
+
+        ERC2771Forwarder.ForwardRequestData memory r = _sign(_req(owner, address(v), _restrictToOwnListCall()), ownerPk);
+        vm.prank(relayer);
+        vm.expectRevert(BittyV1VaultForwarder.FeeExceedsVaultBudget.selector);
+        fwd.executeWithFee(r, address(weth), 0.003e18); // $6
+
+        vm.prank(relayer);
+        fwd.executeWithFee(r, address(weth), 0.002e18); // $4
+        assertEq(weth.balanceOf(BITTY_FEE_COLLECTOR), 0.002e18);
     }
 
     /// Fee 0 relays without charging at all.

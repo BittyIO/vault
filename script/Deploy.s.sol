@@ -31,7 +31,7 @@ import {
 } from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {DeFiLogic} from "../src/logic/DeFiLogic.sol";
 import {MarketTradeLogic} from "../src/logic/MarketTradeLogic.sol";
-import {StableCoinAsGasLogic} from "../src/logic/StableCoinAsGasLogic.sol";
+import {TokenAsGasLogic} from "../src/logic/TokenAsGasLogic.sol";
 import {RiskLogic} from "../src/logic/RiskLogic.sol";
 import {WhitelistLogic} from "../src/logic/WhitelistLogic.sol";
 
@@ -111,12 +111,12 @@ contract Deploy is DeployScript {
     function _deployLogicLibraries() private {
         _deployLibrary("DeFiLogic", address(DeFiLogic), type(DeFiLogic).creationCode);
         _deployLibrary("MarketTradeLogic", address(MarketTradeLogic), type(MarketTradeLogic).creationCode);
-        _deployLibrary("StableCoinAsGasLogic", address(StableCoinAsGasLogic), type(StableCoinAsGasLogic).creationCode);
+        _deployLibrary("TokenAsGasLogic", address(TokenAsGasLogic), type(TokenAsGasLogic).creationCode);
         _deployLibrary("RiskLogic", address(RiskLogic), type(RiskLogic).creationCode);
         _deployLibrary("WhitelistLogic", address(WhitelistLogic), type(WhitelistLogic).creationCode);
         saveAddress("DEFI_LOGIC", address(DeFiLogic));
         saveAddress("MARKET_TRADE_LOGIC", address(MarketTradeLogic));
-        saveAddress("STABLE_COIN_AS_GAS_LOGIC", address(StableCoinAsGasLogic));
+        saveAddress("TOKEN_AS_GAS_LOGIC", address(TokenAsGasLogic));
         saveAddress("RISK_LOGIC", address(RiskLogic));
         saveAddress("WHITELIST_LOGIC", address(WhitelistLogic));
     }

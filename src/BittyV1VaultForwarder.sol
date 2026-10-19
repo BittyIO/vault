@@ -121,11 +121,11 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
      *      is no second place that could charge with the window shut — which the account would
      *      refuse — or forget to shut it.
      */
-    function _charge(address vault, address stableCoinAddress, uint256 fee) private {
+    function _charge(address vault, address feeToken, uint256 fee) private {
         assembly ("memory-safe") {
             tstore(_CHARGING_SLOT, vault)
         }
-        IBittyV1Vault(vault).payRelayerFee(stableCoinAddress, fee);
+        IBittyV1Vault(vault).payRelayerFee(feeToken, fee);
         assembly ("memory-safe") {
             tstore(_CHARGING_SLOT, 0)
         }
@@ -198,7 +198,7 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
      * @dev Charge after the call so a reverted request costs the vault nothing. Check the budget first
      *      so a relay that could never be paid for fails before doing the work.
      */
-    function executeWithFee(ForwardRequestData calldata request, address stableCoinAddress, uint256 fee)
+    function executeWithFee(ForwardRequestData calldata request, address feeToken, uint256 fee)
         external
         payable
         virtual
@@ -207,14 +207,14 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
         if (msg.value != request.value) {
             revert ERC2771ForwarderMismatchedValue(request.value, msg.value);
         }
-        if (fee != 0) _checkVaultBudget(request.to, stableCoinAddress, fee);
+        if (fee != 0) _checkVaultBudget(request.to, feeToken, fee);
 
         if (!_execute(request, true)) {
             revert Address.FailedInnerCall();
         }
 
         if (fee != 0) {
-            _charge(request.to, stableCoinAddress, fee);
+            _charge(request.to, feeToken, fee);
         }
     }
 
@@ -232,12 +232,10 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
      *      arise here — these requests carry no value — and partial success would leave the owner
      *      charged for work that did not happen.
      */
-    function executeBatchWithFee(
-        ForwardRequestData[] calldata requests,
-        address vault,
-        address stableCoinAddress,
-        uint256 fee
-    ) external virtual {
+    function executeBatchWithFee(ForwardRequestData[] calldata requests, address vault, address feeToken, uint256 fee)
+        external
+        virtual
+    {
         if (!approvedRelayers[msg.sender]) revert NotApprovedRelayer();
         if (requests.length == 0) revert EmptyBatch();
 
@@ -246,7 +244,7 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
             if (requests[i].value != 0) revert ERC2771ForwarderMismatchedValue(requests[i].value, 0);
         }
 
-        if (fee != 0) _checkVaultBudget(vault, stableCoinAddress, fee);
+        if (fee != 0) _checkVaultBudget(vault, feeToken, fee);
 
         for (uint256 i; i < requests.length; ++i) {
             if (!_execute(requests[i], true)) {
@@ -255,18 +253,24 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
         }
 
         if (fee != 0) {
-            _charge(vault, stableCoinAddress, fee);
+            _charge(vault, feeToken, fee);
         }
     }
 
     /**
-     * @dev The vault reports its remaining allowance as an 18-decimal whole-token value, so the raw
-     *      amount is normalised the same way the vault normalises it. Ceil to match, otherwise a fee
-     *      could pass here and be rejected a few thousand gas later.
+     * @dev The vault reports its remaining allowance as an 18-decimal USD value, so the fee is valued
+     *      the way the vault values it — WETH off its feed — by asking the vault. A vault from before
+     *      {IBittyV1Vault-relayerFeeValue} takes only stablecoins, so the raw amount is normalised as
+     *      a dollar instead. Ceil to match, otherwise a fee could pass here and be rejected a few
+     *      thousand gas later.
      */
-    function _checkVaultBudget(address vault, address stableCoinAddress, uint256 fee) private view {
-        uint256 normalised =
-            Math.mulDiv(fee, 1e18, 10 ** IERC20Metadata(stableCoinAddress).decimals(), Math.Rounding.Ceil);
+    function _checkVaultBudget(address vault, address feeToken, uint256 fee) private view {
+        uint256 normalised;
+        try IBittyV1Vault(vault).relayerFeeValue(feeToken, fee) returns (uint256 value) {
+            normalised = value;
+        } catch {
+            normalised = Math.mulDiv(fee, 1e18, 10 ** IERC20Metadata(feeToken).decimals(), Math.Rounding.Ceil);
+        }
         if (normalised > IBittyV1Vault(vault).gasBudgetRemaining()) revert FeeExceedsVaultBudget();
     }
 

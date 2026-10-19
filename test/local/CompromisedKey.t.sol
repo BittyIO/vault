@@ -161,7 +161,7 @@ contract CompromisedKeyTest is Test {
 
         vm.prank(keeper);
         vm.expectRevert();
-        _f().autoYield(address(usdc));
+        _f().autoYield(address(usdc), type(uint256).max);
     }
 
     /**

@@ -23,7 +23,7 @@ import {LockLib} from "./LockLib.sol";
  * @title PaymentLogic
  * @notice The main vault's core payments: initialization and the owner's own sends, metered by the
  *         send daily allowance. Whitelisted-recipient payouts live in {WhitelistLogic}, the gas budget in
- *         {StableCoinAsGasLogic}, and the risk config in {RiskLogic}; shared payout/protection primitives
+ *         {TokenAsGasLogic}, and the risk config in {RiskLogic}; shared payout/protection primitives
  *         come from {PaymentCore}.
  * @dev Internal, so it compiles into the vault rather than being linked: a send is the commonest call a
  *      vault takes, and reaching a separate library costs it a cold account access every time. The

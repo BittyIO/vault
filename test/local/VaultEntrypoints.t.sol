@@ -335,7 +335,7 @@ contract VaultEntrypointsTest is Test {
         MockERC20 rnd = new MockERC20("Random", "RND", 18);
         vm.prank(owner);
         vm.expectRevert(InvalidAsset.selector);
-        vault.setStableCoinAsGas(_addr(address(rnd)), 50, 5);
+        vault.setTokenAsGas(_addr(address(rnd)), 50, 5);
     }
 
     function test_narrowingToACryptoCoinIsRefused() public {
@@ -343,7 +343,7 @@ contract VaultEntrypointsTest is Test {
         guard.setAsset(address(gasWrapped), ASSET_CRYPTO);
         vm.prank(owner);
         vm.expectRevert(InvalidAsset.selector);
-        vault.setStableCoinAsGas(_addr(address(gasWrapped)), 50, 5);
+        vault.setTokenAsGas(_addr(address(gasWrapped)), 50, 5);
     }
 
     function test_aRepeatedCoinIsStoredOnce() public {
@@ -351,9 +351,9 @@ contract VaultEntrypointsTest is Test {
         two[0] = address(usdc);
         two[1] = address(usdc);
         vm.prank(owner);
-        vault.setStableCoinAsGas(two, 50, 5);
+        vault.setTokenAsGas(two, 50, 5);
 
-        (address[] memory got,,) = vault.stableCoinAsGasConfig();
+        (address[] memory got,,) = vault.tokenAsGasConfig();
         assertEq(got.length, 1, "the duplicate collapsed");
         assertEq(got[0], address(usdc), "and it is the coin named");
     }
@@ -364,9 +364,9 @@ contract VaultEntrypointsTest is Test {
         list[0] = SENTINEL;
         list[1] = address(usdc);
         vm.prank(owner);
-        vault.setStableCoinAsGas(list, 50, 5);
+        vault.setTokenAsGas(list, 50, 5);
 
-        (address[] memory got,,) = vault.stableCoinAsGasConfig();
+        (address[] memory got,,) = vault.tokenAsGasConfig();
         assertEq(got.length, 1, "the list terminator is not a payable coin");
         assertEq(got[0], address(usdc));
     }
@@ -376,11 +376,11 @@ contract VaultEntrypointsTest is Test {
         guard.setAsset(address(dai), ASSET_STABLE_COIN);
 
         vm.startPrank(owner);
-        vault.setStableCoinAsGas(_addr(address(usdc)), 50, 5);
-        vault.setStableCoinAsGas(_addr(address(dai)), 50, 5);
+        vault.setTokenAsGas(_addr(address(usdc)), 50, 5);
+        vault.setTokenAsGas(_addr(address(dai)), 50, 5);
         vm.stopPrank();
 
-        (address[] memory got,,) = vault.stableCoinAsGasConfig();
+        (address[] memory got,,) = vault.tokenAsGasConfig();
         assertEq(got.length, 1, "the old list was cleared");
         assertEq(got[0], address(dai), "only the newest narrowing stands");
     }
