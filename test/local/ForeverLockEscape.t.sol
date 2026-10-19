@@ -108,6 +108,16 @@ contract ForeverLockEscapeTest is Test {
         _refused(swept);
     }
 
+    /**
+     * Paying the vault moves nothing, so its own address is no way out however long it has stood.
+     */
+    function test_refusedForTheVaultItself() public {
+        vm.prank(owner);
+        uint256 self = vault.addWhitelistedRecipient(address(vault));
+        vm.warp(T0 + TIMELOCK);
+        _refused(self);
+    }
+
     // ── allowed, and what it keeps ────────────────────────────────────────────
 
     /**

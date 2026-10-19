@@ -323,7 +323,8 @@ interface IBittyV1Vault {
      * @dev Once engaged nothing can be added, so the only way money ever leaves again is a whitelisted
      *      recipient the owner already had. The owner names one, and the lock refuses with
      *      {NoEscapeRecipient} unless it can be paid right now: it exists, its window has run, no lock
-     *      voided it and no removal of it has landed. A removal still waiting is voided by the lock.
+     *      voided it and no removal of it has landed. The vault's own address is refused too, since
+     *      paying it moves nothing. A removal still waiting is voided by the lock.
      * @param escapeRecipientId A whitelisted recipient the vault can pay out to after the lock.
      */
     function foreverLock(uint256 escapeRecipientId) external;
