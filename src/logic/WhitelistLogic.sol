@@ -65,13 +65,16 @@ library WhitelistLogic {
      * Refuse unless entry `id` can be paid right now — it exists, its own window has run, no lock voided
      * it and no removal of it has landed. Asked before the forever lock: once that is engaged nothing
      * can be added, so a vault locked with no payable recipient could never pay anything out again.
-     * One named entry rather than a search of the list, so the check costs the same however many
-     * entries a thief has queued.
+     * The vault itself is no way out either: paying it moves nothing, so it is refused like a missing
+     * entry. One named entry rather than a search of the list, so the check costs the same however
+     * many entries a thief has queued.
      */
     function requireEscape(uint256 id) external view {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         WhitelistEntry memory entry = vaultStorage.whitelistedRecipient[id];
-        if (entry.recipient == address(0) || _removed(entry)) revert NoEscapeRecipient();
+        if (entry.recipient == address(0) || entry.recipient == address(this) || _removed(entry)) {
+            revert NoEscapeRecipient();
+        }
         if (!_payable(vaultStorage.whitelistedRecipientDeferred[id])) revert NoEscapeRecipient();
     }
 
