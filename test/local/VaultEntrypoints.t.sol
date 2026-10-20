@@ -6,6 +6,8 @@ import {Test} from "forge-std/Test.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {WETH} from "solmate/tokens/WETH.sol";
+import {MockFeed} from "./MarketTradeGuard.t.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {MockChargeWindow} from "../helpers/MockChargeWindow.sol";
 import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
@@ -193,6 +195,36 @@ contract VaultEntrypointsTest is Test {
         BittyV1Vault v = _newVault(0, address(fee), 3e6);
         assertEq(fee.balanceOf(BITTY_FEE_COLLECTOR) - before, 3e6, "the collector was paid");
         assertEq(fee.balanceOf(address(v)), 7e6, "out of the vault's own funding");
+    }
+
+    /// A vault funded with nothing but ETH pays its own activation in WETH: the ETH waiting at the
+    /// address is wrapped first, then charged at the oracle price.
+    function test_anEthOnlyVaultActivatesPayingInWeth() public {
+        bytes memory init = _ethFundedInit(0.0005e18); // $1 at $2,000
+        BittyV1Vault v = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
+        assertEq(weth.balanceOf(BITTY_FEE_COLLECTOR), 0.0005e18, "the collector was paid in WETH");
+        assertEq(weth.balanceOf(address(v)), 0.0095e18, "the rest is the vault's, wrapped");
+        assertEq(address(v).balance, 0, "nothing left unwrapped");
+    }
+
+    /// The same system cap as a relay fee, in USD, so WETH cannot overpay an activation either.
+    function test_aWethActivationFeeAboveTheCapIsRefused() public {
+        bytes memory init = _ethFundedInit((uint256(SYSTEM_MAX_FEE_PER_OP) * 1e18) / 2_000 + 1);
+        vm.expectRevert(FeeExceedsPerOpCap.selector);
+        new ERC1967Proxy(address(impl), init);
+    }
+
+    WETH weth;
+
+    /// ETH waiting where the next proxy lands, and an initialize that pays `fee` of it as WETH.
+    function _ethFundedInit(uint256 fee) internal returns (bytes memory) {
+        weth = new WETH();
+        MockFeed feed = new MockFeed();
+        feed.set(2_000e8, block.timestamp, block.timestamp);
+        guard.setPriceFeed(address(weth), address(feed), 1 hours, address(0));
+        vm.deal(vm.computeCreateAddress(address(this), vm.getNonce(address(this))), 0.01 ether);
+        return
+            abi.encodeCall(BittyV1Vault.initialize, (owner, address(weth), false, address(weth), fee, new bytes[](0)));
     }
 
     function test_anUnregisteredActivationAssetIsRefused() public {
