@@ -128,8 +128,8 @@ library TokenAsGasLogic {
     function payActivationFee(address asset, uint256 amount) external {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         _onlyInitialized(vaultStorage);
-        if ((IBittyV1Guard(BITTY_GUARD).assetCategory(asset) & ASSET_STABLE_COIN) == 0) revert InvalidAsset();
-        uint256 value = Math.mulDiv(amount, 1e18, 10 ** IERC20Metadata(asset).decimals(), Math.Rounding.Ceil);
+        if (!_gasEligible(vaultStorage, asset)) revert InvalidAsset();
+        uint256 value = _feeValue(vaultStorage, asset, amount);
         if (value > uint256(SYSTEM_MAX_FEE_PER_OP) * 1e18) revert FeeExceedsPerOpCap();
         if (IERC20(asset).balanceOf(address(this)) < amount) revert InsufficientBalance();
         IERC20(asset).safeTransfer(BITTY_FEE_COLLECTOR, amount);
@@ -142,10 +142,6 @@ library TokenAsGasLogic {
                 || (IBittyV1Guard(BITTY_GUARD).assetCategory(asset) & ASSET_STABLE_COIN) != 0;
     }
 
-    /**
-     * @dev 18-decimal USD value of a fee, rounded up. A stablecoin is a dollar; WETH reads its feed and,
-     *      on an L2, the sequencer check — both fail closed, so a stale price stops ETH charges only.
-     */
     function _feeValue(VaultStorage storage vaultStorage, address asset, uint256 amount)
         private
         view

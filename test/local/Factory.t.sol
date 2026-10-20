@@ -13,6 +13,7 @@ import {
 import {Test} from "forge-std/Test.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
+import {MockFeed} from "./MarketTradeGuard.t.sol";
 import {
     VaultAlreadyActivated,
     InvalidActivationSignature,
@@ -258,6 +259,10 @@ contract FactoryTest is Test {
     /// a revert or a duplicate entry.
     function test_activatingWithWethAsTheFeeAssetListsItOnce() public {
         guard.setConfigAddress(CFG_GAS_WRAPPED, address(usdc)); // wrapped-gas == the fee asset for this case
+        // A fee in the wrapped-gas token is priced off its oracle, as WETH is in production.
+        MockFeed feed = new MockFeed();
+        feed.set(1e8, block.timestamp, block.timestamp);
+        guard.setPriceFeed(address(usdc), address(feed), 1 hours, address(0));
         usdc.mint(factory.vaultAddress(owner), 100e6);
         address v = factory.activateVaultByAsset(
             owner, address(usdc), 2e6, true, _noCalls(), DEADLINE, _sign(owner, address(usdc), 2e6, ownerPk)

@@ -53,6 +53,8 @@ contract BittyV1Vault is BittyV1VaultBase {
         if (owner_ == address(0) || gasWrapped_ == address(0)) revert AddressZero();
         __Ownable_init(owner_);
         PaymentLogic.initialize(gasWrapped_, restrictToOwnAllowList);
+        uint256 bal = address(this).balance;
+        if (bal > 0) WETH(payable(gasWrapped_)).deposit{value: bal}();
         if (activationAsset != address(0) && activationAmount != 0) {
             TokenAsGasLogic.payActivationFee(activationAsset, activationAmount);
         }
@@ -62,8 +64,6 @@ contract BittyV1Vault is BittyV1VaultBase {
             }
             DeFiLogic.listInitialAsset(gasWrapped_);
         }
-        uint256 bal = address(this).balance;
-        if (bal > 0) WETH(payable(gasWrapped_)).deposit{value: bal}();
         if (calls.length != 0) _runAsOwner(owner_, calls);
     }
 
