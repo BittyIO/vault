@@ -8,7 +8,6 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {MockIntentProtocol} from "../helpers/MockIntentProtocol.sol";
-import {MockSettlement} from "../helpers/MockSettlement.sol";
 import {MockChargeWindow} from "../helpers/MockChargeWindow.sol";
 import {INTENT_ID, LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
@@ -51,7 +50,7 @@ contract LocksTest is Test {
     MockERC20 weth;
     MockLendingProtocol sky;
     MockIntentProtocol intent;
-    MockSettlement settlement;
+    address intentSpender = makeAddr("intentSpender");
 
     address owner = makeAddr("owner");
     address manager = makeAddr("manager");
@@ -81,9 +80,7 @@ contract LocksTest is Test {
         usdc = new MockERC20("USD Coin", "USDC", 6);
         weth = new MockERC20("Wrapped Ether", "WETH", 18);
         sky = new MockLendingProtocol();
-        settlement = new MockSettlement();
-        intent = new MockIntentProtocol();
-        intent.setEndpoints(address(settlement), address(settlement));
+        intent = new MockIntentProtocol(intentSpender);
         guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         guard.setAsset(address(weth), ASSET_CRYPTO);
         guard.setProtocol(address(sky), LENDING_ID);
@@ -394,13 +391,13 @@ contract LocksTest is Test {
     }
 
     /// The conversion path needs its allowance, so the approval stays reachable.
-    function test_theIntentRelayerCanStillBeApprovedWhileLocked() public {
+    function test_theIntentSpenderCanStillBeApprovedWhileLocked() public {
         vm.startPrank(owner);
         _f().updateProtocols(_one(address(intent)), _none());
         vault.foreverLock(coldId);
-        _f().approveIntentRelayer(address(intent), address(weth));
+        _f().approveIntentSpender(address(intent), address(weth));
         vm.stopPrank();
-        assertEq(weth.allowance(address(vault), address(settlement)), type(uint256).max);
+        assertEq(weth.allowance(address(vault), intentSpender), type(uint256).max);
     }
 
     // ── orders: the one trade a locked vault still signs ──────────────────────
