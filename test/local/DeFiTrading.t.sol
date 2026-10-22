@@ -8,14 +8,13 @@ import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
 import {MockMarketProtocol} from "../helpers/MockMarketProtocol.sol";
 import {MockIntentProtocol} from "../helpers/MockIntentProtocol.sol";
-import {MockSettlement} from "../helpers/MockSettlement.sol";
 import {MARKET_TRADE_ID, INTENT_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 interface IFacet {
-    function approveIntentRelayer(address intent, address token) external;
+    function approveIntentSpender(address intent, address token) external;
     function cancelIntentOrder(address intent, bytes calldata uid) external;
     function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4);
     function isOffchainOrderAuthorized(address signer, address sellToken, address buyToken, uint256 sellAmount)
@@ -40,7 +39,7 @@ contract DeFiTradingTest is Test {
     MockERC20 t1;
     MockMarketProtocol marketTrade;
     MockIntentProtocol intent;
-    MockSettlement settlement;
+    address intentSpender = makeAddr("intentSpender");
 
     address owner = makeAddr("owner");
     address gasWrapped = makeAddr("gasWrapped");
@@ -60,9 +59,7 @@ contract DeFiTradingTest is Test {
         t0 = new MockERC20("Token0", "T0", 18);
         t1 = new MockERC20("Token1", "T1", 18);
         marketTrade = new MockMarketProtocol();
-        settlement = new MockSettlement();
-        intent = new MockIntentProtocol();
-        intent.setEndpoints(address(settlement), address(settlement));
+        intent = new MockIntentProtocol(intentSpender);
 
         guard.setAsset(address(t0), ASSET_STABLE_COIN);
         guard.setAsset(address(t1), 2);
@@ -84,27 +81,28 @@ contract DeFiTradingTest is Test {
 
     // ── intent ────────────────────────────────────────────────────────────────
 
-    function test_ownerApprovesTheIntentRelayer() public {
+    function test_ownerApprovesTheIntentSpender() public {
         vm.prank(owner);
-        _f().approveIntentRelayer(address(intent), address(t0));
-        assertGt(t0.allowance(address(vault), address(settlement)), 0, "the relayer may pull the sell leg");
+        _f().approveIntentSpender(address(intent), address(t0));
+        assertGt(t0.allowance(address(vault), intentSpender), 0, "the spender may pull the sell leg");
     }
 
     /**
-     * The category check is the whole protection here. Approving a relayer hands out an ERC-20
+     * The category check is the whole protection here. Approving a spender hands out an ERC-20
      * allowance on the vault's balance, so a non-intent protocol must not be able to ask for one.
      */
     function test_aNonIntentProtocolCannotBeApproved() public {
         vm.prank(owner);
         vm.expectRevert();
-        _f().approveIntentRelayer(address(marketTrade), address(t0));
+        _f().approveIntentSpender(address(marketTrade), address(t0));
     }
 
     function test_ownerCancelsAnIntentOrder() public {
         vm.startPrank(owner);
-        _f().approveIntentRelayer(address(intent), address(t0));
+        _f().approveIntentSpender(address(intent), address(t0));
         _f().cancelIntentOrder(address(intent), hex"1234");
         vm.stopPrank();
+        assertTrue(MockIntentProtocol(_f().getClone(address(intent))).isOrderCancelled(hex"1234"));
     }
 
     // ── order signatures ──────────────────────────────────────────────────────

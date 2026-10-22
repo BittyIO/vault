@@ -184,8 +184,8 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         MarketTradeLogic.marketBuy(marketTrade, sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
     }
 
-    function approveIntentRelayer(address intent, address token) external onlyManagerWith(PERM_INTENT) {
-        DeFiLogic.approveIntentRelayer(intent, token);
+    function approveIntentSpender(address intent, address token) external onlyManagerWith(PERM_INTENT) {
+        DeFiLogic.approveIntentSpender(intent, token);
     }
 
     function cancelIntentOrders(address intent, bytes[] calldata uids) external onlyUnwind notLocked {
@@ -193,7 +193,9 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
     }
 
     function cancelIntentOrder(address intent, bytes calldata uid) external onlyUnwind notLocked {
-        DeFiLogic.cancelIntentOrderOne(intent, uid);
+        bytes[] memory uids = new bytes[](1);
+        uids[0] = uid;
+        DeFiLogic.cancelIntentOrders(intent, uids);
     }
 
     function updateProtocols(address[] calldata add, address[] calldata remove) external onlyOwner notLocked {

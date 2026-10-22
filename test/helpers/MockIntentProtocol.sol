@@ -16,13 +16,14 @@ contract MockIntentProtocol is IBittyV1IntentProtocol {
         return "1.0.0";
     }
 
-    address public owner;
-    address public settlement;
-    address public vaultRelayer;
+    // Immutable, so the vault's clone (a proxy onto this) answers with it too.
+    address public immutable spender;
 
-    function setEndpoints(address settlement_, address vaultRelayer_) external {
-        settlement = settlement_;
-        vaultRelayer = vaultRelayer_;
+    address public owner;
+    bytes[] public cancelled;
+
+    constructor(address spender_) {
+        spender = spender_;
     }
 
     function initialize(address newOwner) external override {
@@ -31,6 +32,25 @@ contract MockIntentProtocol is IBittyV1IntentProtocol {
 
     function isValidSignature(bytes32, bytes memory) external pure override returns (bytes4) {
         return 0x1626ba7e;
+    }
+
+    function cancelOrders(bytes[] calldata orderIds) external override {
+        require(msg.sender == owner, "only the vault");
+        for (uint256 i; i < orderIds.length; ++i) {
+            cancelled.push(orderIds[i]);
+        }
+        emit OrdersCancelled(orderIds);
+    }
+
+    function isOrderCancelled(bytes calldata orderId) external view override returns (bool) {
+        for (uint256 i; i < cancelled.length; ++i) {
+            if (keccak256(cancelled[i]) == keccak256(orderId)) return true;
+        }
+        return false;
+    }
+
+    function cancelledCount() external view returns (uint256) {
+        return cancelled.length;
     }
 
     /**

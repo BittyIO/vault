@@ -76,23 +76,25 @@ interface IBittyV1DeFi {
     function claimWithdrawals(address withdrawProtocol, uint256[] memory ids) external;
 
     /**
-     * @notice Approve the intent protocol's settlement relayer for a token.
-     * @param intentProtocol The intent protocol to approve the relayer for.
-     * @param token The token to approve the relayer for.
+     * @notice Approve a token to the intent protocol's spender - whatever the protocol pulls sell tokens
+     *         through at settlement (CoW's vault relayer, Permit2 for UniswapX), as its clone names it.
+     * @param intentProtocol The intent protocol to approve the spender for.
+     * @param token The token to approve.
      */
-    function approveIntentRelayer(address intentProtocol, address token) external;
+    function approveIntentSpender(address intentProtocol, address token) external;
 
     /**
-     * @notice Cancel a stablecoin-as-gas off-chain order.
-     * @param intentProtocol The intent protocol to cancel the order from.
-     * @param orderUid The UID of the order to cancel.
+     * @notice Cancel an off-chain intent order. Recorded in the protocol's clone, which then refuses the
+     *         order at settlement. Still allowed once the protocol is deprecated.
+     * @param intentProtocol The intent protocol the order was placed on.
+     * @param orderUid The protocol's own order id (CoW: order UID; UniswapX: order hash).
      */
     function cancelIntentOrder(address intentProtocol, bytes calldata orderUid) external;
 
     /**
-     * @notice Cancel multiple stablecoin-as-gas off-chain orders.
-     * @param intentProtocol The intent protocol to cancel the orders from.
-     * @param orderUids The UIDs of the orders to cancel.
+     * @notice Cancel several off-chain intent orders on one protocol in one call.
+     * @param intentProtocol The intent protocol the orders were placed on.
+     * @param orderUids The protocol's own order ids.
      */
     function cancelIntentOrders(address intentProtocol, bytes[] calldata orderUids) external;
 }

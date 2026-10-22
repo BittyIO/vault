@@ -9,7 +9,6 @@ import {MockGuard} from "../helpers/MockGuard.sol";
 import {MockLendingProtocol} from "../helpers/MockLendingProtocol.sol";
 import {MockMarketProtocol} from "../helpers/MockMarketProtocol.sol";
 import {MockIntentProtocol} from "../helpers/MockIntentProtocol.sol";
-import {MockSettlement} from "../helpers/MockSettlement.sol";
 import {MARKET_TRADE_ID, INTENT_ID, LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
@@ -78,7 +77,7 @@ interface IFacet {
         uint256 buyAmount,
         bytes memory reversedPath
     ) external;
-    function approveIntentRelayer(address intent, address token) external;
+    function approveIntentSpender(address intent, address token) external;
     function cancelIntentOrder(address intent, bytes calldata uid) external;
     function setAutoYieldTrigger(address trigger) external;
     function autoYieldTrigger() external view returns (address);
@@ -114,7 +113,7 @@ contract DeFiGuardrailsTest is Test {
     MockLendingProtocol proto;
     MockMarketProtocol marketTrade;
     MockIntentProtocol intent;
-    MockSettlement settlement;
+    address intentSpender = makeAddr("intentSpender");
 
     address owner = makeAddr("owner");
     address gasWrapped = makeAddr("gasWrapped");
@@ -136,9 +135,7 @@ contract DeFiGuardrailsTest is Test {
         dai = new MockERC20("Dai", "DAI", 18);
         proto = new MockLendingProtocol();
         marketTrade = new MockMarketProtocol();
-        settlement = new MockSettlement();
-        intent = new MockIntentProtocol();
-        intent.setEndpoints(address(settlement), address(settlement));
+        intent = new MockIntentProtocol(intentSpender);
 
         guard.setAsset(address(usdc), ASSET_STABLE_COIN);
         guard.setAsset(address(dai), ASSET_STABLE_COIN);
@@ -323,7 +320,7 @@ contract DeFiGuardrailsTest is Test {
         guard.setDeprecated(address(intent), true);
         vm.prank(owner);
         vm.expectRevert(Deprecated.selector);
-        _f().approveIntentRelayer(address(intent), address(usdc));
+        _f().approveIntentSpender(address(intent), address(usdc));
     }
 
     // ── the local allowlist ───────────────────────────────────────────────────
@@ -640,7 +637,36 @@ contract DeFiGuardrailsTest is Test {
         uids[1] = hex"bb";
         vm.prank(owner);
         _f().cancelIntentOrders(address(intent), uids);
-        assertEq(settlement.invalidatedCount(), 2, "both orders were withdrawn from the book");
+        MockIntentProtocol clone = MockIntentProtocol(_f().getClone(address(intent)));
+        assertEq(clone.cancelledCount(), 2, "both orders were cancelled on the vault's clone");
+        assertTrue(clone.isOrderCancelled(hex"bb"));
+    }
+
+    /**
+     * A deprecated intent protocol keeps settling the vault's in-flight orders (isValidSignature still
+     * walks the deprecated tier), so those orders must stay cancellable even though nothing new may be
+     * approved for it.
+     */
+    function test_aDeprecatedIntentProtocolCanStillCancel() public {
+        vm.prank(owner);
+        _f().updateProtocols(_one(address(intent)), _none());
+        guard.setDeprecated(address(intent), true);
+
+        vm.prank(owner);
+        _f().cancelIntentOrder(address(intent), hex"aa");
+        assertEq(MockIntentProtocol(_f().getClone(address(intent))).cancelledCount(), 1);
+    }
+
+    /// The vault is the clone's owner; nobody else can write its cancellations.
+    function test_onlyTheVaultCancelsOnItsClone() public {
+        vm.prank(owner);
+        _f().updateProtocols(_one(address(intent)), _none());
+        MockIntentProtocol clone = MockIntentProtocol(_f().getClone(address(intent)));
+        bytes[] memory uids = new bytes[](1);
+        uids[0] = hex"aa";
+        vm.prank(owner);
+        vm.expectRevert("only the vault");
+        clone.cancelOrders(uids);
     }
 
     /**

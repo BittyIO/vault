@@ -6,6 +6,7 @@ import {UUPSUpgradeable} from "openzeppelin-contracts/contracts/proxy/utils/UUPS
 import {IBittyV1Guard, ASSET_STABLE_COIN, PROTOCOL_INTENT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1Yield} from "protocol-contracts/src/interfaces/IBittyV1Yield.sol";
 import {IBittyV1Protocol} from "protocol-contracts/src/interfaces/IBittyV1Protocol.sol";
+import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {
     InvalidDepositableProtocol,
     InvalidWithdrawableProtocol,
@@ -30,19 +31,6 @@ import {
 import {BittyStorage, DeFiStorage, ProtocolInstance} from "./BittyStorage.sol";
 import {RiskLogic} from "./RiskLogic.sol";
 import {BITTY_GUARD, MAX_GRANT_DURATION} from "./Constants.sol";
-
-/**
- * @dev Minimal view into an intent protocol's settlement addresses (CoW-style): the relayer a gasless
- *      sell token is approved to, and the settlement contract an order is invalidated on to cancel it.
- */
-interface IIntentRelayerSource {
-    function vaultRelayer() external view returns (address);
-    function settlement() external view returns (address);
-}
-
-interface IIntentSettlement {
-    function invalidateOrder(bytes calldata orderUid) external;
-}
 
 /**
  * @title DeFiLogic
@@ -455,28 +443,28 @@ library DeFiLogic {
         _deposit($, protocol, assetAddress, amount);
     }
 
-    function approveIntentRelayer(address intentProtocol, address token) external {
-        _checkIntentProtocol(BittyStorage.defi(), intentProtocol);
-        address relayer = IIntentRelayerSource(intentProtocol).vaultRelayer();
-        IERC20(token).forceApprove(relayer, type(uint256).max);
-    }
-
-    function cancelIntentOrders(address intentProtocol, bytes[] calldata orderUids) external {
-        _checkIntentProtocol(BittyStorage.defi(), intentProtocol);
-        IIntentSettlement settlement = IIntentSettlement(IIntentRelayerSource(intentProtocol).settlement());
-        for (uint256 i; i < orderUids.length; ++i) {
-            settlement.invalidateOrder(orderUids[i]);
-        }
-    }
-
-    function cancelIntentOrderOne(address intentProtocol, bytes calldata orderUid) external {
-        _checkIntentProtocol(BittyStorage.defi(), intentProtocol);
-        IIntentSettlement(IIntentRelayerSource(intentProtocol).settlement()).invalidateOrder(orderUid);
-    }
-
-    function _checkIntentProtocol(DeFiStorage storage $, address intentProtocol) private view {
+    /**
+     * Intent protocols are driven through the clone alone, like yield: the vault approves whatever the
+     * clone names as its {IBittyV1IntentProtocol-spender} and asks the clone to cancel. Nothing here
+     * knows which intent protocol it is talking to.
+     */
+    function approveIntentSpender(address intentProtocol, address token) external {
+        DeFiStorage storage $ = BittyStorage.defi();
         if (!_categoryProtocolOK($, PROTOCOL_INTENT, intentProtocol)) revert InvalidIntentProtocol();
         if (IBittyV1Guard(BITTY_GUARD).isProtocolDeprecated(intentProtocol)) revert Deprecated();
+        address spender = IBittyV1IntentProtocol(_cloneProtocol($, intentProtocol)).spender();
+        IERC20(token).forceApprove(spender, type(uint256).max);
+    }
+
+    /**
+     * @dev Deprecation does NOT block a cancel. The vault's isValidSignature keeps validating through a
+     *      deprecated protocol's clone so its in-flight orders still settle; refusing to cancel them
+     *      would leave orders that can fill but cannot be withdrawn.
+     */
+    function cancelIntentOrders(address intentProtocol, bytes[] calldata orderIds) external {
+        DeFiStorage storage $ = BittyStorage.defi();
+        if (!_categoryProtocolOK($, PROTOCOL_INTENT, intentProtocol)) revert InvalidIntentProtocol();
+        IBittyV1IntentProtocol(_cloneProtocol($, intentProtocol)).cancelOrders(orderIds);
     }
 
     function getClone(address protocol) external view returns (address) {
