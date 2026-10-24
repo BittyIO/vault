@@ -187,9 +187,10 @@ interface IBittyV1Vault {
     /**
      * @notice Get the vault's three risk numbers.
      * @return timelock The one wait in front of everything deferred.
-     * @return sendDailyAllowance What may leave per day through regular sends, in whole USD; never 0.
+     * @return sendDailyAllowance What may leave per day through regular sends, in whole USD; 0 when the owner
+     *         has turned regular sends off.
      * @return marketTradeDailyLossAllowance What market trades may lose against oracle value per day,
-     *         in whole USD; never 0.
+     *         in whole USD; 0 when the owner has turned market trading off.
      */
     function riskSettings()
         external

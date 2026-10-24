@@ -69,8 +69,8 @@ library PaymentLogic {
     }
 
     /**
-     * Never 0: the allowance cannot be turned off, so every regular send is metered, and only a
-     * stablecoin can be metered without reading a price.
+     * Every regular send is metered, and only a stablecoin can be metered without reading a price.
+     * 0 means the owner turned regular sends off: every amount is over it, so every send is refused.
      */
     function _cap(VaultStorage storage vaultStorage) private view returns (uint64) {
         return RiskLogic.effectiveSendDailyAllowance(vaultStorage.riskConfig);

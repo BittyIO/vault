@@ -137,10 +137,6 @@ contract RiskRatchetTest is Test {
     function test_theSendAllowanceIsBounded() public {
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, 0, UNCHANGED));
-
-        vm.prank(owner);
-        vm.expectRevert(RiskAllowanceOutOfRange.selector);
         vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, uint256(MAX_SEND_DAILY_ALLOWANCE) + 1, UNCHANGED));
 
         _risk(UNCHANGED, 1);
@@ -148,13 +144,13 @@ contract RiskRatchetTest is Test {
         vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         (, uint64 allowance) = _cfg();
         assertEq(allowance, MAX_SEND_DAILY_ALLOWANCE, "both ends are allowed");
+
+        _risk(UNCHANGED, 0);
+        (, allowance) = _cfg();
+        assertEq(allowance, 0, "and 0, which turns regular sends off, lands at once");
     }
 
     function test_theMarketTradeLossAllowanceIsBounded() public {
-        vm.prank(owner);
-        vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, 0));
-
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
         vault.updateRisk(
@@ -164,7 +160,12 @@ contract RiskRatchetTest is Test {
         vm.prank(owner);
         vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, 1));
         (,, uint64 lossAllowance) = vault.riskSettings();
-        assertEq(lossAllowance, 1, "the floor is allowed, and lowering lands at once");
+        assertEq(lossAllowance, 1, "lowering lands at once");
+
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, 0));
+        (,, lossAllowance) = vault.riskSettings();
+        assertEq(lossAllowance, 0, "and 0, which turns market trading off, is the floor");
     }
 
     function test_tighteningAppliesImmediately() public {
@@ -189,17 +190,24 @@ contract RiskRatchetTest is Test {
         assertEq(allowance, 5_000, "and it lands a day later, as the owner asked");
     }
 
-    /// There is no "no cap" to loosen to: clearing the allowance is refused outright.
-    function test_aCapCannotBeCleared() public {
+    /// There is no "no cap" to loosen to: 0 is the tightest cap, never a cleared one.
+    function test_zeroIsTheTightestCapNotAClearedOne() public {
         _risk(1 days, 500);
 
-        vm.prank(owner);
-        vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, 0, UNCHANGED));
-
+        _risk(UNCHANGED, 0);
         vm.warp(block.timestamp + 30 days);
         (, uint64 allowance) = _cfg();
-        assertEq(allowance, 500, "still capped");
+        assertEq(allowance, 0, "still 0, not the ceiling");
+
+        _risk(UNCHANGED, 500);
+        (, allowance) = _cfg();
+        assertEq(allowance, 0, "turning sends back on is a loosening");
+        PendingChanges memory p = vault.pendingChanges();
+        assertEq(p.sendDailyAllowance, 500);
+        assertEq(p.sendDailyAllowanceAt, uint64(block.timestamp + 1 days));
+        vm.warp(block.timestamp + 1 days);
+        (, allowance) = _cfg();
+        assertEq(allowance, 500, "and it lands after the timelock");
     }
 
     function test_shorteningTheWaitIsALoosening() public {

@@ -15,7 +15,8 @@ import {
     MAX_RISK_TIMELOCK,
     MIN_RISK_TIMELOCK,
     MAX_SEND_DAILY_ALLOWANCE,
-    MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE
+    MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE,
+    ALLOWANCE_ZERO
 } from "./Constants.sol";
 import {LockLib} from "./LockLib.sol";
 
@@ -25,8 +26,10 @@ import {LockLib} from "./LockLib.sol";
  *         — the one wait in front of everything deferred — `sendDailyAllowance`, the ceiling on
  *         what may leave per day through regular sends, and `marketTradeDailyLossAllowance`, the
  *         ceiling on what market trades may lose against oracle value per day. None of them can be
- *         turned off: each is held between the bounds in {Constants}, and one the owner has never
- *         set reads as the loosest it may be. A sentinel partial-update lets the owner set one
+ *         lifted: each is held between the bounds in {Constants}, and one the owner has never set
+ *         reads as the loosest it may be. Either allowance may be set to 0, which turns regular
+ *         sends or market trading off — the tightest it can be, so it lands at once, and turning it
+ *         back on waits out the timelock like any loosening. A sentinel partial-update lets the owner set one
  *         without restating the others; tightening applies immediately, loosening waits out the
  *         timelock in force when it was asked for.
  *
@@ -39,7 +42,8 @@ import {LockLib} from "./LockLib.sol";
  *      bounds existed reads the defaults the moment it upgrades, with nothing to migrate. Every read
  *      goes through {effectiveTimelock}, {effectiveSendDailyAllowance} and
  *      {effectiveMarketTradeDailyLossAllowance}; reading the slots directly would see a 0 that means
- *      "the default", not "off". The ratchet in {TimelockLib} needs no change: an unset timelock is the
+ *      "the default", not "off". An allowance of 0 is stored as {ALLOWANCE_ZERO} for that reason. The
+ *      ratchet in {TimelockLib} needs no change: an unset timelock is the
  *      shortest allowed, and an unset allowance the largest, so nothing the bounds admit is looser.
  *
  *      Split out of {PaymentLogic}; operates on the same ERC-7201 {VaultStorage}.
@@ -62,7 +66,7 @@ library RiskLogic {
      * The send allowance in force, in whole USD: what the owner set, or {MAX_SEND_DAILY_ALLOWANCE}.
      */
     function effectiveSendDailyAllowance(RiskConfig storage r) internal view returns (uint64) {
-        return _orDefault(TimelockLib.effective(r.sendDailyAllowance), MAX_SEND_DAILY_ALLOWANCE);
+        return _allowance(r.sendDailyAllowance, MAX_SEND_DAILY_ALLOWANCE);
     }
 
     /**
@@ -70,7 +74,13 @@ library RiskLogic {
      * {MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE}.
      */
     function effectiveMarketTradeDailyLossAllowance(RiskConfig storage r) internal view returns (uint64) {
-        return _orDefault(TimelockLib.effective(r.marketTradeDailyLossAllowance), MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE);
+        return _allowance(r.marketTradeDailyLossAllowance, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE);
+    }
+
+    /// An allowance as stored, read back: unset is `max`, {ALLOWANCE_ZERO} is 0.
+    function _allowance(TimelockedValue storage tv, uint64 max) private view returns (uint64) {
+        uint64 v = TimelockLib.effective(tv);
+        return v == ALLOWANCE_ZERO ? 0 : _orDefault(v, max);
     }
 
     function _orDefault(uint64 value, uint64 unset) private pure returns (uint64) {
@@ -92,18 +102,23 @@ library RiskLogic {
             TimelockLib.setHigherSafer(r.timelock, settings.timelock, timelock);
         }
         if (settings.sendDailyAllowance != UNCHANGED) {
-            _requireAllowance(settings.sendDailyAllowance, MAX_SEND_DAILY_ALLOWANCE);
-            TimelockLib.setCap(r.sendDailyAllowance, settings.sendDailyAllowance, timelock);
+            _setAllowance(r.sendDailyAllowance, settings.sendDailyAllowance, MAX_SEND_DAILY_ALLOWANCE, timelock);
         }
         if (settings.marketTradeDailyLossAllowance != UNCHANGED) {
-            _requireAllowance(settings.marketTradeDailyLossAllowance, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE);
-            TimelockLib.setCap(r.marketTradeDailyLossAllowance, settings.marketTradeDailyLossAllowance, timelock);
+            _setAllowance(
+                r.marketTradeDailyLossAllowance,
+                settings.marketTradeDailyLossAllowance,
+                MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE,
+                timelock
+            );
         }
         emit IBittyV1Owner.RiskSettingsUpdated(settings);
     }
 
-    function _requireAllowance(uint256 allowance, uint64 max) private pure {
-        if (allowance == 0 || allowance > max) revert RiskAllowanceOutOfRange();
+    /// 0 to `max`; 0 is stored as {ALLOWANCE_ZERO}, since a stored 0 means unset.
+    function _setAllowance(TimelockedValue storage tv, uint256 allowance, uint64 max, uint64 timelock) private {
+        if (allowance > max) revert RiskAllowanceOutOfRange();
+        TimelockLib.setCap(tv, allowance == 0 ? ALLOWANCE_ZERO : allowance, timelock);
     }
 
     function pendingChanges() external view returns (PendingChanges memory p) {
@@ -112,7 +127,9 @@ library RiskLogic {
         p.lockLevel = LockLib.level();
         (p.timelock, p.timelockAt) = _waiting(r.timelock);
         (p.sendDailyAllowance, p.sendDailyAllowanceAt) = _waiting(r.sendDailyAllowance);
+        if (p.sendDailyAllowance == ALLOWANCE_ZERO) p.sendDailyAllowance = 0;
         (p.marketTradeDailyLossAllowance, p.marketTradeDailyLossAllowanceAt) = _waiting(r.marketTradeDailyLossAllowance);
+        if (p.marketTradeDailyLossAllowance == ALLOWANCE_ZERO) p.marketTradeDailyLossAllowance = 0;
         (p.gasBudgetDaily, p.gasBudgetDailyAt) = _waiting($.gasBudgetDaily);
         (p.maxFeePerOp, p.maxFeePerOpAt) = _waiting($.maxFeePerOp);
     }

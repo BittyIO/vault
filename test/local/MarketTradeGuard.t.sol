@@ -14,6 +14,7 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {
     PaymentExceedsPeriodLimit,
+    PaymentExceedsRiskCap,
     PendingChanges,
     RiskAllowanceOutOfRange
 } from "../../src/interfaces/IBittyV1Vault.sol";
@@ -454,14 +455,16 @@ contract MarketTradeGuardTest is Test {
     }
 
     /**
-     * Protection cannot be turned off at all - not at once, and not after a wait - so a leaked key
-     * has nothing to queue.
+     * Protection cannot be lifted - the allowance never goes above its ceiling, and is never unset -
+     * so a leaked key has nothing to queue.
      */
-    function test_protectionCannotBeTurnedOff() public {
+    function test_protectionCannotBeLifted() public {
         _risk(2 days, 1_000);
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, 0));
+        vault.updateRisk(
+            IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, uint256(MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE) + 1)
+        );
 
         vm.warp(block.timestamp + 30 days);
         wethFeed.set(2_000e8, block.timestamp, block.timestamp);
@@ -469,6 +472,54 @@ contract MarketTradeGuardTest is Test {
         assertEq(allowance, 1_000, "still protected");
         vm.expectRevert(MarketTradePriceTooLow.selector);
         _sell(address(weth), 100e18, address(usdc), 1);
+    }
+
+    /**
+     * An allowance of 0 turns market trading off: the tightest it can be, so it lands at once, and
+     * every trade is refused - even one that would lose nothing. Turning it back on is a loosening,
+     * so it waits out the timelock.
+     */
+    function test_aZeroAllowanceTurnsMarketTradingOff() public {
+        _risk(2 days, 1_000);
+        _risk(UNCHANGED, 0);
+        (,, uint64 allowance) = vault.riskSettings();
+        assertEq(allowance, 0, "off at once");
+
+        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        _sell(address(weth), 1e18, address(usdc), 2_000e6);
+        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        _buy(address(usdc), 100_000e6, address(dai), 1_000e18, 1_000e6);
+
+        _risk(UNCHANGED, 500);
+        (,, allowance) = vault.riskSettings();
+        assertEq(allowance, 0, "turning it back on waits");
+        PendingChanges memory p = vault.pendingChanges();
+        assertEq(p.marketTradeDailyLossAllowance, 500);
+        assertEq(p.marketTradeDailyLossAllowanceAt, uint64(block.timestamp + 2 days));
+
+        vm.warp(block.timestamp + 2 days);
+        wethFeed.set(2_000e8, block.timestamp, block.timestamp);
+        (,, allowance) = vault.riskSettings();
+        assertEq(allowance, 500, "and lands after the timelock");
+        _sell(address(weth), 1e18, address(usdc), 1_990e6);
+    }
+
+    /// A send allowance of 0 turns regular sends off, and leaves market trading alone.
+    function test_aZeroSendAllowanceTurnsRegularSendsOff() public {
+        _risk(UNCHANGED, 100);
+        _sendCap(0);
+        vm.expectRevert(PaymentExceedsRiskCap.selector);
+        _send(1);
+        _sell(address(weth), 1e18, address(usdc), 1_990e6);
+    }
+
+    /// Off from a vault that never set the allowance: unset reads as the ceiling, so 0 is a tightening.
+    function test_aZeroAllowanceLandsAtOnceOnAFreshVault() public {
+        _risk(UNCHANGED, 0);
+        (,, uint64 allowance) = vault.riskSettings();
+        assertEq(allowance, 0);
+        PendingChanges memory p = vault.pendingChanges();
+        assertEq(p.marketTradeDailyLossAllowanceAt, 0, "nothing queued");
     }
 
     /**
