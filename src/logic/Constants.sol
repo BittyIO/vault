@@ -20,6 +20,9 @@ uint64 constant MAX_SEND_DAILY_ALLOWANCE = 10_000;
 
 uint64 constant MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE = 10_000;
 
+// How an allowance of 0 is stored: a stored 0 already means "never set", which reads as the maximum.
+uint64 constant ALLOWANCE_ZERO = type(uint64).max;
+
 uint64 constant MAX_GRANT_DURATION = 365 days;
 
 uint64 constant SYSTEM_DAILY_MAX_GAS_BUDGET = 100;

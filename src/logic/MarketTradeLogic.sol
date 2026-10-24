@@ -39,8 +39,9 @@ struct MarketLegs {
 /**
  * @title MarketTradeLogic
  * @notice Market buys and sells. Every trade is held to oracle value and its shortfall charged to the
- *         owner's `marketTradeDailyLossAllowance`, which cannot be turned off — so only an asset with a
- *         price feed (or a stablecoin) can be traded at market.
+ *         owner's `marketTradeDailyLossAllowance`, which cannot be lifted — so only an asset with a
+ *         price feed (or a stablecoin) can be traded at market. An allowance of 0 turns market trading
+ *         off: every trade is refused before it runs, even one that would lose nothing.
  * @dev Its own library because the price and allowance checks do not fit in {DeFiLogic} under the
  *      24,576-byte code size limit. The protocol, asset and clone checks are {DeFiLogic}'s own, called
  *      as internal functions and so compiled in here: one definition, no library-to-library link.
@@ -59,6 +60,7 @@ library MarketTradeLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         DeFiLogic._onlyInitialized();
+        uint64 lossAllowance = _lossAllowance();
         (MarketLegs memory legs, MarketTradeInfo memory info) = _marketLegs($, marketTradeProtocol, sellToken, buyToken);
 
         address clone = DeFiLogic._cloneProtocol($, marketTradeProtocol);
@@ -68,7 +70,7 @@ library MarketTradeLogic {
         }
         bytes memory data = abi.encode(sellToken, sellAmount, buyToken, buyAmountMin, path);
         IBittyV1MarketTradeProtocol(clone).swap{value: sellToken == address(0) ? sellAmount : 0}(data, address(this));
-        _settleMarketTrade(legs, info, _lossAllowance());
+        _settleMarketTrade(legs, info, lossAllowance);
     }
 
     function marketBuy(
@@ -81,6 +83,7 @@ library MarketTradeLogic {
     ) external {
         DeFiStorage storage $ = BittyStorage.defi();
         DeFiLogic._onlyInitialized();
+        uint64 lossAllowance = _lossAllowance();
         (MarketLegs memory legs, MarketTradeInfo memory info) = _marketLegs($, marketTradeProtocol, sellToken, buyToken);
 
         address clone = DeFiLogic._cloneProtocol($, marketTradeProtocol);
@@ -89,11 +92,12 @@ library MarketTradeLogic {
         }
         bytes memory data = abi.encode(sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
         IBittyV1MarketTradeProtocol(clone).swapExactOut(data, address(this));
-        _settleMarketTrade(legs, info, _lossAllowance());
+        _settleMarketTrade(legs, info, lossAllowance);
     }
 
-    function _lossAllowance() private view returns (uint64) {
-        return RiskLogic.effectiveMarketTradeDailyLossAllowance(BittyStorage.vault().riskConfig);
+    function _lossAllowance() private view returns (uint64 allowance) {
+        allowance = RiskLogic.effectiveMarketTradeDailyLossAllowance(BittyStorage.vault().riskConfig);
+        if (allowance == 0) revert MarketTradeExceedsDailyLossAllowance();
     }
 
     /**
