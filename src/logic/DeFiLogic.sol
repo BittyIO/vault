@@ -190,13 +190,6 @@ library DeFiLogic {
         return ($.pendingAssetManager, $.pendingAssetManagerAt, $.pendingAssetManagerPerms);
     }
 
-    function isActiveAssetManager(address account) external view returns (bool) {
-        if (account == address(0)) return false;
-        (address manager, uint64 expiresAt,) = _liveGrant(BittyStorage.defi());
-        if (account != manager) return false;
-        return block.timestamp < expiresAt;
-    }
-
     function assetManagerCan(address account, uint32 permissions) external view returns (bool) {
         if (account == address(0)) return false;
         (address manager, uint64 expiresAt, uint32 granted) = _liveGrant(BittyStorage.defi());

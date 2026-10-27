@@ -46,9 +46,11 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         _;
     }
 
-    modifier onlyUnwind() {
-        address sender = _msgSender();
-        if (sender != owner() && !DeFiLogic.isActiveAssetManager(sender)) revert OwnableUnauthorizedAccount(sender);
+    /**
+     * Refused while a market trade runs; see {MarketTradeLogic-requireNotTrading}.
+     */
+    modifier notTrading() {
+        MarketTradeLogic.requireNotTrading();
         _;
     }
 
@@ -59,32 +61,52 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         }
     }
 
-    function deposit(address protocol, address asset, uint256 amount) external notLocked {
+    /**
+     * A position, in or out: the owner, or the manager holding the permission for that protocol's kind —
+     * staking needs {PERM_YIELD}, lending {PERM_SUPPLY}. Taking value out takes the same grant as putting
+     * it in, so a grant to trade at market alone reaches no position.
+     */
+    function _onlyOwnerOrManagerFor(address protocol) private view {
         address sender = _msgSender();
-        if (sender != owner()) {
-            uint32 permission =
-                IGuard(BITTY_GUARD).protocolCategory(protocol) == PROTOCOL_STAKING ? PERM_YIELD : PERM_SUPPLY;
-            if (!DeFiLogic.assetManagerCan(sender, permission)) revert OwnableUnauthorizedAccount(sender);
+        if (sender == owner()) return;
+        if (!DeFiLogic.assetManagerCan(sender, _positionPermission(protocol))) {
+            revert OwnableUnauthorizedAccount(sender);
         }
+    }
+
+    function _positionPermission(address protocol) private view returns (uint32) {
+        return IGuard(BITTY_GUARD).protocolCategory(protocol) == PROTOCOL_STAKING ? PERM_YIELD : PERM_SUPPLY;
+    }
+
+    function deposit(address protocol, address asset, uint256 amount) external notLocked notTrading {
+        _onlyOwnerOrManagerFor(protocol);
         DeFiLogic.deposit(protocol, asset, amount);
     }
 
-    function withdraw(address protocol, address asset, uint256 amount) external onlyUnwind {
+    function withdraw(address protocol, address asset, uint256 amount) external notTrading {
+        _onlyOwnerOrManagerFor(protocol);
         DeFiLogic.withdraw(protocol, asset, amount, address(this));
     }
 
     function withdraws(address[] calldata protocols, address[] calldata assets, uint256[] calldata amounts)
         external
-        onlyUnwind
+        notTrading
     {
+        if (_msgSender() != owner()) {
+            for (uint256 i; i < protocols.length; ++i) {
+                _onlyOwnerOrManagerFor(protocols[i]);
+            }
+        }
         DeFiLogic.withdraws(protocols, assets, amounts, address(this));
     }
 
-    function claimWithdrawals(address protocol, uint256[] memory ids) external onlyUnwind {
+    function claimWithdrawals(address protocol, uint256[] memory ids) external notTrading {
+        _onlyOwnerOrManagerFor(protocol);
         DeFiLogic.claimWithdrawals(protocol, ids);
     }
 
-    function claimWithdrawal(address protocol, uint256 id) external onlyUnwind {
+    function claimWithdrawal(address protocol, uint256 id) external notTrading {
+        _onlyOwnerOrManagerFor(protocol);
         DeFiLogic.claimWithdrawalOne(protocol, id);
     }
 
@@ -113,7 +135,12 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         revert NotAutoYieldTrigger();
     }
 
-    function setAssetManager(address assetManager_, uint64 expiresAt, uint32 permissions) external onlyOwner notLocked {
+    function setAssetManager(address assetManager_, uint64 expiresAt, uint32 permissions)
+        external
+        onlyOwner
+        notLocked
+        notTrading
+    {
         DeFiLogic.setAssetManager(assetManager_, expiresAt, permissions);
     }
 
@@ -132,7 +159,7 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         return DeFiLogic.getAssetManagerSettings();
     }
 
-    function setAutoYieldTrigger(address trigger) external onlyOwner notLocked {
+    function setAutoYieldTrigger(address trigger) external onlyOwner notLocked notTrading {
         DeFiLogic.setAutoYieldTrigger(trigger);
     }
 
@@ -140,21 +167,21 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         return DeFiLogic.autoYieldTrigger();
     }
 
-    function autoYield(address asset, uint256 amount) external notLocked {
+    function autoYield(address asset, uint256 amount) external notLocked notTrading {
         _onlyAutoYieldTrigger();
         DeFiLogic.autoYieldOne(asset, amount);
     }
 
-    function autoYields(address[] calldata assets, uint256[] calldata amounts) external notLocked {
+    function autoYields(address[] calldata assets, uint256[] calldata amounts) external notLocked notTrading {
         _onlyAutoYieldTrigger();
         DeFiLogic.autoYield(assets, amounts);
     }
 
-    function setAutoYielding(AutoYield calldata route) external onlyOwner notLocked {
+    function setAutoYielding(AutoYield calldata route) external onlyOwner notLocked notTrading {
         DeFiLogic.setAutoYieldingOne(route);
     }
 
-    function setAutoYieldings(AutoYield[] calldata routes) external onlyOwner notLocked {
+    function setAutoYieldings(AutoYield[] calldata routes) external onlyOwner notLocked notTrading {
         DeFiLogic.setAutoYieldings(routes);
     }
 
@@ -184,29 +211,44 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         MarketTradeLogic.marketBuy(marketTrade, sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
     }
 
-    function approveIntentSpender(address intent, address token) external onlyManagerWith(PERM_INTENT) {
+    function approveIntentSpender(address intent, address token) external onlyManagerWith(PERM_INTENT) notTrading {
         DeFiLogic.approveIntentSpender(intent, token);
     }
 
-    function cancelIntentOrders(address intent, bytes[] calldata uids) external onlyUnwind notLocked {
+    function cancelIntentOrders(address intent, bytes[] calldata uids)
+        external
+        onlyManagerWith(PERM_INTENT)
+        notLocked
+        notTrading
+    {
         DeFiLogic.cancelIntentOrders(intent, uids);
     }
 
-    function cancelIntentOrder(address intent, bytes calldata uid) external onlyUnwind notLocked {
+    function cancelIntentOrder(address intent, bytes calldata uid)
+        external
+        onlyManagerWith(PERM_INTENT)
+        notLocked
+        notTrading
+    {
         bytes[] memory uids = new bytes[](1);
         uids[0] = uid;
         DeFiLogic.cancelIntentOrders(intent, uids);
     }
 
-    function updateProtocols(address[] calldata add, address[] calldata remove) external onlyOwner notLocked {
+    function updateProtocols(address[] calldata add, address[] calldata remove)
+        external
+        onlyOwner
+        notLocked
+        notTrading
+    {
         DeFiLogic.updateProtocols(add, remove);
     }
 
-    function upgradeProtocol(address protocol, address newImplementation) external onlyOwner notLocked {
+    function upgradeProtocol(address protocol, address newImplementation) external onlyOwner notLocked notTrading {
         DeFiLogic.upgradeProtocol(protocol, newImplementation);
     }
 
-    function updateAssets(address[] calldata add, address[] calldata remove) external onlyOwner notLocked {
+    function updateAssets(address[] calldata add, address[] calldata remove) external onlyOwner notLocked notTrading {
         DeFiLogic.updateAssets(add, remove);
     }
 
@@ -222,7 +264,7 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         return !DeFiLogic.ownAllowListActive();
     }
 
-    function useBittyAllowList(bool use) external onlyOwner {
+    function useBittyAllowList(bool use) external onlyOwner notTrading {
         if (use) {
             DeFiLogic.deactivateOwnAllowList();
         } else {
@@ -235,7 +277,12 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         return IBittyV1Guard(BITTY_GUARD);
     }
 
+    /**
+     * No intent order fills while a market trade runs: its settlement would move the balances the
+     * trade is judged by.
+     */
     function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4) {
+        if (MarketTradeLogic.isTrading()) return 0xffffffff;
         bytes4 result = _validateThrough(IBittyV1Guard(BITTY_GUARD).getProtocols(), hash, signature);
         if (result == ERC1271_MAGIC_VALUE) return result;
         return _validateThrough(IBittyV1Guard(BITTY_GUARD).getDeprecatedProtocols(), hash, signature);
@@ -262,6 +309,7 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         view
         returns (bool)
     {
+        if (MarketTradeLogic.isTrading()) return false;
         if (signer != owner() && !DeFiLogic.assetManagerCan(signer, PERM_INTENT)) {
             return false;
         }
@@ -272,6 +320,6 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
 
     function isOffchainCancellationAuthorized(address signer) external view returns (bool) {
         if (LockLib.level() != 0) return false;
-        return signer == owner() || DeFiLogic.isActiveAssetManager(signer);
+        return signer == owner() || DeFiLogic.assetManagerCan(signer, PERM_INTENT);
     }
 }

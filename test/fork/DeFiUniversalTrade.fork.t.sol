@@ -7,12 +7,14 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 import {ASSET_AMM_LIQUID} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
+import {MockFeed} from "../local/MarketTradeGuard.t.sol";
 import {MARKET_TRADE_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 import {UniswapUniversalTradeProtocol} from "protocol-contracts/src/protocols/UniswapUniversalTradeProtocol.sol";
+import {UniversalRoute} from "protocol-contracts/src/libs/uniswap/universal/UniversalRouter.sol";
 import {sepolia} from "protocol-contracts/script/addresses.sol";
 
 interface IVaultTrade {
@@ -43,7 +45,6 @@ contract DeFiUniversalTradeForkTest is Test {
     UniswapUniversalTradeProtocol tradeImpl;
 
     address owner = makeAddr("owner");
-    address gasWrapped = makeAddr("gasWrapped");
 
     function setUp() public {
         vm.createSelectFork("sepolia");
@@ -57,11 +58,17 @@ contract DeFiUniversalTradeForkTest is Test {
         // Both legs must be flagged market-tradable for a market swap; WETH9 crypto, USDT stable — both liquid.
         guard.setAsset(sepolia.WETH9, ASSET_AMM_LIQUID);
         guard.setAsset(sepolia.USDT, 1 | ASSET_AMM_LIQUID);
+        // Every market trade is held to oracle value. Sepolia's pool prices are whatever its testers left
+        // them at, so WETH is priced at a cent here: this pins the router integration, not the price —
+        // the price check has its own tests (MarketTradeGuard).
+        MockFeed feed = new MockFeed();
+        feed.set(0.01e8, block.timestamp, block.timestamp);
+        guard.setPriceFeed(sepolia.WETH9, address(feed), 1 hours, address(0));
 
         BittyV1VaultDeFiFacet facet = new BittyV1VaultDeFiFacet();
         BittyV1Vault impl = new BittyV1Vault(address(facet));
         bytes memory init =
-            abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
+            abi.encodeCall(BittyV1Vault.initialize, (owner, sepolia.WETH9, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
     }
 
@@ -70,7 +77,13 @@ contract DeFiUniversalTradeForkTest is Test {
         deal(sepolia.WETH9, address(vault), sellAmount);
 
         uint256 usdtBefore = IERC20(sepolia.USDT).balanceOf(address(vault));
-        bytes memory path = abi.encodePacked(sepolia.WETH9, FEE, sepolia.USDT);
+        // A Universal Router route (the adapter takes nothing else): one v3 exact-in swap, paid from the
+        // adapter through Permit2, output landing on the adapter (the router's MSG_SENDER, address(1)).
+        bytes[] memory inputs = new bytes[](1);
+        inputs[0] = abi.encode(
+            address(1), sellAmount, 0, abi.encodePacked(sepolia.WETH9, FEE, sepolia.USDT), true, new uint256[](0)
+        );
+        bytes memory path = UniversalRoute.encode(abi.encodePacked(uint8(0x00)), inputs, block.timestamp + 60);
 
         vm.prank(owner);
         IVaultTrade(address(vault)).marketSell(address(tradeImpl), sepolia.WETH9, sellAmount, sepolia.USDT, 0, path);

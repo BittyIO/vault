@@ -17,7 +17,7 @@ import {
     MarketTradePriceTooLow,
     MarketTradeExceedsDailyLossAllowance
 } from "../interfaces/IBittyV1DeFi.sol";
-import {Deprecated, NotRegistered} from "../interfaces/IBittyV1Vault.sol";
+import {Deprecated, NotRegistered, ReentrantCall} from "../interfaces/IBittyV1Vault.sol";
 import {BittyStorage, DeFiStorage, VaultStorage} from "./BittyStorage.sol";
 import {DeFiLogic} from "./DeFiLogic.sol";
 import {PriceLib} from "./PriceLib.sol";
@@ -50,6 +50,35 @@ struct MarketLegs {
 library MarketTradeLogic {
     using SafeERC20 for IERC20;
 
+    // Set while a market trade runs — keccak256("bitty.transient.vault.marketTrade"). The trade is
+    // judged by the vault's balances before and after the protocol runs, and the route is the
+    // caller's: it can run the caller's code mid-swap (a token's transfer hook, a pool hook, ETH sent
+    // to a contract). Anything that call could do to move those balances — unwind a position into
+    // the vault, run a second trade, fill a signed intent order, wrap idle ETH — would be counted as
+    // what the trade did, so a sale into the caller's own pool could pass as fair. Every vault
+    // function that moves balances refuses while it is set (see {requireNotTrading}). Transient, so
+    // like {PaymentCore}'s payout lock it binds nothing across an upgrade.
+    bytes32 private constant _TRADING_SLOT = 0x2c5e93362f6cd886a87129ab7e35433621ed27ad98f1b17be33ee853e8647670;
+
+    /**
+     * Reverts while a market trade is running. Called by every vault function that moves balances.
+     */
+    function requireNotTrading() internal view {
+        if (isTrading()) revert ReentrantCall();
+    }
+
+    function isTrading() internal view returns (bool trading) {
+        assembly ("memory-safe") {
+            trading := tload(_TRADING_SLOT)
+        }
+    }
+
+    function _setTrading(bool trading) private {
+        assembly ("memory-safe") {
+            tstore(_TRADING_SLOT, trading)
+        }
+    }
+
     function marketSell(
         address marketTradeProtocol,
         address sellToken,
@@ -58,6 +87,8 @@ library MarketTradeLogic {
         uint256 buyAmountMin,
         bytes memory path
     ) external {
+        requireNotTrading();
+        _setTrading(true);
         DeFiStorage storage $ = BittyStorage.defi();
         DeFiLogic._onlyInitialized();
         uint64 lossAllowance = _lossAllowance();
@@ -71,6 +102,7 @@ library MarketTradeLogic {
         bytes memory data = abi.encode(sellToken, sellAmount, buyToken, buyAmountMin, path);
         IBittyV1MarketTradeProtocol(clone).swap{value: sellToken == address(0) ? sellAmount : 0}(data, address(this));
         _settleMarketTrade(legs, info, lossAllowance);
+        _setTrading(false);
     }
 
     function marketBuy(
@@ -81,6 +113,8 @@ library MarketTradeLogic {
         uint256 buyAmount,
         bytes memory reversedPath
     ) external {
+        requireNotTrading();
+        _setTrading(true);
         DeFiStorage storage $ = BittyStorage.defi();
         DeFiLogic._onlyInitialized();
         uint64 lossAllowance = _lossAllowance();
@@ -93,6 +127,7 @@ library MarketTradeLogic {
         bytes memory data = abi.encode(sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
         IBittyV1MarketTradeProtocol(clone).swapExactOut(data, address(this));
         _settleMarketTrade(legs, info, lossAllowance);
+        _setTrading(false);
     }
 
     function _lossAllowance() private view returns (uint64 allowance) {

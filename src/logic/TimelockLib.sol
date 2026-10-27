@@ -25,7 +25,9 @@ library TimelockLib {
         }
     }
 
-    /// Drop a waiting loosening; one whose time has already come is in force, so it stays.
+    /**
+     * Drop a waiting loosening; one whose time has already come is in force, so it stays.
+     */
     function cancelPending(TimelockedValue storage tv) internal {
         if (tv.pendingAt == 0) return;
         _settle(tv);
@@ -56,7 +58,9 @@ library TimelockLib {
         _apply(tv, n, _capRank(n) > _capRank(tv.value), timelock);
     }
 
-    /// A cap ordered by how loose it is: unset (0) is the loosest, {ALLOWANCE_ZERO} the tightest.
+    /**
+     * A cap ordered by how loose it is: unset (0) is the loosest, {ALLOWANCE_ZERO} the tightest.
+     */
     function _capRank(uint64 v) private pure returns (uint256) {
         if (v == 0) return type(uint256).max;
         if (v == ALLOWANCE_ZERO) return 0;
