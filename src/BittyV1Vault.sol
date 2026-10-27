@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import {BittyV1VaultBase} from "./BittyV1VaultBase.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {DeFiLogic} from "./logic/DeFiLogic.sol";
+import {MarketTradeLogic} from "./logic/MarketTradeLogic.sol";
 import {PaymentLogic} from "./logic/PaymentLogic.sol";
 import {WhitelistLogic} from "./logic/WhitelistLogic.sol";
 import {TokenAsGasLogic} from "./logic/TokenAsGasLogic.sol";
@@ -30,8 +31,8 @@ import {
 /**
  * @title BittyV1Vault
  * @notice The main vault: owner payments + the owner's own DeFi (reached through fallback → shared
- *         {BittyV1VaultDeFiFacet}) + curated/timelocked/freezable UUPS upgrades (from
- *         {BittyV1VaultBase}). Payouts to arbitrary external addresses live only here and are
+ *         {BittyV1VaultDeFiFacet}) + owner-driven UUPS upgrades to guard-registered, newer
+ *         implementations (from {BittyV1VaultBase}): instant, and refused while the vault is locked. Payouts to arbitrary external addresses live only here and are
  *         owner-gated.
  */
 contract BittyV1Vault is BittyV1VaultBase {
@@ -149,6 +150,7 @@ contract BittyV1Vault is BittyV1VaultBase {
     }
 
     function wrapNative() external {
+        MarketTradeLogic.requireNotTrading(); // a sale for WETH would count the wrapped ETH as bought
         address gasWrapped = _gasWrapped();
         uint256 bal = address(this).balance;
         if (bal > 0 && gasWrapped != address(0)) WETH(payable(gasWrapped)).deposit{value: bal}();
@@ -285,6 +287,7 @@ contract BittyV1Vault is BittyV1VaultBase {
         if (withdrawProtocols.length != withdrawAmounts.length) {
             revert ArrayLengthMismatch();
         }
+        if (withdrawProtocols.length != 0) MarketTradeLogic.requireNotTrading();
         address payoutAsset = _payoutAsset(asset);
         for (uint256 i = 0; i < withdrawProtocols.length; i++) {
             if (withdrawProtocols[i] != address(0) && withdrawAmounts[i] > 0) {

@@ -29,12 +29,12 @@ interface IBittyV1Owner {
      * removal of one the owner can already pay, an asset-manager grant, a handover of the
      * vault, and any loosening of these numbers. At least 1 day, at most 30.
      * `sendDailyAllowance` is the ceiling on what may leave through regular sends, in whole USD per
-     * rolling day, from 0 to 10,000; 0 turns regular sends off. Regular sends are held to stablecoins, the only assets that can be
+     * day, from 0 to 10,000; 0 turns regular sends off. Regular sends are held to stablecoins, the only assets that can be
      * metered without reading a price. More than this, and any other asset, leaves through a
      * whitelisted recipient — one the owner set up at least a timelock before.
      *
      * `marketTradeDailyLossAllowance` is the market-trade protection, from 0 to 10,000 whole USD per
-     * rolling day; 0 turns market trading off. A trade is a way out of the vault too: a leaked key that sells into a pool it set
+     * day; 0 turns market trading off. A trade is a way out of the vault too: a leaked key that sells into a pool it set
      * up itself takes value without sending anything. So every market trade, the owner's or an asset
      * manager's, is valued at oracle price (a stablecoin counts as a dollar), must come out within 5%
      * of what it gave up, and what it came out short — price impact and fees included — is charged

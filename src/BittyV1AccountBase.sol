@@ -14,12 +14,11 @@ import {BittyStorage, VaultStorage} from "./logic/BittyStorage.sol";
  * @notice The shared context every account and the shared DeFi facet inherit: ERC-2771 relaying against
  *         the fixed Bitty forwarder, and the vault's authority. The owner is read from a FIXED ERC-7201
  *         slot ({BittyStorage}), which is what lets the delegatecalled facet's `_msgSender() == owner()`
- *         resolve to the *host's* owner — the main owner in the main vault, the sub owner in a sub vault.
+ *         resolve to the vault's owner.
  * @dev `owner()` is overridden here rather than on the vault, because a matured handover takes effect
  *      on a clock and both contracts have to agree about it — see the override below.
  *
- *      Batching lives here rather than on either account, so a sub vault gets it on the same terms as
- *      the main one. {MulticallUpgradeable} self-delegatecalls each entry, so `msg.sender` and storage
+ *      Batching lives here, next to the context it depends on. {MulticallUpgradeable} self-delegatecalls each entry, so `msg.sender` and storage
  *      stay the caller's throughout and every call is authorised exactly as it would be alone —
  *      batching grants nothing. It also re-appends the ERC-2771 sender suffix to each sub-call, which
  *      a hand-rolled loop would drop, silently turning a relayed batch into calls attributed to the

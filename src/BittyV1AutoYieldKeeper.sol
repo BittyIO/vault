@@ -10,9 +10,10 @@ import {BITTY_GUARD} from "./logic/Constants.sol";
  * @notice The address every vault names as its auto-yield trigger. Vaults see one address forever; the
  *         hot keys that actually sign rotate in here.
  *
- * @dev A vault's trigger is baked into its implementation and cannot be changed per vault, so the
- *      trigger has to be a stable address in front of moving parts rather than an EOA whose key can
- *      never be retired. Rotating a key is one transaction here instead of one per vault.
+ * @dev Each vault's owner names its trigger ({IBittyV1Vault-setAutoYieldTrigger}), so pointing the
+ *      fleet at an EOA would mean every owner re-pointing their vault each time that key rotates. A
+ *      stable address in front of moving parts makes rotating a key one transaction here instead of
+ *      one per vault.
  *
  *      This contract only ever ANSWERS; it never acts. It holds nothing, can move nothing, and has no
  *      upgrade path — so a full compromise buys an attacker the ability to sweep vaults into routes
@@ -21,8 +22,11 @@ import {BITTY_GUARD} from "./logic/Constants.sol";
  *
  *      It deliberately does NOT inspect what is being signed. ERC-1271 receives only a hash, so it
  *      could not anyway — but it does not need to: with `request.from` set to this keeper, the vault
- *      sees a caller that is not its owner, and {IBittyV1Vault-autoYield} is the only function that
- *      check passes for. The vault does the authorisation; this contract only does authentication.
+ *      sees a caller that is not its owner: among the restricted functions, only
+ *      {IBittyV1Vault-autoYield} lets it through. A keeper-signed request can still reach what any
+ *      address may call — {IBittyV1Vault-wrapNative}, `settleOwnershipTransfer`, `multicall` of those
+ *      — which adds no authority beyond any caller's. The vault does the authorisation; this
+ *      contract only does authentication.
  */
 contract BittyV1AutoYieldKeeper {
     bytes4 private constant MAGIC_VALUE = 0x1626ba7e;
@@ -30,8 +34,9 @@ contract BittyV1AutoYieldKeeper {
 
     /**
      * @dev Forwarders whose questions this keeper answers. A SET, not one address: a vault's
-     *      trustedForwarder is frozen at activation, so shipping a new forwarder leaves two generations
-     *      of vaults live at once and one keeper has to serve both. An immutable here would force a
+     *      trustedForwarder is a constant of its implementation, so shipping a new forwarder leaves two
+     *      generations of vaults live at once, until every vault upgrades, and one keeper has to serve
+     *      both. An immutable here would force a
      *      keeper redeploy per forwarder version, and a new keeper address means every owner has to
      *      re-point their trigger — the exact problem this contract exists to remove.
      */

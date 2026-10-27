@@ -25,7 +25,9 @@ interface IBittyV1VaultFactory {
 
     /**
      * @notice Activate a vault whose owner pays in stable coin rather than ETH: you supply the gas on
-     *         their signed authority, and the vault repays you from the stable coin already in it.
+     *         their signed authority, and the vault pays the signed activation fee from the stable coin
+     *         already in it — to {BITTY_FEE_COLLECTOR}, not to you. Relay it as Bitty's relayer, or
+     *         expect no repayment.
      *
      * @dev The only path by which an owner holding no ETH can obtain a vault.
      * @param owner The address of the owner.

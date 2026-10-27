@@ -24,7 +24,8 @@ import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
  *         Upgrades are instant, and may only move forward. The target must be a guard-blessed
  *         implementation and the guard timelocks the blessing globally, so the delay belongs there
  *         rather than here: it is the code that has to prove itself, not the owner. A vault stays
- *         upgradeable for life — there is no opt-out, so a bug found later is always patchable.
+ *         upgradeable for life, with no opt-out — except while it is locked: an emergency lock pauses
+ *         upgrades until it is released, and a forever lock freezes the code for good.
  */
 abstract contract BittyV1VaultBase is BittyV1AccountBase, UUPSUpgradeable {
     uint256 private constant _VERSION = 1 * 1_000_000 + 0 * 1_000 + 6;

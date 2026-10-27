@@ -41,7 +41,7 @@ your key is therefore stuck in the open for at least one full timelock, while yo
 
 | The thief tries to… | What happens |
 | --- | --- |
-| Send everything to their own address | A send to an address not on your whitelist is capped by the **daily send allowance**: a rolling 24 hours, in USD, at most $10,000, and it cannot be turned off. They get at most one allowance per day, not the vault. |
+| Send everything to their own address | A send to an address not on your whitelist is capped by the **daily send allowance**: in USD, at most $10,000, over a one-day period that opens with the first send (not a rolling 24 hours, so up to twice the allowance can leave across the change of period). It cannot be raised past $10,000; the owner can set it to $0 to turn regular sends off. They get at most one allowance per period, not the vault. |
 | Add their address to the whitelist, then send everything | The new entry waits out the timelock before it can be paid. |
 | Raise the daily send allowance | Scheduled; waits out the timelock. |
 | Shorten the timelock so the above go faster | Scheduled; it waits out the **current** timelock. |

@@ -234,9 +234,11 @@ interface IBittyV1Vault {
     function wrapNative() external;
 
     /**
-     * @notice The trusted ERC-2771 forwarder for this vault (address(0) = relaying disabled).
-     * @dev Written once at initialize with no setter, so it can never be repointed by an owner or a
-     *      compromised relayer.
+     * @notice The trusted ERC-2771 forwarder for this vault.
+     * @dev The compile-time constant {BITTY_FORWARDER}: never zero, with no setter and nothing in
+     *      storage, so neither an owner nor a compromised relayer can repoint it. Relaying cannot be
+     *      switched off; what a relayed call may charge the vault is switched off with
+     *      {disableTokenAsGas}. A new forwarder ships with a new vault implementation.
      */
     function trustedForwarder() external view returns (address);
 
@@ -260,11 +262,13 @@ interface IBittyV1Vault {
      * @dev One call rather than three, since no caller wants a subset. Deliberately does NOT repeat
      *      {gasBudgetRemaining} — that is live state with its own getter, read on-chain by the
      *      forwarder — nor an `enabled` flag, which `dailyLimit` already carries.
-     * @return assets The assets that may pay for relayed gas. Activation seeds this with the
-     *         guard's stable coins (the vault's WETH may also be listed); EMPTY means NOTHING may pay, so relaying cannot be charged and
-     *         no relayed call will go through.
-     * @return dailyLimit Per-UTC-day ceiling in whole USD, as in force. ZERO means relaying is
-     *         off: when it is on this is either the owner's figure or DAILY_MAX_GAS_BUDGET, never 0.
+     * @return assets The assets the owner listed to pay for relayed gas. Activation lists nothing,
+     *         and EMPTY means ANY may pay: every guard-registered stable coin and the vault's WETH.
+     *         A non-empty list narrows that to the assets on it.
+     * @return dailyLimit Per-UTC-day ceiling in whole USD, as in force. ZERO means charging is off
+     *         ({disableTokenAsGas}). Otherwise it is the owner's figure, or {SYSTEM_DAILY_MAX_GAS_BUDGET}
+     *         while the owner has set none — so a vault charges for relayed gas from activation, up
+     *         to that ceiling, until its owner narrows or disables it.
      * @return maxFeePerOp Ceiling on a single charge, in whole USD. Never zero.
      */
     function tokenAsGasConfig() external view returns (address[] memory assets, uint256 dailyLimit, uint256 maxFeePerOp);
@@ -300,18 +304,18 @@ interface IBittyV1Vault {
 
     /**
      * @notice Name the address, besides the owner, that may trade this vault. Zero revokes.
-     * @dev Main vault only; refused on a sub vault. The manager may deposit, withdraw, run LP positions
-     *      and sign intent orders, but cannot change which assets or protocols are reachable, cannot
-     *      re-route auto-yield, and cannot pay anyone — so daily DeFi work no longer needs the key that
-     *      can move money out. Appointing or extending waits out the vault's change timelock; revoking
-     *      and shortening apply at once.
+     * @dev The manager may do what its permissions name — supply and withdraw from lending, stake and
+     *      unstake, trade at market, sign and cancel intent orders — but cannot change which assets or
+     *      protocols are reachable, cannot re-route auto-yield, and cannot pay anyone, so daily DeFi
+     *      work no longer needs the key that can move money out. Appointing or extending waits out the
+     *      vault's change timelock; revoking and shortening apply at once.
      * @param assetManager The trading delegate, or zero to revoke.
      * @param expiresAt When the grant lapses: in the future and within {MAX_GRANT_DURATION}, since every
      *        grant expires. Ignored on a revoke.
      * @param permissions What the grant covers, as the bit set in {Constants}. There is no
-     *        "everything" and no default. Unwinding needs no bit: any live manager may withdraw,
-     *        claim and cancel orders, since all of it lands back in the vault. So zero appoints a key
-     *        that can only unwind.
+     *        "everything" and no default. Taking a position out needs the bit that put it in —
+     *        {PERM_SUPPLY} for lending, {PERM_YIELD} for staking — and cancelling an intent order
+     *        needs {PERM_INTENT}, so a grant to trade at market alone reaches no position.
      */
     function setAssetManager(address assetManager, uint64 expiresAt, uint32 permissions) external;
 
