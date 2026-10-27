@@ -58,6 +58,10 @@ library TokenAsGasLogic {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         _onlyInitialized(vaultStorage);
         vaultStorage.tokenAsGasDisabled = true;
+        // Off is the tightest the budget can be, so a raise still waiting out the timelock goes with it;
+        // otherwise it would land unseen the moment the owner turned token-as-gas back on.
+        TimelockLib.cancelPending(vaultStorage.gasBudgetDaily);
+        TimelockLib.cancelPending(vaultStorage.maxFeePerOp);
         emit IBittyV1Owner.TokenAsGasSet(false, new address[](0), 0, 0);
     }
 

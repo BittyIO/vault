@@ -278,6 +278,49 @@ contract VaultTokenAsGasTest is Test {
         vault.payRelayerFee(address(usdc), 1e6);
     }
 
+    /// Off is the tightest the budget gets, so it takes a raise still waiting out the timelock with it.
+    /// Were the raise kept, turning token-as-gas back on later would bring it in unannounced.
+    function test_disableTokenAsGasCancelsAPendingRaise() public {
+        address[] memory none = new address[](0);
+        vm.startPrank(owner);
+        vault.setTokenAsGas(none, 10, 1); // tightening: at once
+        vault.setTokenAsGas(none, 50, 5); // loosening: waits
+        vm.stopPrank();
+        assertEq(vault.pendingChanges().gasBudgetDaily, 50, "raise queued");
+        assertEq(vault.pendingChanges().maxFeePerOp, 5, "raise queued");
+
+        vm.prank(owner);
+        vault.disableTokenAsGas();
+        assertEq(vault.pendingChanges().gasBudgetDaily, 0, "raise dropped");
+        assertEq(vault.pendingChanges().maxFeePerOp, 0, "raise dropped");
+
+        // Long after the raise would have landed, turning it back on with the same numbers is a
+        // fresh loosening: it waits again, and the old ceilings hold meanwhile.
+        vm.warp(block.timestamp + 30 days);
+        vm.prank(owner);
+        vault.setTokenAsGas(none, 50, 5);
+        (, uint256 daily, uint256 perOp) = vault.tokenAsGasConfig();
+        assertEq(daily, 10, "old budget holds");
+        assertEq(perOp, 1, "old cap holds");
+        assertEq(vault.pendingChanges().gasBudgetDaily, 50, "raise queued again");
+    }
+
+    /// A raise whose time had already come is in force; turning token-as-gas off does not undo it.
+    function test_disableTokenAsGasKeepsALandedRaise() public {
+        address[] memory none = new address[](0);
+        vm.startPrank(owner);
+        vault.setTokenAsGas(none, 10, 1);
+        vault.setTokenAsGas(none, 50, 5);
+        vm.warp(block.timestamp + 30 days);
+        vault.disableTokenAsGas();
+        vault.setTokenAsGas(none, 50, 5); // the same numbers: nothing to loosen
+        vm.stopPrank();
+        (, uint256 daily, uint256 perOp) = vault.tokenAsGasConfig();
+        assertEq(daily, 50);
+        assertEq(perOp, 5);
+        assertEq(vault.pendingChanges().gasBudgetDaily, 0, "nothing waiting");
+    }
+
     function test_zeroAmountIsRefused() public {
         vm.prank(BITTY_FORWARDER);
         vm.expectRevert(AmountIsZero.selector);
