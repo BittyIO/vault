@@ -77,7 +77,7 @@ interface IBittyV1DeFi {
 
     /**
      * @notice Approve a token to the intent protocol's spender - whatever the protocol pulls sell tokens
-     *         through at settlement (CoW's vault relayer, Permit2 for UniswapX), as its clone names it.
+     *         through at settlement (CoW's vault relayer, for one), as its clone names it.
      * @param intentProtocol The intent protocol to approve the spender for.
      * @param token The token to approve.
      */
@@ -87,7 +87,7 @@ interface IBittyV1DeFi {
      * @notice Cancel an off-chain intent order. Recorded in the protocol's clone, which then refuses the
      *         order at settlement. Still allowed once the protocol is deprecated.
      * @param intentProtocol The intent protocol the order was placed on.
-     * @param orderUid The protocol's own order id (CoW: order UID; UniswapX: order hash).
+     * @param orderUid The protocol's own order id (CoW: the order UID).
      */
     function cancelIntentOrder(address intentProtocol, bytes calldata orderUid) external;
 
