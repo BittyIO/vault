@@ -25,6 +25,14 @@ library TimelockLib {
         }
     }
 
+    /// Drop a waiting loosening; one whose time has already come is in force, so it stays.
+    function cancelPending(TimelockedValue storage tv) internal {
+        if (tv.pendingAt == 0) return;
+        _settle(tv);
+        tv.pending = 0;
+        tv.pendingAt = 0;
+    }
+
     function _apply(TimelockedValue storage tv, uint64 next, bool loosen, uint64 timelock) private {
         if (!loosen) {
             tv.value = next;

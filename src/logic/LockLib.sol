@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-import {BittyStorage, VaultStorage, DeFiStorage, TimelockedValue} from "./BittyStorage.sol";
+import {BittyStorage, VaultStorage, DeFiStorage} from "./BittyStorage.sol";
+import {TimelockLib} from "./TimelockLib.sol";
 import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
 import {VaultLocked} from "../interfaces/IBittyV1Vault.sol";
 
@@ -103,11 +104,11 @@ library LockLib {
         $.lockEpoch = closing + 1;
         $.lockLevel = next;
 
-        _dropPending($.riskConfig.timelock);
-        _dropPending($.riskConfig.sendDailyAllowance);
-        _dropPending($.riskConfig.marketTradeDailyLossAllowance);
-        _dropPending($.gasBudgetDaily);
-        _dropPending($.maxFeePerOp);
+        TimelockLib.cancelPending($.riskConfig.timelock);
+        TimelockLib.cancelPending($.riskConfig.sendDailyAllowance);
+        TimelockLib.cancelPending($.riskConfig.marketTradeDailyLossAllowance);
+        TimelockLib.cancelPending($.gasBudgetDaily);
+        TimelockLib.cancelPending($.maxFeePerOp);
 
         uint40 readyAt = $.ownershipReadyAt;
         if (readyAt != 0 && block.timestamp < readyAt) {
@@ -130,13 +131,6 @@ library LockLib {
         }
 
         emit IBittyV1Owner.LockLevelSet(next, closing);
-    }
-
-    function _dropPending(TimelockedValue storage tv) private {
-        if (tv.pendingAt == 0) return;
-        if (block.timestamp >= tv.pendingAt) tv.value = tv.pending; // already in force; keep it
-        tv.pending = 0;
-        tv.pendingAt = 0;
     }
 
     function lockEpoch() internal view returns (uint32) {
