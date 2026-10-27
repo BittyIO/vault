@@ -225,7 +225,7 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
      *      once, so three settings changes cost far less than three relays of one change each.
      *
      *      Every request must target the same `vault`, since the fee is charged there and the budget
-     *      is per-vault. They need not share a signer: an owner's change and a sub owner's trade can
+     *      is per-vault. They need not share a signer: an owner's change and a manager's trade can
      *      ride together, each proven by its own signature.
      *
      *      Atomic. OZ's non-atomic mode exists to refund unspent ETH on partial failure, which cannot
@@ -321,9 +321,10 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
 
     /**
      * @dev The EIP-712 digest OpenZeppelin's {_recoverForwardRequestSigner} builds, extracted so the
-     *      override above can hash without recovering. Must stay byte-identical to it — including
-     *      reading the CURRENT `nonces(request.from)` — or every signature ever produced for this
-     *      forwarder stops verifying.
+     *      override above can hash without recovering. Byte-identical to it except for the
+     *      nonce: where OpenZeppelin reads `nonces(request.from)`, this reads the CURRENT per-target lane
+     *      nonce {nonceFor}(request.from, request.to). The inherited `nonces(address)` is never advanced
+     *      and always returns 0; sign with {nonceFor}.
      */
     function _forwardRequestDigest(ForwardRequestData calldata request) private view returns (bytes32) {
         return _hashTypedDataV4(

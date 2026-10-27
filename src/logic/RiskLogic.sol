@@ -36,7 +36,10 @@ import {LockLib} from "./LockLib.sol";
  * @dev Four numbers used to live here, and the storage held four slots to match. They are three
  *      now — see {IBittyV1Owner.RiskSettings} for which questions collapsed into which, and why the
  *      two allowances are kept apart. The period each allowance runs over is no longer a number at
- *      all: it is a rolling day, as {PaymentLogic} and {MarketTradeLogic} read it.
+ *      all: it is one day, opened by the first send (or loss) and reset by the first one a day or more
+ *      later, as {PaymentLogic} and {MarketTradeLogic} keep it. It is not a rolling 24 hours: up to
+ *      twice an allowance can leave within moments across the end of one period and the start of
+ *      the next.
  *
  *      Unset is stored as 0 rather than written at initialization, so a vault made before these
  *      bounds existed reads the defaults the moment it upgrades, with nothing to migrate. Every read

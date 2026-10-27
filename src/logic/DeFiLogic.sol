@@ -36,14 +36,13 @@ import {BITTY_GUARD, MAX_GRANT_DURATION} from "./Constants.sol";
  * @title DeFiLogic
  * @notice The full DeFi surface — yield (deposit/withdraw/auto-yield), market making, market trading
  * and intent orders
- *         — shared by the main vault (owner-operated) and every sub vault (sub-owner-operated). Operates
- *         on the co-located {DeFiStorage} at the ERC-7201 DEFI_SLOT, so the same code serves whichever
- *         host delegatecalls it.
+ *         — run in the vault's context. Operates on the co-located {DeFiStorage} at the ERC-7201
+ *         DEFI_SLOT.
  *
  * @dev Guard-driven. The local allowlist is consulted only while it is active (the owner's trust
  *      switch, with its OFF transition delayed): an asset/protocol must then be both guard-registered
- *      and locally allowed. There is no asset-manager grant here — authorisation (owner vs sub owner) is
- *      the host facet's job; this library only moves assets.
+ *      and locally allowed. This library stores the asset-manager grant and answers who holds it, but
+ *      does not authorise calls — that is the facet's job ({BittyV1VaultDeFiFacet}).
  */
 library DeFiLogic {
     event AutoYieldTriggerSet(address indexed trigger);

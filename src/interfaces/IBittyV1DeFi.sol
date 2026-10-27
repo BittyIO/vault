@@ -20,10 +20,9 @@ error SequencerDown();
 /**
  * @title IBittyV1DeFi
  * @notice The trading/yield surface. Named for the capability, not a caller: it is written once in
- *         {BittyV1VaultDeFiFacet} and answered identically by a main vault and by every sub vault,
- *         because the facet authorises on `owner()` and `owner()` is whoever owns the host account.
- *         There is no manager role left to name — a delegated manager IS a sub vault owned by someone
- *         else. Owner-only config (protocol add/remove) lives in {IBittyV1Owner}; the read functions
+ *         {BittyV1VaultDeFiFacet} and reached through the vault's fallback. The facet authorises the
+ *         vault's `owner()` and, for what its permissions name, the vault's asset manager
+ *         ({IBittyV1Vault-setAssetManager}). Owner-only config (protocol add/remove) lives in {IBittyV1Owner}; the read functions
  *         (getBalances, protocol getters, …) live in {IBittyV1Vault}.
  */
 interface IBittyV1DeFi {

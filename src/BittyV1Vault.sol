@@ -31,8 +31,8 @@ import {
 /**
  * @title BittyV1Vault
  * @notice The main vault: owner payments + the owner's own DeFi (reached through fallback → shared
- *         {BittyV1VaultDeFiFacet}) + curated/timelocked/freezable UUPS upgrades (from
- *         {BittyV1VaultBase}). Payouts to arbitrary external addresses live only here and are
+ *         {BittyV1VaultDeFiFacet}) + owner-driven UUPS upgrades to guard-registered, newer
+ *         implementations (from {BittyV1VaultBase}): instant, and refused while the vault is locked. Payouts to arbitrary external addresses live only here and are
  *         owner-gated.
  */
 contract BittyV1Vault is BittyV1VaultBase {

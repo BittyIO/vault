@@ -17,14 +17,11 @@ import {IBittyV1DeFi} from "./interfaces/IBittyV1DeFi.sol";
 
 /**
  * @title BittyV1VaultDeFiFacet
- * @notice The DeFi surface, written once and delegatecalled by both the main vault and every sub vault.
- *         Authorisation is the inherited {onlyOwner}: since `owner()` lives at OZ's fixed ERC-7201 slot,
- *         `_msgSender() == owner()` resolves to the main owner inside the main vault and the sub owner
- *         inside a sub vault — the same code, correct authority in each host.
- * @dev Reached through each host's fallback, so it never holds its own state; every function operates on
- *      the host's co-located {DeFiStorage}. The allowlist *switch* is deliberately NOT here (that stays
- *      host-controlled — main owner / parent); only the list *content* is, since narrowing is pure
- *      self-restriction.
+ * @notice The DeFi surface, delegatecalled by the vault. Authorisation is the vault's owner — `owner()`
+ *         lives at a fixed ERC-7201 slot, so `_msgSender() == owner()` reads the vault's own owner — and,
+ *         for what its permissions name, the vault's asset manager.
+ * @dev Reached through the vault's fallback, so it never holds its own state; every function operates on
+ *      the vault's co-located {DeFiStorage}.
  */
 contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
     bytes4 internal constant ERC1271_MAGIC_VALUE = 0x1626ba7e;

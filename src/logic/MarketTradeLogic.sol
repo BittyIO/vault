@@ -200,7 +200,8 @@ library MarketTradeLogic {
     }
 
     /**
-     * @dev The send allowance's rolling day, kept separately for what trades lose.
+     * @dev The same one-day period as the send allowance's — opened by the first loss, reset by the
+     *      first one a day or more later — kept separately for what trades lose.
      */
     function _chargeMarketTradeLoss(uint256 loss, uint64 lossAllowance) private {
         VaultStorage storage v = BittyStorage.vault();
