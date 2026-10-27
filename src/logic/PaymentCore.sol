@@ -3,7 +3,6 @@ pragma solidity ^0.8.34;
 
 import {
     NotInitialized,
-    InsufficientBalance,
     TransferFailed,
     ReentrantCall,
     ProtectionPeriodNotEnded,
@@ -66,20 +65,6 @@ library PaymentCore {
         } else {
             IERC20(asset).safeTransfer(to, amount);
         }
-    }
-
-    function transferMoney(
-        VaultStorage storage vaultStorage,
-        address erc20Address,
-        uint256 amount,
-        address recipient,
-        bool payWithInsufficientBalance
-    ) internal returns (uint256 paidAmount) {
-        address balanceToken = erc20Address == address(0) ? vaultStorage.gasWrapped : erc20Address;
-        uint256 balance = IERC20(balanceToken).balanceOf(address(this));
-        if (!payWithInsufficientBalance && balance < amount) revert InsufficientBalance();
-        paidAmount = balance < amount ? balance : amount;
-        payOut(vaultStorage, erc20Address, paidAmount, recipient);
     }
 
     function protectionDeadline(uint256 protection) internal view returns (uint256) {

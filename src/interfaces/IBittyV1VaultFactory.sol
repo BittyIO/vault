@@ -4,7 +4,6 @@ pragma solidity ^0.8.34;
 error VaultAlreadyActivated();
 error InvalidActivationSignature();
 error ActivationSignatureExpired();
-error NotDeployer();
 
 interface IBittyV1VaultFactory {
     /**
