@@ -57,6 +57,15 @@ interface IBittyV1Owner {
 
     event AssetsUpdated(address[] addAssets, address[] removeAssets);
     event ProtocolsUpdated(address[] addProtocols, address[] removeProtocols);
+    /**
+     * @notice The vault switched which allow list gates it: Bitty's catalogue (`ownAllowList` false) or
+     *         its own list on top of it (true). Takes effect at once.
+     */
+    event OwnAllowListSet(bool ownAllowList);
+    /**
+     * @notice The auto-yield route for `asset` now deposits into `protocol`; zero clears it.
+     */
+    event AutoYieldingSet(address indexed asset, address protocol);
     event RiskSettingsUpdated(RiskSettings riskSettings);
     event WhitelistedRecipientPaid(uint256 indexed id, address recipient, address asset, uint256 amount);
     event Retrieved721(address indexed contractAddress, uint256 indexed tokenId, address indexed to);

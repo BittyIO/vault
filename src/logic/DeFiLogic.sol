@@ -29,6 +29,7 @@ import {
     Deprecated
 } from "../interfaces/IBittyV1Vault.sol";
 import {BittyStorage, DeFiStorage, ProtocolInstance} from "./BittyStorage.sol";
+import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
 import {RiskLogic} from "./RiskLogic.sol";
 import {BITTY_GUARD, MAX_GRANT_DURATION} from "./Constants.sol";
 
@@ -39,9 +40,9 @@ import {BITTY_GUARD, MAX_GRANT_DURATION} from "./Constants.sol";
  *         — run in the vault's context. Operates on the co-located {DeFiStorage} at the ERC-7201
  *         DEFI_SLOT.
  *
- * @dev Guard-driven. The local allowlist is consulted only while it is active (the owner's trust
- *      switch, with its OFF transition delayed): an asset/protocol must then be both guard-registered
- *      and locally allowed. This library stores the asset-manager grant and answers who holds it, but
+ * @dev Guard-driven. The local allowlist is consulted only while it is active (the owner's switch,
+ *      which takes effect at once, and is frozen under a lock): an asset/protocol must then be both guard-registered and locally
+ *      allowed. This library stores the asset-manager grant and answers who holds it, but
  *      does not authorise calls — that is the facet's job ({BittyV1VaultDeFiFacet}).
  */
 library DeFiLogic {
@@ -67,11 +68,13 @@ library DeFiLogic {
     function activateOwnAllowList() external {
         _onlyInitialized();
         BittyStorage.vault().ownAllowListActive = true;
+        emit IBittyV1Owner.OwnAllowListSet(true);
     }
 
     function deactivateOwnAllowList() external {
         _onlyInitialized();
         BittyStorage.vault().ownAllowListActive = false;
+        emit IBittyV1Owner.OwnAllowListSet(false);
     }
 
     function ownAllowListActive() external view returns (bool) {
@@ -225,6 +228,7 @@ library DeFiLogic {
         for (uint256 i; i < removeAssets.length; ++i) {
             $.assets[removeAssets[i]] = false;
         }
+        emit IBittyV1Owner.AssetsUpdated(addAssets, removeAssets);
     }
 
     function updateProtocols(address[] calldata addProtocols, address[] calldata removeProtocols) external {
@@ -242,6 +246,7 @@ library DeFiLogic {
                 _cloneProtocol($, addProtocols[i]);
             }
         }
+        emit IBittyV1Owner.ProtocolsUpdated(addProtocols, removeProtocols);
     }
 
     function assetAllowed(address asset) external view returns (bool) {
@@ -394,10 +399,11 @@ library DeFiLogic {
         if (assetAddress == address(0)) revert AddressZero();
         if (protocol == address(0)) {
             delete $.autoYieldProtocols[assetAddress];
-            return;
+        } else {
+            if (!_depositProtocolOK($, protocol)) revert InvalidDepositableProtocol();
+            $.autoYieldProtocols[assetAddress] = protocol;
         }
-        if (!_depositProtocolOK($, protocol)) revert InvalidDepositableProtocol();
-        $.autoYieldProtocols[assetAddress] = protocol;
+        emit IBittyV1Owner.AutoYieldingSet(assetAddress, protocol);
     }
 
     function getAutoYieldings(address[] calldata assetAddresses) external view returns (address[] memory protocols) {

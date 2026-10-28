@@ -143,6 +143,7 @@ contract LocksTest is Test {
         all[n++] = abi.encodeCall(BittyV1Vault.setTokenAsGas, (_one(address(usdc)), 1, 1));
         all[n++] = abi.encodeCall(BittyV1Vault.disableTokenAsGas, ());
         all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false));
+        all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (true));
         all[n++] = abi.encodeCall(
             BittyV1VaultDeFiFacet.setAssetManager, (stranger, uint64(block.timestamp + 365 days), PERM_YIELD)
         );
@@ -350,17 +351,23 @@ contract LocksTest is Test {
         _f().withdraw(address(sky), address(usdc), 1_000e6);
     }
 
-    /// Widening to Bitty's catalog only ever adds reachable assets, so it stays open.
-    function test_theBittyAllowListCanStillBeTurnedOnWhileLocked() public {
+    /**
+     * Widening to Bitty's catalogue is shut too: it would reopen venues the owner's own list had shut,
+     * to whoever holds the key once the vault is locked.
+     */
+    function test_theBittyAllowListCannotBeTurnedOnWhileLocked() public {
         vm.startPrank(owner);
         _f().useBittyAllowList(false);
         vault.foreverLock(coldId);
-        _f().useBittyAllowList(true); // == useBittyAllowList(true)
+        vm.expectRevert(VaultLocked.selector);
+        _f().useBittyAllowList(true);
         vm.stopPrank();
-        assertTrue(_f().usingBittyAllowList(), "back to Bitty's list, which is the permissive one");
+        assertFalse(_f().usingBittyAllowList(), "still on the vault's own list");
     }
 
-    /// But narrowing to the vault's own list takes reachable assets away, so that direction is shut.
+    /**
+     * Narrowing to the vault's own list takes reachable assets away, so that direction is shut as well.
+     */
     function test_theVaultsOwnListCannotBeNarrowedToWhileLocked() public {
         vm.prank(owner);
         vault.foreverLock(coldId);
@@ -370,24 +377,20 @@ contract LocksTest is Test {
     }
 
     /**
-     * The escape hatch is reachable without a wait.
-     *
-     * A locked vault sells into stablecoins, and the own allow list decides which stablecoin an
-     * order may buy. Returning to Bitty's catalogue is immediate — as it is on an unlocked vault —
-     * so an own list that happens to omit the coin a solver wants to pay in is a problem the owner
-     * fixes in one call, rather than one that outlives the emergency.
+     * An emergency lock holds the list too; it is back in reach once the owner unlocks.
      */
-    function test_returningToBittysListIsImmediateWhileLocked() public {
+    function test_returningToBittysListWaitsForTheUnlock() public {
         vm.startPrank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(30 days, UNCHANGED, UNCHANGED));
         _f().useBittyAllowList(false);
-        assertFalse(_f().usingBittyAllowList(), "on the vault's own narrow list");
-
         vault.emergencyLock();
+        vm.expectRevert(VaultLocked.selector);
+        _f().useBittyAllowList(true);
+        assertFalse(_f().usingBittyAllowList(), "the own list holds through the emergency");
+
+        vault.unlock();
         _f().useBittyAllowList(true);
         vm.stopPrank();
-
-        assertTrue(_f().usingBittyAllowList(), "back on Bitty's catalogue, with nothing to wait for");
+        assertTrue(_f().usingBittyAllowList(), "and widens once unlocked");
     }
 
     /// The conversion path needs its allowance, so the approval stays reachable.

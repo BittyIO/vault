@@ -261,11 +261,14 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         return !DeFiLogic.ownAllowListActive();
     }
 
-    function useBittyAllowList(bool use) external onlyOwner notTrading {
+    /**
+     * Refused under a lock in both directions: widening to Bitty's catalogue would let a stolen key
+     * reach venues the owner had shut out, and the lock freezes the vault's configuration as it stands.
+     */
+    function useBittyAllowList(bool use) external onlyOwner notLocked notTrading {
         if (use) {
             DeFiLogic.deactivateOwnAllowList();
         } else {
-            LockLib.requireNotLocked();
             DeFiLogic.activateOwnAllowList();
         }
     }
