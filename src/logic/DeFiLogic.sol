@@ -41,7 +41,7 @@ import {BITTY_GUARD, MAX_GRANT_DURATION} from "./Constants.sol";
  *         DEFI_SLOT.
  *
  * @dev Guard-driven. The local allowlist is consulted only while it is active (the owner's switch,
- *      which takes effect at once): an asset/protocol must then be both guard-registered and locally
+ *      which takes effect at once, and is frozen under a lock): an asset/protocol must then be both guard-registered and locally
  *      allowed. This library stores the asset-manager grant and answers who holds it, but
  *      does not authorise calls — that is the facet's job ({BittyV1VaultDeFiFacet}).
  */
