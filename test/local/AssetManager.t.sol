@@ -11,7 +11,7 @@ import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {AutoYield, IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
+import {AutoYield, IBittyV1Vault, VaultLocked} from "../../src/interfaces/IBittyV1Vault.sol";
 import {AssetManagerExpiryInPast} from "../../src/interfaces/IBittyV1DeFi.sol";
 import {BITTY_GUARD, MIN_RISK_TIMELOCK, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
 
@@ -247,20 +247,19 @@ contract AssetManagerTest is Test {
         _f().setAssetManager(manager, START, MANAGER_PERMS);
     }
 
-    // ── a lock narrows every delegate ─────────────────────────────────────────
+    // ── a lock suspends every delegate ────────────────────────────────────────
 
     /**
      * A renounce used to fire the manager and the keeper outright, because an abandoned vault had
      * nobody left who could revoke them and a surviving manager could have routed the rescue
      * payment's asset into a token that payment could not pay in.
      *
-     * A lock does not need to fire anyone, and should not: the manager holds its own key, which is
-     * not the one that leaked, and firing it would cost the owner the help they appointed at exactly
-     * the moment they need it. Instead the lock narrows what the grant can reach to the half that
-     * cannot be abused — value coming home. The route that worried the renounce is shut by the same
-     * rule, since putting money into a position is adding one.
+     * A lock does not fire anyone: the manager holds its own key, which is not the one that leaked,
+     * and an emergency lock's release should find the help the owner appointed still in place. But
+     * while the vault is locked the grant is dormant, so the owner alone acts — including bringing
+     * value home, which needs no delegate.
      */
-    function test_aForeverLockNarrowsTheManagerToUnwinding() public {
+    function test_aForeverLockSuspendsTheManager() public {
         _appoint(START + 365 days);
         vm.prank(owner);
         _f().setAutoYieldTrigger(makeAddr("keeper"));
@@ -280,19 +279,69 @@ contract AssetManagerTest is Test {
         assertEq(pending, address(0));
         assertEq(_f().autoYieldTrigger(), makeAddr("keeper"), "and the keeper is still named");
 
+        bytes memory unauthorized = abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", manager);
         vm.prank(manager);
-        vm.expectRevert();
+        vm.expectRevert(VaultLocked.selector); // deposits are shut for everyone before anyone is asked
         _f().deposit(address(sky), address(usdc), 100e6);
 
         vm.prank(manager);
+        vm.expectRevert(unauthorized);
         _f().withdraw(address(sky), address(usdc), 900e6);
-        assertEq(usdc.balanceOf(address(vault)), 1_000e6, "but it can still bring value back");
+
+        vm.prank(owner);
+        _f().withdraw(address(sky), address(usdc), 900e6);
+        assertEq(usdc.balanceOf(address(vault)), 1_000e6, "the owner brings the value back");
     }
 
     // ── sub vaults have no manager ───────────────────────────────────────────
 
     // ── the ratchet ───────────────────────────────────────────────────────────
     //
+    /**
+     * An emergency lock puts the grant to sleep and its release wakes it: nothing was revoked.
+     */
+    function test_anEmergencyLockSuspendsTheGrantUntilReleased() public {
+        _appoint(START + 365 days);
+        vm.prank(manager);
+        _f().deposit(address(sky), address(usdc), 400e6);
+        vm.prank(owner);
+        vault.emergencyLock();
+
+        vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", manager));
+        _f().withdraw(address(sky), address(usdc), 400e6);
+        assertFalse(_f().isOffchainOrderAuthorized(manager, address(usdc), address(usdc), 1), "nor sign");
+        assertTrue(_f().isOffchainOrderAuthorized(owner, address(usdc), address(usdc), 1), "the owner still may");
+
+        vm.prank(owner);
+        vault.unlock();
+        vm.prank(manager);
+        _f().withdraw(address(sky), address(usdc), 400e6);
+        assertEq(usdc.balanceOf(address(vault)), 1_000e6);
+    }
+
+    /**
+     * A lock freezes the grant like every other setting: it can be neither widened nor revoked, and
+     * while locked it is dormant anyway.
+     */
+    function test_theGrantCannotBeChangedWhileLocked() public {
+        _appoint(START + 30 days);
+        vm.prank(owner);
+        vault.emergencyLock();
+
+        vm.prank(owner);
+        vm.expectRevert(VaultLocked.selector);
+        _f().setAssetManager(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
+
+        vm.prank(owner);
+        vm.expectRevert(VaultLocked.selector);
+        _f().setAssetManager(manager, uint64(block.timestamp + 1 days), PERM_SUPPLY);
+
+        vm.prank(owner);
+        vm.expectRevert(VaultLocked.selector);
+        _f().setAssetManager(address(0), 0, 0);
+    }
+
     // Appointing and extending wait out the vault's changeTimelock; revoking and shortening do not.
     // Vault ownership is transferable, and a manager survives the handover, so the delay is what stops
     // a stolen owner key planting a permanent trading key that outlives the rescue.

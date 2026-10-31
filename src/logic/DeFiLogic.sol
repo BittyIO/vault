@@ -31,6 +31,7 @@ import {
 import {BittyStorage, DeFiStorage, ProtocolInstance} from "./BittyStorage.sol";
 import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
 import {RiskLogic} from "./RiskLogic.sol";
+import {LockLib} from "./LockLib.sol";
 import {BITTY_GUARD, MAX_GRANT_DURATION} from "./Constants.sol";
 
 /**
@@ -192,8 +193,12 @@ library DeFiLogic {
         return ($.pendingAssetManager, $.pendingAssetManagerAt, $.pendingAssetManagerPerms);
     }
 
+    /**
+     * @dev False for everyone while the vault is locked, under either lock: the grant is kept but
+     *      dormant, so the owner alone acts on a locked vault, and an emergency lock's release wakes it.
+     */
     function assetManagerCan(address account, uint32 permissions) external view returns (bool) {
-        if (account == address(0)) return false;
+        if (account == address(0) || LockLib.level() != 0) return false;
         (address manager, uint64 expiresAt, uint32 granted) = _liveGrant(BittyStorage.defi());
         if (account != manager) return false;
         if (block.timestamp >= expiresAt) return false;

@@ -325,10 +325,9 @@ contract LocksTest is Test {
     }
 
     /**
-     * Value may always come home. Under either lock the owner and the manager can unwind — a
-     * withdrawal pays the clone's owner, which is this vault, so it cannot be turned into an exit —
-     * and a stranger still cannot, because being locked says nothing about the owner having stopped
-     * acting.
+     * Value may always come home. Under either lock the owner can unwind — a withdrawal pays the
+     * clone's owner, which is this vault, so it cannot be turned into an exit. The manager cannot, as
+     * a lock leaves its grant dormant, and a stranger still cannot either.
      */
     function test_unwindingStillWorksWhileLocked() public {
         vm.prank(owner);
@@ -337,8 +336,11 @@ contract LocksTest is Test {
         vm.prank(owner);
         vault.emergencyLock();
         vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", manager));
         _f().withdraw(address(sky), address(usdc), 1_000e6);
-        assertEq(usdc.balanceOf(address(vault)), 7_000e6, "the manager brought some back");
+        vm.prank(owner);
+        _f().withdraw(address(sky), address(usdc), 1_000e6);
+        assertEq(usdc.balanceOf(address(vault)), 7_000e6, "the owner brought some back");
 
         vm.prank(owner);
         vault.foreverLock(coldId);
@@ -431,11 +433,12 @@ contract LocksTest is Test {
         );
     }
 
-    /// The manager keeps its own independent key, so its intent grant survives a lock as well.
-    function test_theManagerMaySillSignStablecoinSalesWhileLocked() public {
+    /// A lock leaves the manager's grant dormant, so its signature stops counting; the owner's does not.
+    function test_theManagerMayNotSignWhileLocked() public {
         vm.prank(owner);
         vault.foreverLock(coldId);
-        assertTrue(_f().isOffchainOrderAuthorized(manager, address(weth), address(usdc), 1e18));
+        assertFalse(_f().isOffchainOrderAuthorized(manager, address(weth), address(usdc), 1e18));
+        assertTrue(_f().isOffchainOrderAuthorized(owner, address(weth), address(usdc), 1e18));
     }
 
     /**

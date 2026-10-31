@@ -63,7 +63,8 @@ would take effect.
    addresses that were already on your whitelist before the lock, or as limit orders that buy
    stablecoins for the vault itself. Your DeFi positions can still be unwound back into the vault, and
    you can still sell other assets into a stablecoin at market, so an asset your whitelisted address
-   cannot accept (a tokenised stock sent to an exchange, say) is never stuck.
+   cannot accept (a tokenised stock sent to an exchange, say) is never stuck. Your asset manager can do
+   nothing while the vault is locked.
 2. **If the thief unlocks it.** The emergency lock can be lifted with the owner key, so a thief can
    lift it too. Doing so does not bring back anything the lock cancelled: they have to schedule
    everything again and wait out the full timelock again, and you can lock again at any moment.

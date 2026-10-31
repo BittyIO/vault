@@ -308,7 +308,9 @@ interface IBittyV1Vault {
      *      unstake, trade at market, sign and cancel intent orders — but cannot change which assets or
      *      protocols are reachable, cannot re-route auto-yield, and cannot pay anyone, so daily DeFi
      *      work no longer needs the key that can move money out. Appointing or extending waits out the
-     *      vault's change timelock; revoking and shortening apply at once.
+     *      vault's change timelock; revoking and shortening apply at once. Under either lock the grant
+     *      can not be changed and is kept but dormant: the manager can do nothing until an emergency
+     *      lock is released, and nothing ever again under a forever lock.
      * @param assetManager The trading delegate, or zero to revoke.
      * @param expiresAt When the grant lapses: in the future and within {MAX_GRANT_DURATION}, since every
      *        grant expires. Ignored on a revoke.
