@@ -16,7 +16,8 @@ import {
     PaymentExceedsPeriodLimit,
     PaymentExceedsRiskCap,
     PendingChanges,
-    RiskAllowanceOutOfRange
+    RiskAllowanceOutOfRange,
+    VaultLocked
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     MarketTradeNotSupported,
@@ -610,5 +611,85 @@ contract MarketTradeGuardTest is Test {
 
         vm.expectRevert(SequencerDown.selector);
         _sell(address(weth), 1e18, address(usdc), 2_000e6);
+    }
+
+    // ── under a lock ────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The escape destination may be an exchange that takes no tokenised stock, so a locked owner can
+     * still turn an asset into a stablecoin the destination will accept.
+     */
+    function test_aLockedOwnerMaySellIntoAStablecoin() public {
+        vm.prank(owner);
+        vault.emergencyLock();
+
+        _sell(address(weth), 1e18, address(usdc), 1_990e6);
+        assertEq(weth.balanceOf(address(vault)), 99e18);
+        assertEq(usdc.balanceOf(address(vault)), 1_001_990e6);
+    }
+
+    function test_aLockedSaleIsStillPricedAndCharged() public {
+        _risk(UNCHANGED, 100);
+        vm.prank(owner);
+        vault.emergencyLock();
+
+        vm.expectRevert(MarketTradePriceTooLow.selector);
+        _sell(address(weth), 100e18, address(usdc), 1);
+
+        _sell(address(weth), 1e18, address(usdc), 1_940e6);
+        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        _sell(address(weth), 1e18, address(usdc), 1_940e6);
+    }
+
+    /**
+     * Only out of a non-stablecoin and into a stablecoin: nothing else a trade could do helps an exit.
+     */
+    function test_aLockAllowsNoOtherTrade() public {
+        MockERC20 other = _token("OTH", 18, 1e18);
+        _registerFeed(address(other), address(_feed(2_000e8, 8)), HEARTBEAT);
+        vm.prank(owner);
+        vault.emergencyLock();
+
+        vm.expectRevert(VaultLocked.selector);
+        _sell(address(usdc), 1_000e6, address(dai), 999e18); // stable to stable
+
+        vm.expectRevert(VaultLocked.selector);
+        _sell(address(usdc), 2_000e6, address(weth), 1e18); // out of the stablecoin
+
+        vm.expectRevert(VaultLocked.selector);
+        _sell(address(weth), 1e18, address(other), 1e18); // into another asset
+
+        vm.expectRevert(VaultLocked.selector);
+        _buy(address(weth), 1e18, address(usdc), 1_990e6, 1e18); // a buy is not the exit
+    }
+
+    function test_aLockStopsTheManagersSales() public {
+        address manager = makeAddr("manager");
+        vm.prank(owner);
+        BittyV1VaultDeFiFacet(payable(address(vault)))
+            .setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_MARKET_TRADE);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        wethFeed.set(2_000e8, block.timestamp, block.timestamp);
+        vm.prank(owner);
+        vault.emergencyLock();
+
+        vm.prank(manager);
+        vm.expectRevert(VaultLocked.selector);
+        ITrade(address(vault)).marketSell(address(market), address(weth), 1e18, address(usdc), 0, abi.encode(1_990e6));
+    }
+
+    function test_aForeverLockedOwnerMaySellIntoAStablecoin() public {
+        vm.prank(owner);
+        uint256 escape = vault.addWhitelistedRecipient(makeAddr("exchange"));
+        vm.warp(block.timestamp + 31 days);
+        wethFeed.set(2_000e8, block.timestamp, block.timestamp);
+        vm.prank(owner);
+        vault.foreverLock(escape);
+
+        _sell(address(weth), 1e18, address(usdc), 1_990e6);
+        assertEq(usdc.balanceOf(address(vault)), 1_001_990e6);
+
+        vm.expectRevert(VaultLocked.selector);
+        _sell(address(usdc), 1_000e6, address(dai), 999e18);
     }
 }
