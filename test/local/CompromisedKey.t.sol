@@ -135,8 +135,8 @@ contract CompromisedKeyTest is Test {
         assertEq(vault.lockLevel(), 2, "no key undoes this, including the owner's own");
     }
 
-    /// The delegate the attacker inherits is held to the same line: it may unwind, never invest.
-    function test_theInheritedDelegateCanOnlyBringValueHome() public {
+    /// The delegate the attacker inherits does nothing at all once locked; the owner brings value home.
+    function test_theInheritedDelegateIsSuspended() public {
         vm.prank(manager);
         _f().deposit(address(sky), address(usdc), 1_000e6);
 
@@ -148,6 +148,10 @@ contract CompromisedKeyTest is Test {
         _f().deposit(address(sky), address(usdc), 1_000e6);
 
         vm.prank(manager);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", manager));
+        _f().withdraw(address(sky), address(usdc), 1_000e6);
+
+        vm.prank(owner);
         _f().withdraw(address(sky), address(usdc), 1_000e6);
         assertEq(usdc.balanceOf(address(vault)), 10_000e6, "home, where the standing payments are paid from");
     }

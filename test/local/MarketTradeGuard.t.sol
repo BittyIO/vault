@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import {ASSET_STABLE_COIN, ASSET_CRYPTO, ASSET_AMM_LIQUID} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
+import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
@@ -674,7 +675,7 @@ contract MarketTradeGuardTest is Test {
         vault.emergencyLock();
 
         vm.prank(manager);
-        vm.expectRevert(VaultLocked.selector);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, manager));
         ITrade(address(vault)).marketSell(address(market), address(weth), 1e18, address(usdc), 0, abi.encode(1_990e6));
     }
 
