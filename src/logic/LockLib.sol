@@ -13,8 +13,8 @@ import {VaultLocked} from "../interfaces/IBittyV1Vault.sol";
  * A locked vault keeps its owner. That is the whole design: the key is assumed to leak, and the
  * person it leaked from still needs to use their money afterwards, so a lock does not disable the
  * key — it shrinks what any holder of it can reach down to the box the owner drew in advance. Money
- * still leaves, but only to a destination vetted before the leak, or as a limit order that buys
- * stablecoins for this vault. Value may always come home. Nothing about the configuration moves in
+ * still leaves, but only to a destination vetted before the leak, or as a limit order or the owner's
+ * market sale that buys stablecoins for this vault. Value may always come home. Nothing about the configuration moves in
  * EITHER direction, because taking away an option the owner still has is as much an attack as
  * granting one they never did.
  *

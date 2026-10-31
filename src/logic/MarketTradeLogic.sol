@@ -5,6 +5,7 @@ import {
     IBittyV1Guard,
     MarketTradeInfo,
     ASSET_AMM_LIQUID,
+    ASSET_STABLE_COIN,
     PROTOCOL_MARKET_TRADE
 } from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1MarketTradeProtocol} from "protocol-contracts/src/interfaces/IBittyV1MarketTradeProtocol.sol";
@@ -17,9 +18,10 @@ import {
     MarketTradePriceTooLow,
     MarketTradeExceedsDailyLossAllowance
 } from "../interfaces/IBittyV1DeFi.sol";
-import {Deprecated, NotRegistered, ReentrantCall} from "../interfaces/IBittyV1Vault.sol";
+import {Deprecated, NotRegistered, ReentrantCall, VaultLocked} from "../interfaces/IBittyV1Vault.sol";
 import {BittyStorage, DeFiStorage, VaultStorage} from "./BittyStorage.sol";
 import {DeFiLogic} from "./DeFiLogic.sol";
+import {LockLib} from "./LockLib.sol";
 import {PriceLib} from "./PriceLib.sol";
 import {RiskLogic} from "./RiskLogic.sol";
 import {BITTY_GUARD, MAX_MARKET_TRADE_SLIPPAGE_BPS} from "./Constants.sol";
@@ -93,6 +95,7 @@ library MarketTradeLogic {
         DeFiLogic._onlyInitialized();
         uint64 lossAllowance = _lossAllowance();
         (MarketLegs memory legs, MarketTradeInfo memory info) = _marketLegs($, marketTradeProtocol, sellToken, buyToken);
+        if (LockLib.level() != 0) _requireIntoStableCoin(legs);
 
         address clone = DeFiLogic._cloneProtocol($, marketTradeProtocol);
         if (sellToken != address(0) && sellAmount > 0 && IERC20(sellToken).allowance(address(this), clone) < sellAmount)
@@ -128,6 +131,19 @@ library MarketTradeLogic {
         IBittyV1MarketTradeProtocol(clone).swapExactOut(data, address(this));
         _settleMarketTrade(legs, info, lossAllowance);
         _setTrading(false);
+    }
+
+    /**
+     * @dev A locked vault sells only out of a non-stablecoin and into a stablecoin: the one trade that
+     *      turns an asset its escape destination may not accept into one it will. The value stays in
+     *      the vault, priced and charged to the loss allowance as any trade is, and a lock lets nobody
+     *      raise that allowance. A stablecoin already is the exit, so swapping one for another under a
+     *      lock is refused.
+     */
+    function _requireIntoStableCoin(MarketLegs memory legs) private pure {
+        if (legs.buyCategory & ASSET_STABLE_COIN == 0 || legs.sellCategory & ASSET_STABLE_COIN != 0) {
+            revert VaultLocked();
+        }
     }
 
     function _lossAllowance() private view returns (uint64 allowance) {

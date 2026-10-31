@@ -10,7 +10,7 @@ import {BittyStorage} from "./logic/BittyStorage.sol";
 import {IBittyV1Guard, PROTOCOL_INTENT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {AutoYield} from "./interfaces/IBittyV1Vault.sol";
+import {AutoYield, VaultLocked} from "./interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD, PERM_YIELD, PERM_SUPPLY, PERM_MARKET_TRADE, PERM_INTENT} from "./logic/Constants.sol";
 import {IBittyV1Guard as IGuard, PROTOCOL_STAKING} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1DeFi, InvalidWithdrawableProtocol} from "./interfaces/IBittyV1DeFi.sol";
@@ -194,6 +194,12 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         return DeFiLogic.getAutoYieldings(assets);
     }
 
+    /**
+     * Under either lock the owner may still sell into a stablecoin, so an asset the escape recipient
+     * cannot take — a tokenised stock, with an exchange as the whitelisted destination — is not
+     * stranded. Only the owner: a lock narrows the manager to bringing value home. The legs are
+     * checked in {MarketTradeLogic-marketSell}.
+     */
     function marketSell(
         address marketTrade,
         address sellToken,
@@ -201,7 +207,8 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         address buyToken,
         uint256 buyAmountMin,
         bytes memory path
-    ) external onlyManagerWith(PERM_MARKET_TRADE) notLocked {
+    ) external onlyManagerWith(PERM_MARKET_TRADE) {
+        if (LockLib.level() != 0 && _msgSender() != owner()) revert VaultLocked();
         MarketTradeLogic.marketSell(marketTrade, sellToken, sellAmount, buyToken, buyAmountMin, path);
     }
 

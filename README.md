@@ -61,7 +61,9 @@ would take effect.
 1. **Emergency lock.** One instant transaction. It cancels every scheduled change at once (new payees,
    raised limits, manager grants, ownership transfers), and while it is on, money can only leave to
    addresses that were already on your whitelist before the lock, or as limit orders that buy
-   stablecoins for the vault itself. Your DeFi positions can still be unwound back into the vault.
+   stablecoins for the vault itself. Your DeFi positions can still be unwound back into the vault, and
+   you can still sell other assets into a stablecoin at market, so an asset your whitelisted address
+   cannot accept (a tokenised stock sent to an exchange, say) is never stuck.
 2. **If the thief unlocks it.** The emergency lock can be lifted with the owner key, so a thief can
    lift it too. Doing so does not bring back anything the lock cancelled: they have to schedule
    everything again and wait out the full timelock again, and you can lock again at any moment.
@@ -73,7 +75,8 @@ would take effect.
 
 Until you lock, a thief can take at most **the daily send allowance for each day**, plus market-trade
 losses up to the **daily loss allowance**. Once you lock, ordinary sends stop entirely. A thief who wants more
-than that has to wait out your timelock in public, and one lock cancels everything they have queued.
+than that has to wait out your timelock in public (a sale into a stablecoin under a lock is still
+held to the daily loss allowance, which a lock stops anyone raising), and one lock cancels everything they have queued.
 
 Three settings make that bound as tight as you want:
 
