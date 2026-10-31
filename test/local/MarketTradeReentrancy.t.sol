@@ -18,7 +18,7 @@ import {MockFeed} from "./MarketTradeGuard.t.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {ReentrantCall} from "../../src/interfaces/IBittyV1Vault.sol";
-import {MarketTradePriceTooLow} from "../../src/interfaces/IBittyV1DeFi.sol";
+import {MarketTradePriceTooLow, InvalidWithdrawableProtocol} from "../../src/interfaces/IBittyV1DeFi.sol";
 import {
     BITTY_GUARD,
     MIN_RISK_TIMELOCK,
@@ -331,6 +331,51 @@ contract MarketTradeReentrancyTest is Test {
 
         assertEq(usdc.balanceOf(address(vault)), 1e6);
         assertEq(weth.balanceOf(address(vault)), 91e18);
+    }
+
+    /**
+     * The vault's clone runs the staking adapter, so it resolves to the staking position, but the guard
+     * has never heard of it. Named in place of the adapter, it must not pass as lending.
+     */
+    function test_aSupplyOnlyManagerCannotUnstakeByNamingTheClone() public {
+        MockStakingProtocol staking = new MockStakingProtocol();
+        guard.setProtocol(address(staking), STAKING_ID);
+        _asOwner(abi.encodeCall(BittyV1VaultDeFiFacet.deposit, (address(staking), address(weth), 10e18)));
+        address clone = _f().getClone(address(staking));
+        _appoint(PERM_SUPPLY);
+
+        vm.prank(manager);
+        vm.expectRevert(InvalidWithdrawableProtocol.selector);
+        _f().withdraw(clone, address(weth), 1e18);
+
+        vm.prank(manager);
+        vm.expectRevert(InvalidWithdrawableProtocol.selector);
+        _f().claimWithdrawal(clone, 0);
+
+        address[] memory protocols = new address[](1);
+        address[] memory assets = new address[](1);
+        uint256[] memory amounts = new uint256[](1);
+        (protocols[0], assets[0], amounts[0]) = (clone, address(weth), 1e18);
+        vm.prank(manager);
+        vm.expectRevert(InvalidWithdrawableProtocol.selector);
+        _f().withdraws(protocols, assets, amounts);
+
+        // The owner is asked before the category is read, and may still name the clone.
+        _asOwner(abi.encodeCall(BittyV1VaultDeFiFacet.withdraw, (clone, address(weth), 1e18)));
+    }
+
+    /**
+     * A deprecated adapter keeps its category in the guard, so a manager's exit through it still passes.
+     */
+    function test_aYieldManagerStillExitsThroughADeprecatedAdapter() public {
+        MockStakingProtocol staking = new MockStakingProtocol();
+        guard.setProtocol(address(staking), STAKING_ID);
+        _asOwner(abi.encodeCall(BittyV1VaultDeFiFacet.deposit, (address(staking), address(weth), 10e18)));
+        guard.setDeprecated(address(staking), true);
+        _appoint(PERM_YIELD);
+
+        vm.prank(manager);
+        _f().withdraw(address(staking), address(weth), 1e18);
     }
 
     function test_onlyAnIntentManagerMayCancelOrders() public {
