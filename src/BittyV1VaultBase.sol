@@ -28,7 +28,7 @@ import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
  *         upgrades until it is released, and a forever lock freezes the code for good.
  */
 abstract contract BittyV1VaultBase is BittyV1AccountBase, UUPSUpgradeable {
-    uint256 private constant _VERSION = 1 * 1_000_000 + 0 * 1_000 + 6;
+    uint256 private constant _VERSION = 1 * 1_000_000 + 0 * 1_000 + 7;
 
     function vaultVersion() external pure virtual returns (uint256) {
         return _VERSION;

@@ -13,7 +13,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {AutoYield} from "./interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD, PERM_YIELD, PERM_SUPPLY, PERM_MARKET_TRADE, PERM_INTENT} from "./logic/Constants.sol";
 import {IBittyV1Guard as IGuard, PROTOCOL_STAKING} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
-import {IBittyV1DeFi} from "./interfaces/IBittyV1DeFi.sol";
+import {IBittyV1DeFi, InvalidWithdrawableProtocol} from "./interfaces/IBittyV1DeFi.sol";
 
 /**
  * @title BittyV1VaultDeFiFacet
@@ -71,8 +71,16 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         }
     }
 
+    /**
+     * The kind is the guard's category of the address named, so a manager must name one the guard knows.
+     * The position is found by lineage, and anything reporting a lineage the guard has no category for —
+     * the vault's own clone, for one — would otherwise read as lending and open a staking position to a
+     * supply-only grant. The guard keeps a deprecated adapter's category, so exits through it still pass.
+     */
     function _positionPermission(address protocol) private view returns (uint32) {
-        return IGuard(BITTY_GUARD).protocolCategory(protocol) == PROTOCOL_STAKING ? PERM_YIELD : PERM_SUPPLY;
+        uint8 category = IGuard(BITTY_GUARD).protocolCategory(protocol);
+        if (category == 0) revert InvalidWithdrawableProtocol();
+        return category == PROTOCOL_STAKING ? PERM_YIELD : PERM_SUPPLY;
     }
 
     function deposit(address protocol, address asset, uint256 amount) external notLocked notTrading {
