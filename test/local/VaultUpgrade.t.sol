@@ -22,7 +22,9 @@ interface IVaultVersion {
 }
 
 contract BittyV2Vault is BittyV1Vault {
-    /// What makes this a release rather than a re-point: upgrades may only move forward.
+    /**
+     * What makes this a release rather than a re-point: upgrades may only move forward.
+     */
     function vaultVersion() external pure override returns (uint256) {
         return 1 * 1_000_000 + 1 * 1_000 + 0;
     }
@@ -42,7 +44,9 @@ contract BittyV2Vault is BittyV1Vault {
 
     constructor(address defiFacet) BittyV1Vault(defiFacet) {}
 
-    /// One-time V2 migration, runnable exactly once via {reinitializer}; call it atomically in upgradeToAndCall.
+    /**
+     * One-time V2 migration, runnable exactly once via {reinitializer}; call it atomically in upgradeToAndCall.
+     */
     function initializeV2(string memory label_) external reinitializer(2) {
         _v2().label = label_;
     }
@@ -170,7 +174,9 @@ contract VaultUpgradeTest is Test {
         vault.upgrade(address(v2Impl));
     }
 
-    /// The vault names its own release the same way an adapter does, so one ABI reads either.
+    /**
+     * The vault names its own release the same way an adapter does, so one ABI reads either.
+     */
     function test_vaultReportsItsVersion() public {
         assertEq(IVaultVersion(address(vault)).vaultVersion(), 1_000_007, "encoded 1.0.7");
         assertEq(IVaultVersion(address(vault)).versionName(), "1.0.7", "readable form");

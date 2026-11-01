@@ -34,7 +34,9 @@ contract KeeperTest is Test {
         vm.stopPrank();
     }
 
-    /// The payload is abi.encode(signer, innerSignature) — the keeper is told who to check.
+    /**
+     * The payload is abi.encode(signer, innerSignature) — the keeper is told who to check.
+     */
     function _payload(uint256 pk, bytes32 hash, address named) internal pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = _sign(pk, hash);
         return abi.encode(named, abi.encodePacked(r, s, v));
@@ -72,14 +74,18 @@ contract KeeperTest is Test {
         assertEq(_ask(h, _payload(strangerPk, h, stranger)), INVALID);
     }
 
-    /// Naming a registered signer does not help if the signature is not theirs.
+    /**
+     * Naming a registered signer does not help if the signature is not theirs.
+     */
     function test_cannotBorrowARegisteredSignersName() public {
         (, uint256 strangerPk) = makeAddrAndKey("stranger");
         bytes32 h = keccak256("sweep");
         assertEq(_ask(h, _payload(strangerPk, h, signer)), INVALID);
     }
 
-    /// A leak nobody notices stops mattering on its own.
+    /**
+     * A leak nobody notices stops mattering on its own.
+     */
     function test_keyStopsWorkingWhenItExpires() public {
         bytes32 h = keccak256("sweep");
         uint64 expiry = uint64(block.timestamp + 30 days);
@@ -98,7 +104,9 @@ contract KeeperTest is Test {
         assertFalse(keeper.isActiveSigner(signer));
     }
 
-    /// The whole point: one transaction reaches every vault, because every vault names this address.
+    /**
+     * The whole point: one transaction reaches every vault, because every vault names this address.
+     */
     function test_rotationIsOneTransactionNotOnePerVault() public {
         (address next, uint256 nextPk) = makeAddrAndKey("hotKey2");
         vm.startPrank(kOwner);
@@ -111,7 +119,9 @@ contract KeeperTest is Test {
         assertEq(_ask(h, _payload(signerPk, h, signer)), INVALID, "old key does not");
     }
 
-    /// A forwarder upgrade leaves two generations of vaults live, so one keeper must serve both.
+    /**
+     * A forwarder upgrade leaves two generations of vaults live, so one keeper must serve both.
+     */
     function test_servesTwoForwarderGenerationsAtOnce() public {
         address forwarderV2 = makeAddr("forwarderV2");
         vm.prank(kOwner);
@@ -124,7 +134,9 @@ contract KeeperTest is Test {
         assertEq(keeper.isValidSignature(h, sig), MAGIC, "new one too");
     }
 
-    /// Malformed input answers explicitly rather than reverting into the caller's staticcall.
+    /**
+     * Malformed input answers explicitly rather than reverting into the caller's staticcall.
+     */
     function test_malformedPayloadsAnswerInvalid() public {
         bytes32 h = keccak256("sweep");
         assertEq(_ask(h, hex"dead"), INVALID, "too short for a signer at all");
@@ -149,7 +161,9 @@ contract KeeperTest is Test {
         vm.stopPrank();
     }
 
-    /// With no constructor argument the keeper's address is bytecode-only; its owner comes from the guard.
+    /**
+     * With no constructor argument the keeper's address is bytecode-only; its owner comes from the guard.
+     */
     function test_ownerIsTheGuardConfiguredOwner() public view {
         assertEq(keeper.owner(), kOwner, "owner is read from the guard config");
     }

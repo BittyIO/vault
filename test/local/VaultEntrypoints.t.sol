@@ -56,8 +56,10 @@ contract WETHStub {
     receive() external payable {}
 }
 
-/// A second lending adapter with a DISTINCT lineage, so it is a separate position from `proto`.
-/// (Two adapters of the same lineage share one instance — that is the point of lineage keying.)
+/**
+ * A second lending adapter with a DISTINCT lineage, so it is a separate position from `proto`.
+ * (Two adapters of the same lineage share one instance — that is the point of lineage keying.)
+ */
 contract EmptyLendingProtocol is MockLendingProtocol {
     function protocolLineage() external pure override returns (bytes32) {
         return keccak256("bitty.mock.lending.empty");
@@ -128,7 +130,6 @@ contract VaultEntrypointsTest is Test {
         arr[0] = a;
     }
 
-    /// One send's worth of funding legs.
     function _legs(address[] memory a) internal pure returns (address[][] memory arr) {
         arr = new address[][](1);
         arr[0] = a;
@@ -197,8 +198,10 @@ contract VaultEntrypointsTest is Test {
         assertEq(fee.balanceOf(address(v)), 7e6, "out of the vault's own funding");
     }
 
-    /// A vault funded with nothing but ETH pays its own activation in WETH: the ETH waiting at the
-    /// address is wrapped first, then charged at the oracle price.
+    /**
+     * A vault funded with nothing but ETH pays its own activation in WETH: the ETH waiting at the
+     * address is wrapped first, then charged at the oracle price.
+     */
     function test_anEthOnlyVaultActivatesPayingInWeth() public {
         bytes memory init = _ethFundedInit(0.0005e18); // $1 at $2,000
         BittyV1Vault v = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
@@ -207,7 +210,9 @@ contract VaultEntrypointsTest is Test {
         assertEq(address(v).balance, 0, "nothing left unwrapped");
     }
 
-    /// The same system cap as a relay fee, in USD, so WETH cannot overpay an activation either.
+    /**
+     * The same system cap as a relay fee, in USD, so WETH cannot overpay an activation either.
+     */
     function test_aWethActivationFeeAboveTheCapIsRefused() public {
         bytes memory init = _ethFundedInit((uint256(SYSTEM_MAX_FEE_PER_OP) * 1e18) / 2_000 + 1);
         vm.expectRevert(FeeExceedsPerOpCap.selector);
@@ -216,7 +221,9 @@ contract VaultEntrypointsTest is Test {
 
     WETH weth;
 
-    /// ETH waiting where the next proxy lands, and an initialize that pays `fee` of it as WETH.
+    /**
+     * ETH waiting where the next proxy lands, and an initialize that pays `fee` of it as WETH.
+     */
     function _ethFundedInit(uint256 fee) internal returns (bytes memory) {
         weth = new WETH();
         MockFeed feed = new MockFeed();
@@ -262,7 +269,9 @@ contract VaultEntrypointsTest is Test {
         vault.batchSend(payee, _addr(address(usdc)), _amt(1e6), _legs(_addr(address(proto))), new uint256[][](0));
     }
 
-    /// Ragged INSIDE one send's funding legs is refused too — the inner pair is checked per send.
+    /**
+     * Ragged INSIDE one send's funding legs is refused too — the inner pair is checked per send.
+     */
     function test_aBatchSendWithARaggedInnerLegIsRefused() public {
         vm.prank(owner);
         vm.expectRevert(ArrayLengthMismatch.selector);
@@ -318,7 +327,9 @@ contract VaultEntrypointsTest is Test {
         assertEq(usdc.balanceOf(payee), 700e6, "two positions covered one payment");
     }
 
-    /// And each leg of a batch draws on its own positions.
+    /**
+     * And each leg of a batch draws on its own positions.
+     */
     function test_eachLegInABatchHasItsOwnFundingLegs() public {
         vm.startPrank(owner);
         IFacet(address(vault)).deposit(address(proto), address(usdc), 900e6);
@@ -452,15 +463,19 @@ contract VaultEntrypointsTest is Test {
         assertTrue(IFacetView(address(v)).isAssetAllowed(address(gasWrapped)), "gasWrapped not listed");
     }
 
-    /// Seeding is a convenience: an unreachable guard must never block vault creation.
+    /**
+     * Seeding is a convenience: an unreachable guard must never block vault creation.
+     */
     function test_initializeSurvivesAnUnreachableGuard() public {
         vm.etch(BITTY_GUARD, "");
         BittyV1Vault v = _newVault(0, address(0), 0);
         assertEq(v.owner(), owner, "vault must still initialize with no guard deployed");
     }
 
-    /// With the allowlist OFF there is no list to seed: the guard's catalog is the only gate, so
-    /// writing these in would change no answer.
+    /**
+     * With the allowlist OFF there is no list to seed: the guard's catalog is the only gate, so
+     * writing these in would change no answer.
+     */
     function test_noSeedingWhenTheAllowlistIsOff() public {
         MockERC20 coin = new MockERC20("USD Coin", "USDC", 6);
         guard.setAsset(address(coin), ASSET_STABLE_COIN);

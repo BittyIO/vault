@@ -123,7 +123,9 @@ contract DeFiTradingTest is Test {
         assertEq(_f().isValidSignature(keccak256("order"), hex"00"), MAGIC, "now it can vouch");
     }
 
-    /// A cloned protocol in the wrong category is skipped, so it can never sign for the vault.
+    /**
+     * A cloned protocol in the wrong category is skipped, so it can never sign for the vault.
+     */
     function test_aNonIntentCloneIsNeverAskedToSign() public {
         vm.prank(owner);
         _f().updateProtocols(_one(address(intent)), new address[](0));
@@ -139,13 +141,17 @@ contract DeFiTradingTest is Test {
         assertFalse(_f().isOffchainOrderAuthorized(stranger, address(t0), address(t1), 1e18));
     }
 
-    /// The buy leg must be something the vault may hold, or a trade could deliver an unheld asset.
+    /**
+     * The buy leg must be something the vault may hold, or a trade could deliver an unheld asset.
+     */
     function test_orderRefusedWhenTheBuyLegIsNotAllowed() public {
         MockERC20 rogue = new MockERC20("Rogue", "RGE", 18);
         assertFalse(_f().isOffchainOrderAuthorized(owner, address(t0), address(rogue), 1e18));
     }
 
-    /// And it must be backed: an over-signed order simply stops authorising once its backing is gone.
+    /**
+     * And it must be backed: an over-signed order simply stops authorising once its backing is gone.
+     */
     function test_orderRefusedWhenUnbacked() public {
         assertFalse(_f().isOffchainOrderAuthorized(owner, address(t0), address(t1), 10_000e18));
     }

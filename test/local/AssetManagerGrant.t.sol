@@ -157,7 +157,9 @@ contract AssetManagerGrantTest is Test {
         _f().deposit(address(proto), address(usdc), 100e6);
     }
 
-    /// An unset grant reads as address(0); the check must not treat "nobody" as a match.
+    /**
+     * An unset grant reads as address(0); the check must not treat "nobody" as a match.
+     */
     function test_theZeroAddressIsNeverTheManager() public {
         (address m,,,,,) = _f().getAssetManagerSettings();
         assertEq(m, address(0), "no grant at all");
@@ -175,15 +177,19 @@ contract AssetManagerGrantTest is Test {
         _f().setAssetManager(manager, uint64(block.timestamp), MANAGER_PERMS);
     }
 
-    /// There is no "never": every grant expires, so a leaked key stops mattering on its own.
+    /**
+     * There is no "never": every grant expires, so a leaked key stops mattering on its own.
+     */
     function test_aZeroExpiryIsRefused() public {
         vm.prank(owner);
         vm.expectRevert(AssetManagerExpiryInPast.selector);
         _f().setAssetManager(manager, 0, MANAGER_PERMS);
     }
 
-    /// Re-naming the live manager with expiry 0 can neither extend the grant nor slip past the
-    /// timelock as a "tightening".
+    /**
+     * Re-naming the live manager with expiry 0 can neither extend the grant nor slip past the
+     * timelock as a "tightening".
+     */
     function test_aZeroExpiryCannotReachALiveGrant() public {
         _timelock(1 days);
         uint64 expiry = uint64(block.timestamp + 30 days);
@@ -199,7 +205,9 @@ contract AssetManagerGrantTest is Test {
         assertEq(e, expiry, "expiry unchanged");
     }
 
-    /// The expiry only bounds a grant; a revoke takes whatever is passed, 0 included.
+    /**
+     * The expiry only bounds a grant; a revoke takes whatever is passed, 0 included.
+     */
     function test_aRevokeNeedsNoExpiry() public {
         _grant(manager, uint64(block.timestamp + 365 days));
         _set(address(0), 0);
@@ -257,7 +265,9 @@ contract AssetManagerGrantTest is Test {
         _f().deposit(address(proto), address(usdc), 10e6);
     }
 
-    /// The matured grant is folded into the live slot by the next write, not only by reads.
+    /**
+     * The matured grant is folded into the live slot by the next write, not only by reads.
+     */
     function test_aMaturedGrantIsSettledByTheNextWrite() public {
         _timelock(2 days);
         _set(manager, uint64(block.timestamp + 365 days));
@@ -269,7 +279,9 @@ contract AssetManagerGrantTest is Test {
         assertEq(pending, other, "and the new name is what is now queued");
     }
 
-    /// Shortening an existing manager's own expiry is a tightening, so it lands immediately.
+    /**
+     * Shortening an existing manager's own expiry is a tightening, so it lands immediately.
+     */
     function test_shorteningTheirOwnExpiryIsImmediate() public {
         _grant(manager, uint64(block.timestamp + 365 days));
         _timelock(2 days);

@@ -500,7 +500,9 @@ contract DeFiGuardrailsTest is Test {
         assertEq(dai.balanceOf(clone), 1_000e18, "dai deployed");
     }
 
-    /// The keeper names the amount, so the fee float stays behind instead of being swept with the rest.
+    /**
+     * The keeper names the amount, so the fee float stays behind instead of being swept with the rest.
+     */
     function test_autoYieldDepositsOnlyTheNamedAmount() public {
         vm.startPrank(owner);
         _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(proto)}));
@@ -510,7 +512,9 @@ contract DeFiGuardrailsTest is Test {
         assertEq(usdc.balanceOf(address(vault)), 10e6, "the float stays");
     }
 
-    /// Capped, not refused: the balance can move between the keeper reading it and the sweep landing.
+    /**
+     * Capped, not refused: the balance can move between the keeper reading it and the sweep landing.
+     */
     function test_autoYieldCapsTheAmountAtTheFreeBalance() public {
         vm.startPrank(owner);
         _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(proto)}));
@@ -657,7 +661,9 @@ contract DeFiGuardrailsTest is Test {
         assertEq(MockIntentProtocol(_f().getClone(address(intent))).cancelledCount(), 1);
     }
 
-    /// The vault is the clone's owner; nobody else can write its cancellations.
+    /**
+     * The vault is the clone's owner; nobody else can write its cancellations.
+     */
     function test_onlyTheVaultCancelsOnItsClone() public {
         vm.prank(owner);
         _f().updateProtocols(_one(address(intent)), _none());
@@ -715,7 +721,9 @@ contract DeFiGuardrailsTest is Test {
             );
     }
 
-    /// And the manager keeps the surface it is there for: intent orders it signs off chain.
+    /**
+     * And the manager keeps the surface it is there for: intent orders it signs off chain.
+     */
     function test_theAssetManagerStillSignsIntentOrders() public {
         address manager = makeAddr("manager");
         _grant(manager, uint64(block.timestamp + 365 days), MANAGER_PERMS);
@@ -731,7 +739,9 @@ contract DeFiGuardrailsTest is Test {
     // sell the whole balance at market. The owner now names the job — yield, lending, market trade,
     // intents — and the vault holds the manager to it.
 
-    /// A grant says what it is for. Nothing is implied — a mask of zero is a key that can do nothing.
+    /**
+     * A grant says what it is for. Nothing is implied — a mask of zero is a key that can do nothing.
+     */
     function test_aGrantIsExactlyWhatWasAskedFor() public {
         address manager = makeAddr("manager");
         uint64 expiry = uint64(block.timestamp + 365 days);
@@ -743,7 +753,9 @@ contract DeFiGuardrailsTest is Test {
         assertEq(_permissions(), 0, "and zero grants nothing");
     }
 
-    /// Granted by name, the manager trades at market like the owner does.
+    /**
+     * Granted by name, the manager trades at market like the owner does.
+     */
     function test_aManagerGrantedMarketTradeMayTradeAtMarket() public {
         _bothLegsLiquid();
         address manager = makeAddr("manager");
@@ -763,7 +775,9 @@ contract DeFiGuardrailsTest is Test {
         );
     }
 
-    /// Lending and yielding are one function and two capabilities, told apart by the adapter.
+    /**
+     * Lending and yielding are one function and two capabilities, told apart by the adapter.
+     */
     function test_aYieldOnlyManagerCannotLend() public {
         address manager = makeAddr("manager");
         _grant(manager, uint64(block.timestamp + 365 days), PERM_YIELD);
@@ -779,7 +793,9 @@ contract DeFiGuardrailsTest is Test {
         assertEq(usdc.balanceOf(_f().getClone(address(proto))), 1e6, "the lending grant works");
     }
 
-    /// A bit nobody defined authorises nothing: every check asks for one bit by name.
+    /**
+     * A bit nobody defined authorises nothing: every check asks for one bit by name.
+     */
     function test_anUndefinedPermissionBitGrantsNothing() public {
         address manager = makeAddr("manager");
         _grant(manager, uint64(block.timestamp + 365 days), uint32(1 << 20));

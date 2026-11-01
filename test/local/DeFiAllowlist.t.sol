@@ -15,7 +15,9 @@ import {AutoYield} from "../../src/interfaces/IBittyV1Vault.sol";
 import {PaymentNotStableCoin} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
-/// Reaches the DeFi facet through the host's fallback.
+/**
+ * Reaches the DeFi facet through the host's fallback.
+ */
 interface IFacet {
     function deposit(address protocol, address asset, uint256 amount) external;
     function withdraw(address protocol, address asset, uint256 amount) external;
@@ -83,14 +85,18 @@ contract DeFiAllowlistTest is Test {
 
     // ── the guard is the outer gate ───────────────────────────────────────────
 
-    /// With the allowlist off, anything the guard registers is available with no local setup at all.
+    /**
+     * With the allowlist off, anything the guard registers is available with no local setup at all.
+     */
     function test_withoutAnAllowlistTheGuardIsTheOnlyGate() public view {
         assertTrue(_f().usingBittyAllowList());
         assertTrue(_f().isAssetAllowed(address(usdc)));
         assertTrue(_f().isProtocolAllowed(address(proto)));
     }
 
-    /// And nothing outside the guard is ever available, allowlist or not.
+    /**
+     * And nothing outside the guard is ever available, allowlist or not.
+     */
     function test_theGuardCannotBeWidenedLocally() public {
         MockERC20 rogue = new MockERC20("Rogue", "RGE", 18);
         assertFalse(_f().isAssetAllowed(address(rogue)), "unregistered stays out");
@@ -101,7 +107,9 @@ contract DeFiAllowlistTest is Test {
         _f().updateAssets(_one(address(rogue)), new address[](0));
     }
 
-    /// A protocol the guard has DEPRECATED cannot be entered, even while still registered.
+    /**
+     * A protocol the guard has DEPRECATED cannot be entered, even while still registered.
+     */
     function test_deprecatedProtocolCannotBeEntered() public {
         guard.setProtocol(address(proto), 0); // MockGuard: category 0 = gone
         vm.prank(owner);
@@ -149,7 +157,9 @@ contract DeFiAllowlistTest is Test {
         assertTrue(_f().isAssetAllowed(address(usdc)), "and the guard is the only gate again");
     }
 
-    /// Both directions settle in the call that asks for them, so nothing arrives later.
+    /**
+     * Both directions settle in the call that asks for them, so nothing arrives later.
+     */
     function test_neitherDirectionLeavesAnythingPending() public {
         vm.startPrank(owner);
         vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED, UNCHANGED));
@@ -221,7 +231,9 @@ contract DeFiAllowlistTest is Test {
         assertEq(usdc.balanceOf(address(vault)), 1_000e6, "and closed");
     }
 
-    /// Entering is gated; EXITING must keep working, or a narrowing would strand the position.
+    /**
+     * Entering is gated; EXITING must keep working, or a narrowing would strand the position.
+     */
     function test_withdrawStillWorksAfterTheProtocolIsRemovedLocally() public {
         vm.startPrank(owner);
         _f().deposit(address(proto), address(usdc), 100e6);
@@ -257,7 +269,6 @@ contract DeFiAllowlistTest is Test {
         vm.stopPrank();
     }
 
-    /// The sweep moves the free balance into the configured route.
     function test_autoYieldSweepsIntoTheRoute() public {
         vm.startPrank(owner);
         _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(proto)}));
@@ -268,7 +279,9 @@ contract DeFiAllowlistTest is Test {
         assertEq(_f().getBalances(_one(address(proto)), _one(address(usdc)))[0], 1_000e6);
     }
 
-    /// An asset with no route is a no-op, not a revert — a fleet sweep must not fail on one asset.
+    /**
+     * An asset with no route is a no-op, not a revert — a fleet sweep must not fail on one asset.
+     */
     function test_autoYieldWithNoRouteIsANoOp() public {
         vm.prank(owner);
         _f().autoYield(address(usdc), type(uint256).max);
@@ -283,7 +296,9 @@ contract DeFiAllowlistTest is Test {
 
     // ── clones ────────────────────────────────────────────────────────────────
 
-    /// Each vault gets its OWN clone of a protocol adapter, so positions never share storage.
+    /**
+     * Each vault gets its OWN clone of a protocol adapter, so positions never share storage.
+     */
     function test_eachVaultClonesTheProtocolForItself() public {
         vm.prank(owner);
         _f().deposit(address(proto), address(usdc), 1e6);

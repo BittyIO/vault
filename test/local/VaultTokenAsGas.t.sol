@@ -78,7 +78,9 @@ contract VaultTokenAsGasTest is Test {
 
     // ── who may charge ────────────────────────────────────────────────────────
 
-    /// Only the forwarder. Otherwise anyone could drain the day's budget to the collector.
+    /**
+     * Only the forwarder. Otherwise anyone could drain the day's budget to the collector.
+     */
     function test_onlyTheForwarderMayCharge() public {
         vm.prank(owner);
         vm.expectRevert(NotTrustedForwarder.selector);
@@ -107,7 +109,9 @@ contract VaultTokenAsGasTest is Test {
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 2e6, "charged without any setup");
     }
 
-    /// An asset the guard does not register cannot pay, even on the permissive default.
+    /**
+     * An asset the guard does not register cannot pay, even on the permissive default.
+     */
     function test_unregisteredAssetCannotPay() public {
         vm.prank(BITTY_FORWARDER);
         vm.expectRevert(InvalidAsset.selector);
@@ -136,7 +140,9 @@ contract VaultTokenAsGasTest is Test {
         vault.payRelayerFee(address(other), 1e18); // registered, but not named
     }
 
-    /// The owner's own ceilings cannot exceed the system's.
+    /**
+     * The owner's own ceilings cannot exceed the system's.
+     */
     function test_ownerCannotRaiseAboveTheSystemCeilings() public {
         address[] memory none = new address[](0);
         vm.startPrank(owner);
@@ -149,14 +155,18 @@ contract VaultTokenAsGasTest is Test {
 
     // ── the two ceilings ──────────────────────────────────────────────────────
 
-    /// Per charge: one oversized fee is refused outright rather than clamped.
+    /**
+     * Per charge: one oversized fee is refused outright rather than clamped.
+     */
     function test_perOpCapBoundsASingleCharge() public {
         vm.prank(BITTY_FORWARDER);
         vm.expectRevert(FeeExceedsPerOpCap.selector);
         vault.payRelayerFee(address(usdc), (uint256(SYSTEM_MAX_FEE_PER_OP) + 1) * 1e6);
     }
 
-    /// Per day: charges accumulate, and the budget is what stops the tenth one.
+    /**
+     * Per day: charges accumulate, and the budget is what stops the tenth one.
+     */
     function test_dailyBudgetAccumulatesAndThenRefuses() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
@@ -172,7 +182,9 @@ contract VaultTokenAsGasTest is Test {
         vault.payRelayerFee(address(usdc), 1e6);
     }
 
-    /// It is a DAILY budget: a new UTC day restores it without anyone acting.
+    /**
+     * It is a DAILY budget: a new UTC day restores it without anyone acting.
+     */
     function test_theBudgetResetsTheNextDay() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
@@ -187,8 +199,10 @@ contract VaultTokenAsGasTest is Test {
         _charge(address(usdc), 1e6);
     }
 
-    /// Decimals are normalised to 18 before the ceilings apply, so a 6-dp and an 18-dp coin
-    /// consume the same budget for the same value.
+    /**
+     * Decimals are normalised to 18 before the ceilings apply, so a 6-dp and an 18-dp coin
+     * consume the same budget for the same value.
+     */
     function test_ceilingsAreDecimalNormalised() public {
         guard.setAsset(address(other), ASSET_STABLE_COIN);
         _charge(address(usdc), 3e6); // 3 whole tokens, 6dp
@@ -199,7 +213,9 @@ contract VaultTokenAsGasTest is Test {
 
     // ── ETH (WETH) as gas ─────────────────────────────────────────────────────
 
-    /// WETH pays at its oracle price, against the same USD budget and per-op cap.
+    /**
+     * WETH pays at its oracle price, against the same USD budget and per-op cap.
+     */
     function test_wethPaysAtOraclePrice() public {
         uint256 before = vault.gasBudgetRemaining();
         _charge(address(weth), 0.001e18); // $2 at $2,000
@@ -211,7 +227,9 @@ contract VaultTokenAsGasTest is Test {
         vault.payRelayerFee(address(weth), 0.0051e18); // $10.20 > $10 cap
     }
 
-    /// No trustworthy price, no ETH charge.
+    /**
+     * No trustworthy price, no ETH charge.
+     */
     function test_wethChargeFailsClosedOnStalePrice() public {
         vm.warp(block.timestamp + 2 hours);
         vm.prank(BITTY_FORWARDER);
@@ -219,7 +237,9 @@ contract VaultTokenAsGasTest is Test {
         vault.payRelayerFee(address(weth), 0.001e18);
     }
 
-    /// On an L2, a down sequencer stops ETH charges only; a stable coin reads no feed and still pays.
+    /**
+     * On an L2, a down sequencer stops ETH charges only; a stable coin reads no feed and still pays.
+     */
     function test_aDownSequencerStopsWethButNotStableCoins() public {
         vm.warp(10 hours);
         wethFeed.set(2_000e8, block.timestamp, block.timestamp);
@@ -234,7 +254,9 @@ contract VaultTokenAsGasTest is Test {
         _charge(address(usdc), 1e6);
     }
 
-    /// WETH and stable coins draw on one USD budget, so mixing them cannot double the day.
+    /**
+     * WETH and stable coins draw on one USD budget, so mixing them cannot double the day.
+     */
     function test_wethAndStableCoinsShareOneDailyBudget() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
@@ -249,7 +271,9 @@ contract VaultTokenAsGasTest is Test {
         vault.payRelayerFee(address(weth), 1);
     }
 
-    /// The owner may name WETH; once narrowed to stable coins only, WETH is refused.
+    /**
+     * The owner may name WETH; once narrowed to stable coins only, WETH is refused.
+     */
     function test_ownerMayNameOrExcludeWeth() public {
         address[] memory onlyWeth = new address[](1);
         onlyWeth[0] = address(weth);
@@ -278,8 +302,10 @@ contract VaultTokenAsGasTest is Test {
         vault.payRelayerFee(address(usdc), 1e6);
     }
 
-    /// Off is the tightest the budget gets, so it takes a raise still waiting out the timelock with it.
-    /// Were the raise kept, turning token-as-gas back on later would bring it in unannounced.
+    /**
+     * Off is the tightest the budget gets, so it takes a raise still waiting out the timelock with it.
+     * Were the raise kept, turning token-as-gas back on later would bring it in unannounced.
+     */
     function test_disableTokenAsGasCancelsAPendingRaise() public {
         address[] memory none = new address[](0);
         vm.startPrank(owner);
@@ -305,7 +331,9 @@ contract VaultTokenAsGasTest is Test {
         assertEq(vault.pendingChanges().gasBudgetDaily, 50, "raise queued again");
     }
 
-    /// A raise whose time had already come is in force; turning token-as-gas off does not undo it.
+    /**
+     * A raise whose time had already come is in force; turning token-as-gas off does not undo it.
+     */
     function test_disableTokenAsGasKeepsALandedRaise() public {
         address[] memory none = new address[](0);
         vm.startPrank(owner);

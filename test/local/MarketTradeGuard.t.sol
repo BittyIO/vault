@@ -18,7 +18,8 @@ import {
     PaymentExceedsRiskCap,
     PendingChanges,
     RiskAllowanceOutOfRange,
-    VaultLocked
+    VaultLocked,
+    NotRegistered
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     MarketTradeNotSupported,
@@ -152,7 +153,6 @@ contract MarketTradeGuardTest is Test {
         _risk(UNCHANGED, ROOMY);
     }
 
-    /// A vault of the owner's with nothing configured.
     function _freshVault() internal returns (BittyV1Vault) {
         bytes memory init = abi.encodeCall(
             BittyV1Vault.initialize, (owner, makeAddr("gasWrapped"), false, address(0), 0, new bytes[](0))
@@ -229,13 +229,17 @@ contract MarketTradeGuardTest is Test {
         _sell(address(weth), 1e18, address(usdc), 1_900e6 - 1);
     }
 
-    /// Buying nothing is the rigged pool at its limit: whatever was sold, it came out at zero.
+    /**
+     * Buying nothing is the rigged pool at its limit: whatever was sold, it came out at zero.
+     */
     function test_aTradeThatBuysNothingReverts() public {
         vm.expectRevert(MarketTradePriceTooLow.selector);
         _sell(address(weth), 1e18, address(usdc), 0);
     }
 
-    /// A route that took nothing has nothing to judge or charge, even though it bought.
+    /**
+     * A route that took nothing has nothing to judge or charge, even though it bought.
+     */
     function test_aTradeThatSellsNothingIsNotCharged() public {
         _buy(address(weth), 1e18, address(usdc), 1_000e6, 0);
         assertEq(weth.balanceOf(address(vault)), 100e18, "nothing sold");
@@ -506,7 +510,9 @@ contract MarketTradeGuardTest is Test {
         _sell(address(weth), 1e18, address(usdc), 1_990e6);
     }
 
-    /// A send allowance of 0 turns regular sends off, and leaves market trading alone.
+    /**
+     * A send allowance of 0 turns regular sends off, and leaves market trading alone.
+     */
     function test_aZeroSendAllowanceTurnsRegularSendsOff() public {
         _risk(UNCHANGED, 100);
         _sendCap(0);
@@ -515,7 +521,9 @@ contract MarketTradeGuardTest is Test {
         _sell(address(weth), 1e18, address(usdc), 1_990e6);
     }
 
-    /// Off from a vault that never set the allowance: unset reads as the ceiling, so 0 is a tightening.
+    /**
+     * Off from a vault that never set the allowance: unset reads as the ceiling, so 0 is a tightening.
+     */
     function test_aZeroAllowanceLandsAtOnceOnAFreshVault() public {
         _risk(UNCHANGED, 0);
         (,, uint64 allowance) = vault.riskSettings();
@@ -604,7 +612,9 @@ contract MarketTradeGuardTest is Test {
         _sell(address(illiquid), 1e18, address(usdc), 1);
     }
 
-    /// Every trade reads a price, so every trade on an L2 asks the sequencer first.
+    /**
+     * Every trade reads a price, so every trade on an L2 asks the sequencer first.
+     */
     function test_everyTradeAsksTheSequencer() public {
         MockFeed uptime = new MockFeed();
         uptime.set(1, block.timestamp - 2 hours, block.timestamp);
@@ -692,5 +702,140 @@ contract MarketTradeGuardTest is Test {
 
         vm.expectRevert(VaultLocked.selector);
         _sell(address(usdc), 1_000e6, address(dai), 999e18);
+    }
+
+    // ── lowering the loss allowance under a lock ────────────────────────────────────────────────
+
+    /**
+     * The locked sale is the one loss a held key keeps, so once locked the owner may cut what it can
+     * lose, and the cut lands at once.
+     */
+    function test_aLockedOwnerMayLowerTheLossAllowance() public {
+        vm.prank(owner);
+        vault.emergencyLock();
+
+        _risk(UNCHANGED, 500);
+        (,, uint64 allowance) = vault.riskSettings();
+        assertEq(allowance, 500);
+
+        _sell(address(weth), 5e18, address(usdc), 9_700e6); // 300 lost
+        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        _sell(address(weth), 5e18, address(usdc), 9_700e6);
+    }
+
+    function test_aForeverLockedOwnerMayLowerTheLossAllowance() public {
+        vm.prank(owner);
+        uint256 escape = vault.addWhitelistedRecipient(makeAddr("exchange"));
+        vm.warp(block.timestamp + 31 days);
+        wethFeed.set(2_000e8, block.timestamp, block.timestamp);
+        vm.prank(owner);
+        vault.foreverLock(escape);
+
+        _risk(UNCHANGED, 100);
+        (,, uint64 allowance) = vault.riskSettings();
+        assertEq(allowance, 100);
+    }
+
+    /**
+     * Down to 0, which turns the locked sale off.
+     */
+    function test_aLockedOwnerMayTurnTheLockedSaleOff() public {
+        vm.prank(owner);
+        vault.emergencyLock();
+
+        _risk(UNCHANGED, 0);
+        (,, uint64 allowance) = vault.riskSettings();
+        assertEq(allowance, 0);
+
+        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        _sell(address(weth), 1e18, address(usdc), 1_990e6);
+
+        vm.expectRevert(VaultLocked.selector);
+        _risk(UNCHANGED, 1); // and it stays off
+    }
+
+    function test_aLockCannotRaiseTheLossAllowance() public {
+        _risk(UNCHANGED, 500);
+        vm.prank(owner);
+        vault.emergencyLock();
+
+        vm.expectRevert(VaultLocked.selector);
+        _risk(UNCHANGED, 501);
+        _risk(UNCHANGED, 500); // the same figure is no raise
+    }
+
+    function test_aLockStillFreezesTheOtherRiskSettings() public {
+        vm.prank(owner);
+        vault.emergencyLock();
+
+        vm.prank(owner);
+        vm.expectRevert(VaultLocked.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK * 2, UNCHANGED, UNCHANGED));
+
+        vm.prank(owner);
+        vm.expectRevert(VaultLocked.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, 1, UNCHANGED));
+
+        vm.prank(owner);
+        vm.expectRevert(VaultLocked.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK * 2, UNCHANGED, 500));
+
+        vm.prank(owner);
+        vm.expectRevert(VaultLocked.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, UNCHANGED));
+    }
+
+    // ── leaving an asset that is no longer allowed ──────────────────────────────────────────────
+
+    function _facet() internal view returns (BittyV1VaultDeFiFacet) {
+        return BittyV1VaultDeFiFacet(payable(address(vault)));
+    }
+
+    function _list(address a) internal pure returns (address[] memory l) {
+        l = new address[](1);
+        l[0] = a;
+    }
+
+    /**
+     * The guard removing an asset takes it out of use, not out of the vaults that hold it: they can
+     * still sell it, priced by the feed it kept, but nothing can buy it.
+     */
+    function test_anAssetTheGuardRemovedCanStillBeSoldButNotBought() public {
+        guard.removeAsset(address(weth));
+
+        _sell(address(weth), 1e18, address(usdc), 1_990e6);
+        assertEq(weth.balanceOf(address(vault)), 99e18);
+
+        vm.expectRevert(MarketTradePriceTooLow.selector);
+        _sell(address(weth), 1e18, address(usdc), 1); // still priced
+
+        vm.expectRevert(NotRegistered.selector);
+        _sell(address(usdc), 2_000e6, address(weth), 1e18);
+    }
+
+    /**
+     * Nor does the owner's own list keep the vault in an asset it has dropped: only buying needs the list.
+     */
+    function test_anAssetOffTheOwnersListCanStillBeSoldButNotBought() public {
+        vm.startPrank(owner);
+        _facet().updateAssets(_list(address(usdc)), new address[](0));
+        _facet().updateProtocols(_list(address(market)), new address[](0));
+        _facet().useBittyAllowList(false);
+        vm.stopPrank();
+
+        _sell(address(weth), 1e18, address(usdc), 1_990e6);
+        assertEq(weth.balanceOf(address(vault)), 99e18);
+
+        vm.expectRevert(NotRegistered.selector);
+        _sell(address(usdc), 2_000e6, address(weth), 1e18);
+    }
+
+    /**
+     * A limit order never asked about the sold token, so it is a way out of a removed asset as well.
+     */
+    function test_aLimitOrderCanSellAnAssetTheGuardRemoved() public {
+        guard.removeAsset(address(weth));
+        assertTrue(_facet().isOffchainOrderAuthorized(owner, address(weth), address(usdc), 1e18));
+        assertFalse(_facet().isOffchainOrderAuthorized(owner, address(usdc), address(weth), 1e6), "nor buys it");
     }
 }

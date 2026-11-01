@@ -106,7 +106,9 @@ contract RiskRatchetTest is Test {
         assertEq(MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, 10_000);
     }
 
-    /// The default timelock is a real one: a loosening on a vault that never set it still waits.
+    /**
+     * The default timelock is a real one: a loosening on a vault that never set it still waits.
+     */
     function test_theDefaultTimelockDefersALoosening() public {
         _risk(UNCHANGED, 500);
         (, uint64 allowance) = _cfg();
@@ -190,7 +192,9 @@ contract RiskRatchetTest is Test {
         assertEq(allowance, 5_000, "and it lands a day later, as the owner asked");
     }
 
-    /// There is no "no cap" to loosen to: 0 is the tightest cap, never a cleared one.
+    /**
+     * There is no "no cap" to loosen to: 0 is the tightest cap, never a cleared one.
+     */
     function test_zeroIsTheTightestCapNotAClearedOne() public {
         _risk(1 days, 500);
 
@@ -384,7 +388,9 @@ contract RiskRatchetTest is Test {
         vault.sendToWhitelistedRecipient(id, address(0), 1, new address[](0), new uint256[](0));
     }
 
-    /// A pending loosening shows up in the one read the owner is meant to be watching.
+    /**
+     * A pending loosening shows up in the one read the owner is meant to be watching.
+     */
     function test_aPendingLooseningIsReportedToTheOwner() public {
         _risk(2 days, 500);
         _risk(UNCHANGED, 9_000);

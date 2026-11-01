@@ -150,7 +150,9 @@ contract VaultCoreTest is Test {
 
     // ── ETH ───────────────────────────────────────────────────────────────────
 
-    /// ETH sent to the vault is wrapped on arrival, so it is never stranded as a bare balance.
+    /**
+     * ETH sent to the vault is wrapped on arrival, so it is never stranded as a bare balance.
+     */
     function test_receivedEthIsWrappedImmediately() public {
         vm.deal(address(this), 1 ether);
         (bool ok,) = address(vault).call{value: 1 ether}("");
@@ -159,7 +161,9 @@ contract VaultCoreTest is Test {
         assertEq(gasWrapped.balanceOf(address(vault)), 1 ether, "wrapped");
     }
 
-    /// And anything that arrived some other way can be swept by anyone — it only helps the vault.
+    /**
+     * And anything that arrived some other way can be swept by anyone — it only helps the vault.
+     */
     function test_anyoneMaySweepStrandedEth() public {
         vm.deal(address(vault), 3 ether);
         vm.prank(makeAddr("passerby"));
@@ -167,7 +171,9 @@ contract VaultCoreTest is Test {
         assertEq(gasWrapped.balanceOf(address(vault)), 3 ether);
     }
 
-    /// Unwrapping WETH must not re-enter the receive hook and wrap it straight back.
+    /**
+     * Unwrapping WETH must not re-enter the receive hook and wrap it straight back.
+     */
     function test_gasWrappedUnwrapDoesNotBounceBack() public {
         vm.deal(address(vault), 1 ether);
         vault.wrapNative();
@@ -178,7 +184,6 @@ contract VaultCoreTest is Test {
 
     // ── the fallback ──────────────────────────────────────────────────────────
 
-    /// Ordinary facet calls route through the fallback.
     function test_fallbackReachesTheFacet() public view {
         address[] memory one = new address[](1);
         one[0] = address(usdc);
@@ -197,7 +202,9 @@ contract VaultCoreTest is Test {
         assertEq(bytes4(ret), InvalidRelayedCalldata.selector);
     }
 
-    /// The same short calldata from anyone else is not a relayed call, so the rule does not apply.
+    /**
+     * The same short calldata from anyone else is not a relayed call, so the rule does not apply.
+     */
     function test_shortCalldataFromANonForwarderIsNotBlockedByThatRule() public {
         vm.prank(makeAddr("stranger"));
         (bool ok, bytes memory ret) = address(vault).call(abi.encodePacked(bytes4(0xdeadbeef)));
@@ -212,7 +219,9 @@ contract VaultCoreTest is Test {
         vault.initialize(owner, address(gasWrapped), false, address(0), 0, new bytes[](0));
     }
 
-    /// The implementation itself is not usable as a vault — initializers are disabled on it.
+    /**
+     * The implementation itself is not usable as a vault — initializers are disabled on it.
+     */
     function test_theImplementationCannotBeInitialized() public {
         vm.expectRevert();
         impl.initialize(makeAddr("squatter"), address(gasWrapped), false, address(0), 0, new bytes[](0));

@@ -115,7 +115,9 @@ interface IBittyV1Owner {
      * @notice Set any of the vault's wait, its regular-send daily allowance and its market-trade daily
      *         loss allowance.
      * @dev Reverts {RiskTimelockTooShort} / {RiskTimelockTooLong} for a timelock outside 1 to 30 days,
-     *      and {RiskAllowanceOutOfRange} for an allowance of 0 or above 10,000.
+     *      and {RiskAllowanceOutOfRange} for an allowance above 10,000. Under either lock only the
+     *      market-trade loss allowance may change, and only downward; anything else
+     *      reverts {VaultLocked}.
      * @param riskSettings The three numbers, with `type(uint256).max` in any to leave it alone.
      */
     function updateRisk(RiskSettings calldata riskSettings) external;

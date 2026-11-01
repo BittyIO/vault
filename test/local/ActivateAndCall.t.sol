@@ -98,7 +98,9 @@ contract ReenteringProtocol is IBittyV1Protocol, IBittyV1Yield, Ownable, Initial
  * activation cannot have calls added by the relayer; and a failing entry leaves no vault behind.
  */
 contract ActivateAndCallTest is Test {
-    /// Existing tests are not about expiry, so they sign a deadline that never passes.
+    /**
+     * Existing tests are not about expiry, so they sign a deadline that never passes.
+     */
     uint256 constant DEADLINE = type(uint256).max;
 
     BittyV1VaultFactory factory;

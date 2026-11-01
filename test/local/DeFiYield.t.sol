@@ -33,8 +33,10 @@ interface IFacet {
     function getClone(address protocol) external view returns (address);
 }
 
-/// A lending mock that issues a receipt token, so the withdraw path has something to approve back.
-/// Immutable, not storage: the vault reads this through an EIP-1167 clone, whose storage starts empty.
+/**
+ * A lending mock that issues a receipt token, so the withdraw path has something to approve back.
+ * Immutable, not storage: the vault reads this through an EIP-1167 clone, whose storage starts empty.
+ */
 contract ReceiptLendingProtocol is MockLendingProtocol {
     address public immutable receipt;
 
@@ -47,14 +49,18 @@ contract ReceiptLendingProtocol is MockLendingProtocol {
     }
 }
 
-/// A second lending adapter lineage, so batch tests exercise distinct cloned positions.
+/**
+ * A second lending adapter lineage, so batch tests exercise distinct cloned positions.
+ */
 contract AlternateLendingProtocol is MockLendingProtocol {
     function protocolLineage() external pure override returns (bytes32) {
         return keccak256("bitty.mock.alternate-lending");
     }
 }
 
-/// A lending mock whose exits queue instead of settling, so pending-withdrawal ids are non-empty.
+/**
+ * A lending mock whose exits queue instead of settling, so pending-withdrawal ids are non-empty.
+ */
 contract PendingLendingProtocol is MockLendingProtocol {
     uint256[] internal _pending;
     uint256[] public claimed;
@@ -72,8 +78,10 @@ contract PendingLendingProtocol is MockLendingProtocol {
     }
 }
 
-/// A withdrawable protocol that does not implement receiptTokenOf at all, so the probe staticcall
-/// fails outright rather than returning a zero address.
+/**
+ * A withdrawable protocol that does not implement receiptTokenOf at all, so the probe staticcall
+ * fails outright rather than returning a zero address.
+ */
 contract NoReceiptProtocol is Ownable, Initializable {
     constructor() Ownable(msg.sender) {}
 

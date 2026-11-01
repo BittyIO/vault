@@ -56,7 +56,9 @@ abstract contract Base is Test {
     }
 }
 
-/// Never locked: the entry's epoch stamp equals lockEpoch, so clause one hits.
+/**
+ * Never locked: the entry's epoch stamp equals lockEpoch, so clause one hits.
+ */
 contract WlGasCurrentTest is Base {
     function setUp() public {
         _build();
@@ -67,7 +69,9 @@ contract WlGasCurrentTest is Base {
     }
 }
 
-/// Locked once and released: the stamp is behind, so the first send must read closedAt[0].
+/**
+ * Locked once and released: the stamp is behind, so the first send must read closedAt[0].
+ */
 contract WlGasStaleTest is Base {
     function setUp() public {
         _build();
@@ -82,7 +86,9 @@ contract WlGasStaleTest is Base {
     }
 }
 
-/// The same vault, after one send has recorded the verdict. Every payout from here is this price.
+/**
+ * The same vault, after one send has recorded the verdict. Every payout from here is this price.
+ */
 contract WlGasSettledTest is Base {
     function setUp() public {
         _build();
@@ -98,7 +104,9 @@ contract WlGasSettledTest is Base {
     }
 }
 
-/// A vault with no protection window: settled at birth by rule B.
+/**
+ * A vault with no protection window: settled at birth by rule B.
+ */
 contract WlGasNoWindowTest is Base {
     function setUp() public {
         _build(0); // no protection window at all, so the entry is SETTLED at birth
