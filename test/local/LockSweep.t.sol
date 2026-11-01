@@ -125,7 +125,9 @@ contract LockSweepTest is Test {
         assertEq(usdc.balanceOf(cold), 2_000e6, "and the second lock as well");
     }
 
-    /// A destination queued after a release is ordinary again: it waits its week and then works.
+    /**
+     * A destination queued after a release is ordinary again: it waits its week and then works.
+     */
     function test_aDestinationQueuedAfterAReleaseMaturesNormally() public {
         vm.startPrank(owner);
         vault.emergencyLock();

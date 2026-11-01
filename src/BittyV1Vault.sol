@@ -234,7 +234,7 @@ contract BittyV1Vault is BittyV1VaultBase {
         WhitelistLogic.sendToWhitelistedRecipientOne(id, asset, amount);
     }
 
-    function updateRisk(IBittyV1Owner.RiskSettings calldata settings) external onlyOwner notLocked {
+    function updateRisk(IBittyV1Owner.RiskSettings calldata settings) external onlyOwner {
         RiskLogic.updateRisk(settings);
     }
 

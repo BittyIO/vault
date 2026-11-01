@@ -6,7 +6,8 @@ import {
     PendingChanges,
     RiskTimelockTooLong,
     RiskTimelockTooShort,
-    RiskAllowanceOutOfRange
+    RiskAllowanceOutOfRange,
+    VaultLocked
 } from "../interfaces/IBittyV1Vault.sol";
 import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
 import {BittyStorage, VaultStorage, RiskConfig, TimelockedValue} from "./BittyStorage.sol";
@@ -80,7 +81,9 @@ library RiskLogic {
         return _allowance(r.marketTradeDailyLossAllowance, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE);
     }
 
-    /// An allowance as stored, read back: unset is `max`, {ALLOWANCE_ZERO} is 0.
+    /**
+     * An allowance as stored, read back: unset is `max`, {ALLOWANCE_ZERO} is 0.
+     */
     function _allowance(TimelockedValue storage tv, uint64 max) private view returns (uint64) {
         uint64 v = TimelockLib.effective(tv);
         return v == ALLOWANCE_ZERO ? 0 : _orDefault(v, max);
@@ -98,6 +101,7 @@ library RiskLogic {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         _onlyInitialized(vaultStorage);
         RiskConfig storage r = vaultStorage.riskConfig;
+        if (LockLib.level() != LockLib.NONE) _requireLockedLowering(r, settings);
         uint64 timelock = effectiveTimelock(r);
         if (settings.timelock != UNCHANGED) {
             if (settings.timelock > MAX_RISK_TIMELOCK) revert RiskTimelockTooLong();
@@ -118,7 +122,21 @@ library RiskLogic {
         emit IBittyV1Owner.RiskSettingsUpdated(settings);
     }
 
-    /// 0 to `max`; 0 is stored as {ALLOWANCE_ZERO}, since a stored 0 means unset.
+    /**
+     * @dev Under a lock the one number that still bounds a loss is the market-trade loss allowance, as
+     *      the owner's sale into a stablecoin is the one trade a lock leaves open. So it alone may move,
+     *      and only down, which applies at once; nothing else may, since a lock admits no change that
+     *      would wait out the timelock. At 0 the locked sale is off, and under a forever lock that is
+     *      for good: an asset the escape destination cannot take is then left to a limit order.
+     */
+    function _requireLockedLowering(RiskConfig storage r, IBittyV1Owner.RiskSettings calldata settings) private view {
+        if (settings.timelock != UNCHANGED || settings.sendDailyAllowance != UNCHANGED) revert VaultLocked();
+        if (settings.marketTradeDailyLossAllowance > effectiveMarketTradeDailyLossAllowance(r)) revert VaultLocked();
+    }
+
+    /**
+     * 0 to `max`; 0 is stored as {ALLOWANCE_ZERO}, since a stored 0 means unset.
+     */
     function _setAllowance(TimelockedValue storage tv, uint256 allowance, uint64 max, uint64 timelock) private {
         if (allowance > max) revert RiskAllowanceOutOfRange();
         TimelockLib.setCap(tv, allowance == 0 ? ALLOWANCE_ZERO : allowance, timelock);

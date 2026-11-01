@@ -25,7 +25,9 @@ import {
 } from "../../src/interfaces/IBittyV1DeFi.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
-/// A UUPS lending adapter, mirroring protocol-store's BittyV1ProtocolBase.
+/**
+ * A UUPS lending adapter, mirroring protocol-store's BittyV1ProtocolBase.
+ */
 contract UpgradeableLendingV1 is IBittyV1Protocol, IBittyV1Yield, Ownable, Initializable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
 
@@ -87,7 +89,9 @@ contract UpgradeableLendingV1 is IBittyV1Protocol, IBittyV1Yield, Ownable, Initi
     function claimWithdrawals(uint256[] memory) external override onlyOwner {}
 }
 
-/// Lending like the others, so the category check passes - but a different code line.
+/**
+ * Lending like the others, so the category check passes - but a different code line.
+ */
 contract ForeignLendingAdapter is UpgradeableLendingV1 {
     function protocolLineage() external pure override returns (bytes32) {
         return keccak256("bitty.mock.foreign-lending");
@@ -210,7 +214,9 @@ contract ProtocolUpgradeTest is Test {
         assertEq(IBittyV1Protocol(instance).protocolVersion(), v2.protocolVersion(), "upgraded in one call");
     }
 
-    /// But not while the vault is locked: an adapter is code, and a locked vault takes no new code.
+    /**
+     * But not while the vault is locked: an adapter is code, and a locked vault takes no new code.
+     */
     function test_anAdapterUpgradeIsRefusedWhileLocked() public {
         vm.prank(owner);
         vault.emergencyLock();
@@ -226,7 +232,9 @@ contract ProtocolUpgradeTest is Test {
         _f().upgradeProtocol(address(v1), address(v2));
     }
 
-    /// The guard stays the curation boundary: an owner cannot repoint an adapter at unblessed code.
+    /**
+     * The guard stays the curation boundary: an owner cannot repoint an adapter at unblessed code.
+     */
     function test_unregisteredImplementationRejected() public {
         UpgradeableLendingV2 rogue = new UpgradeableLendingV2();
         vm.prank(owner);
@@ -262,7 +270,9 @@ contract ProtocolUpgradeTest is Test {
         assertEq(IBittyV1Yield(instance).getBalance(address(usdc)), 150e6, "both deposits are in one position");
     }
 
-    /// Adapter instances are only ever reachable through the vault that owns them.
+    /**
+     * Adapter instances are only ever reachable through the vault that owns them.
+     */
     function test_strangerCannotUpgradeInstanceDirectly() public {
         address instance = _f().getClone(address(v1));
         vm.prank(stranger);
@@ -283,7 +293,9 @@ contract ProtocolUpgradeTest is Test {
         _f().upgradeProtocol(address(v1), address(foreign));
     }
 
-    /// Repointing off a DEPRECATED adapter is the case upgrades exist for, so it must still work.
+    /**
+     * Repointing off a DEPRECATED adapter is the case upgrades exist for, so it must still work.
+     */
     function test_upgradeAwayFromDeprecatedAdapter() public {
         guard.setDeprecated(address(v1), true);
         vm.prank(owner);
@@ -319,7 +331,9 @@ contract ProtocolUpgradeTest is Test {
         _f().upgradeProtocol(address(v1), address(v1));
     }
 
-    /// Re-applying the version already running is only ever a wasted transaction.
+    /**
+     * Re-applying the version already running is only ever a wasted transaction.
+     */
     function test_sameVersionRejected() public {
         vm.prank(owner);
         vm.expectRevert(ProtocolNotNewer.selector);

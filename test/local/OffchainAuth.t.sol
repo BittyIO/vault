@@ -9,7 +9,9 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
-/// The off-chain auth callbacks an intent adapter asks the host, reached through the host's fallback.
+/**
+ * The off-chain auth callbacks an intent adapter asks the host, reached through the host's fallback.
+ */
 interface IOffchainAuth {
     function isOffchainOrderAuthorized(address signer, address sellToken, address buyToken, uint256 sellAmount)
         external

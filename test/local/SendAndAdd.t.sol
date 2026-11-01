@@ -77,7 +77,9 @@ contract SendAndAddTest is Test {
         _assertSavedAndWaiting(id);
     }
 
-    /// The send is a regular send: a non-stablecoin is refused, and so nothing is saved either.
+    /**
+     * The send is a regular send: a non-stablecoin is refused, and so nothing is saved either.
+     */
     function test_aNonStablecoinSendSavesNothing() public {
         vm.prank(owner);
         vm.expectRevert(PaymentNotStableCoin.selector);
@@ -91,7 +93,9 @@ contract SendAndAddTest is Test {
         _assertNothingSaved();
     }
 
-    /// Over the allowance, the batch total counted, nothing is paid and nothing saved.
+    /**
+     * Over the allowance, the batch total counted, nothing is paid and nothing saved.
+     */
     function test_aSendOverTheAllowanceSavesNothing() public {
         uint256 cap = uint256(MAX_SEND_DAILY_ALLOWANCE);
         vm.prank(owner);

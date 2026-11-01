@@ -48,7 +48,9 @@ contract VersionUpgradeSafetyTest is Test {
         return new NextReleaseVault(address(facet));
     }
 
-    /// State written under the old code must survive an upgrade to the build carrying the getters.
+    /**
+     * State written under the old code must survive an upgrade to the build carrying the getters.
+     */
     function test_upgradingToTheVersionedBuildKeepsState() public {
         BittyV1Vault a = _impl();
         bytes memory init =
@@ -70,7 +72,9 @@ contract VersionUpgradeSafetyTest is Test {
         assertEq(IVaultView(vault).versionName(), "1.0.7", "version readable after upgrade");
     }
 
-    /// The getters must answer through the proxy, not be swallowed by the facet fallback.
+    /**
+     * The getters must answer through the proxy, not be swallowed by the facet fallback.
+     */
     function test_gettersResolveThroughTheProxy() public {
         BittyV1Vault a = _impl();
         address vault = address(

@@ -92,7 +92,9 @@ contract AssetManagerTest is Test {
 
     // ── what the manager is for ──────────────────────────────────────────────
 
-    /// The whole point: put idle USDC to work under a delegated key.
+    /**
+     * The whole point: put idle USDC to work under a delegated key.
+     */
     function test_theManagerCanPutIdleFundsToWork() public {
         _appoint(START + 365 days);
         vm.prank(manager);
@@ -104,7 +106,9 @@ contract AssetManagerTest is Test {
         assertEq(usdc.balanceOf(address(vault)), 1_000e6, "and pulled it back to the vault");
     }
 
-    /// Intent orders are signed OFF-CHAIN, so without this the manager could not trade at all.
+    /**
+     * Intent orders are signed OFF-CHAIN, so without this the manager could not trade at all.
+     */
     function test_theManagerMaySignIntentOrders() public {
         _appoint(START + 365 days);
         assertTrue(
@@ -122,7 +126,9 @@ contract AssetManagerTest is Test {
 
     // ── what the manager must not be able to do ──────────────────────────────
 
-    /// It may work inside the boundary; only the owner moves the boundary.
+    /**
+     * It may work inside the boundary; only the owner moves the boundary.
+     */
     function test_theManagerCannotWidenWhatIsReachable() public {
         _appoint(START + 365 days);
         address[] memory add = new address[](1);
@@ -146,7 +152,9 @@ contract AssetManagerTest is Test {
         _f().setAutoYieldTrigger(manager);
     }
 
-    /// The payment surface lives on the vault, which the facet cannot reach. No outflow, ever.
+    /**
+     * The payment surface lives on the vault, which the facet cannot reach. No outflow, ever.
+     */
     function test_theManagerCannotPayAnyone() public {
         _appoint(START + 365 days);
         address[] memory none = new address[](0);
@@ -178,7 +186,9 @@ contract AssetManagerTest is Test {
         assertFalse(_f().isOffchainOrderAuthorized(stranger, address(usdc), address(usdc), 1), "cannot sign either");
     }
 
-    /// Unwinding needs no permission bit, but it does need the grant: a stranger unwinds nothing.
+    /**
+     * Unwinding needs no permission bit, but it does need the grant: a stranger unwinds nothing.
+     */
     function test_aStrangerCannotUnwind() public {
         _appoint(START + 365 days);
         vm.prank(stranger);
@@ -186,12 +196,16 @@ contract AssetManagerTest is Test {
         _f().withdraw(address(sky), address(usdc), 1);
     }
 
-    /// No manager reads as the zero address, so the zero address must never pass as the manager.
+    /**
+     * No manager reads as the zero address, so the zero address must never pass as the manager.
+     */
     function test_theZeroAddressIsNeverAnActiveManager() public view {
         assertFalse(_f().isOffchainCancellationAuthorized(address(0)));
     }
 
-    /// An address that is not a protocol has no lineage, so it has no clone either.
+    /**
+     * An address that is not a protocol has no lineage, so it has no clone either.
+     */
     function test_aNonProtocolHasNoClone() public view {
         assertEq(_f().getClone(stranger), address(0), "an EOA");
         assertEq(_f().getClone(address(usdc)), address(0), "a token");
@@ -232,7 +246,9 @@ contract AssetManagerTest is Test {
         _f().deposit(address(sky), address(usdc), 10e6);
     }
 
-    /// Revoking clears the deadline too, so a later re-grant cannot inherit a stale one.
+    /**
+     * Revoking clears the deadline too, so a later re-grant cannot inherit a stale one.
+     */
     function test_revokingClearsTheDeadline() public {
         _appoint(START + GRANT);
         vm.prank(owner);
@@ -361,7 +377,9 @@ contract AssetManagerTest is Test {
         _f().deposit(address(sky), address(usdc), 10e6);
     }
 
-    /// The queued grant goes live on time on its own — nobody has to poke the vault to promote it.
+    /**
+     * The queued grant goes live on time on its own — nobody has to poke the vault to promote it.
+     */
     function test_aQueuedGrantGoesLiveOnItsOwn() public {
         _withTimelock();
         vm.prank(owner);
@@ -376,7 +394,9 @@ contract AssetManagerTest is Test {
         assertTrue(_f().isOffchainOrderAuthorized(manager, address(usdc), address(usdc), 1), "and may sign");
     }
 
-    /// The owner's countermeasures never wait: a queued grant can be cancelled before it lands.
+    /**
+     * The owner's countermeasures never wait: a queued grant can be cancelled before it lands.
+     */
     function test_theOwnerCanCancelAQueuedGrant() public {
         _withTimelock();
         vm.prank(owner);
@@ -407,7 +427,9 @@ contract AssetManagerTest is Test {
         _f().deposit(address(sky), address(usdc), 10e6);
     }
 
-    /// Shortening the sitting manager's own grant is a tightening, so it lands at once.
+    /**
+     * Shortening the sitting manager's own grant is a tightening, so it lands at once.
+     */
     function test_shorteningIsImmediateButExtendingQueues() public {
         _appoint(START + GRANT);
         _withTimelock();

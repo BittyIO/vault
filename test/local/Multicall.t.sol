@@ -9,8 +9,10 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BITTY_GUARD, BITTY_FORWARDER, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
 
-/// The facet's views, reached through the host's fallback — `usingBittyAllowList` lives on the shared
-/// DeFi facet, not on the vault, so a plain BittyV1Vault handle cannot see it.
+/**
+ * The facet's views, reached through the host's fallback — `usingBittyAllowList` lives on the shared
+ * DeFi facet, not on the vault, so a plain BittyV1Vault handle cannot see it.
+ */
 interface IFacetViews {
     function usingBittyAllowList() external view returns (bool);
     function autoYieldTrigger() external view returns (address);
@@ -46,7 +48,9 @@ contract MulticallTest is Test {
         usdc.mint(address(vault), 1_000e6);
     }
 
-    /// A relayed call: the forwarder appends the signer's address, which is what _msgSender reads.
+    /**
+     * A relayed call: the forwarder appends the signer's address, which is what _msgSender reads.
+     */
     function _relay(address account, bytes memory data, address signer) internal {
         vm.prank(BITTY_FORWARDER);
         (bool ok,) = account.call(abi.encodePacked(data, signer));
@@ -55,7 +59,9 @@ contract MulticallTest is Test {
 
     // ── main vault ────────────────────────────────────────────────────────────
 
-    /// The ordinary path: owner pays gas from their own wallet, no forwarder involved.
+    /**
+     * The ordinary path: owner pays gas from their own wallet, no forwarder involved.
+     */
     function test_ownerBatchesFromTheirOwnWallet() public {
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false));
@@ -68,7 +74,9 @@ contract MulticallTest is Test {
         assertEq(IFacetViews(address(vault)).autoYieldTrigger(), keeper, "second entry applied in the same transaction");
     }
 
-    /// Batching cannot be used to act as someone else: a stranger's batch is refused per call.
+    /**
+     * Batching cannot be used to act as someone else: a stranger's batch is refused per call.
+     */
     function test_batchDoesNotEscalate() public {
         bytes[] memory calls = new bytes[](1);
         calls[0] = abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false));
@@ -80,7 +88,9 @@ contract MulticallTest is Test {
         assertTrue(IFacetViews(address(vault)).usingBittyAllowList(), "unchanged");
     }
 
-    /// A failing entry reverts the whole batch — no partial application.
+    /**
+     * A failing entry reverts the whole batch — no partial application.
+     */
     function test_batchIsAllOrNothing() public {
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false));
@@ -122,7 +132,9 @@ contract MulticallTest is Test {
         );
     }
 
-    /// The same suffix handling must not let the FORWARDER act on its own behalf.
+    /**
+     * The same suffix handling must not let the FORWARDER act on its own behalf.
+     */
     function test_relayedBatchFromANonOwnerSignerIsRefused() public {
         bytes[] memory calls = new bytes[](1);
         calls[0] = abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false));

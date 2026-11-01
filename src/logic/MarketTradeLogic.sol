@@ -135,10 +135,12 @@ library MarketTradeLogic {
 
     /**
      * @dev A locked vault sells only out of a non-stablecoin and into a stablecoin: the one trade that
-     *      turns an asset its escape destination may not accept into one it will. The value stays in
-     *      the vault, priced and charged to the loss allowance as any trade is, and a lock lets nobody
-     *      raise that allowance. A stablecoin already is the exit, so swapping one for another under a
-     *      lock is refused.
+     *      turns an asset its escape destination may not accept into one it will. The proceeds land in
+     *      the vault, but the sale is priced and charged to the loss allowance as any trade is, so a
+     *      held owner key may still lose up to that allowance per day through it, until the vault holds
+     *      no non-stablecoin. Under a lock the allowance can only be lowered ({RiskLogic-updateRisk}),
+     *      and at 0 this sale is refused. A stablecoin already is the exit, so swapping one for another
+     *      under a lock is refused.
      */
     function _requireIntoStableCoin(MarketLegs memory legs) private pure {
         if (legs.buyCategory & ASSET_STABLE_COIN == 0 || legs.sellCategory & ASSET_STABLE_COIN != 0) {
@@ -154,8 +156,10 @@ library MarketTradeLogic {
     /**
      * @dev Everything a market trade checks before it runs, from one guard read,
      *      {IBittyV1Guard-marketTradeInfo}, which also brings the price feeds: the protocol is a live
-     *      market-trade protocol and both tokens are registered, each also named on the owner's own
-     *      allow list when that is on; the tokens differ — the same token on both legs would net its
+     *      market-trade protocol; the bought token is registered, and named on the owner's own allow
+     *      list when that is on; the sold token has a category, which the guard keeps for an asset it
+     *      has removed, and need not be on the owner's list, since selling out of an asset either list
+     *      has dropped is how the vault leaves it; the tokens differ — the same token on both legs would net its
      *      own sale against its own purchase and hide both — and both may trade at market. The vault's
      *      balance of each token is taken just before the protocol runs.
      */
@@ -170,7 +174,7 @@ library MarketTradeLogic {
             revert InvalidMarketTradeProtocol();
         }
         if (info.protocolDeprecated) revert Deprecated();
-        if (info.sellCategory == 0 || (ownList && !$.assets[sellToken])) revert NotRegistered();
+        if (info.sellCategory == 0) revert NotRegistered();
         if (info.buyCategory == 0 || (ownList && !$.assets[buyToken])) revert NotRegistered();
         if (sellToken == buyToken) revert MarketTradeNotSupported();
         if (info.sellCategory & info.buyCategory & ASSET_AMM_LIQUID == 0) revert MarketTradeNotSupported();

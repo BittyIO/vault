@@ -27,6 +27,7 @@ contract MockGuard {
         _registered[category][impl] = true;
     }
     mapping(address => uint8) public assetCategory;
+    mapping(address => uint8) public removedAssetCategory;
     mapping(address => uint8) public protocolCategory;
     mapping(address => bool) public isProtocolDeprecated;
     address[] internal _protocols;
@@ -63,6 +64,20 @@ contract MockGuard {
 
     function setAsset(address a, uint8 cat) external {
         assetCategory[a] = cat;
+        delete removedAssetCategory[a];
+    }
+
+    /**
+     * As in the real guard: out of the registry, but its category kept for the sold leg of a trade.
+     */
+    function removeAsset(address a) external {
+        removedAssetCategory[a] = assetCategory[a];
+        assetCategory[a] = 0;
+    }
+
+    function _sellCategory(address a) internal view returns (uint8 c) {
+        c = assetCategory[a];
+        if (c == 0) c = removedAssetCategory[a];
     }
 
     function setProtocol(address p, uint8 cat) external {
@@ -140,7 +155,7 @@ contract MockGuard {
         return (
             protocolCategory[protocol],
             isProtocolDeprecated[protocol],
-            assetCategory[sellToken],
+            _sellCategory(sellToken),
             assetCategory[buyToken]
         );
     }
@@ -152,7 +167,7 @@ contract MockGuard {
     {
         info.protocolCategory = protocolCategory[protocol];
         info.protocolDeprecated = isProtocolDeprecated[protocol];
-        info.sellCategory = assetCategory[sellToken];
+        info.sellCategory = _sellCategory(sellToken);
         info.buyCategory = assetCategory[buyToken];
         bool sellPriced = info.sellCategory & ASSET_STABLE_COIN == 0;
         bool buyPriced = info.buyCategory & ASSET_STABLE_COIN == 0;

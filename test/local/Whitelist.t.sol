@@ -162,8 +162,10 @@ contract WhitelistTest is Test {
         assertEq(rs[0], payee);
     }
 
-    /// Pay with no position-withdrawal legs: the arrays name where the money is pulled FROM, and
-    /// these tests are all about the whitelist rules, not the funding source.
+    /**
+     * Pay with no position-withdrawal legs: the arrays name where the money is pulled FROM, and
+     * these tests are all about the whitelist rules, not the funding source.
+     */
     function _pay(uint256 id, address asset, uint256 amount) internal {
         vault.sendToWhitelistedRecipient(id, asset, amount, new address[](0), new uint256[](0));
     }

@@ -39,7 +39,9 @@ interface IAllowlistView {
 }
 
 contract FactoryTest is Test {
-    /// Existing tests are not about expiry, so they sign a deadline that never passes.
+    /**
+     * Existing tests are not about expiry, so they sign a deadline that never passes.
+     */
     uint256 constant DEADLINE = type(uint256).max;
 
     BittyV1VaultFactory factory;
@@ -77,7 +79,9 @@ contract FactoryTest is Test {
         return _sign(o, asset, amount, true, pk);
     }
 
-    /// Signs an explicit `deadline`, for the tests that are about expiry.
+    /**
+     * Signs an explicit `deadline`, for the tests that are about expiry.
+     */
     function _signUntil(address o, address asset, uint256 amount, uint256 deadline, uint256 pk)
         internal
         view
@@ -142,7 +146,9 @@ contract FactoryTest is Test {
 
     // ── deterministic address ─────────────────────────────────────────────────
 
-    /// The address is a function of the owner alone, so it is knowable before anything is deployed.
+    /**
+     * The address is a function of the owner alone, so it is knowable before anything is deployed.
+     */
     function test_addressIsPredictableBeforeActivation() public {
         address predicted = factory.vaultAddress(owner);
         assertEq(predicted.code.length, 0, "nothing there yet");
@@ -152,7 +158,9 @@ contract FactoryTest is Test {
         assertEq(deployed, predicted, "landed exactly where predicted");
     }
 
-    /// One owner, one vault. Ever.
+    /**
+     * One owner, one vault. Ever.
+     */
     function test_oneVaultPerOwner() public {
         vm.prank(owner);
         factory.activateVault(true, _noCalls());
@@ -166,7 +174,9 @@ contract FactoryTest is Test {
         assertTrue(factory.vaultAddress(owner) != factory.vaultAddress(other));
     }
 
-    /// activateVault() is always the CALLER's vault — it cannot be pointed at someone else.
+    /**
+     * activateVault() is always the CALLER's vault — it cannot be pointed at someone else.
+     */
     function test_activateVaultIsAlwaysTheCallersOwn() public {
         vm.prank(owner);
         address v = factory.activateVault(true, _noCalls());
@@ -192,7 +202,9 @@ contract FactoryTest is Test {
         assertEq(BittyV1Vault(payable(predicted)).owner(), owner);
     }
 
-    /// Anyone may submit it — the signature is the authority, not the sender.
+    /**
+     * Anyone may submit it — the signature is the authority, not the sender.
+     */
     function test_anyoneMaySubmitASignedActivation() public {
         address predicted = factory.vaultAddress(owner);
         usdc.mint(predicted, 100e6);
@@ -213,7 +225,9 @@ contract FactoryTest is Test {
         );
     }
 
-    /// The fee is part of what was signed, so a relayer cannot inflate it after the fact.
+    /**
+     * The fee is part of what was signed, so a relayer cannot inflate it after the fact.
+     */
     function test_aDifferentFeeThanSignedIsRejected() public {
         address predicted = factory.vaultAddress(owner);
         usdc.mint(predicted, 100e6);
@@ -222,7 +236,9 @@ contract FactoryTest is Test {
         factory.activateVaultByAsset(owner, address(usdc), 50e6, true, _noCalls(), DEADLINE, sig);
     }
 
-    /// And so is the coin.
+    /**
+     * And so is the coin.
+     */
     function test_aDifferentAssetThanSignedIsRejected() public {
         MockERC20 other = new MockERC20("Other", "OTH", 6);
         guard.setAsset(address(other), ASSET_STABLE_COIN);
@@ -246,7 +262,9 @@ contract FactoryTest is Test {
 
     // ── initialize ────────────────────────────────────────────────────────────
 
-    /// The wrapped-gas token comes from the guard now: activation reverts if the chain hasn't set it.
+    /**
+     * The wrapped-gas token comes from the guard now: activation reverts if the chain hasn't set it.
+     */
     function test_activationRevertsWhenGasWrappedUnset() public {
         guard.setConfigAddress(CFG_GAS_WRAPPED, address(0)); // simulate an unconfigured chain
         vm.prank(makeAddr("someone"));
@@ -254,9 +272,11 @@ contract FactoryTest is Test {
         factory.activateVault(true, _noCalls());
     }
 
-    /// Activating with WETH as the fee asset makes the vault list the SAME asset twice - once as the
-    /// activation asset, once as the wrapped-native default. The second listing is a no-op rather than
-    /// a revert or a duplicate entry.
+    /**
+     * Activating with WETH as the fee asset makes the vault list the SAME asset twice - once as the
+     * activation asset, once as the wrapped-native default. The second listing is a no-op rather than
+     * a revert or a duplicate entry.
+     */
     function test_activatingWithWethAsTheFeeAssetListsItOnce() public {
         guard.setConfigAddress(CFG_GAS_WRAPPED, address(usdc)); // wrapped-gas == the fee asset for this case
         // A fee in the wrapped-gas token is priced off its oracle, as WETH is in production.
@@ -272,8 +292,10 @@ contract FactoryTest is Test {
         assertTrue(IAllowlistView(v).isAssetAllowed(address(usdc)), "the fee asset is listed");
     }
 
-    /// The bootstrap authorises exactly ONE upgrade - the factory's, before the vault has an owner.
-    /// A proxy still sitting on it with an owner already set is a claimed vault, and must refuse.
+    /**
+     * The bootstrap authorises exactly ONE upgrade - the factory's, before the vault has an owner.
+     * A proxy still sitting on it with an owner already set is a claimed vault, and must refuse.
+     */
     function test_bootstrapRefusesToMoveAClaimedVault() public {
         address proxy = address(new ERC1967Proxy(address(new BittyV1VaultBootstrap()), ""));
         // OwnableUpgradeable's ERC-7201 slot, which is what the bootstrap reads.
@@ -297,14 +319,18 @@ contract FactoryTest is Test {
         factory.activateVaultByAsset(owner, address(usdc), 2e6, false, _noCalls(), DEADLINE, signedForOn);
     }
 
-    /// Activating with the allowlist OFF leaves the guard's catalog as the only gate.
+    /**
+     * Activating with the allowlist OFF leaves the guard's catalog as the only gate.
+     */
     function test_activatingWithTheAllowlistOff() public {
         address v = factory.activateVault(false, _noCalls());
         assertTrue(IAllowlistView(v).usingBittyAllowList(), "allowlist should be off");
         assertTrue(IAllowlistView(v).isAssetAllowed(address(usdc)), "guard-registered asset must pass");
     }
 
-    /// ...and ON restricts to what the vault itself has listed.
+    /**
+     * ...and ON restricts to what the vault itself has listed.
+     */
     function test_activatingWithTheAllowlistOn() public {
         address v = factory.activateVault(true, _noCalls());
         assertFalse(IAllowlistView(v).usingBittyAllowList(), "allowlist should be on");
@@ -334,7 +360,9 @@ contract FactoryTest is Test {
         assertEq(_implOf(deployed), address(newImpl), "not upgraded off the bootstrap");
     }
 
-    /// A vault leaves the bootstrap in the same transaction it is created in.
+    /**
+     * A vault leaves the bootstrap in the same transaction it is created in.
+     */
     function test_vaultDoesNotStayOnTheBootstrap() public {
         vm.prank(owner);
         address v = factory.activateVault(true, _noCalls());
@@ -418,7 +446,9 @@ contract FactoryTest is Test {
         factory.activateVaultByAsset(owner, address(usdc), 2e6, true, _noCalls(), deadline, sig);
     }
 
-    /// On the deadline itself it still works — the boundary is inclusive.
+    /**
+     * On the deadline itself it still works — the boundary is inclusive.
+     */
     function test_anActivationSignatureWorksUpToAndIncludingItsDeadline() public {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory sig = _signUntil(owner, address(usdc), 2e6, deadline, ownerPk);
@@ -429,7 +459,9 @@ contract FactoryTest is Test {
         assertEq(BittyV1Vault(payable(vault)).owner(), owner, "activated on the last second");
     }
 
-    /// The deadline is signed, not merely passed — submitting a later one does not extend it.
+    /**
+     * The deadline is signed, not merely passed — submitting a later one does not extend it.
+     */
     function test_theDeadlineCannotBeStretchedBySubmittingADifferentOne() public {
         uint256 signed = block.timestamp + 1 hours;
         bytes memory sig = _signUntil(owner, address(usdc), 2e6, signed, ownerPk);

@@ -14,9 +14,12 @@ import {VaultLocked} from "../interfaces/IBittyV1Vault.sol";
  * person it leaked from still needs to use their money afterwards, so a lock does not disable the
  * key — it shrinks what any holder of it can reach down to the box the owner drew in advance. Money
  * still leaves, but only to a destination vetted before the leak, or as a limit order or the owner's
- * market sale that buys stablecoins for this vault. Value may always come home. Nothing about the configuration moves in
- * EITHER direction, because taking away an option the owner still has is as much an attack as
- * granting one they never did.
+ * market sale that buys stablecoins for this vault — and that sale, like any market trade, may lose
+ * up to the daily loss allowance against oracle value, which is the one loss a held key keeps under
+ * a lock. Value may always come home. Nothing else about the configuration moves in EITHER
+ * direction, because taking away an option the owner still has is as much an attack as granting one
+ * they never did. The one exception is that loss allowance, which may be lowered, to 0 if need be, to
+ * cut what the key can still lose ({RiskLogic-updateRisk}).
  *
  * An emergency lock can be released and still lets the relayer take its fee. A forever lock can do
  * neither. Apart from that the two permit exactly the same things, so there is one gate, not two.

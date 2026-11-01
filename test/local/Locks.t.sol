@@ -189,7 +189,9 @@ contract LocksTest is Test {
         vault.foreverLock(coldId);
     }
 
-    /// Instant both ways: the owner can try it, see what it does, and carry on.
+    /**
+     * Instant both ways: the owner can try it, see what it does, and carry on.
+     */
     function test_theEmergencyLockIsInstantAndReversible() public {
         assertEq(vault.lockLevel(), 0, "unlocked to begin with");
 
@@ -202,7 +204,9 @@ contract LocksTest is Test {
         assertEq(vault.lockLevel(), 0, "and released in the same call");
     }
 
-    /// The forever lock needs no preparation and has no way back.
+    /**
+     * The forever lock needs no preparation and has no way back.
+     */
     function test_theForeverLockIsInstantAndFinal() public {
         vm.prank(owner);
         vault.foreverLock(coldId);
@@ -296,7 +300,9 @@ contract LocksTest is Test {
         }
     }
 
-    /// The same for a manager acting inside its grant: the bits do not outrank the lock.
+    /**
+     * The same for a manager acting inside its grant: the bits do not outrank the lock.
+     */
     function test_theManagerCannotInvestOrTradeWhileLocked() public {
         vm.prank(owner);
         vault.emergencyLock();
@@ -308,7 +314,9 @@ contract LocksTest is Test {
 
     // ── what is left open ─────────────────────────────────────────────────────
 
-    /// The evacuation route. Unmetered, because the destination was vetted before the compromise.
+    /**
+     * The evacuation route. Unmetered, because the destination was vetted before the compromise.
+     */
     function test_aWhitelistedSendStillWorksWhileLocked() public {
         vm.prank(owner);
         vault.emergencyLock();
@@ -395,7 +403,9 @@ contract LocksTest is Test {
         assertTrue(_f().usingBittyAllowList(), "and widens once unlocked");
     }
 
-    /// The conversion path needs its allowance, so the approval stays reachable.
+    /**
+     * The conversion path needs its allowance, so the approval stays reachable.
+     */
     function test_theIntentSpenderCanStillBeApprovedWhileLocked() public {
         vm.startPrank(owner);
         _f().updateProtocols(_one(address(intent)), _none());
@@ -433,7 +443,9 @@ contract LocksTest is Test {
         );
     }
 
-    /// A lock leaves the manager's grant dormant, so its signature stops counting; the owner's does not.
+    /**
+     * A lock leaves the manager's grant dormant, so its signature stops counting; the owner's does not.
+     */
     function test_theManagerMayNotSignWhileLocked() public {
         vm.prank(owner);
         vault.foreverLock(coldId);

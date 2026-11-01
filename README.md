@@ -63,8 +63,11 @@ would take effect.
    addresses that were already on your whitelist before the lock, or as limit orders that buy
    stablecoins for the vault itself. Your DeFi positions can still be unwound back into the vault, and
    you can still sell other assets into a stablecoin at market, so an asset your whitelisted address
-   cannot accept (a tokenised stock sent to an exchange, say) is never stuck. Your asset manager can do
-   nothing while the vault is locked.
+   cannot accept (a tokenised stock sent to an exchange, say) is not stuck. That sale is held to the
+   daily loss allowance like any market trade, so whoever holds the key can still lose up to it per day
+   while the vault holds assets other than stablecoins. While locked you can lower that allowance, but
+   not raise it, and nothing else in the risk settings can change. At 0 the sale is off, so assets your
+   whitelisted address cannot accept can then only be sold by limit order. Your asset manager can do nothing while the vault is locked.
 2. **If the thief unlocks it.** The emergency lock can be lifted with the owner key, so a thief can
    lift it too. Doing so does not bring back anything the lock cancelled: they have to schedule
    everything again and wait out the full timelock again, and you can lock again at any moment.
@@ -76,8 +79,10 @@ would take effect.
 
 Until you lock, a thief can take at most **the daily send allowance for each day**, plus market-trade
 losses up to the **daily loss allowance**. Once you lock, ordinary sends stop entirely. A thief who wants more
-than that has to wait out your timelock in public (a sale into a stablecoin under a lock is still
-held to the daily loss allowance, which a lock stops anyone raising), and one lock cancels everything they have queued.
+than that has to wait out your timelock in public, and one lock cancels everything they have queued.
+Under a lock, a sale into a stablecoin can still lose up to the daily loss allowance per day until the
+vault holds nothing but stablecoins; you can lower that allowance while locked, even to 0, but nobody
+can raise it.
 
 Three settings make that bound as tight as you want:
 

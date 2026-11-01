@@ -67,7 +67,9 @@ contract CompromisedKeyTest is Test {
     uint256 subId;
     uint256 coldId;
 
-    /// @dev A bare expectRevert would pass on any revert at all, including the wrong one.
+    /**
+     * @dev A bare expectRevert would pass on any revert at all, including the wrong one.
+     */
     function _notOwner(address who) internal pure returns (bytes memory) {
         return abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, who);
     }
@@ -135,7 +137,9 @@ contract CompromisedKeyTest is Test {
         assertEq(vault.lockLevel(), 2, "no key undoes this, including the owner's own");
     }
 
-    /// The delegate the attacker inherits does nothing at all once locked; the owner brings value home.
+    /**
+     * The delegate the attacker inherits does nothing at all once locked; the owner brings value home.
+     */
     function test_theInheritedDelegateIsSuspended() public {
         vm.prank(manager);
         _f().deposit(address(sky), address(usdc), 1_000e6);
@@ -156,7 +160,9 @@ contract CompromisedKeyTest is Test {
         assertEq(usdc.balanceOf(address(vault)), 10_000e6, "home, where the standing payments are paid from");
     }
 
-    /// And the keeper's sweep stops, because putting idle money to work is adding a position.
+    /**
+     * And the keeper's sweep stops, because putting idle money to work is adding a position.
+     */
     function test_theInheritedKeeperStops() public {
         vm.prank(owner);
         _f().setAutoYielding(AutoYield({asset: address(usdc), protocol: address(sky)}));

@@ -95,8 +95,9 @@ contract QueuedAuthorityTest is Test {
 
     // -- handing the vault over -----------------------------------------------
 
-    /// No timelock, no wait. A vault given no window behaves exactly as it did before.
-    /// Every vault has a timelock - a day until the owner sets one - so no handover is one call.
+    /**
+     * Every vault has a timelock - a day until the owner sets one - so no handover is one call.
+     */
     function test_aNewVaultsHandoverWaitsOutTheDefaultTimelock() public {
         vm.prank(owner);
         vault.transferOwnership(heir);
@@ -137,7 +138,9 @@ contract QueuedAuthorityTest is Test {
         assertEq(target, address(0), "nothing is pending any more: it happened");
     }
 
-    /// Authority follows: the old owner is locked out and the new one is in, by time alone.
+    /**
+     * Authority follows: the old owner is locked out and the new one is in, by time alone.
+     */
     function test_authorityMovesWithTheTimelock() public {
         _setWait(WAIT);
         vm.prank(owner);
@@ -203,7 +206,9 @@ contract QueuedAuthorityTest is Test {
         assertEq(vault.owner(), heir, "the same answer as before, now written down");
     }
 
-    /// And settling is idempotent — there is nothing to record twice.
+    /**
+     * And settling is idempotent — there is nothing to record twice.
+     */
     function test_settlingTwiceIsHarmless() public {
         _setWait(WAIT);
         vm.prank(owner);
@@ -217,7 +222,9 @@ contract QueuedAuthorityTest is Test {
 
     // -- stopping one ---------------------------------------------------------
 
-    /// For an ordinary change of mind, inside the window.
+    /**
+     * For an ordinary change of mind, inside the window.
+     */
     function test_aHandoverCanBeCancelledWhileItWaits() public {
         _setWait(WAIT);
         vm.prank(owner);
@@ -254,7 +261,9 @@ contract QueuedAuthorityTest is Test {
         assertEq(vault.owner(), heir);
     }
 
-    /// Naming someone else replaces the request and starts the wait again from here.
+    /**
+     * Naming someone else replaces the request and starts the wait again from here.
+     */
     function test_namingADifferentHeirRestartsTheWait() public {
         _setWait(WAIT);
         vm.prank(owner);
@@ -274,7 +283,9 @@ contract QueuedAuthorityTest is Test {
 
     // -- the lock -------------------------------------------------------------
 
-    /// What the window is FOR: the owner sees a handover they did not ask for, and locks.
+    /**
+     * What the window is FOR: the owner sees a handover they did not ask for, and locks.
+     */
     function test_aLockVoidsAHandoverThatHasNotMaturedYet() public {
         _setWait(WAIT);
         vm.prank(owner); // the leaked key
@@ -323,7 +334,9 @@ contract QueuedAuthorityTest is Test {
 
     // -- who, and to whom -----------------------------------------------------
 
-    /// Abandonment is gone: a vault with nobody to answer for it is what a forever lock is for.
+    /**
+     * Abandonment is gone: a vault with nobody to answer for it is what a forever lock is for.
+     */
     function test_theVaultCannotBeAbandoned() public {
         vm.prank(owner);
         vm.expectRevert(OwnershipNotRenounceable.selector);
@@ -382,7 +395,9 @@ contract QueuedAuthorityTest is Test {
         assertEq(p.timelockAt, 0);
     }
 
-    /// A tightening never waits, so it is never something the owner needs warning about.
+    /**
+     * A tightening never waits, so it is never something the owner needs warning about.
+     */
     function test_aTighteningIsNotReportedAsPending() public {
         _setWait(WAIT);
         vm.prank(owner);

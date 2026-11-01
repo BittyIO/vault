@@ -100,7 +100,9 @@ interface ISafeFallback {
  * — which both run through {SignatureChecker} and so must fall back to ERC-1271 correctly.
  */
 contract SafeOwnerTest is Test {
-    /// Existing tests are not about expiry, so they sign a deadline that never passes.
+    /**
+     * Existing tests are not about expiry, so they sign a deadline that never passes.
+     */
     uint256 constant DEADLINE = type(uint256).max;
 
     ISafe safe;
@@ -185,7 +187,9 @@ contract SafeOwnerTest is Test {
         s = ISafe(ISafeProxyFactory(f).createProxyWithNonce(singleton, init, 0));
     }
 
-    /// `count` owner signatures over `h`, concatenated in ascending owner order.
+    /**
+     * `count` owner signatures over `h`, concatenated in ascending owner order.
+     */
     function _sign(bytes32 h, uint256 count) private view returns (bytes memory sigs) {
         for (uint256 i; i < count; i++) {
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(pks[i], h);
@@ -193,7 +197,9 @@ contract SafeOwnerTest is Test {
         }
     }
 
-    /// The Safe executing a call, the way a multisig actually does it.
+    /**
+     * The Safe executing a call, the way a multisig actually does it.
+     */
     function _exec(address to, bytes memory data) private {
         bytes32 txHash = safe.getTransactionHash(
             to, 0, data, Operation.Call, 0, 0, 0, address(0), payable(address(0)), safe.nonce()
@@ -229,7 +235,9 @@ contract SafeOwnerTest is Test {
         assertEq(manager, makeAddr("manager"), "and appointed an asset manager");
     }
 
-    /// Nothing in the ownership path assumes an EOA: a Safe can hold a vault like any address.
+    /**
+     * Nothing in the ownership path assumes an EOA: a Safe can hold a vault like any address.
+     */
     function test_ownershipCanBeHandedToASafe() public {
         address eoa = makeAddr("eoa");
         BittyV1Vault v = BittyV1Vault(
@@ -279,7 +287,9 @@ contract SafeOwnerTest is Test {
         assertFalse(BittyV1VaultDeFiFacet(payable(address(vault))).usingBittyAllowList(), "relayed as the Safe");
     }
 
-    /// The threshold is the whole point of a multisig, so it has to survive the relay path intact.
+    /**
+     * The threshold is the whole point of a multisig, so it has to survive the relay path intact.
+     */
     function test_oneSignatureIsNotEnoughForATwoOfThree() public {
         ERC2771Forwarder.ForwardRequestData memory r =
             _relay(address(safe), address(vault), abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false)), 1);
@@ -350,8 +360,10 @@ contract SafeOwnerTest is Test {
 
     // ── the intent path ───────────────────────────────────────────────────────
 
-    /// CoW orders are signed off chain and checked through this predicate, so a Safe-owned vault would
-    /// be unable to trade at all if it compared against anything EOA-shaped.
+    /**
+     * CoW orders are signed off chain and checked through this predicate, so a Safe-owned vault would
+     * be unable to trade at all if it compared against anything EOA-shaped.
+     */
     function test_aSafeOwnerMaySignIntentOrders() public view {
         assertTrue(
             BittyV1VaultDeFiFacet(payable(address(vault)))

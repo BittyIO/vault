@@ -159,7 +159,9 @@ contract SendsTest is Test {
         assertEq(usdc.balanceOf(payee), 1000e6);
     }
 
-    /// It ROLLS: the allowance refills on its own once the day has passed.
+    /**
+     * It ROLLS: the allowance refills on its own once the day has passed.
+     */
     function test_theSendDailyAllowanceRefillsAfterADay() public {
         _cap(1000);
         _send(owner, payee, address(usdc), 1000e6);

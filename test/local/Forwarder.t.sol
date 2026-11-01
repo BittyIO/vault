@@ -15,10 +15,12 @@ import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {NotTrustedForwarder} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR} from "../../src/logic/Constants.sol";
 
-/// Answers ERC-1271 for one key, so a contract-owned vault can be relayed.
 import {BittyV1ForwarderBootstrap, NotOwner as BootstrapNotOwner} from "../../src/BittyV1ForwarderBootstrap.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
+/**
+ * Answers ERC-1271 for one key, so a contract-owned vault can be relayed.
+ */
 contract ContractWallet {
     address public signer;
 
@@ -39,7 +41,9 @@ contract ContractWallet {
     }
 }
 
-/// Trusts the forwarder and does nothing — a stand-in target for an injected foreign request.
+/**
+ * Trusts the forwarder and does nothing — a stand-in target for an injected foreign request.
+ */
 contract TrustingNoop {
     address private immutable FWD;
 
@@ -54,8 +58,10 @@ contract TrustingNoop {
     function ping() external {}
 }
 
-/// Trusts the forwarder and, the first time it is poked, re-enters {execute} with a pre-armed request
-/// aimed at a DIFFERENT target — the reentrancy that could poison the transient nonce target mid-batch.
+/**
+ * Trusts the forwarder and, the first time it is poked, re-enters {execute} with a pre-armed request
+ * aimed at a DIFFERENT target — the reentrancy that could poison the transient nonce target mid-batch.
+ */
 contract ReenteringTarget {
     BittyV1VaultForwarder private immutable FWD;
     ERC2771Forwarder.ForwardRequestData private injected;
@@ -131,7 +137,9 @@ contract ForwarderTest is Test {
         return BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
     }
 
-    /// An owner-only call, harmless and observable.
+    /**
+     * An owner-only call, harmless and observable.
+     */
     function _restrictToOwnListCall() internal pure returns (bytes memory) {
         return abi.encodeWithSignature("useBittyAllowList(bool)", false);
     }
@@ -160,7 +168,9 @@ contract ForwarderTest is Test {
         return _signNonce(r, pk, fwd.nonceFor(r.from, r.to));
     }
 
-    /// Requests batched together consume consecutive lane nonces, so each has to be signed for its own.
+    /**
+     * Requests batched together consume consecutive lane nonces, so each has to be signed for its own.
+     */
     function _signNonce(ERC2771Forwarder.ForwardRequestData memory r, uint256 pk, uint256 nonce)
         internal
         view
@@ -210,7 +220,9 @@ contract ForwarderTest is Test {
         fwd.executeWithFee(r, address(usdc), 1e6);
     }
 
-    /// Permissionless relaying at the relayer's own expense is still ERC-2771's default.
+    /**
+     * Permissionless relaying at the relayer's own expense is still ERC-2771's default.
+     */
     function test_anyoneMayRelayAtTheirOwnExpense() public {
         ERC2771Forwarder.ForwardRequestData memory r =
             _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
@@ -376,7 +388,9 @@ contract ForwarderTest is Test {
 
     // ── nonce lanes ───────────────────────────────────────────────────────────
 
-    /// Replaying a spent request fails: its lane has moved on.
+    /**
+     * Replaying a spent request fails: its lane has moved on.
+     */
     function test_replayIsRefused() public {
         ERC2771Forwarder.ForwardRequestData memory r =
             _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
@@ -436,7 +450,9 @@ contract ForwarderTest is Test {
 
     // ── fee ceilings ──────────────────────────────────────────────────────────
 
-    /// Checked before the call runs, so an unaffordable fee costs the relayer nothing.
+    /**
+     * Checked before the call runs, so an unaffordable fee costs the relayer nothing.
+     */
     function test_feeOverTheVaultBudgetIsRefusedUpFront() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
@@ -452,7 +468,9 @@ contract ForwarderTest is Test {
         assertEq(fwd.nonceFor(owner, address(vaultA)), 0, "and the lane did not move");
     }
 
-    /// A WETH fee is valued in USD up front, as the vault values it — not as one token, one dollar.
+    /**
+     * A WETH fee is valued in USD up front, as the vault values it — not as one token, one dollar.
+     */
     function test_aWethFeeOverTheVaultBudgetIsRefusedUpFront() public {
         MockERC20 weth = new MockERC20("Wrapped Ether", "WETH", 18);
         MockFeed feed = new MockFeed();
@@ -476,7 +494,6 @@ contract ForwarderTest is Test {
         assertEq(weth.balanceOf(BITTY_FEE_COLLECTOR), 0.002e18);
     }
 
-    /// Fee 0 relays without charging at all.
     function test_zeroFeeRelaysWithoutCharging() public {
         ERC2771Forwarder.ForwardRequestData memory r =
             _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
@@ -488,7 +505,9 @@ contract ForwarderTest is Test {
 
     // ── batch ─────────────────────────────────────────────────────────────────
 
-    /// One vault, one fee, several requests — the reason the batch entry point exists.
+    /**
+     * One vault, one fee, several requests — the reason the batch entry point exists.
+     */
     function test_batchChargesOnceForTheWholeLot() public {
         ERC2771Forwarder.ForwardRequestData[] memory rs = new ERC2771Forwarder.ForwardRequestData[](1);
         rs[0] = _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
@@ -499,7 +518,9 @@ contract ForwarderTest is Test {
         assertEq(usdc.balanceOf(BITTY_FEE_COLLECTOR), 2e6, "charged once");
     }
 
-    /// Every request must target the named vault, or one vault would pay for another's calls.
+    /**
+     * Every request must target the named vault, or one vault would pay for another's calls.
+     */
     function test_batchRefusesAMixedTarget() public {
         ERC2771Forwarder.ForwardRequestData[] memory rs = new ERC2771Forwarder.ForwardRequestData[](1);
         rs[0] = _sign(_req(owner, address(vaultB), _restrictToOwnListCall()), ownerPk);
@@ -516,7 +537,9 @@ contract ForwarderTest is Test {
         fwd.executeBatchWithFee(rs, address(vaultA), address(usdc), 0);
     }
 
-    /// OpenZeppelin's own batch is disabled: it cannot say which vault pays, and the lane needs a target.
+    /**
+     * OpenZeppelin's own batch is disabled: it cannot say which vault pays, and the lane needs a target.
+     */
     function test_openZeppelinBatchIsDisabled() public {
         ERC2771Forwarder.ForwardRequestData[] memory rs = new ERC2771Forwarder.ForwardRequestData[](1);
         rs[0] = _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
@@ -527,7 +550,9 @@ contract ForwarderTest is Test {
 
     // ── admin ─────────────────────────────────────────────────────────────────
 
-    /// The owner is the guard's configured owner — no per-forwarder owner to squat or initialize.
+    /**
+     * The owner is the guard's configured owner — no per-forwarder owner to squat or initialize.
+     */
     function test_ownerIsTheGuardConfiguredOwner() public view {
         assertEq(fwd.owner(), fwdOwner, "owner is read from the guard config");
     }
@@ -540,7 +565,9 @@ contract ForwarderTest is Test {
 
     // ── value handling and inner failure ──────────────────────────────────────
 
-    /// The request declares the ETH it carries; the relayer must send exactly that or the call is a lie.
+    /**
+     * The request declares the ETH it carries; the relayer must send exactly that or the call is a lie.
+     */
     function test_aRelayerCannotUnderfundTheDeclaredValue() public {
         ERC2771Forwarder.ForwardRequestData memory r = _req(owner, address(vaultA), _restrictToOwnListCall());
         r.value = 1 ether;
@@ -552,8 +579,10 @@ contract ForwarderTest is Test {
         fwd.executeWithFee(r, address(usdc), 1e6);
     }
 
-    /// Charging happens after the call, so a request the vault rejects must take the whole relay down
-    /// rather than leaving the owner billed for work that did not happen.
+    /**
+     * Charging happens after the call, so a request the vault rejects must take the whole relay down
+     * rather than leaving the owner billed for work that did not happen.
+     */
     function test_aRequestTheVaultRejectsRevertsTheWholeRelay() public {
         uint256 strangerPk = 0xBEEF;
         ERC2771Forwarder.ForwardRequestData memory r =
@@ -578,8 +607,10 @@ contract ForwarderTest is Test {
         assertTrue(_bittyListOn(vaultA), "the successful leg was rolled back too");
     }
 
-    /// The batch carries no ETH — the fee is the only value that moves — so a request declaring some
-    /// is refused outright rather than silently relayed with zero.
+    /**
+     * The batch carries no ETH — the fee is the only value that moves — so a request declaring some
+     * is refused outright rather than silently relayed with zero.
+     */
     function test_aBatchRequestCarryingValueIsRefused() public {
         ERC2771Forwarder.ForwardRequestData[] memory rs = new ERC2771Forwarder.ForwardRequestData[](1);
         ERC2771Forwarder.ForwardRequestData memory r = _req(owner, address(vaultA), _restrictToOwnListCall());
@@ -698,7 +729,9 @@ contract ForwarderTest is Test {
         assertEq(usdc.balanceOf(one), 30e6, "both legs, to the one recipient");
     }
 
-    /// Two relayed calls in one batch, charged once — the reason executeBatchWithFee exists.
+    /**
+     * Two relayed calls in one batch, charged once — the reason executeBatchWithFee exists.
+     */
     function test_aBatchOfRelayedSendsIsChargedOnce() public {
         address one = makeAddr("one");
         address two = makeAddr("two");
@@ -717,9 +750,11 @@ contract ForwarderTest is Test {
 
     // ── the bootstrap ─────────────────────────────────────────────────────────
 
-    /// The forwarder's address is compiled into every vault, so it must survive a change of build.
-    /// Born on the bootstrap, moved to the real forwarder, and upgradeable again afterwards - all at
-    /// one address, with the relayer allowlist and nonces intact.
+    /**
+     * The forwarder's address is compiled into every vault, so it must survive a change of build.
+     * Born on the bootstrap, moved to the real forwarder, and upgradeable again afterwards - all at
+     * one address, with the relayer allowlist and nonces intact.
+     */
     function test_forwarderSurvivesAnImplementationChange() public {
         address proxy = address(new ERC1967Proxy(address(new BittyV1ForwarderBootstrap()), ""));
         address build = address(new BittyV1VaultForwarder());
@@ -738,7 +773,9 @@ contract ForwarderTest is Test {
         assertTrue(f.approvedRelayers(relayer), "relayer allowlist survived");
     }
 
-    /// Only the owner may replace the relay logic once the forwarder is live.
+    /**
+     * Only the owner may replace the relay logic once the forwarder is live.
+     */
     function test_onlyOwnerMayUpgradeTheForwarder() public {
         address next = address(new BittyV1VaultForwarder());
         vm.prank(makeAddr("stranger"));
@@ -746,8 +783,10 @@ contract ForwarderTest is Test {
         UUPSUpgradeable(address(fwd)).upgradeToAndCall(next, "");
     }
 
-    /// The proxy address is reproducible on every chain, so the window before the first upgrade is
-    /// reachable by anyone on a chain Bitty has not deployed to yet. Only the guard's owner may close it.
+    /**
+     * The proxy address is reproducible on every chain, so the window before the first upgrade is
+     * reachable by anyone on a chain Bitty has not deployed to yet. Only the guard's owner may close it.
+     */
     function test_onlyTheOwnerMayUpgradeOffTheForwarderBootstrap() public {
         address proxy = address(new ERC1967Proxy(address(new BittyV1ForwarderBootstrap()), ""));
         address build = address(new BittyV1VaultForwarder());
