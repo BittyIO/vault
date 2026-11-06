@@ -68,10 +68,11 @@ contract MockGuard {
     }
 
     /**
-     * As in the real guard: out of the registry, but its category kept for the sold leg of a trade.
+     * As in the real guard: out of the registry, but its category kept for the sold leg of a trade,
+     * without the stablecoin bit, so a removed stablecoin is priced by its feed.
      */
     function removeAsset(address a) external {
-        removedAssetCategory[a] = assetCategory[a];
+        removedAssetCategory[a] = assetCategory[a] & ~ASSET_STABLE_COIN;
         assetCategory[a] = 0;
     }
 
