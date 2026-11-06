@@ -198,6 +198,32 @@ contract MarketTradeRealGuardTest is Test {
         _sell(address(usdc), 1_000e6, address(usdt), 1_000e6);
     }
 
+    /**
+     * The case that decided I-05: a forever-locked vault can only send to its escape destination, and
+     * an exchange that does not list the asset the guard removed would leave it stranded. Selling it
+     * into a stablecoin the exchange does take is the only way out, so the real guard must allow it.
+     * Clearing the asset's feed takes even that sale away, which is why it is the guard's freeze lever.
+     */
+    function test_aForeverLockedVaultCanSellAnAssetTheRealGuardRemovedIntoAStablecoin() public {
+        vm.prank(owner);
+        uint256 escape = vault.addWhitelistedRecipient(makeAddr("exchange"));
+        vm.warp(block.timestamp + 31 days);
+        wethFeed.set(2_000e8, block.timestamp, block.timestamp);
+        vm.prank(owner);
+        vault.foreverLock(escape);
+
+        vm.prank(GUARD_DEPLOYER);
+        guard.removeAssets(_one(address(weth)));
+
+        _sell(address(weth), 1e18, address(usdc), 1_990e6);
+        assertEq(usdc.balanceOf(address(vault)), 1_990e6);
+
+        vm.prank(GUARD_DEPLOYER);
+        guard.setPriceFeeds(_one(address(weth)), new address[](1), new uint32[](1), new address[](1));
+        vm.expectRevert(abi.encodeWithSelector(PriceFeedMissing.selector, address(weth)));
+        _sell(address(weth), 1e18, address(usdc), 1_990e6);
+    }
+
     function test_anAssetTheRealGuardReAddsCanBeBoughtAgain() public {
         vm.startPrank(GUARD_DEPLOYER);
         guard.removeAssets(_one(address(weth)));
