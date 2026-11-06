@@ -31,6 +31,13 @@ uint64 constant SYSTEM_MAX_FEE_PER_OP = 10;
 
 address constant SENTINEL = address(0x1);
 
+// TRON: what CHAINID / block.chainid returns on each network (the low 4 bytes of the genesis block hash).
+uint256 constant TRON_MAINNET_CHAIN_ID = 728126428; // 0x2b6653dc
+uint256 constant TRON_NILE_CHAIN_ID = 3448148188; // 0xcd8690dc
+
+// TRON: the native coin is TRX, counted in sun (6 decimals), not wei.
+uint8 constant NATIVE_DECIMALS = 6;
+
 uint256 constant SEQUENCER_GRACE_PERIOD = 1 hours; // L2 sequencer grace period
 
 uint256 constant MAX_MARKET_TRADE_SLIPPAGE_BPS = 500; // 5%

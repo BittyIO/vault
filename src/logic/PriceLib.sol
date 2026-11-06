@@ -5,7 +5,7 @@ import {ASSET_STABLE_COIN, PriceFeed} from "guard-contracts/src/interfaces/IBitt
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {PriceFeedMissing, PriceStale, SequencerDown} from "../interfaces/IBittyV1DeFi.sol";
-import {SEQUENCER_GRACE_PERIOD} from "./Constants.sol";
+import {SEQUENCER_GRACE_PERIOD, NATIVE_DECIMALS} from "./Constants.sol";
 
 /**
  * @dev The slice of Chainlink's AggregatorV3Interface the vault reads.
@@ -84,6 +84,6 @@ library PriceLib {
     }
 
     function _decimals(address asset) private view returns (uint8) {
-        return asset == address(0) ? 18 : IERC20Metadata(asset).decimals();
+        return asset == address(0) ? NATIVE_DECIMALS : IERC20Metadata(asset).decimals();
     }
 }

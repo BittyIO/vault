@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {Create2} from "openzeppelin-contracts/contracts/utils/Create2.sol";
 import {EIP712} from "openzeppelin-contracts/contracts/utils/cryptography/EIP712.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptography/SignatureChecker.sol";
@@ -19,6 +18,7 @@ import {
     CFG_OWNER
 } from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {BITTY_GUARD, BITTY_VAULT_BOOTSTRAP} from "./logic/Constants.sol";
+import {Create2Address} from "./logic/Create2Address.sol";
 
 /**
  * @dev Only the vault's activation selector, declared here rather than imported from {BittyV1Vault}.
@@ -146,7 +146,7 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
     }
 
     function _predict(bytes32 salt) private view returns (address) {
-        return Create2.computeAddress(salt, _VAULT_PROXY_INITCODE_HASH);
+        return Create2Address.compute(salt, _VAULT_PROXY_INITCODE_HASH, address(this));
     }
 
     function vaultAddress(address owner) external view returns (address) {
