@@ -183,3 +183,10 @@ via_ir = false
 [[profile.safe.compilation_restrictions]]
 paths = "test/safe/SafeArtifacts.sol"
 via_ir = false
+
+# TRON. Same sources and settings as the default build, targeting the TVM: probed on 2026-11-07
+# (vault/tron `cli.mjs probe`), mainnet and Nile both run PUSH0, TSTORE/TLOAD and MCOPY, so cancun.
+# Its own output directory, so the TRON deploy runner never reads an EVM artifact.
+[profile.tron]
+evm_version = "cancun"
+out = "out-tron"

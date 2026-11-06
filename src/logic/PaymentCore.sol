@@ -11,6 +11,7 @@ import {
 import {IBittyV1Guard, ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {TRC20Transfer} from "protocol-contracts/src/libs/tron/TRC20Transfer.sol";
 import {WETH} from "solmate/tokens/WETH.sol";
 import {LockLib} from "./LockLib.sol";
 import {BittyStorage, Deferred, VaultStorage, DeFiStorage} from "./BittyStorage.sol";
@@ -63,7 +64,7 @@ library PaymentCore {
                 tstore(_PAYING_ETH_SLOT, 0)
             }
         } else {
-            IERC20(asset).safeTransfer(to, amount);
+            TRC20Transfer.safeTransfer(IERC20(asset), to, amount); // TRON USDT returns false on success
         }
     }
 

@@ -15,6 +15,7 @@ import {IBittyV1Guard, ASSET_STABLE_COIN, PriceFeed} from "guard-contracts/src/i
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {TRC20Transfer} from "protocol-contracts/src/libs/tron/TRC20Transfer.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {BittyStorage, VaultStorage} from "./BittyStorage.sol";
 import {TimelockLib} from "./TimelockLib.sol";
@@ -136,7 +137,7 @@ library TokenAsGasLogic {
         uint256 value = _feeValue(vaultStorage, asset, amount);
         if (value > uint256(SYSTEM_MAX_FEE_PER_OP) * 1e18) revert FeeExceedsPerOpCap();
         if (IERC20(asset).balanceOf(address(this)) < amount) revert InsufficientBalance();
-        IERC20(asset).safeTransfer(BITTY_FEE_COLLECTOR, amount);
+        TRC20Transfer.safeTransfer(IERC20(asset), BITTY_FEE_COLLECTOR, amount); // TRON USDT: false on success
         emit IBittyV1Owner.ActivationFeePaid(asset, amount);
     }
 
@@ -188,7 +189,7 @@ library TokenAsGasLogic {
 
         vaultStorage.gasBudgetDay = today;
         vaultStorage.gasSpentToday = uint96(spent);
-        IERC20(asset).safeTransfer(BITTY_FEE_COLLECTOR, amount);
+        TRC20Transfer.safeTransfer(IERC20(asset), BITTY_FEE_COLLECTOR, amount); // TRON USDT: false on success
         emit IBittyV1Owner.RelayerFeePaid(asset, amount, spent, limit - spent);
     }
 }
