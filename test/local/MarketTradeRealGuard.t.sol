@@ -143,11 +143,100 @@ contract MarketTradeRealGuardTest is Test {
         IDeposit(address(vault)).deposit(address(lending), address(usdc), 1e6);
     }
 
-    function test_anAssetTheRealGuardRemovedIsRefused() public {
+    /**
+     * Audit I-05, against the real guard rather than the mock that hid it: removal takes an asset out
+     * of use, not out of the vaults that hold it. They can still sell it, at its feed's price, but
+     * nothing can buy it.
+     */
+    function test_anAssetTheRealGuardRemovedCanStillBeSoldButNotBought() public {
         vm.prank(GUARD_DEPLOYER);
         guard.removeAssets(_one(address(weth)));
+
+        _sell(address(weth), 1e18, address(usdc), 1_990e6);
+        assertEq(weth.balanceOf(address(vault)), 9e18);
+        assertEq(usdc.balanceOf(address(vault)), 1_990e6);
+
+        vm.expectRevert(MarketTradePriceTooLow.selector);
+        _sell(address(weth), 1e18, address(usdc), 1); // still held to its feed
+
         vm.expectRevert(NotRegistered.selector);
-        _sell(address(weth), 1e18, address(usdc), 2_000e6);
+        _sell(address(usdc), 1_000e6, address(weth), 0.5e18);
+    }
+
+    /**
+     * The motivating case: a stablecoin that lost its peg. Removed, it is no longer counted as a
+     * dollar, so it is sold at its feed's price instead of being stuck behind the 5% slippage bound.
+     */
+    function test_aDepeggedStablecoinTheRealGuardRemovedSellsAtItsFeedPrice() public {
+        MockERC20 usdt = new MockERC20("Tether", "USDT", 6);
+        MockFeed usdcFeed = new MockFeed();
+        usdcFeed.set(0.8e8, block.timestamp, block.timestamp); // $0.80
+        vm.startPrank(GUARD_DEPLOYER);
+        guard.addAssets(_one(address(usdt)), _u8(ASSET_STABLE_COIN | ASSET_AMM_LIQUID));
+        guard.setPriceFeeds(_one(address(usdc)), _one(address(usdcFeed)), _u32(1 hours), new address[](1));
+        guard.removeAssets(_one(address(usdc)));
+        vm.stopPrank();
+        usdc.mint(address(vault), 1_000e6);
+
+        _sell(address(usdc), 1_000e6, address(usdt), 800e6);
+        assertEq(usdt.balanceOf(address(vault)), 800e6);
+    }
+
+    /**
+     * A removed stablecoin with no feed has no price, so it cannot be sold at market until the guard
+     * is given one: failing closed, as every other unpriced trade does.
+     */
+    function test_aRemovedStablecoinWithNoFeedCannotBeSoldAtMarket() public {
+        MockERC20 usdt = new MockERC20("Tether", "USDT", 6);
+        vm.startPrank(GUARD_DEPLOYER);
+        guard.addAssets(_one(address(usdt)), _u8(ASSET_STABLE_COIN | ASSET_AMM_LIQUID));
+        guard.removeAssets(_one(address(usdc)));
+        vm.stopPrank();
+        usdc.mint(address(vault), 1_000e6);
+
+        vm.expectRevert(abi.encodeWithSelector(PriceFeedMissing.selector, address(usdc)));
+        _sell(address(usdc), 1_000e6, address(usdt), 1_000e6);
+    }
+
+    /**
+     * The case that decided I-05: a forever-locked vault can only send to its escape destination, and
+     * an exchange that does not list the asset the guard removed would leave it stranded. Selling it
+     * into a stablecoin the exchange does take is the only way out, so the real guard must allow it.
+     * Clearing the asset's feed takes even that sale away, which is why it is the guard's freeze lever.
+     */
+    function test_aForeverLockedVaultCanSellAnAssetTheRealGuardRemovedIntoAStablecoin() public {
+        vm.prank(owner);
+        uint256 escape = vault.addWhitelistedRecipient(makeAddr("exchange"));
+        vm.warp(block.timestamp + 31 days);
+        wethFeed.set(2_000e8, block.timestamp, block.timestamp);
+        vm.prank(owner);
+        vault.foreverLock(escape);
+
+        vm.prank(GUARD_DEPLOYER);
+        guard.removeAssets(_one(address(weth)));
+
+        _sell(address(weth), 1e18, address(usdc), 1_990e6);
+        assertEq(usdc.balanceOf(address(vault)), 1_990e6);
+
+        vm.prank(GUARD_DEPLOYER);
+        guard.setPriceFeeds(_one(address(weth)), new address[](1), new uint32[](1), new address[](1));
+        vm.expectRevert(abi.encodeWithSelector(PriceFeedMissing.selector, address(weth)));
+        _sell(address(weth), 1e18, address(usdc), 1_990e6);
+    }
+
+    function test_anAssetTheRealGuardReAddsCanBeBoughtAgain() public {
+        vm.startPrank(GUARD_DEPLOYER);
+        guard.removeAssets(_one(address(weth)));
+        guard.addAssets(_one(address(weth)), _u8(ASSET_CRYPTO | ASSET_AMM_LIQUID));
+        vm.stopPrank();
+        usdc.mint(address(vault), 2_000e6);
+        _sell(address(usdc), 2_000e6, address(weth), 1e18);
+        assertEq(weth.balanceOf(address(vault)), 11e18);
+    }
+
+    function _u32(uint32 v) internal pure returns (uint32[] memory r) {
+        r = new uint32[](1);
+        r[0] = v;
     }
 
     function _one(address a) internal pure returns (address[] memory r) {
