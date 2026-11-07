@@ -20,6 +20,9 @@ uint64 constant MAX_SEND_DAILY_ALLOWANCE = 10_000;
 
 uint64 constant MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE = 10_000;
 
+// What a new vault starts with: a starting value, not a floor — the owner may lower it at once, to 0.
+uint64 constant DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE = 1_000;
+
 // How an allowance of 0 is stored: a stored 0 already means "never set", which reads as the maximum.
 uint64 constant ALLOWANCE_ZERO = type(uint64).max;
 

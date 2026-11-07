@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {LegacySends} from "../helpers/LegacySends.sol";
 import {ASSET_STABLE_COIN, CFG_OWNER} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -134,7 +135,9 @@ contract ForwarderTest is Test {
     function _newVault(address o) internal returns (BittyV1Vault) {
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (o, gasWrapped, false, address(0), 0, new bytes[](0)));
-        return BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
+        BittyV1Vault v = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
+        LegacySends.asCreatedBefore109(address(v));
+        return v;
     }
 
     /**

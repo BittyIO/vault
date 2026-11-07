@@ -152,11 +152,28 @@ library WhitelistLogic {
         emit IBittyV1Owner.WhitelistedRecipientPaid(id, recipient, asset, amount);
     }
 
+    /**
+     * The address entry `id` pays to, if it can be paid right now — the same test every payout to a
+     * whitelisted recipient passes, for assets the vault hands over itself (an ERC-721) rather than
+     * through {PaymentCore-payOut}. Settles a landed removal and records a verdict a lock made final,
+     * exactly as a payout does.
+     */
+    function payableRecipient(uint256 id) external returns (address recipient) {
+        VaultStorage storage vaultStorage = BittyStorage.vault();
+        PaymentCore.onlyInitialized(vaultStorage);
+        return _payableRecipient(vaultStorage, id);
+    }
+
     function _sendToWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id, address asset, uint256 amount)
         private
         returns (address recipient)
     {
         if (amount == 0) revert AmountIsZero();
+        recipient = _payableRecipient(vaultStorage, id);
+        PaymentCore.payOut(vaultStorage, asset, amount, recipient);
+    }
+
+    function _payableRecipient(VaultStorage storage vaultStorage, uint256 id) private returns (address recipient) {
         WhitelistEntry storage entry = vaultStorage.whitelistedRecipient[id];
         recipient = entry.recipient;
         if (entry.removeAt != 0) recipient = _settle(vaultStorage, id, entry);
@@ -167,8 +184,6 @@ library WhitelistLogic {
         if (LockLib.requireHonoured(deferred.lockEpoch, deferred.effectiveAt)) {
             vaultStorage.whitelistedRecipientDeferred[id].lockEpoch = LockLib.SETTLED;
         }
-
-        PaymentCore.payOut(vaultStorage, asset, amount, recipient);
     }
 
     /**
