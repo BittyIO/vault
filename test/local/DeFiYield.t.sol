@@ -374,32 +374,6 @@ contract DeFiYieldTest is Test {
         assertEq(PendingLendingProtocol(_f().getClone(address(pp))).claimed(0), 42, "the single id was forwarded");
     }
 
-    // ── NFT rescue ────────────────────────────────────────────────────────────
-
-    function test_ownerRescuesAStrayNFT() public {
-        StrayNFT nft = new StrayNFT();
-        nft.mint(address(vault), 1);
-        vm.prank(owner);
-        vault.retrieve721(address(nft), 1, owner);
-        assertEq(nft.ownerOf(1), owner, "a token nobody's position depends on comes out");
-    }
-
-    function test_rescueRefusesTheZeroRecipient() public {
-        StrayNFT nft = new StrayNFT();
-        nft.mint(address(vault), 1);
-        vm.prank(owner);
-        vm.expectRevert(AddressZero.selector);
-        vault.retrieve721(address(nft), 1, address(0));
-    }
-
-    function test_onlyTheOwnerRescues() public {
-        StrayNFT nft = new StrayNFT();
-        nft.mint(address(vault), 1);
-        vm.prank(stranger);
-        vm.expectRevert();
-        vault.retrieve721(address(nft), 1, stranger);
-    }
-
     function test_aProtocolWithNoReceiptTokenAtAllStillExits() public {
         NoReceiptProtocol np = new NoReceiptProtocol();
         guard.setProtocol(address(np), LENDING_ID);

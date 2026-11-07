@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {LegacySends} from "../helpers/LegacySends.sol";
 import {ASSET_STABLE_COIN, ASSET_CRYPTO} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -96,6 +97,7 @@ contract VaultEntrypointsTest is Test {
         facet = new BittyV1VaultDeFiFacet();
         impl = new BittyV1Vault(address(facet));
         vault = _newVault(0, address(0), 0);
+        LegacySends.asCreatedBefore109(address(vault));
 
         usdc = new MockERC20("USD Coin", "USDC", 6);
         proto = new MockLendingProtocol();

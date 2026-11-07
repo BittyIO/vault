@@ -29,12 +29,14 @@ interface IBittyV1Owner {
      * removal of one the owner can already pay, an asset-manager grant, a handover of the
      * vault, and any loosening of these numbers. At least 1 day, at most 30.
      * `sendDailyAllowance` is the ceiling on what may leave through regular sends, in whole USD per
-     * day, from 0 to 10,000; 0 turns regular sends off. Regular sends are held to stablecoins, the only assets that can be
+     * day, from 0 to 10,000; 0 turns regular sends off. A new vault starts at 0, so no regular send leaves
+     * it until the owner turns sends on, which waits out the timelock. Market-trade loss is bounded
+     * separately, by `marketTradeDailyLossAllowance`. Regular sends are held to stablecoins, the only assets that can be
      * metered without reading a price. More than this, and any other asset, leaves through a
      * whitelisted recipient — one the owner set up at least a timelock before.
      *
      * `marketTradeDailyLossAllowance` is the market-trade protection, from 0 to 10,000 whole USD per
-     * day; 0 turns market trading off. A trade is a way out of the vault too: a leaked key that sells into a pool it set
+     * day; 0 turns market trading off. A new vault starts at 1,000. A trade is a way out of the vault too: a leaked key that sells into a pool it set
      * up itself takes value without sending anything. So every market trade, the owner's or an asset
      * manager's, is valued at oracle price (a stablecoin counts as a dollar), must come out within 5%
      * of what it gave up, and what it came out short — price impact and fees included — is charged
@@ -123,12 +125,16 @@ interface IBittyV1Owner {
     function updateRisk(RiskSettings calldata riskSettings) external;
 
     /**
-     * @notice Retrieve an ERC-721 token from the vault.
+     * @notice Send an ERC-721 token to a whitelisted recipient. An NFT cannot be valued, so it cannot
+     *         be metered by the send allowance; it leaves only the way unmetered value does. Allowed
+     *         under either lock.
+     * @dev Reverts as a payout to the recipient would: {WhitelistedRecipientNotFound},
+     *      {ProtectionPeriodNotEnded} before it matures, {VaultLocked} for one a lock voided.
      * @param contractAddress The address of the ERC-721 contract.
-     * @param tokenId The token ID to retrieve.
-     * @param to The address to send the token to.
+     * @param tokenId The token ID to send.
+     * @param recipientId The id of the whitelisted recipient to send it to.
      */
-    function retrieve721(address contractAddress, uint256 tokenId, address to) external;
+    function retrieve721(address contractAddress, uint256 tokenId, uint256 recipientId) external;
 
     /**
      * @notice Send to a whitelisted recipient.

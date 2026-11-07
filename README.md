@@ -41,14 +41,15 @@ your key is therefore stuck in the open for at least one full timelock, while yo
 
 | The thief tries to… | What happens |
 | --- | --- |
-| Send everything to their own address | A send to an address not on your whitelist is capped by the **daily send allowance**: in USD, at most $10,000, over a one-day period that opens with the first send (not a rolling 24 hours, so up to twice the allowance can leave across the change of period). It cannot be raised past $10,000; the owner can set it to $0 to turn regular sends off. They get at most one allowance per period, not the vault. |
+| Send everything to their own address | A send to an address not on your whitelist is capped by the **daily send allowance**: in USD, at most $10,000, over a one-day period that opens with the first send (not a rolling 24 hours, so up to twice the allowance can leave across the change of period). It cannot be raised past $10,000; the owner can set it to $0 to turn regular sends off. **A new vault starts at $0**, so a thief who steals the key of a vault that never turned sends on gets nothing this way: turning them on waits out the timelock. Otherwise they get at most one allowance per period, not the vault. |
+| Send your NFTs to their own address | An NFT can only go to a whitelisted address you can already pay, so it waits out the timelock like any new destination. |
 | Add their address to the whitelist, then send everything | The new entry waits out the timelock before it can be paid. |
 | Raise the daily send allowance | Scheduled; waits out the timelock. |
 | Shorten the timelock so the above go faster | Scheduled; it waits out the **current** timelock. |
 | Remove your own safe addresses from the whitelist | Removals are scheduled too, so your escape routes stay usable. |
 | Transfer the vault to a new owner | Scheduled; waits out the timelock. |
 | Appoint their own asset manager | Scheduled; waits out the timelock. An asset manager can only use registered DeFi protocols on the vault's behalf anyway, never send money out. |
-| Dump assets through a rigged pool | Market trades are checked against an oracle price and capped by the **daily market-trade loss allowance**. |
+| Dump assets through a rigged pool | Market trades are checked against an oracle price and capped by the **daily market-trade loss allowance**. A new vault starts it at $1,000 (the most it can be raised to is $10,000, after the timelock). |
 | Sell assets through a limit order | The proceeds always settle back into the vault, and only into assets Bitty's guard registers. The vault does not check a limit order's price; CoW Swap's solver competition fills it at the market price or better. |
 | Upgrade the vault to malicious code | Only implementations registered by Bitty's guard, and only newer versions, are accepted, and not at all while the vault is locked. |
 | Pay your existing whitelisted addresses | Allowed, but those are addresses you chose before the theft, so the money goes to you. |
@@ -77,7 +78,7 @@ would take effect.
 
 ### The most you can lose
 
-Until you lock, a thief can take at most **the daily send allowance for each day**, plus market-trade
+Until you lock, a thief can take at most **the daily send allowance for each day** (nothing, if you never turned sends on), plus market-trade
 losses up to the **daily loss allowance**. Once you lock, ordinary sends stop entirely. A thief who wants more
 than that has to wait out your timelock in public, and one lock cancels everything they have queued.
 Under a lock, a sale into a stablecoin can still lose up to the daily loss allowance per day until the
@@ -88,7 +89,7 @@ Three settings make that bound as tight as you want:
 
 - **Whitelist a safe address of your own now** (a hardware wallet or exchange account). It is your
   escape route under a lock, and it has to have passed its own timelock *before* anything goes wrong.
-- **Set the daily send allowance to what you actually spend.** It is the most a thief can take per day.
+- **Leave regular sends off, or set the allowance to what you actually spend.** It is the most a thief can take per day. A new vault starts with sends off; to pay someone new, whitelist them, or whitelist a spending wallet of your own once and top it up.
 - **Pick a timelock longer than the time you might go without checking.** It is how long you have to
   notice.
 
