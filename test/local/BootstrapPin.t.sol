@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {BittyV1VaultBootstrap} from "../../src/BittyV1VaultBootstrap.sol";
 import {BittyV1VaultFactoryBootstrap} from "../../src/BittyV1VaultFactoryBootstrap.sol";
 import {BittyV1ForwarderBootstrap} from "../../src/BittyV1ForwarderBootstrap.sol";
-import {BITTY_VAULT_BOOTSTRAP, BITTY_VAULT_FACTORY_BOOTSTRAP} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_VAULT_BOOTSTRAP, BITTY_VAULT_FACTORY_BOOTSTRAP} from "../../src/logic/Constants.sol";
 import {
     VAULT_BOOTSTRAP_INITCODE,
     VAULT_FACTORY_BOOTSTRAP_INITCODE,
@@ -17,11 +17,21 @@ import {
  * @dev The bootstraps are deployed from pinned bytes, not compiled, so their metadata hash - and with
  *      it every address born on them - cannot move. These tests hold each pin to two things: that it
  *      still lands where the constants say, and that its code is still what the source compiles to.
+ *
+ *      The pins are the EVM deploy's. A TRON tree (`tron/cli.mjs plan`) holds that network's guard and
+ *      bootstraps instead, and deploys from its own build, so there these tests have nothing to hold
+ *      and are skipped.
  */
 contract BootstrapPinTest is Test {
     address constant SIMPLE_CREATE2 = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+    address constant EVM_GUARD = 0x000000000F5fcD35885BfE4c700042cE7cb39554;
 
-    function test_pinnedBootstrapsLandAtTheirConstants() public pure {
+    modifier evmConstants() {
+        if (BITTY_GUARD != EVM_GUARD) vm.skip(true);
+        _;
+    }
+
+    function test_pinnedBootstrapsLandAtTheirConstants() public evmConstants {
         assertEq(_create2(VAULT_BOOTSTRAP_INITCODE), BITTY_VAULT_BOOTSTRAP, "vault bootstrap");
         assertEq(_create2(VAULT_FACTORY_BOOTSTRAP_INITCODE), BITTY_VAULT_FACTORY_BOOTSTRAP, "factory bootstrap");
         assertEq(_create2(FORWARDER_BOOTSTRAP_INITCODE), FORWARDER_BOOTSTRAP, "forwarder bootstrap");
@@ -34,7 +44,7 @@ contract BootstrapPinTest is Test {
      * @dev Only the trailing CBOR metadata may differ: an edit that changes what a bootstrap DOES
      *      fails here, and needs a deliberate new pin and new addresses.
      */
-    function test_pinnedBootstrapsMatchTheSourceButForMetadata() public pure {
+    function test_pinnedBootstrapsMatchTheSourceButForMetadata() public evmConstants {
         assertEq(_stripMetadata(VAULT_BOOTSTRAP_INITCODE), _stripMetadata(type(BittyV1VaultBootstrap).creationCode));
         assertEq(
             _stripMetadata(VAULT_FACTORY_BOOTSTRAP_INITCODE),

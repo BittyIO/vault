@@ -1,6 +1,38 @@
 # Bitty Vault — Development
 
-Build, test, deploy, and verify the Bitty Vault contracts. For what the vault is and how it works, see the [README](./README.md).
+Build, test, deploy, and verify the Bitty Vault contracts. For what the vault is and how it works, read the [white paper](./WHITEPAPER.pdf).
+
+## Related repositories
+
+- [Bitty Guard](https://github.com/BittyIO/guard): the registry every vault checks for allowed
+  assets, protocols and vault code.
+- [Bitty Protocol Store](https://github.com/BittyIO/protocol-store): the protocol adapters a vault
+  reaches DeFi through (market trade, staking, lending, intent).
+
+Both are git submodules of this repository.
+
+## Deployed addresses
+
+Live on Ethereum, Base, Arbitrum, Robinhood Chain and Sepolia. These are at the **same address on every chain**:
+
+| Contract | Address |
+| --- | --- |
+| Guard | `0x000000000F5fcD35885BfE4c700042cE7cb39554` |
+| Factory | `0x3d7Ed3cD011B423dd11BE280BF926667CAf0F120` |
+| Forwarder | `0xD6013C5e339cd3546c0c7E86c306554a63FbAa6F` |
+
+The vault implementation the guard currently serves, version **1.0.9**, is at the same address on
+every chain:
+
+| Contract | Address |
+| --- | --- |
+| Vault implementation | `0xF7f8bABA6F14E16881E296C897B0401A2490C60F` |
+
+The factory and the forwarder are the addresses to integrate against; both are fixed and the same on
+every chain. A vault's own address follows from its owner alone (`factory.vaultAddress(owner)`), so it
+is knowable before the vault exists and does not move when a new implementation ships — see
+[Addresses that must never move](#addresses-that-must-never-move). The implementation is
+whatever the guard names as latest (`guard.latestImplementation(1)`); vaults upgrade onto it.
 
 ## Prerequisites
 

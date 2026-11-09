@@ -113,6 +113,14 @@ struct VaultStorage {
     address gasWrapped;
     bool isInitialized;
     bool ownAllowListActive;
+    /**
+     * Set by {PaymentLogic.initialize} on a vault created from 1.0.10 on: an allowance it has
+     * never set reads as the new-vault default (sends off, the default trade loss allowance) rather
+     * than as the ceiling, so neither has to be written at creation. False on every vault created before 1.0.10,
+     * whose unset allowances keep reading as the ceiling. Packed into the slot initialize writes
+     * anyway, in bytes no older version used.
+     */
+    bool unsetRiskIsDefault;
 
     mapping(uint256 => Deferred) whitelistedRecipientDeferred;
     mapping(uint256 => WhitelistEntry) whitelistedRecipient;

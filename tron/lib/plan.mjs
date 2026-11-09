@@ -1,16 +1,22 @@
-// The plan: every TRON address, and the exact init code that lands there, worked out before
-// anything is sent. Mirrors the dependency order of script/Deploy.s.sol, but each address is
-// derived with the TVM's CREATE2 (0x41) off our own deployer instead of the EVM's canonical one.
+// The plan: every TRON address of the vault stack, and the exact init code that lands there, worked
+// out before anything is sent. Mirrors the dependency order of script/Deploy.s.sol, but each address
+// is derived with the TVM's CREATE2 (0x41) off the network's CREATE2 deployer instead of the EVM's
+// canonical one.
 //
-//   guard bootstrap → guard proxy  ─┐ the guard address is compiled into both vault bootstraps
+// The guard comes first and from its own repo (guard's `tron/deploy.mjs`), which also deploys the
+// CREATE2 deployer; both are read from the guard's deployments/<network>.json, never redeployed here.
+// No protocol ships with the vault on TRON: nothing here builds or registers one. A protocol is the
+// protocol-store's to deploy and the guard's to list, later, with no change to any address below.
+//
+//   guard (deployed) ─┐ its address is compiled into both vault bootstraps and Constants.sol
 //   forwarder bootstrap → forwarder proxy, factory bootstrap → factory proxy, vault bootstrap
-//                                   └ all of them are compiled into Constants.sol, so the logic
-//   libraries → facet → vault implementation, keeper, forwarder and factory builds come last.
+//                     └ all of them are compiled into Constants.sol, so the logic libraries →
+//   facet → vault implementation, keeper, forwarder and factory builds come last.
 
 import { AbiCoder, concat, keccak256 } from "ethers";
 import { join } from "node:path";
 import { create2Address, proxyInitCode, toEvm, ZERO_SALT } from "./address.mjs";
-import { forgeBuild, link, librariesNeeded, pinnedBytes, readArtifact } from "./artifacts.mjs";
+import { forgeBuild, link, librariesNeeded, readArtifact } from "./artifacts.mjs";
 import { setAddressConstant, setBytes32Constant } from "./codegen.mjs";
 
 const abi = AbiCoder.defaultAbiCoder();
@@ -20,20 +26,25 @@ export const LIBRARIES = ["DeFiLogic", "MarketTradeLogic", "TokenAsGasLogic", "R
   (name) => ({ name, key: `src/logic/${name}.sol:${name}`, file: `${name}.sol` }),
 );
 
-export function buildPlan({ repos, network, deployer, build = true }) {
-  if (!deployer) throw new Error("no CREATE2 deployer recorded for this network: run `cli.mjs deployer` first");
+/**
+ * What the guard's TRON deploy left for this one: the CREATE2 deployer and the guard proxy. Refuses a
+ * guard deployment file that is missing either, so the vault is never planned against a guard that
+ * does not exist yet.
+ */
+export function guardDeployment(file) {
+  const d = file?.deployed ?? {};
+  if (!d.CREATE2_DEPLOYER?.evm || !d.BITTY_GUARD?.evm) {
+    throw new Error("the guard is not deployed on this network yet: run the guard repo's `tron/deploy.mjs` first");
+  }
+  return { deployer: toEvm(d.CREATE2_DEPLOYER.evm), guard: toEvm(d.BITTY_GUARD.evm) };
+}
+
+export function buildPlan({ repos, network, guardDeployment: g, build = true }) {
+  const deployer = g.deployer;
   const at = (initCode) => create2Address(deployer, ZERO_SALT, initCode);
   const step = (name, initCode) => ({ name, address: at(initCode), initCode, initCodeHash: keccak256(initCode) });
   const vault = (p) => join(repos.vault, p);
-
-  // ── 1. the guard's address: pinned bootstrap and proxy code, no build involved ──────────────
-  const guardPins = join(repos.guard, "script/GuardBootstrapInitCode.sol");
-  const guardBootstrap = step("BittyV1GuardBootstrap", pinnedBytes(guardPins, "GUARD_BOOTSTRAP_INITCODE"));
-  const guardProxy = step(
-    "BittyV1GuardProxy",
-    proxyInitCode(pinnedBytes(guardPins, "GUARD_PROXY_CREATIONCODE"), guardBootstrap.address),
-  );
-  const guard = guardProxy.address;
+  const guard = g.guard;
 
   // ── 2. what depends only on the guard and the fee collector ────────────────────────────────
   if (!network.feeCollector) throw new Error(`${network.name}: feeCollector is not set in the network config`);
@@ -88,29 +99,11 @@ export function buildPlan({ repos, network, deployer, build = true }) {
   const keeper = step("BittyV1AutoYieldKeeper", build_("BittyV1AutoYieldKeeper.sol"));
   const factoryImplementation = step("BittyV1VaultFactory", build_("BittyV1VaultFactory.sol"));
 
-  // ── 4. the guard build and the market-trade adapter, each from its own repo ────────────────
-  if (build) forgeBuild(repos.guard);
-  const guardImplementation = step("BittyV1Guard", readArtifact(repos.guard, "BittyV1Guard.sol").bytecode);
-
-  if (build) forgeBuild(repos.protocolStore);
-  const sun = network.sunswap;
-  const sunswapAdapter = step(
-    "SunSwapV3TradeProtocol",
-    concat([
-      readArtifact(repos.protocolStore, "SunSwapV3TradeProtocol.sol").bytecode,
-      abi.encode(
-        ["address", "address", "address", "address"],
-        [toEvm(sun.swapRouter), toEvm(network.tokens.WTRX), guard, toEvm(network.feeCollector)],
-      ),
-    ]),
-  );
-
   return {
     network: network.name,
     chainId: network.chainId,
     deployer: toEvm(deployer),
-    guard: { bootstrap: guardBootstrap, proxy: guardProxy, implementation: guardImplementation },
-    protocols: { sunswapAdapter },
+    guard,
     vault: {
       libraries,
       defiFacet,
@@ -127,10 +120,6 @@ export function buildPlan({ repos, network, deployer, build = true }) {
 export function createSteps(plan) {
   const v = plan.vault;
   return [
-    plan.guard.implementation,
-    plan.guard.bootstrap,
-    plan.guard.proxy,
-    plan.protocols.sunswapAdapter,
     v.forwarder.bootstrap,
     v.forwarder.proxy,
     v.forwarder.implementation,

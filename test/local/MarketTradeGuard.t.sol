@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {LegacySends} from "../helpers/LegacySends.sol";
 import {ASSET_STABLE_COIN, ASSET_CRYPTO, ASSET_AMM_LIQUID} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -33,6 +34,7 @@ import {
     BITTY_GUARD,
     MIN_RISK_TIMELOCK,
     MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE,
+    DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE,
     PERM_MARKET_TRADE
 } from "../../src/logic/Constants.sol";
 
@@ -341,6 +343,8 @@ contract MarketTradeGuardTest is Test {
      * Chainlink's placeholder address.
      */
     function test_aQuoteCanBeAPlaceholderForANonToken() public {
+        // A 5% shortfall on $59,400 is past the new-vault default; this is about the 5% bound.
+        LegacySends.asCreatedBefore109(address(vault));
         address btc = 0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB;
         MockERC20 wbtc = _token("WBTC", 8, 1e8);
         _registerFeed(btc, address(_feed(60_000e8, 8)), HEARTBEAT);
@@ -537,6 +541,7 @@ contract MarketTradeGuardTest is Test {
      * sending never uses up what trades may lose.
      */
     function test_sendsAndTradeLossesAreCountedApart() public {
+        LegacySends.asCreatedBefore109(address(vault));
         _risk(UNCHANGED, 100);
         _sendCap(100);
 
@@ -583,14 +588,14 @@ contract MarketTradeGuardTest is Test {
     // ── every vault is protected ────────────────────────────────────────────────────────────────
 
     /**
-     * There is no unprotected vault. One whose owner never set an allowance is held to the largest
-     * there is, and every trade is priced: the rigged pool is refused, and so is an asset with no feed.
+     * There is no unprotected vault. A new one starts at the default allowance, below the ceiling,
+     * and every trade is priced: the rigged pool is refused, and so is an asset with no feed.
      */
     function test_aVaultThatSetNothingIsStillProtected() public {
         BittyV1Vault fresh = _freshVault();
         weth.mint(address(fresh), 1e18);
         (,, uint64 allowance) = fresh.riskSettings();
-        assertEq(allowance, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "the default");
+        assertEq(allowance, DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "the default");
 
         vm.prank(owner);
         vm.expectRevert(MarketTradePriceTooLow.selector);

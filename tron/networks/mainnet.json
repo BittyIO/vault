@@ -2,16 +2,14 @@
   "name": "mainnet",
   "fullHost": "https://api.trongrid.io",
   "chainId": 728126428,
+  "guardDeployment": "tron",
   "feeLimitTrx": 1000,
   "deployer": "0x12EE2de7BF086388B1D560eb95e7191Edfab9823",
   "relayer": "0x76dC42C2E0ef4FB02600430CB0d3A68d015C30AA",
-  "feeCollector": null,
+  "feeCollector": "0x12EE2de7BF086388B1D560eb95e7191Edfab9823",
   "tokens": {
     "WTRX": "TNUC9Qb1rRpS5CbWLmNMxXBjyFoydXjWFR",
     "USDT": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
-  },
-  "sunswap": {
-    "swapRouter": "TQAvWQpT9H916GckwWDJNhYZvQMkuRL7PN"
   },
   "guard": {
     "assets": [
@@ -38,8 +36,9 @@
     ]
   },
   "_notes": [
-    "feeCollector: TODO, your decision; plan refuses to run while it is null",
     "price feeds: Chainlink TRX/USD (8 decimals). maxAge 25h is a placeholder; confirm the feed's heartbeat before mainnet",
-    "addresses verified on-chain 2026-11-07 (getcontract + view calls)"
+    "addresses verified on-chain 2026-11-07 (getcontract + view calls)",
+    "guardDeployment: the guard repo's deployments/tron.json, which supplies the guard and the CREATE2 deployer; the `guard` block below is what that deploy registered and is kept here for reference",
+    "feeCollector: the DEPLOYER (decided 2026-11-09). It is compiled into the vault (Constants.sol BITTY_FEE_COLLECTOR), so changing it later means a new vault build"
   ]
 }

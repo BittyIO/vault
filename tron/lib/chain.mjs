@@ -14,14 +14,30 @@ export class Chain {
     const headers = apiKey ? { "TRON-PRO-API-KEY": apiKey } : undefined;
     this.tronWeb = new TronWeb({ fullHost, headers, privateKey });
     this.fullHost = fullHost;
+    this.headers = headers ?? {};
     this.feeLimit = feeLimitTrx * SUN_PER_TRX;
     this.dryRun = dryRun;
     this.sender = privateKey ? toEvm(this.tronWeb.defaultAddress.hex) : null;
   }
 
+  /**
+   * Whether `address` holds a contract, by eth_getCode. Not by /wallet/getcontract: for a contract
+   * created by another contract (everything placed through the CREATE2 deployer) that returns the
+   * contract's record without its `bytecode`, which reads as "no code" for code that is there.
+   * A failed request is retried and then thrown, never read as "no code": the deploy would otherwise
+   * try to create, and pay for, a contract already there.
+   */
   async hasCode(address) {
-    const contract = await this.tronWeb.trx.getContract(toBase58(address)).catch(() => ({}));
-    return Boolean(contract && contract.bytecode && contract.bytecode.length > 0);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const code = await this._rpc("eth_getCode", [toEvm(address), "latest"]);
+        if (typeof code !== "string" || !code.startsWith("0x")) throw new Error(`unexpected eth_getCode answer ${code}`);
+        return code.length > 2;
+      } catch (e) {
+        if (attempt >= 4) throw new Error(`could not read the code at ${toBase58(address)}: ${e?.message ?? e}`);
+        await new Promise((r) => setTimeout(r, 1_500 * attempt));
+      }
+    }
   }
 
   async chainId() {
@@ -107,7 +123,7 @@ export class Chain {
   async _rpc(method, params) {
     const res = await fetch(`${this.fullHost.replace(/\/$/, "")}/jsonrpc`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...this.headers },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
     });
     const body = await res.json();

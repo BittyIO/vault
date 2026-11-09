@@ -15,7 +15,7 @@ import {IBittyV1Guard, ASSET_STABLE_COIN, PriceFeed} from "guard-contracts/src/i
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {TRC20Transfer} from "protocol-contracts/src/libs/tron/TRC20Transfer.sol";
+import {TRC20Transfer} from "./TRC20Transfer.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {BittyStorage, VaultStorage} from "./BittyStorage.sol";
 import {TimelockLib} from "./TimelockLib.sol";

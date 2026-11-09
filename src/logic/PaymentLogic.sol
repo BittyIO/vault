@@ -30,10 +30,29 @@ import {LockLib} from "./LockLib.sol";
  *      other logic libraries stay external because the vault could not hold them all.
  */
 library PaymentLogic {
+    /**
+     * @dev A new vault starts with regular sends OFF, so from its first block no regular send can pay
+     *      an address the owner did not vet a timelock earlier. Turning sends on is a loosening, and
+     *      waits out the timelock like any other — a stolen key cannot open this exit any faster
+     *      than the owner could.
+     *
+     *      Its market-trade loss allowance starts at {DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE},
+     *      below the ceiling, so it can trade from the start while a stolen key, or a stolen asset
+     *      manager key, can lose less through trades into a pool of its own. A starting value, not a
+     *      floor: lowering it, to 0, applies at once; raising it, up to the ceiling, waits out the
+     *      timelock.
+     *
+     *      Neither is written: {VaultStorage.unsetRiskIsDefault} makes an unset allowance read as
+     *      these defaults, which saves the two fresh storage slots writing them cost. The flag rides
+     *      in this slot, which is written here anyway. A vault created before 1.0.10 has it false,
+     *      so its unset allowances keep the meaning they had (the ceiling) across an upgrade, and a
+     *      vault created after these defaults were written at initialize keeps the values written.
+     */
     function initialize(address gasWrapped, bool restrictToOwnAllowList) internal {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         if (vaultStorage.isInitialized) revert AlreadyInitialized();
         vaultStorage.isInitialized = true;
+        vaultStorage.unsetRiskIsDefault = true;
         vaultStorage.gasWrapped = gasWrapped;
         vaultStorage.ownAllowListActive = restrictToOwnAllowList;
     }
@@ -73,7 +92,7 @@ library PaymentLogic {
      * 0 means the owner turned regular sends off: every amount is over it, so every send is refused.
      */
     function _cap(VaultStorage storage vaultStorage) private view returns (uint64) {
-        return RiskLogic.effectiveSendDailyAllowance(vaultStorage.riskConfig);
+        return RiskLogic.effectiveSendDailyAllowance(vaultStorage);
     }
 
     /**

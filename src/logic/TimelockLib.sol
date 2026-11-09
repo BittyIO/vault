@@ -2,7 +2,6 @@
 pragma solidity ^0.8.34;
 
 import {TimelockedValue} from "./BittyStorage.sol";
-import {ALLOWANCE_ZERO} from "./Constants.sol";
 import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
 
 /**
@@ -52,19 +51,13 @@ library TimelockLib {
         _apply(tv, n, n < tv.value, timelock);
     }
 
-    function setCap(TimelockedValue storage tv, uint256 next, uint64 timelock) internal {
-        _settle(tv);
-        uint64 n = SafeCast.toUint64(next);
-        _apply(tv, n, _capRank(n) > _capRank(tv.value), timelock);
-    }
-
     /**
-     * A cap ordered by how loose it is: unset (0) is the loosest, {ALLOWANCE_ZERO} the tightest.
+     * A cap, with whether it loosens decided by the caller: what an unset slot means depends on the
+     * vault (see {VaultStorage.unsetRiskIsDefault}), so only the caller knows the value in force.
      */
-    function _capRank(uint64 v) private pure returns (uint256) {
-        if (v == 0) return type(uint256).max;
-        if (v == ALLOWANCE_ZERO) return 0;
-        return v;
+    function setCap(TimelockedValue storage tv, uint64 next, bool loosen, uint64 timelock) internal {
+        _settle(tv);
+        _apply(tv, next, loosen, timelock);
     }
 
     function setGasBudget(TimelockedValue storage tv, uint64 next, uint64 timelock) internal {

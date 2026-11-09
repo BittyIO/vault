@@ -258,8 +258,13 @@ contract BittyV1Vault is BittyV1VaultBase {
         TokenAsGasLogic.payRelayerFee(asset, amount);
     }
 
-    function retrieve721(address contractAddress, uint256 tokenId, address to) external onlyOwner notLocked {
-        if (to == address(0)) revert AddressZero();
+    /**
+     * An NFT cannot be valued, so it cannot be metered like a regular send: it leaves only to a
+     * whitelisted recipient the owner can pay right now, the same way out as any asset beyond the
+     * send allowance. Allowed under either lock for the same reason payouts to such a recipient are.
+     */
+    function retrieve721(address contractAddress, uint256 tokenId, uint256 recipientId) external onlyOwner {
+        address to = WhitelistLogic.payableRecipient(recipientId);
         IERC721(contractAddress).safeTransferFrom(address(this), to, tokenId);
         emit IBittyV1Owner.Retrieved721(contractAddress, tokenId, to);
     }

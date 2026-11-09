@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
+import {LegacySends} from "../helpers/LegacySends.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockGuard} from "../helpers/MockGuard.sol";
@@ -64,6 +65,9 @@ contract RiskRatchetTest is Test {
         bytes memory init =
             abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)));
         vault = BittyV1Vault(payable(new ERC1967Proxy(address(impl), init)));
+        // The ratchet from an unset allowance, which reads as the loosest: every vault created
+        // before 1.0.9 is here. A newer one starts with sends off (NewVaultDefaults.t.sol).
+        LegacySends.asCreatedBefore109(address(vault));
     }
 
     function _risk(uint256 timelock, uint256 sendDailyAllowance) internal {
@@ -93,10 +97,11 @@ contract RiskRatchetTest is Test {
     // ── the bounds ────────────────────────────────────────────────────────────
 
     /**
-     * A new vault is protected before its owner touches anything: a day's wait, and the largest
-     * allowance of each kind - the loosest it may be, so every change from here is a tightening.
+     * A vault that never set its risk is still protected: a day's wait, and the largest allowance of
+     * each kind - the loosest it may be, so every change from here is a tightening. (A vault created
+     * since 1.0.9 has written its send allowance as 0 at creation; see NewVaultDefaults.t.sol.)
      */
-    function test_aNewVaultReadsTheDefaults() public view {
+    function test_aVaultThatSetNothingReadsTheDefaults() public view {
         (uint64 timelock, uint64 sendAllowance, uint64 lossAllowance) = vault.riskSettings();
         assertEq(timelock, MIN_RISK_TIMELOCK, "a day");
         assertEq(sendAllowance, MAX_SEND_DAILY_ALLOWANCE, "10,000 a day");

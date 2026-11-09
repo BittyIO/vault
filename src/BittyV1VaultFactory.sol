@@ -80,7 +80,7 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
      *      knowing it moves every un-activated owner's address.
      */
     bytes32 private constant _VAULT_PROXY_INITCODE_HASH =
-        0x6c313cb305e616270f7a0ed3e9bb874c27e1a38fbde9d4cf2ccccb10c193a45c;
+        0x521894190e6b5a5cb1a1448751c8cd310390f565a3453d203b5577e99e6b4fbd;
 
     error NotOwner();
     error VaultProxyInitCodeDrift();
@@ -155,7 +155,7 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
 
     function _checkActivationSignature(
         address owner,
-        address stableCoinAddress,
+        address asset,
         uint256 feeAmount,
         bool restrictToOwnAllowList,
         bytes[] calldata calls,
@@ -165,13 +165,7 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
         if (block.timestamp > deadline) revert ActivationSignatureExpired();
         bytes32 structHash = keccak256(
             abi.encode(
-                _ACTIVATION_TYPEHASH,
-                owner,
-                stableCoinAddress,
-                feeAmount,
-                restrictToOwnAllowList,
-                _hashCalls(calls),
-                deadline
+                _ACTIVATION_TYPEHASH, owner, asset, feeAmount, restrictToOwnAllowList, _hashCalls(calls), deadline
             )
         );
         if (!SignatureChecker.isValidSignatureNow(owner, _hashTypedDataV4(structHash), signature)) {
