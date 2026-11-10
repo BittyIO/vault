@@ -149,7 +149,7 @@ library MarketTradeLogic {
     }
 
     function _lossAllowance() private view returns (uint64 allowance) {
-        allowance = RiskLogic.effectiveMarketTradeDailyLossAllowance(BittyStorage.vault().riskConfig);
+        allowance = RiskLogic.effectiveMarketTradeDailyLossAllowance(BittyStorage.vault());
         if (allowance == 0) revert MarketTradeExceedsDailyLossAllowance();
     }
 

@@ -155,7 +155,7 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
 
     function _checkActivationSignature(
         address owner,
-        address stableCoinAddress,
+        address asset,
         uint256 feeAmount,
         bool restrictToOwnAllowList,
         bytes[] calldata calls,
@@ -165,13 +165,7 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
         if (block.timestamp > deadline) revert ActivationSignatureExpired();
         bytes32 structHash = keccak256(
             abi.encode(
-                _ACTIVATION_TYPEHASH,
-                owner,
-                stableCoinAddress,
-                feeAmount,
-                restrictToOwnAllowList,
-                _hashCalls(calls),
-                deadline
+                _ACTIVATION_TYPEHASH, owner, asset, feeAmount, restrictToOwnAllowList, _hashCalls(calls), deadline
             )
         );
         if (!SignatureChecker.isValidSignatureNow(owner, _hashTypedDataV4(structHash), signature)) {
