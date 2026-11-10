@@ -69,7 +69,7 @@ contract VersionUpgradeSafetyTest is Test {
         assertTrue(IVaultView(vault).isAssetAllowed(address(usdc)), "allowlist survived");
         assertFalse(IVaultView(vault).usingBittyAllowList(), "flag survived");
         assertEq(IVaultView(vault).owner(), owner, "owner survived");
-        assertEq(IVaultView(vault).versionName(), "1.0.9", "version readable after upgrade");
+        assertEq(IVaultView(vault).versionName(), "1.0.10", "version readable after upgrade");
     }
 
     /**
@@ -83,8 +83,8 @@ contract VersionUpgradeSafetyTest is Test {
                 abi.encodeCall(BittyV1Vault.initialize, (owner, gasWrapped, false, address(0), 0, new bytes[](0)))
             )
         );
-        assertEq(IVaultView(vault).vaultVersion(), 1_000_009);
-        assertEq(IVaultView(vault).versionName(), "1.0.9");
+        assertEq(IVaultView(vault).vaultVersion(), 1_000_010);
+        assertEq(IVaultView(vault).versionName(), "1.0.10");
         // and a facet-routed call still works, so the fallback is untouched
         assertTrue(IVaultView(vault).isAssetAllowed(address(usdc)) || true);
         assertEq(!IVaultView(vault).usingBittyAllowList(), false);
