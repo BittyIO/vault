@@ -166,10 +166,11 @@ test("a dry run from nothing lists the pieces and stops before reading contracts
   assert.deepEqual(chain.sent, allSteps.map((s) => `deploy ${s.name}`));
 });
 
-test("the vault is never planned against a guard the guard repo has not recorded", () => {
+test("the vault is never planned against a guard the network config has not recorded", () => {
   assert.throws(() => guardDeployment(null), /guard is not deployed/);
-  assert.throws(() => guardDeployment({ deployed: { CREATE2_DEPLOYER: { evm: CREATE2 } } }), /guard is not deployed/);
-  assert.deepEqual(guardDeployment({ deployed: { CREATE2_DEPLOYER: { evm: CREATE2 }, BITTY_GUARD: { evm: GUARD } } }), {
+  assert.throws(() => guardDeployment({ name: "nile", create2Deployer: CREATE2 }), /guard is not deployed/);
+  assert.throws(() => guardDeployment({ name: "mainnet", create2Deployer: "TODO", bittyGuard: "TODO" }), /guard is not deployed/);
+  assert.deepEqual(guardDeployment({ name: "nile", create2Deployer: CREATE2, bittyGuard: GUARD }), {
     deployer: CREATE2,
     guard: GUARD,
   });

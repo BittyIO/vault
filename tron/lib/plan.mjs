@@ -4,7 +4,8 @@
 // canonical one.
 //
 // The guard comes first and from its own repo (guard's `tron/deploy.mjs`), which also deploys the
-// CREATE2 deployer; both are read from the guard's deployments/<network>.json, never redeployed here.
+// CREATE2 deployer; both addresses are recorded in this runner's networks/<network>.json and never
+// redeployed here.
 // No protocol ships with the vault on TRON: nothing here builds or registers one. A protocol is the
 // protocol-store's to deploy and the guard's to list, later, with no change to any address below.
 //
@@ -27,16 +28,18 @@ export const LIBRARIES = ["DeFiLogic", "MarketTradeLogic", "TokenAsGasLogic", "R
 );
 
 /**
- * What the guard's TRON deploy left for this one: the CREATE2 deployer and the guard proxy. Refuses a
- * guard deployment file that is missing either, so the vault is never planned against a guard that
- * does not exist yet.
+ * What the guard's TRON deploy left for this one, as the network config records it: the CREATE2
+ * deployer and the guard proxy. Refuses a config that is missing either (or still says TODO), so the
+ * vault is never planned against a guard that does not exist yet.
  */
-export function guardDeployment(file) {
-  const d = file?.deployed ?? {};
-  if (!d.CREATE2_DEPLOYER?.evm || !d.BITTY_GUARD?.evm) {
-    throw new Error("the guard is not deployed on this network yet: run the guard repo's `tron/deploy.mjs` first");
+export function guardDeployment(network) {
+  const recorded = (a) => typeof a === "string" && a !== "" && a !== "TODO";
+  if (!recorded(network?.create2Deployer) || !recorded(network?.bittyGuard)) {
+    throw new Error(
+      `the guard is not deployed on ${network?.name ?? "this network"} yet: run the guard repo's \`tron/deploy.mjs\` first, then record create2Deployer and bittyGuard in networks/${network?.name}.json`,
+    );
   }
-  return { deployer: toEvm(d.CREATE2_DEPLOYER.evm), guard: toEvm(d.BITTY_GUARD.evm) };
+  return { deployer: toEvm(network.create2Deployer), guard: toEvm(network.bittyGuard) };
 }
 
 export function buildPlan({ repos, network, guardDeployment: g, build = true }) {

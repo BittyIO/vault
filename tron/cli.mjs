@@ -5,8 +5,8 @@
 //   node cli.mjs plan     --network nile            write TRON constants into the sources, build, plan
 //   node cli.mjs deploy   --network nile [--dry-run] send the plan
 //
-// The guard and the CREATE2 deployer come first, from the guard repo (`tron/deploy.mjs` there); this
-// reads them from the guard's deployments/<network>.json and deploys everything after them.
+// The guard and the CREATE2 deployer come first, from the guard repo (`tron/deploy.mjs` there); their
+// addresses are recorded in networks/<network>.json, and this deploys everything after them.
 //
 // Env: TRON_PRIVATE_KEY (the DEPLOYER key, hex), TRON_PRO_API_KEY (optional, TronGrid).
 
@@ -26,17 +26,15 @@ const { positionals, values } = parseArgs({
   options: {
     network: { type: "string", default: "nile" },
     "dry-run": { type: "boolean", default: false },
-    guard: { type: "string", default: resolve(here, "../../guard") },
   },
 });
 const command = positionals[0];
 const network = JSON.parse(readFileSync(join(here, "networks", `${values.network}.json`), "utf8"));
-const repos = { vault: resolve(here, ".."), guard: values.guard };
+const repos = { vault: resolve(here, "..") };
 const statePath = join(here, "deployments", `${network.name}.json`);
 const planPath = join(here, "deployments", `${network.name}.plan.json`);
 const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : {};
-const guardFile = join(repos.guard, "deployments", `${network.guardDeployment}.json`);
-const guardDeployed = () => guardDeployment(existsSync(guardFile) ? JSON.parse(readFileSync(guardFile, "utf8")) : null);
+const guardDeployed = () => guardDeployment(network);
 
 function save(path, data) {
   mkdirSync(dirname(path), { recursive: true });
@@ -122,7 +120,7 @@ switch (command) {
     const plan = JSON.parse(readFileSync(planPath, "utf8"));
     const g = guardDeployed();
     if (plan.guard !== g.guard || plan.deployer !== g.deployer) {
-      throw new Error("the plan was made against a different guard or CREATE2 deployer than the guard repo records: run plan again");
+      throw new Error(`the plan was made against a different guard or CREATE2 deployer than networks/${network.name}.json records: run plan again`);
     }
     const c = chain();
     await requireFunded(c, !(await c.hasCode(createSteps(plan)[0].address)));

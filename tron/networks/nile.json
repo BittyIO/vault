@@ -2,7 +2,8 @@
   "name": "nile",
   "fullHost": "https://nile.trongrid.io",
   "chainId": 3448148188,
-  "guardDeployment": "tron-nile",
+  "create2Deployer": "0xC18fFef1d0a3911dCe1cE524e022890F7E207A2F",
+  "bittyGuard": "0xb609AAAEbB9775Ea3037C4D3dde427498c457AD1",
   "feeLimitTrx": 1000,
   "deployer": "0x12EE2de7BF086388B1D560eb95e7191Edfab9823",
   "relayer": "0x76dC42C2E0ef4FB02600430CB0d3A68d015C30AA",
@@ -38,7 +39,7 @@
   "_notes": [
     "price feeds: Chainlink TRX/USD (8 decimals). maxAge 25h is a placeholder; confirm the feed's heartbeat before mainnet",
     "addresses verified on-chain 2026-11-07 (getcontract + view calls)",
-    "guardDeployment: the guard repo's deployments/tron-nile.json, which supplies the guard and the CREATE2 deployer; the `guard` block below is what that deploy registered and is kept here for reference",
+    "create2Deployer (TTcfv6F8mJLtfVZDM3D2V4UA7LQpEkxAgK) and bittyGuard (TSZjZdPbDToDMZQMzKLhYbJh35rD8C5Em7): deployed by the guard repo's tron/deploy.mjs on 2026-11-09 and recorded here, so this runner never reads the guard repo; the `guard` block below is what that deploy registered and is kept here for reference",
     "feeCollector: the DEPLOYER (decided 2026-11-09). It is compiled into the vault (Constants.sol BITTY_FEE_COLLECTOR), so changing it later means a new vault build"
   ]
 }

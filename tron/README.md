@@ -36,10 +36,10 @@ Consequences in the contracts:
 ## Order
 
 The guard goes first, from the guard repo: its `tron/deploy.mjs` deploys the network's CREATE2
-deployer and the guard, and records both in the guard's `deployments/tron-nile.json` /
-`deployments/tron.json`. This runner reads them from there (`guardDeployment` in the network
-config) and never deploys either; `deploy` refuses a guard that is missing or not yet initialized
-and configured.
+deployer and the guard. Their addresses are then recorded in this runner's own network config
+(`create2Deployer` and `bittyGuard` in `networks/<network>.json`), so it never reads the guard repo
+and never deploys either; `plan` refuses a network whose two addresses are still `TODO`, and
+`deploy` refuses a guard that is missing or not yet initialized and configured.
 
 ```shell
 cd tron && npm ci
@@ -53,8 +53,6 @@ git diff                               # review the constants, then commit them
 node cli.mjs deploy   --network nile --dry-run
 node cli.mjs deploy   --network nile
 ```
-
-`plan` reads the guard repo at `../../guard` (or `--guard`).
 
 `deploy` is re-runnable: every piece already at its planned address is skipped, every proxy is
 upgraded only when its ERC-1967 slot is stale, and every setting is written only when it differs.
