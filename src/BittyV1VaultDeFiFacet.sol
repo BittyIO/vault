@@ -4,6 +4,7 @@ pragma solidity ^0.8.34;
 import {BittyV1AccountBase} from "./BittyV1AccountBase.sol";
 import {DeFiLogic} from "./logic/DeFiLogic.sol";
 import {MarketTradeLogic} from "./logic/MarketTradeLogic.sol";
+import {BridgeLogic} from "./logic/BridgeLogic.sol";
 import {LockLib} from "./logic/LockLib.sol";
 import {PaymentCore} from "./logic/PaymentCore.sol";
 import {BittyStorage} from "./logic/BittyStorage.sol";
@@ -220,6 +221,28 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         bytes memory reversedPath
     ) external onlyManagerWith(PERM_MARKET_TRADE) notLocked {
         MarketTradeLogic.marketBuy(marketTrade, sellToken, sellAmountMax, buyToken, buyAmount, reversedPath);
+    }
+
+    /**
+     * Owner only, never an asset manager. Turning the bridge on waits out the risk timelock and is
+     * refused under a lock; turning it off is never refused. See {IBittyV1DeFi-bridge}.
+     */
+    function setBridgeEnabled(bool enabled) external onlyOwner notTrading {
+        if (enabled) LockLib.requireNotLocked();
+        BridgeLogic.setEnabled(enabled);
+    }
+
+    function bridgeSettings() external view returns (bool enabled, uint64 enableAt) {
+        return BridgeLogic.settings();
+    }
+
+    function bridge(address bridgeProtocol, address asset, uint256 amount, uint256 fee, bytes calldata data)
+        external
+        onlyOwner
+        notLocked
+        notTrading
+    {
+        BridgeLogic.bridge(bridgeProtocol, asset, amount, fee, data);
     }
 
     function approveIntentSpender(address intent, address token) external onlyManagerWith(PERM_INTENT) notTrading {

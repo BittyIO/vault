@@ -402,9 +402,7 @@ contract DeFiGuardrailsTest is Test {
     function test_theAllowListSwitchIsImmediateInBothDirections() public {
         vm.startPrank(owner);
         vault.updateRisk(
-            IBittyV1Owner.RiskSettings({
-                timelock: 2 days, sendDailyAllowance: UNCHANGED, marketTradeDailyLossAllowance: UNCHANGED
-            })
+            IBittyV1Owner.RiskSettings({timelock: 2 days, sendDailyAllowance: UNCHANGED, dailyLossAllowance: UNCHANGED})
         );
 
         _f().useBittyAllowList(false);

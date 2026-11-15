@@ -30,19 +30,21 @@ interface IBittyV1Owner {
      * vault, and any loosening of these numbers. At least 1 day, at most 30.
      * `sendDailyAllowance` is the ceiling on what may leave through regular sends, in whole USD per
      * day, from 0 to 10,000; 0 turns regular sends off. A new vault starts at 0, so no regular send leaves
-     * it until the owner turns sends on, which waits out the timelock. Market-trade loss is bounded
-     * separately, by `marketTradeDailyLossAllowance`. Regular sends are held to stablecoins, the only assets that can be
+     * it until the owner turns sends on, which waits out the timelock. What trades and bridges lose is bounded
+     * separately, by `dailyLossAllowance`. Regular sends are held to stablecoins, the only assets that can be
      * metered without reading a price. More than this, and any other asset, leaves through a
      * whitelisted recipient — one the owner set up at least a timelock before.
      *
-     * `marketTradeDailyLossAllowance` is the market-trade protection, from 0 to 10,000 whole USD per
-     * day; 0 turns market trading off. A new vault starts at 1,000. A trade is a way out of the vault too: a leaked key that sells into a pool it set
+     * `dailyLossAllowance` bounds what market trades and bridges lose, from 0 to 10,000 whole USD
+     * per day; 0 turns both off. A new vault starts at 1,000. A trade is a way out of the vault too: a leaked key that sells into a pool it set
      * up itself takes value without sending anything. So every market trade, the owner's or an asset
      * manager's, is valued at oracle price (a stablecoin counts as a dollar), must come out within 5%
      * of what it gave up, and what it came out short — price impact and fees included — is charged
-     * against this ceiling. Only assets with a price feed can be traded at market.
-     * The two ceilings are kept apart so that trading never uses up what may be sent, and sending
-     * never uses up what trades may lose.
+     * against this ceiling. Only assets with a price feed can be traded at market. A bridge is
+     * charged the same way for what does not arrive on the other side: the bridge's cost and Bitty's
+     * fee, so a leaked key bouncing the vault between chains loses at most this much a day.
+     * The two ceilings are kept apart so that trading and bridging never use up what may be sent, and
+     * sending never uses up what they may lose.
      *
      * All three move under the ratchet: tightening applies at once, loosening waits out the timelock
      * in force when it was asked for.
@@ -50,7 +52,7 @@ interface IBittyV1Owner {
     struct RiskSettings {
         uint256 timelock;
         uint256 sendDailyAllowance;
-        uint256 marketTradeDailyLossAllowance;
+        uint256 dailyLossAllowance;
     }
 
     event WhitelistedRecipientSet(uint256 indexed id, address recipient);
@@ -114,11 +116,11 @@ interface IBittyV1Owner {
     function setAutoYieldings(AutoYield[] calldata routes) external;
 
     /**
-     * @notice Set any of the vault's wait, its regular-send daily allowance and its market-trade daily
-     *         loss allowance.
+     * @notice Set any of the vault's wait, its regular-send daily allowance and its daily loss
+     *         allowance.
      * @dev Reverts {RiskTimelockTooShort} / {RiskTimelockTooLong} for a timelock outside 1 to 30 days,
      *      and {RiskAllowanceOutOfRange} for an allowance above 10,000. Under either lock only the
-     *      market-trade loss allowance may change, and only downward; anything else
+     *      daily loss allowance may change, and only downward; anything else
      *      reverts {VaultLocked}.
      * @param riskSettings The three numbers, with `type(uint256).max` in any to leave it alone.
      */

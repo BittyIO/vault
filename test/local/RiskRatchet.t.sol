@@ -20,7 +20,7 @@ import {
     MAX_RISK_TIMELOCK,
     MIN_RISK_TIMELOCK,
     MAX_SEND_DAILY_ALLOWANCE,
-    MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE
+    MAX_DAILY_LOSS_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /**
@@ -105,10 +105,10 @@ contract RiskRatchetTest is Test {
         (uint64 timelock, uint64 sendAllowance, uint64 lossAllowance) = vault.riskSettings();
         assertEq(timelock, MIN_RISK_TIMELOCK, "a day");
         assertEq(sendAllowance, MAX_SEND_DAILY_ALLOWANCE, "10,000 a day");
-        assertEq(lossAllowance, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "10,000 a day");
+        assertEq(lossAllowance, MAX_DAILY_LOSS_ALLOWANCE, "10,000 a day");
         assertEq(MIN_RISK_TIMELOCK, 1 days);
         assertEq(MAX_SEND_DAILY_ALLOWANCE, 10_000);
-        assertEq(MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, 10_000);
+        assertEq(MAX_DAILY_LOSS_ALLOWANCE, 10_000);
     }
 
     /**
@@ -160,9 +160,7 @@ contract RiskRatchetTest is Test {
     function test_theMarketTradeLossAllowanceIsBounded() public {
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(
-            IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, uint256(MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE) + 1)
-        );
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, uint256(MAX_DAILY_LOSS_ALLOWANCE) + 1));
 
         vm.prank(owner);
         vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, 1));

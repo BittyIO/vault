@@ -110,6 +110,7 @@ remappings = [
 sepolia = "https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}"
 mainnet = "https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
 base = "https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
+base-sepolia = "https://base-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}"
 arbitrum = "https://arb1.arbitrum.io/rpc"
 # Robinhood Chain (Arbitrum Orbit L2, id 4663). The public endpoint is rate-limited; override with a
 # dedicated provider for anything heavier than a deploy.
@@ -124,6 +125,7 @@ bsc = "https://bnb-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
 sepolia = { key = "${ETHERSCAN_API_KEY}" }
 mainnet = { key = "${ETHERSCAN_API_KEY}" }
 base = { key = "${ETHERSCAN_API_KEY}", chain = 8453 }
+base-sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 84532 }
 arbitrum = { key = "${ETHERSCAN_API_KEY}", chain = 42161 }
 bsc = { key = "${ETHERSCAN_API_KEY}", chain = 56 }
 

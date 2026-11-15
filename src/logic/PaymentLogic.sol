@@ -36,7 +36,7 @@ library PaymentLogic {
      *      waits out the timelock like any other — a stolen key cannot open this exit any faster
      *      than the owner could.
      *
-     *      Its market-trade loss allowance starts at {DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE},
+     *      Its daily loss allowance starts at {DEFAULT_DAILY_LOSS_ALLOWANCE},
      *      below the ceiling, so it can trade from the start while a stolen key, or a stolen asset
      *      manager key, can lose less through trades into a pool of its own. A starting value, not a
      *      floor: lowering it, to 0, applies at once; raising it, up to the ceiling, waits out the
