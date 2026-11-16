@@ -16,7 +16,7 @@ import {
     InvalidMarketTradeProtocol,
     MarketTradeNotSupported,
     MarketTradePriceTooLow,
-    MarketTradeExceedsDailyLossAllowance
+    DailyLossAllowanceExceeded
 } from "../interfaces/IBittyV1DeFi.sol";
 import {Deprecated, NotRegistered, ReentrantCall, VaultLocked} from "../interfaces/IBittyV1Vault.sol";
 import {BittyStorage, DeFiStorage, VaultStorage} from "./BittyStorage.sol";
@@ -41,7 +41,7 @@ struct MarketLegs {
 /**
  * @title MarketTradeLogic
  * @notice Market buys and sells. Every trade is held to oracle value and its shortfall charged to the
- *         owner's `marketTradeDailyLossAllowance`, which cannot be lifted — so only an asset with a
+ *         owner's `dailyLossAllowance`, which cannot be lifted — so only an asset with a
  *         price feed (or a stablecoin) can be traded at market. An allowance of 0 turns market trading
  *         off: every trade is refused before it runs, even one that would lose nothing.
  * @dev Its own library because the price and allowance checks do not fit in {DeFiLogic} under the
@@ -149,8 +149,8 @@ library MarketTradeLogic {
     }
 
     function _lossAllowance() private view returns (uint64 allowance) {
-        allowance = RiskLogic.effectiveMarketTradeDailyLossAllowance(BittyStorage.vault());
-        if (allowance == 0) revert MarketTradeExceedsDailyLossAllowance();
+        allowance = RiskLogic.effectiveDailyLossAllowance(BittyStorage.vault());
+        if (allowance == 0) revert DailyLossAllowanceExceeded();
     }
 
     /**
@@ -216,25 +216,40 @@ library MarketTradeLogic {
         );
         if (valueOut * 10_000 < valueIn * (10_000 - MAX_MARKET_TRADE_SLIPPAGE_BPS)) revert MarketTradePriceTooLow();
 
-        if (valueOut < valueIn) _chargeMarketTradeLoss(valueIn - valueOut, lossAllowance);
+        if (valueOut < valueIn) _chargeLoss(valueIn - valueOut, lossAllowance);
+    }
+
+    /**
+     * @notice Charge a bridge's loss to the daily loss allowance: `lost` of `token`, what left the
+     *         vault less what arrives on the other side, valued at oracle price rounding up.
+     * @dev `info` is the guard's {IBittyV1Guard-marketTradeInfo} read with `token` on both legs; the
+     *      bought leg's category and feeds are the token's current ones. An allowance of 0 refuses any
+     *      bridge that loses anything.
+     */
+    function chargeBridgeLoss(MarketTradeInfo memory info, address token, uint256 lost) external {
+        if (lost == 0) return;
+        PriceLib.requireSequencerUp(info.sequencerUptimeFeed);
+        uint256 value =
+            PriceLib.usdValue(token, info.buyCategory, lost, Math.Rounding.Ceil, info.buyFeed, info.buyQuoteFeed);
+        _chargeLoss(value, RiskLogic.effectiveDailyLossAllowance(BittyStorage.vault()));
     }
 
     /**
      * @dev The same one-day period as the send allowance's — opened by the first loss, reset by the
-     *      first one a day or more later — kept separately for what trades lose.
+     *      first one a day or more later — kept separately for what trades and bridges lose.
      */
-    function _chargeMarketTradeLoss(uint256 loss, uint64 lossAllowance) private {
+    function _chargeLoss(uint256 loss, uint64 lossAllowance) private {
         VaultStorage storage v = BittyStorage.vault();
-        uint64 periodStart = v.marketTradePeriodStart;
-        uint256 lost = v.marketTradeLossInPeriod;
+        uint64 periodStart = v.lossPeriodStart;
+        uint256 lost = v.lossInPeriod;
         if (periodStart == 0 || block.timestamp >= uint256(periodStart) + 1 days) {
             periodStart = uint64(block.timestamp);
             lost = 0;
         }
         lost += loss;
-        if (lost > uint256(lossAllowance) * 1e18) revert MarketTradeExceedsDailyLossAllowance();
-        v.marketTradePeriodStart = periodStart;
-        v.marketTradeLossInPeriod = uint128(lost);
+        if (lost > uint256(lossAllowance) * 1e18) revert DailyLossAllowanceExceeded();
+        v.lossPeriodStart = periodStart;
+        v.lossInPeriod = uint128(lost);
     }
 
     function _balanceOf(address token) private view returns (uint256) {

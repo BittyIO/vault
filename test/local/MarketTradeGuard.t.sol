@@ -25,7 +25,7 @@ import {
 import {
     MarketTradeNotSupported,
     MarketTradePriceTooLow,
-    MarketTradeExceedsDailyLossAllowance,
+    DailyLossAllowanceExceeded,
     PriceFeedMissing,
     PriceStale,
     SequencerDown
@@ -33,8 +33,8 @@ import {
 import {
     BITTY_GUARD,
     MIN_RISK_TIMELOCK,
-    MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE,
-    DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE,
+    MAX_DAILY_LOSS_ALLOWANCE,
+    DEFAULT_DAILY_LOSS_ALLOWANCE,
     PERM_MARKET_TRADE
 } from "../../src/logic/Constants.sol";
 
@@ -123,7 +123,7 @@ contract MarketTradeGuardTest is Test {
     address owner = makeAddr("owner");
     uint256 constant UNCHANGED = type(uint256).max;
     uint256 constant HEARTBEAT = 1 hours;
-    uint256 constant ROOMY = MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE; // the price-check tests never reach it
+    uint256 constant ROOMY = MAX_DAILY_LOSS_ALLOWANCE; // the price-check tests never reach it
 
     function setUp() public {
         vm.warp(1_000_000);
@@ -192,9 +192,9 @@ contract MarketTradeGuardTest is Test {
         ITrade(address(vault)).marketBuy(address(market), sellToken, maxIn, buyToken, buyAmount, abi.encode(spent));
     }
 
-    function _risk(uint256 timelock, uint256 marketTradeDailyLossAllowance) internal {
+    function _risk(uint256 timelock, uint256 dailyLossAllowance) internal {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(timelock, UNCHANGED, marketTradeDailyLossAllowance));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(timelock, UNCHANGED, dailyLossAllowance));
     }
 
     function _sendCap(uint256 sendDailyAllowance) internal {
@@ -402,7 +402,7 @@ contract MarketTradeGuardTest is Test {
                 .marketSell(address(market), address(weth), 1e18, address(usdc), 0, abi.encode(1_940e6)) {
                 ++trades;
             } catch (bytes memory reason) {
-                assertEq(bytes4(reason), MarketTradeExceedsDailyLossAllowance.selector);
+                assertEq(bytes4(reason), DailyLossAllowanceExceeded.selector);
                 break;
             }
         }
@@ -415,7 +415,7 @@ contract MarketTradeGuardTest is Test {
 
         _sell(address(weth), 1e18, address(usdc), 1_950e6); // $50
         _sell(address(weth), 1e18, address(usdc), 1_950e6); // $100: the whole allowance
-        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _sell(address(weth), 1e18, address(usdc), 1_999e6);
 
         _sell(address(weth), 1e18, address(usdc), 2_000e6); // at oracle value: nothing to charge
@@ -430,7 +430,7 @@ contract MarketTradeGuardTest is Test {
 
         _sell(address(weth), 1e18, address(usdc), 1_900e6 + 100e6 + 100e6); // $100 ahead
         _sell(address(weth), 1e18, address(usdc), 1_950e6); // $50
-        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _sell(address(weth), 1e18, address(usdc), 1_949e6); // $51 more is past $100, gain or no gain
     }
 
@@ -442,7 +442,7 @@ contract MarketTradeGuardTest is Test {
         _risk(UNCHANGED, 15);
 
         _buy(address(usdc), 100_000e6, address(dai), 1_000e18, 1_010e6); // $10
-        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _buy(address(usdc), 100_000e6, address(dai), 1_000e18, 1_010e6);
     }
 
@@ -453,10 +453,10 @@ contract MarketTradeGuardTest is Test {
         (,, uint64 allowance) = vault.riskSettings();
         assertEq(allowance, 50, "a loosening does not apply at once");
         PendingChanges memory p = vault.pendingChanges();
-        assertEq(p.marketTradeDailyLossAllowance, 10_000);
-        assertEq(p.marketTradeDailyLossAllowanceAt, uint64(block.timestamp + 2 days));
+        assertEq(p.dailyLossAllowance, 10_000);
+        assertEq(p.dailyLossAllowanceAt, uint64(block.timestamp + 2 days));
 
-        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _sell(address(weth), 1e18, address(usdc), 1_940e6);
 
         vm.warp(block.timestamp + 2 days);
@@ -472,9 +472,7 @@ contract MarketTradeGuardTest is Test {
         _risk(2 days, 1_000);
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(
-            IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, uint256(MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE) + 1)
-        );
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, uint256(MAX_DAILY_LOSS_ALLOWANCE) + 1));
 
         vm.warp(block.timestamp + 30 days);
         wethFeed.set(2_000e8, block.timestamp, block.timestamp);
@@ -495,17 +493,17 @@ contract MarketTradeGuardTest is Test {
         (,, uint64 allowance) = vault.riskSettings();
         assertEq(allowance, 0, "off at once");
 
-        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _sell(address(weth), 1e18, address(usdc), 2_000e6);
-        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _buy(address(usdc), 100_000e6, address(dai), 1_000e18, 1_000e6);
 
         _risk(UNCHANGED, 500);
         (,, allowance) = vault.riskSettings();
         assertEq(allowance, 0, "turning it back on waits");
         PendingChanges memory p = vault.pendingChanges();
-        assertEq(p.marketTradeDailyLossAllowance, 500);
-        assertEq(p.marketTradeDailyLossAllowanceAt, uint64(block.timestamp + 2 days));
+        assertEq(p.dailyLossAllowance, 500);
+        assertEq(p.dailyLossAllowanceAt, uint64(block.timestamp + 2 days));
 
         vm.warp(block.timestamp + 2 days);
         wethFeed.set(2_000e8, block.timestamp, block.timestamp);
@@ -533,7 +531,7 @@ contract MarketTradeGuardTest is Test {
         (,, uint64 allowance) = vault.riskSettings();
         assertEq(allowance, 0);
         PendingChanges memory p = vault.pendingChanges();
-        assertEq(p.marketTradeDailyLossAllowanceAt, 0, "nothing queued");
+        assertEq(p.dailyLossAllowanceAt, 0, "nothing queued");
     }
 
     /**
@@ -551,7 +549,7 @@ contract MarketTradeGuardTest is Test {
         vm.expectRevert(PaymentExceedsPeriodLimit.selector);
         _send(1);
         _sell(address(weth), 1e18, address(usdc), 1_950e6); // and $100 of losses is still within its own
-        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _sell(address(weth), 1e18, address(usdc), 1_999e6);
     }
 
@@ -569,7 +567,7 @@ contract MarketTradeGuardTest is Test {
 
         vm.prank(manager);
         ITrade(address(vault)).marketSell(address(market), address(weth), 1e18, address(usdc), 0, abi.encode(1_940e6));
-        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _sell(address(weth), 1e18, address(usdc), 1_940e6); // $60 + $60 is past $100, whoever traded
     }
 
@@ -595,7 +593,7 @@ contract MarketTradeGuardTest is Test {
         BittyV1Vault fresh = _freshVault();
         weth.mint(address(fresh), 1e18);
         (,, uint64 allowance) = fresh.riskSettings();
-        assertEq(allowance, DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "the default");
+        assertEq(allowance, DEFAULT_DAILY_LOSS_ALLOWANCE, "the default");
 
         vm.prank(owner);
         vm.expectRevert(MarketTradePriceTooLow.selector);
@@ -653,7 +651,7 @@ contract MarketTradeGuardTest is Test {
         _sell(address(weth), 100e18, address(usdc), 1);
 
         _sell(address(weth), 1e18, address(usdc), 1_940e6);
-        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _sell(address(weth), 1e18, address(usdc), 1_940e6);
     }
 
@@ -724,7 +722,7 @@ contract MarketTradeGuardTest is Test {
         assertEq(allowance, 500);
 
         _sell(address(weth), 5e18, address(usdc), 9_700e6); // 300 lost
-        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _sell(address(weth), 5e18, address(usdc), 9_700e6);
     }
 
@@ -752,7 +750,7 @@ contract MarketTradeGuardTest is Test {
         (,, uint64 allowance) = vault.riskSettings();
         assertEq(allowance, 0);
 
-        vm.expectRevert(MarketTradeExceedsDailyLossAllowance.selector);
+        vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _sell(address(weth), 1e18, address(usdc), 1_990e6);
 
         vm.expectRevert(VaultLocked.selector);

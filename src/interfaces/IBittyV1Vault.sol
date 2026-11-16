@@ -65,13 +65,15 @@ struct PendingChanges {
     uint64 timelockAt;
     uint64 sendDailyAllowance;
     uint64 sendDailyAllowanceAt;
-    uint64 marketTradeDailyLossAllowance;
-    uint64 marketTradeDailyLossAllowanceAt;
+    uint64 dailyLossAllowance;
+    uint64 dailyLossAllowanceAt;
 
     uint64 gasBudgetDaily;
     uint64 gasBudgetDailyAt;
     uint64 maxFeePerOp;
     uint64 maxFeePerOpAt;
+
+    uint64 bridgeEnableAt;
 }
 
 uint8 constant WHITELIST_REMOVED = 0; // gone, or never issued
@@ -189,13 +191,13 @@ interface IBittyV1Vault {
      * @return timelock The one wait in front of everything deferred.
      * @return sendDailyAllowance What may leave per day through regular sends, in whole USD; 0 when the owner
      *         has turned regular sends off.
-     * @return marketTradeDailyLossAllowance What market trades may lose against oracle value per day,
-     *         in whole USD; 0 when the owner has turned market trading off.
+     * @return dailyLossAllowance What market trades and bridges may lose against oracle value per
+     *         day, in whole USD; 0 when the owner has turned them off.
      */
     function riskSettings()
         external
         view
-        returns (uint64 timelock, uint64 sendDailyAllowance, uint64 marketTradeDailyLossAllowance);
+        returns (uint64 timelock, uint64 sendDailyAllowance, uint64 dailyLossAllowance);
 
     /**
      * @notice Get what the vault holds in withdrawable protocols.

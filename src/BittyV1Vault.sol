@@ -310,7 +310,7 @@ contract BittyV1Vault is BittyV1VaultBase {
     function riskSettings()
         external
         view
-        returns (uint64 timelock, uint64 sendDailyAllowance, uint64 marketTradeDailyLossAllowance)
+        returns (uint64 timelock, uint64 sendDailyAllowance, uint64 dailyLossAllowance)
     {
         return RiskLogic.riskSettings();
     }

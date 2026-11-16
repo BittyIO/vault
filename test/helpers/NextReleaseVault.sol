@@ -16,6 +16,6 @@ contract NextReleaseVault is BittyV1Vault {
     constructor(address defiFacet) BittyV1Vault(defiFacet) {}
 
     function vaultVersion() external pure override returns (uint256) {
-        return 1 * 1_000_000 + 1 * 1_000 + 0;
+        return 1 * 1_000_000 + 2 * 1_000 + 0;
     }
 }

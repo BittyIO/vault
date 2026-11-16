@@ -81,7 +81,7 @@ struct WhitelistEntry {
 struct RiskConfig {
     TimelockedValue timelock;
     TimelockedValue sendDailyAllowance;
-    TimelockedValue marketTradeDailyLossAllowance;
+    TimelockedValue dailyLossAllowance;
 }
 
 struct ProtocolInstance {
@@ -107,6 +107,8 @@ struct DeFiStorage {
     uint32 pendingAssetManagerPerms;
 
     mapping(address => mapping(address => uint32)) receiptTokenApproved; // clone => asset => the {ProtocolInstance.version}
+
+    TimelockedValue bridgeDisabled;
 }
 
 struct VaultStorage {
@@ -129,8 +131,8 @@ struct VaultStorage {
     uint64 ownerSendPeriodStart;
     uint128 ownerSentInPeriod;
 
-    uint128 marketTradeLossInPeriod;
-    uint64 marketTradePeriodStart;
+    uint128 lossInPeriod;
+    uint64 lossPeriodStart;
 
     TimelockedValue gasBudgetDaily;
     TimelockedValue maxFeePerOp;

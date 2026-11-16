@@ -20,8 +20,8 @@ import {
 import {
     BITTY_GUARD,
     MIN_RISK_TIMELOCK,
-    DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE,
-    MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE
+    DEFAULT_DAILY_LOSS_ALLOWANCE,
+    MAX_DAILY_LOSS_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /**
@@ -121,8 +121,8 @@ contract NewVaultDefaultsTest is Test {
     }
 
     function test_aNewVaultStartsAtTheDefaultLossAllowance() public view {
-        assertEq(_lossAllowance(), DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE);
-        assertLt(DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "below the ceiling");
+        assertEq(_lossAllowance(), DEFAULT_DAILY_LOSS_ALLOWANCE);
+        assertLt(DEFAULT_DAILY_LOSS_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE, "below the ceiling");
     }
 
     /**
@@ -136,16 +136,16 @@ contract NewVaultDefaultsTest is Test {
     }
 
     function test_raisingTheDefaultWaitsOutTheTimelock() public {
-        _setLossAllowance(MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE);
-        assertEq(_lossAllowance(), DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "only scheduled");
+        _setLossAllowance(MAX_DAILY_LOSS_ALLOWANCE);
+        assertEq(_lossAllowance(), DEFAULT_DAILY_LOSS_ALLOWANCE, "only scheduled");
         vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
-        assertEq(_lossAllowance(), MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "a timelock later");
+        assertEq(_lossAllowance(), MAX_DAILY_LOSS_ALLOWANCE, "a timelock later");
     }
 
     function test_theCeilingStillHolds() public {
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE + 1));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, MAX_DAILY_LOSS_ALLOWANCE + 1));
     }
 
     // ── an NFT leaves only to a payable whitelisted recipient ────────────────

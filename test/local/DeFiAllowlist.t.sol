@@ -210,9 +210,7 @@ contract DeFiAllowlistTest is Test {
     function _sendDailyAllowance(uint64 cap) internal {
         vm.prank(owner);
         vault.updateRisk(
-            IBittyV1Owner.RiskSettings({
-                timelock: UNCHANGED, sendDailyAllowance: cap, marketTradeDailyLossAllowance: UNCHANGED
-            })
+            IBittyV1Owner.RiskSettings({timelock: UNCHANGED, sendDailyAllowance: cap, dailyLossAllowance: UNCHANGED})
         );
     }
 
