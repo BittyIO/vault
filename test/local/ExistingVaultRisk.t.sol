@@ -14,8 +14,8 @@ import {
     BITTY_GUARD,
     MIN_RISK_TIMELOCK,
     MAX_SEND_DAILY_ALLOWANCE,
-    MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE,
-    DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE
+    MAX_DAILY_LOSS_ALLOWANCE,
+    DEFAULT_DAILY_LOSS_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /**
@@ -61,7 +61,7 @@ contract ExistingVaultRiskTest is Test {
     function test_aNewVaultWritesNeitherAllowance() public view {
         assertEq(vm.load(address(vault), bytes32(uint256(BittyStorage.VAULT_SLOT) + 4)), bytes32(0), "send slot");
         assertEq(vm.load(address(vault), bytes32(uint256(BittyStorage.VAULT_SLOT) + 5)), bytes32(0), "loss slot");
-        _assertRisk(0, DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "the new-vault defaults");
+        _assertRisk(0, DEFAULT_DAILY_LOSS_ALLOWANCE, "the new-vault defaults");
     }
 
     /**
@@ -69,10 +69,10 @@ contract ExistingVaultRiskTest is Test {
      * them ON, and waits.
      */
     function test_aNewVaultRaisingFromUnsetWaitsOutTheTimelock() public {
-        _risk(500, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE);
-        _assertRisk(0, DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "only scheduled");
+        _risk(500, MAX_DAILY_LOSS_ALLOWANCE);
+        _assertRisk(0, DEFAULT_DAILY_LOSS_ALLOWANCE, "only scheduled");
         vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
-        _assertRisk(500, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "a timelock later");
+        _assertRisk(500, MAX_DAILY_LOSS_ALLOWANCE, "a timelock later");
     }
 
     function test_aNewVaultLockedMayOnlyLowerFromTheDefault() public {
@@ -80,18 +80,16 @@ contract ExistingVaultRiskTest is Test {
         vault.emergencyLock();
         vm.prank(owner);
         vm.expectRevert(VaultLocked.selector);
-        vault.updateRisk(
-            IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE + 1)
-        );
-        _risk(UNCHANGED, DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE - 1);
-        _assertRisk(0, DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE - 1, "lowered at once");
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, DEFAULT_DAILY_LOSS_ALLOWANCE + 1));
+        _risk(UNCHANGED, DEFAULT_DAILY_LOSS_ALLOWANCE - 1);
+        _assertRisk(0, DEFAULT_DAILY_LOSS_ALLOWANCE - 1, "lowered at once");
     }
 
     // ── created before 1.0.9: unset is the ceiling ───────────────────────────
 
     function test_aPre109VaultStillReadsTheCeiling() public {
         LegacySends.asCreatedBefore109(address(vault));
-        _assertRisk(MAX_SEND_DAILY_ALLOWANCE, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "unchanged by the upgrade");
+        _assertRisk(MAX_SEND_DAILY_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE, "unchanged by the upgrade");
     }
 
     function test_aPre109VaultLowersAtOnce() public {
@@ -103,24 +101,24 @@ contract ExistingVaultRiskTest is Test {
     function test_aPre109VaultReturningToTheCeilingWaits() public {
         LegacySends.asCreatedBefore109(address(vault));
         _risk(100, 100);
-        _risk(MAX_SEND_DAILY_ALLOWANCE, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE);
+        _risk(MAX_SEND_DAILY_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE);
         _assertRisk(100, 100, "only scheduled");
         vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
-        _assertRisk(MAX_SEND_DAILY_ALLOWANCE, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "a timelock later");
+        _assertRisk(MAX_SEND_DAILY_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE, "a timelock later");
     }
 
     // ── created from 1.0.9 on: the written defaults stand ────────────────────
 
     function test_aWrittenDefaultsVaultReadsWhatWasWritten() public {
         LegacySends.asCreatedWithWrittenDefaults(address(vault));
-        _assertRisk(0, DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "sends off, the default loss allowance");
+        _assertRisk(0, DEFAULT_DAILY_LOSS_ALLOWANCE, "sends off, the default loss allowance");
     }
 
     function test_aWrittenDefaultsVaultTurningSendsOnWaits() public {
         LegacySends.asCreatedWithWrittenDefaults(address(vault));
-        _risk(500, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE);
-        _assertRisk(0, DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "only scheduled");
+        _risk(500, MAX_DAILY_LOSS_ALLOWANCE);
+        _assertRisk(0, DEFAULT_DAILY_LOSS_ALLOWANCE, "only scheduled");
         vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
-        _assertRisk(500, MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE, "a timelock later");
+        _assertRisk(500, MAX_DAILY_LOSS_ALLOWANCE, "a timelock later");
     }
 }

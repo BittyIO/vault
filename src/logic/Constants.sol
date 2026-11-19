@@ -18,10 +18,10 @@ uint64 constant MIN_RISK_TIMELOCK = 1 days;
 
 uint64 constant MAX_SEND_DAILY_ALLOWANCE = 10_000;
 
-uint64 constant MAX_MARKET_TRADE_DAILY_LOSS_ALLOWANCE = 10_000;
+uint64 constant MAX_DAILY_LOSS_ALLOWANCE = 10_000;
 
 // What a new vault starts with: a starting value, not a floor — the owner may lower it at once, to 0.
-uint64 constant DEFAULT_MARKET_TRADE_DAILY_LOSS_ALLOWANCE = 1_000;
+uint64 constant DEFAULT_DAILY_LOSS_ALLOWANCE = 1_000;
 
 // How an allowance of 0 is stored: a stored 0 already means "never set", which reads as the maximum.
 uint64 constant ALLOWANCE_ZERO = type(uint64).max;
@@ -49,4 +49,7 @@ uint32 constant PERM_YIELD = 1 << 0;
 uint32 constant PERM_SUPPLY = 1 << 1;
 uint32 constant PERM_MARKET_TRADE = 1 << 2;
 uint32 constant PERM_INTENT = 1 << 3;
+
+uint8 constant ASSET_BRIDGEABLE = 8;
+uint8 constant PROTOCOL_BRIDGE = 5;
 

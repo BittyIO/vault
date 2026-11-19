@@ -12,10 +12,25 @@ error GrantTooLong();
 error AssetManagerExpiryInPast();
 error MarketTradeNotSupported();
 error MarketTradePriceTooLow();
-error MarketTradeExceedsDailyLossAllowance();
+error DailyLossAllowanceExceeded();
 error PriceFeedMissing(address asset);
 error PriceStale(address asset);
 error SequencerDown();
+error BridgeNotEnabled();
+error InvalidBridgeProtocol();
+error AssetNotBridgeable();
+error BridgeAmountMismatch();
+
+/**
+ * @dev The adapter call the vault makes, mirrored from protocol-store's IBittyV1BridgeProtocol until
+ *      the vault's protocol-contracts pin carries it.
+ */
+interface IBittyV1BridgeAdapter {
+    function bridge(address token, uint256 amount, uint256 fee, bytes calldata data)
+        external
+        payable
+        returns (uint256 received);
+}
 
 /**
  * @title IBittyV1DeFi
@@ -96,4 +111,48 @@ interface IBittyV1DeFi {
      * @param orderUids The protocol's own order ids.
      */
     function cancelIntentOrders(address intentProtocol, bytes[] calldata orderUids) external;
+
+    event BridgeEnabledSet(bool enabled, uint64 effectiveAt);
+    event Bridged(
+        address indexed bridgeProtocol, address indexed asset, uint256 amount, uint256 fee, uint256 received, bytes data
+    );
+
+    /**
+     * @notice Turn the bridge function on or off. A vault starts with it on, like market trading:
+     *         what a bridge loses is bounded by the daily loss allowance, and what it moves stays
+     *         under the owner's vault on the other chain, whose own limits still apply.
+     * @dev Turning it back on waits out the risk timelock and is refused under a lock; a lock also
+     *      drops a pending turn-on. Turning it off applies at once, locked or not.
+     */
+    function setBridgeEnabled(bool enabled) external;
+
+    /**
+     * @return enabled Whether the vault can bridge now.
+     * @return enableAt When a pending turn-on takes effect, or 0 if none is waiting.
+     */
+    function bridgeSettings() external view returns (bool enabled, uint64 enableAt);
+
+    /**
+     * @notice Bridge `amount` of `asset` to the owner's own vault on another chain through
+     *         `bridgeProtocol`. Owner only, never an asset manager; not under a lock; and only once
+     *         the bridge function is on.
+     * @dev The vault does not read the bridge's request itself; the guard-registered adapter does,
+     *      and it is the adapter that pins the recipient to the owner's vault on the destination chain
+     *      and bounds what the bridge may keep (see protocol-store's AcrossBridgeProtocol). There is
+     *      no amount limit, as for a payout to a default whitelisted address. A bridge only moves
+     *      money between the owner's vaults, so the set of them is as strong as the weakest.
+     *
+     *      `asset` is address(0) for the native coin, which the vault holds as its wrapped gas token
+     *      and unwraps for the bridge. The asset (the wrapped gas token, for native) must carry the
+     *      guard's bridgeable category, and the protocol the bridge category. Exactly `amount` leaves
+     *      the vault, `fee` of it as Bitty's fee, capped by the adapter. What does not arrive on the
+     *      other side (the fee and the bridge's cost) is charged to the daily loss allowance, valued
+     *      at oracle price, so an asset without a price feed (or a stablecoin) cannot be bridged.
+     * @param bridgeProtocol The guard-registered bridge adapter.
+     * @param asset The asset to send, address(0) for the native coin.
+     * @param amount What leaves the vault, fee included.
+     * @param fee Bitty's fee out of `amount`.
+     * @param data The adapter's request (Across: abi.encode(AcrossQuote) from Across's quote).
+     */
+    function bridge(address bridgeProtocol, address asset, uint256 amount, uint256 fee, bytes calldata data) external;
 }

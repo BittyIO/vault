@@ -109,7 +109,7 @@ library LockLib {
 
         TimelockLib.cancelPending($.riskConfig.timelock);
         TimelockLib.cancelPending($.riskConfig.sendDailyAllowance);
-        TimelockLib.cancelPending($.riskConfig.marketTradeDailyLossAllowance);
+        TimelockLib.cancelPending($.riskConfig.dailyLossAllowance);
         TimelockLib.cancelPending($.gasBudgetDaily);
         TimelockLib.cancelPending($.maxFeePerOp);
 
@@ -120,6 +120,7 @@ library LockLib {
         }
 
         DeFiStorage storage d = BittyStorage.defi();
+        TimelockLib.cancelPending(d.bridgeDisabled);
         if (d.hasPendingAssetManager) {
             if (block.timestamp >= d.pendingAssetManagerAt) {
                 d.assetManager = d.pendingAssetManager;

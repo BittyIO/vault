@@ -153,6 +153,10 @@ forge script script/Deploy.s.sol:Deploy \
   -vvvv
 ```
 
+BNB Smart Chain is `--rpc-url bsc` (chain 56; Foundry names it `bsc`, so the TOML is
+`deployments/bsc.toml`). Its guard must already have `CFG_OWNER` and `CFG_GAS_WRAPPED` (WBNB) set,
+which the guard repo's `BittyV1GuardBsc` script does.
+
 The run is idempotent. Anything already at its expected address is skipped, each `initialize` is only
 called when it has not run yet, and each proxy is upgraded only when its ERC-1967 slot does not already
 name the current build — so a partial deployment can simply be re-run.

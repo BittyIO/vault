@@ -119,9 +119,7 @@ contract LogicGuardsTest is Test {
     function test_riskCannotBeConfiguredBeforeInitialization() public {
         vm.expectRevert(NotInitialized.selector);
         account.updateRisk(
-            IBittyV1Owner.RiskSettings({
-                timelock: 1 days, sendDailyAllowance: UNCHANGED, marketTradeDailyLossAllowance: UNCHANGED
-            })
+            IBittyV1Owner.RiskSettings({timelock: 1 days, sendDailyAllowance: UNCHANGED, dailyLossAllowance: UNCHANGED})
         );
     }
 
