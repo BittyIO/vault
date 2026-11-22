@@ -80,7 +80,7 @@ contract BittyV1VaultFactory is EIP712, UUPSUpgradeable {
      *      knowing it moves every un-activated owner's address.
      */
     bytes32 private constant _VAULT_PROXY_INITCODE_HASH =
-        0x521894190e6b5a5cb1a1448751c8cd310390f565a3453d203b5577e99e6b4fbd;
+        0xa2268803d8f227cb4a2a12b068deee34869044ce8ceb1d3d6bbfdcca0a33a151;
 
     error NotOwner();
     error VaultProxyInitCodeDrift();

@@ -27,7 +27,7 @@ interface IGuardOwner {
  *      rest of the codebase does. The same reasoning as BittyV1VaultBootstrap / BittyV1ForwarderBootstrap.
  */
 contract BittyV1VaultFactoryBootstrap is UUPSUpgradeable {
-    address private constant GUARD = 0xb609AAAEbB9775Ea3037C4D3dde427498c457AD1;
+    address private constant GUARD = 0xf022C72D48c2E3B81731dbA6649BF780302c0035;
     bytes32 private constant OWNER_KEY = keccak256("bitty.owner");
 
     /**

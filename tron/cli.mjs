@@ -4,6 +4,8 @@
 //   node cli.mjs probe    --network nile            check the TVM facts this deploy rests on (no key)
 //   node cli.mjs plan     --network nile            write TRON constants into the sources, build, plan
 //   node cli.mjs deploy   --network nile [--dry-run] send the plan
+//   --rpc <node url>   any command, through another node than the network's fullHost (e.g. Alchemy's,
+//                      key in the path); never written to a file
 //
 // The guard and the CREATE2 deployer come first, from the guard repo (`tron/deploy.mjs` there); their
 // addresses are recorded in networks/<network>.json, and this deploys everything after them.
@@ -26,10 +28,12 @@ const { positionals, values } = parseArgs({
   options: {
     network: { type: "string", default: "nile" },
     "dry-run": { type: "boolean", default: false },
+    rpc: { type: "string" },
   },
 });
 const command = positionals[0];
 const network = JSON.parse(readFileSync(join(here, "networks", `${values.network}.json`), "utf8"));
+const fullHost = values.rpc || network.fullHost;
 const repos = { vault: resolve(here, "..") };
 const statePath = join(here, "deployments", `${network.name}.json`);
 const planPath = join(here, "deployments", `${network.name}.plan.json`);
@@ -43,7 +47,7 @@ function save(path, data) {
 
 function chain() {
   return new Chain({
-    fullHost: network.fullHost,
+    fullHost,
     privateKey: process.env.TRON_PRIVATE_KEY,
     apiKey: process.env.TRON_PRO_API_KEY,
     feeLimitTrx: network.feeLimitTrx,
@@ -64,9 +68,14 @@ async function requireFunded(c, fresh) {
   const balanceTrx = (account?.balance ?? 0) / 1_000_000;
   const params = await c.tronWeb.trx.getChainParameters();
   const energyFeeSun = params.find((p) => p.key === "getEnergyFee")?.value ?? 100;
-  const neededTrx = Math.ceil((STACK_DEPLOY_ENERGY * energyFeeSun) / 1_000_000 + BANDWIDTH_TRX);
+  // Energy on hand, staked by the account itself or delegated to it (rented), is not burned for.
+  const res = account?.address ? await c.tronWeb.trx.getAccountResources(deployerBase58) : {};
+  const energy = Math.max(0, (res.EnergyLimit ?? 0) - (res.EnergyUsed ?? 0));
+  const energyShort = Math.max(0, STACK_DEPLOY_ENERGY - energy);
+  const neededTrx = Math.ceil((energyShort * energyFeeSun) / 1_000_000 + BANDWIDTH_TRX);
   const exists = Boolean(account?.address);
   console.log(`DEPLOYER ${deployerBase58} (${toEvm(network.deployer)}): ${exists ? `${balanceTrx} TRX` : "no account yet"}`);
+  console.log(`  energy ${energy} of ~${STACK_DEPLOY_ENERGY} on hand`);
   if (exists && balanceTrx >= neededTrx) return;
   // Finishing an earlier run costs only what is left, which is unknown here: warn, and let it try.
   if (exists && !fresh) return console.log(`WARNING: ${balanceTrx} TRX is below the ~${neededTrx} TRX of a deploy from nothing`);
@@ -77,8 +86,8 @@ async function requireFunded(c, fresh) {
     `    ${deployerBase58}`,
     "",
     `  balance now: ${exists ? `${balanceTrx} TRX` : "none (the account does not exist until it receives TRX)"}`,
-    `  needed:      about ${neededTrx} TRX for a deploy from nothing (${STACK_DEPLOY_ENERGY / 1e6}M energy at ${energyFeeSun} sun,`,
-    "               plus bandwidth); less if the account has staked energy or the run is finishing an earlier one",
+    `  needed:      about ${neededTrx} TRX for a deploy from nothing (the ${energyShort} energy not on hand at`,
+    `               ${energyFeeSun} sun, plus bandwidth); rent energy first to need less`,
     ...(network.name === "nile" ? ["  Nile test TRX: https://nileex.io/join/getJoinPage"] : []),
     "",
   ].join("\n");
@@ -91,14 +100,14 @@ async function requireFunded(c, fresh) {
 
 switch (command) {
   case "probe": {
-    const results = await probe({ fullHost: network.fullHost, chainId: network.chainId, apiKey: process.env.TRON_PRO_API_KEY });
+    const results = await probe({ fullHost, chainId: network.chainId, apiKey: process.env.TRON_PRO_API_KEY });
     for (const r of results) console.log(`${r.pass ? "PASS" : "FAIL"}  ${r.name}${r.detail ? `  (${r.detail})` : ""}`);
     // With a plan, also run every piece's real init code as a deployment simulation.
     if (existsSync(planPath)) {
       const plan = JSON.parse(readFileSync(planPath, "utf8"));
       for (const s of createSteps(plan)) {
         await new Promise((r) => setTimeout(r, 1_200));
-        const r = await simulateDeployment({ fullHost: network.fullHost, apiKey: process.env.TRON_PRO_API_KEY }, s.initCode);
+        const r = await simulateDeployment({ fullHost, apiKey: process.env.TRON_PRO_API_KEY }, s.initCode);
         console.log(`${r.ok ? "PASS" : "FAIL"}  simulate ${s.name.padEnd(28)} energy ${r.energy ?? "-"}${r.message ? `  (${r.message.slice(0, 80)})` : ""}`);
         results.push({ pass: r.ok });
       }

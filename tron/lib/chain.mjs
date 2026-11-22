@@ -13,6 +13,15 @@ export class Chain {
   constructor({ fullHost, privateKey, feeLimitTrx = 1_000, apiKey, dryRun = false }) {
     const headers = apiKey ? { "TRON-PRO-API-KEY": apiKey } : undefined;
     this.tronWeb = new TronWeb({ fullHost, headers, privateKey });
+    // TronWeb posts its argument-less calls (getchainparameters, getnowblock, …) with no body at all,
+    // which some providers (Alchemy) refuse with a 400; an empty JSON object is what java-tron expects
+    // anyway, so send that.
+    for (const node of [this.tronWeb.fullNode, this.tronWeb.solidityNode]) {
+      node.instance.interceptors.request.use((req) => {
+        if (req.method?.toLowerCase() === "post" && req.data == null) req.data = {};
+        return req;
+      });
+    }
     this.fullHost = fullHost;
     this.headers = headers ?? {};
     this.feeLimit = feeLimitTrx * SUN_PER_TRX;
@@ -120,12 +129,25 @@ export class Chain {
     throw new Error(`${name}: tx ${txid} not confirmed after 2 minutes`);
   }
 
+  /**
+   * One Ethereum JSON-RPC call. TronGrid serves JSON-RPC at <fullHost>/jsonrpc, some providers
+   * (Alchemy) at the URL itself; the first call tries /jsonrpc and, on a 404, the URL itself, and
+   * every later call uses whichever answered.
+   */
   async _rpc(method, params) {
-    const res = await fetch(`${this.fullHost.replace(/\/$/, "")}/jsonrpc`, {
-      method: "POST",
-      headers: { "content-type": "application/json", ...this.headers },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    });
+    const base = this.fullHost.replace(/\/$/, "");
+    const post = (url) =>
+      fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...this.headers },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      });
+    let res = await post(this.jsonRpcUrl ?? `${base}/jsonrpc`);
+    if (!this.jsonRpcUrl) {
+      if (res.status === 404) res = await post(base);
+      if (res.ok) this.jsonRpcUrl = res.url;
+    }
+    if (!res.ok) throw new Error(`${method}: HTTP ${res.status}`);
     const body = await res.json();
     if (body.error) throw new Error(`${method}: ${JSON.stringify(body.error)}`);
     return body.result;
