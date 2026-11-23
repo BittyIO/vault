@@ -35,9 +35,6 @@ error PaymentNotStableCoin();
 
 error WhitelistedRecipientNotFound();
 error NoEscapeRecipient();
-error WhitelistedRecipientIsOwner();
-error NewOwnerIsWhitelisted();
-error WhitelistedRecipientExists();
 
 error VaultLocked();
 
