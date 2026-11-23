@@ -120,7 +120,7 @@ interface IBittyV1DeFi {
     /**
      * @notice Turn the bridge function on or off. A vault starts with it on, like market trading:
      *         what a bridge loses is bounded by the daily loss allowance, and what it moves stays
-     *         under the owner's vault on the other chain, whose own limits still apply.
+     *         under this vault's counterpart on the other chain, whose own limits still apply.
      * @dev Turning it back on waits out the risk timelock and is refused under a lock; a lock also
      *      drops a pending turn-on. Turning it off applies at once, locked or not.
      */
@@ -133,14 +133,20 @@ interface IBittyV1DeFi {
     function bridgeSettings() external view returns (bool enabled, uint64 enableAt);
 
     /**
-     * @notice Bridge `amount` of `asset` to the owner's own vault on another chain through
+     * @notice Bridge `amount` of `asset` to this vault's counterpart on another chain through
      *         `bridgeProtocol`. Owner only, never an asset manager; not under a lock; and only once
      *         the bridge function is on.
      * @dev The vault does not read the bridge's request itself; the guard-registered adapter does,
-     *      and it is the adapter that pins the recipient to the owner's vault on the destination chain
-     *      and bounds what the bridge may keep (see protocol-store's AcrossBridgeProtocol). There is
-     *      no amount limit, as for a payout to a default whitelisted address. A bridge only moves
-     *      money between the owner's vaults, so the set of them is as strong as the weakest.
+     *      and it is the adapter that pins the recipient and bounds what the bridge may keep (see
+     *      protocol-store's AcrossBridgeProtocol). The recipient is this vault's counterpart: between
+     *      EVM chains its own address, which is the same on every EVM chain; to or from TRON, where
+     *      the address differs, the vault its creation owner has there. There is no amount limit, as
+     *      for a payout to a default whitelisted address. A bridge only moves money between a vault
+     *      and its counterparts, so the set of them is as strong as the weakest.
+     *
+     *      The counterpart belongs to whoever owns it on that chain. Ownership is per chain: after
+     *      this vault is handed to a new key here (a rotation, a sale, the recovery from a stolen
+     *      key), the same address elsewhere stays the old key's until it is handed over there too.
      *
      *      `asset` is address(0) for the native coin, which the vault holds as its wrapped gas token
      *      and unwraps for the bridge. The asset (the wrapped gas token, for native) must carry the
@@ -152,7 +158,8 @@ interface IBittyV1DeFi {
      * @param asset The asset to send, address(0) for the native coin.
      * @param amount What leaves the vault, fee included.
      * @param fee Bitty's fee out of `amount`.
-     * @param data The adapter's request (Across: abi.encode(AcrossQuote) from Across's quote).
+     * @param data The adapter's request (Across: abi.encode(AcrossQuote) from Across's quote, followed
+     *        by the vault's creation owner to or from TRON).
      */
     function bridge(address bridgeProtocol, address asset, uint256 amount, uint256 fee, bytes calldata data) external;
 }
