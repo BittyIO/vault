@@ -11,6 +11,7 @@ import {MockFeed} from "./MarketTradeGuard.t.sol";
 import {PriceStale, SequencerDown} from "../../src/interfaces/IBittyV1DeFi.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {
     NotTrustedForwarder,
     GasBudgetExceeded,
@@ -299,6 +300,8 @@ contract VaultTokenAsGasTest is Test {
      */
     function test_disableTokenAsGasCancelsAPendingRaise() public {
         address[] memory none = new address[](0);
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, type(uint256).max, type(uint256).max));
         vm.startPrank(owner);
         vault.setTokenAsGas(none, 10); // tightening: at once
         vault.setTokenAsGas(none, 50); // loosening: waits

@@ -14,7 +14,7 @@ import {
     VaultLocked,
     WhitelistedRecipientNotFound
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, MIN_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, LEGACY_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
 
 /**
  * Taking a whitelisted recipient away waits, like granting one does.
@@ -48,7 +48,7 @@ contract WhitelistChangesTest is Test {
     uint256 coldId;
 
     function setUp() public {
-        vm.warp(T0 - MIN_RISK_TIMELOCK);
+        vm.warp(T0 - LEGACY_RISK_TIMELOCK);
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         guard = MockGuard(BITTY_GUARD);
 
@@ -195,16 +195,16 @@ contract WhitelistChangesTest is Test {
      */
     function test_atTheShortestTimelockARemovalStillWaits() public {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(LEGACY_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
         vm.warp(T0 + TIMELOCK); // the loosening lands
         vm.prank(owner);
         vault.removeWhitelistedRecipients(_ids(coldId));
-        assertEq(vault.getWhitelistedRecipientRemovals(_ids(coldId))[0], T0 + TIMELOCK + MIN_RISK_TIMELOCK);
+        assertEq(vault.getWhitelistedRecipientRemovals(_ids(coldId))[0], T0 + TIMELOCK + LEGACY_RISK_TIMELOCK);
 
         _pay(coldId, address(usdc), 1e6);
         assertEq(usdc.balanceOf(cold), 1e6, "still payable while the removal waits");
 
-        vm.warp(T0 + TIMELOCK + MIN_RISK_TIMELOCK);
+        vm.warp(T0 + TIMELOCK + LEGACY_RISK_TIMELOCK);
         vm.prank(owner);
         vm.expectRevert(WhitelistedRecipientNotFound.selector);
         vault.sendToWhitelistedRecipient(coldId, address(usdc), 1e6, _none(), _noAmounts());

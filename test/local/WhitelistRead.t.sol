@@ -17,7 +17,7 @@ import {
     WHITELIST_VOIDED,
     WHITELIST_REMOVAL_QUEUED
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, MIN_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, LEGACY_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
 
 /**
  * The whitelist read straight from state. It is the vault's way out after a key leaks, so a client
@@ -35,7 +35,7 @@ contract WhitelistReadTest is Test {
     uint256 constant UNCHANGED = type(uint256).max;
     uint64 constant TIMELOCK = 3 days;
     uint256 constant T0 = 1_000_000;
-    uint256 constant T1 = T0 + MIN_RISK_TIMELOCK;
+    uint256 constant T1 = T0 + LEGACY_RISK_TIMELOCK;
 
     function setUp() public {
         vm.warp(T0);
@@ -61,22 +61,19 @@ contract WhitelistReadTest is Test {
     }
 
     /**
-     * A vault that never set a timelock still has one - a day - so even its first entry waits.
+     * A vault created from 1.1.1 on has no timelock until the owner sets one, so its first entry is
+     * payable at once.
      */
-    function test_aNewVaultsFirstEntryWaitsOutTheDefaultTimelock() public {
+    function test_aNewVaultsFirstEntryIsPayableAtOnce() public {
         vm.prank(owner);
         uint256 id = vault.addWhitelistedRecipient(cold);
 
         WhitelistEntryView memory e = _one(id);
         assertEq(e.id, id);
         assertEq(e.recipient, cold);
-        assertEq(e.effectiveAt, T0 + MIN_RISK_TIMELOCK, "payable after the default timelock");
+        assertEq(e.effectiveAt, 0, "no wait");
         assertEq(e.removeAt, 0);
-        assertEq(e.status, WHITELIST_PENDING);
-        assertFalse(_canPay(id));
-
-        vm.warp(T0 + MIN_RISK_TIMELOCK);
-        assertEq(_one(id).status, WHITELIST_PAYABLE);
+        assertEq(e.status, WHITELIST_PAYABLE);
         assertTrue(_canPay(id));
     }
 

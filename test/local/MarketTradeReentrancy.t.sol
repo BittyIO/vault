@@ -21,7 +21,7 @@ import {ReentrantCall} from "../../src/interfaces/IBittyV1Vault.sol";
 import {MarketTradePriceTooLow, InvalidWithdrawableProtocol} from "../../src/interfaces/IBittyV1DeFi.sol";
 import {
     BITTY_GUARD,
-    MIN_RISK_TIMELOCK,
+    LEGACY_RISK_TIMELOCK,
     PERM_YIELD,
     PERM_SUPPLY,
     PERM_MARKET_TRADE,
@@ -281,7 +281,7 @@ contract MarketTradeReentrancyTest is Test {
                 BittyV1VaultDeFiFacet.setAssetManager, (manager, uint64(block.timestamp + 365 days), permissions)
             )
         );
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
     }
 
     function test_aTradingOnlyManagerCannotUnwind() public {

@@ -19,7 +19,7 @@ import {
     VaultLocked
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {BITTY_GUARD, MIN_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, LEGACY_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
 import {IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 
 /**
@@ -96,15 +96,13 @@ contract QueuedAuthorityTest is Test {
     // -- handing the vault over -----------------------------------------------
 
     /**
-     * Every vault has a timelock - a day until the owner sets one - so no handover is one call.
+     * A vault created from 1.1.1 on has no timelock until the owner sets one, so its handover lands
+     * at once.
      */
-    function test_aNewVaultsHandoverWaitsOutTheDefaultTimelock() public {
+    function test_aNewVaultsHandoverLandsAtOnce() public {
         vm.prank(owner);
         vault.transferOwnership(heir);
-        assertEq(vault.owner(), owner, "nothing has moved yet");
-
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
-        assertEq(vault.owner(), heir, "a day later it has");
+        assertEq(vault.owner(), heir, "handed over");
     }
 
     function test_withATimelockTheCallOnlyStartsTheClock() public {
@@ -373,7 +371,7 @@ contract QueuedAuthorityTest is Test {
         vm.startPrank(owner); // the leaked key, busy
         vault.transferOwnership(thief);
         BittyV1VaultDeFiFacet(payable(address(vault))).setAssetManager(thief, uint64(block.timestamp + 365 days), 1);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(LEGACY_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
         vault.addWhitelistedRecipient(makeAddr("thief's drop")); // not `thief`: the new owner cannot be a payee
         vm.stopPrank();
 
@@ -382,7 +380,7 @@ contract QueuedAuthorityTest is Test {
         assertEq(p.newOwner, thief, "a handover the owner did not ask for");
         assertEq(p.newOwnerReadyAt, uint64(block.timestamp) + WAIT);
         assertEq(p.newAssetManager, thief, "and a delegate");
-        assertEq(p.timelock, MIN_RISK_TIMELOCK, "and the wait itself being taken down");
+        assertEq(p.timelock, LEGACY_RISK_TIMELOCK, "and the wait itself being taken down");
         assertEq(p.timelockAt, uint64(block.timestamp) + WAIT);
 
         // One call answers all of it, and the lock clears all of it.

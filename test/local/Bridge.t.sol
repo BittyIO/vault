@@ -23,7 +23,7 @@ import {VaultLocked, Deprecated, AmountIsZero, PendingChanges} from "../../src/i
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {
     BITTY_GUARD,
-    MIN_RISK_TIMELOCK,
+    LEGACY_RISK_TIMELOCK,
     ASSET_BRIDGEABLE,
     PROTOCOL_BRIDGE,
     PROTOCOL_MARKET_TRADE_ID
@@ -149,12 +149,18 @@ contract BridgeTest is Test {
     function _enable() internal {
         vm.prank(owner);
         _b().setBridgeEnabled(true);
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
     }
 
     function _disable() internal {
         vm.prank(owner);
         _b().setBridgeEnabled(false);
+    }
+
+    /// The owner sets a day's timelock, so turning the bridge on has something to wait out.
+    function _aDayTimelock() internal {
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, type(uint256).max, type(uint256).max));
     }
 
     function _bridge(address protocol, address asset, uint256 amount, uint256 fee) internal {
@@ -188,17 +194,18 @@ contract BridgeTest is Test {
     }
 
     function test_turningOnWaitsOutTheTimelock() public {
+        _aDayTimelock();
         _disable();
         vm.expectEmit(address(vault));
-        emit IBittyV1DeFi.BridgeEnabledSet(true, uint64(block.timestamp + MIN_RISK_TIMELOCK));
+        emit IBittyV1DeFi.BridgeEnabledSet(true, uint64(block.timestamp + LEGACY_RISK_TIMELOCK));
         vm.prank(owner);
         _b().setBridgeEnabled(true);
 
         (bool enabled, uint64 enableAt) = _b().bridgeSettings();
         assertFalse(enabled);
-        assertEq(enableAt, block.timestamp + MIN_RISK_TIMELOCK);
+        assertEq(enableAt, block.timestamp + LEGACY_RISK_TIMELOCK);
 
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK - 1);
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK - 1);
         vm.expectRevert(BridgeNotEnabled.selector);
         _bridge(address(across), address(usdc), 1_000e6, 0);
 
@@ -225,20 +232,21 @@ contract BridgeTest is Test {
         _b().setBridgeEnabled(true);
         vm.prank(owner);
         _b().setBridgeEnabled(false);
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
         (bool enabled, uint64 enableAt) = _b().bridgeSettings();
         assertFalse(enabled);
         assertEq(enableAt, 0);
     }
 
     function test_pendingTurnOnIsInPendingChanges() public {
+        _aDayTimelock();
         assertEq(vault.pendingChanges().bridgeEnableAt, 0);
         _disable();
         assertEq(vault.pendingChanges().bridgeEnableAt, 0);
 
         vm.prank(owner);
         _b().setBridgeEnabled(true);
-        uint64 at = uint64(block.timestamp + MIN_RISK_TIMELOCK);
+        uint64 at = uint64(block.timestamp + LEGACY_RISK_TIMELOCK);
         assertEq(vault.pendingChanges().bridgeEnableAt, at);
 
         // Once it lands it is no longer pending.
@@ -276,6 +284,7 @@ contract BridgeTest is Test {
     // ── locks ───────────────────────────────────────────────────────────────────────────────────
 
     function test_lockDropsAPendingOn() public {
+        _aDayTimelock();
         _disable();
         vm.prank(owner);
         _b().setBridgeEnabled(true);
@@ -283,7 +292,7 @@ contract BridgeTest is Test {
         vault.emergencyLock();
         vm.prank(owner);
         vault.unlock();
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
         (bool enabled,) = _b().bridgeSettings();
         assertFalse(enabled);
     }

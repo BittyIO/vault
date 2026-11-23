@@ -41,7 +41,7 @@ library BridgeLogic {
     function setEnabled(bool enabled) internal {
         DeFiLogic._onlyInitialized();
         TimelockedValue storage tv = BittyStorage.defi().bridgeDisabled;
-        uint64 timelock = RiskLogic.effectiveTimelock(BittyStorage.vault().riskConfig);
+        uint64 timelock = RiskLogic.effectiveTimelock(BittyStorage.vault());
         bool loosen = enabled && TimelockLib.effective(tv) == OFF;
         TimelockLib.setCap(tv, enabled ? 0 : OFF, loosen, timelock);
         emit IBittyV1DeFi.BridgeEnabledSet(enabled, loosen ? tv.pendingAt : uint64(block.timestamp));

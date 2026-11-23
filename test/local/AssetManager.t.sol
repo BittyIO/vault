@@ -13,7 +13,7 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield, IBittyV1Vault, VaultLocked} from "../../src/interfaces/IBittyV1Vault.sol";
 import {AssetManagerExpiryInPast} from "../../src/interfaces/IBittyV1DeFi.sol";
-import {BITTY_GUARD, MIN_RISK_TIMELOCK, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, LEGACY_RISK_TIMELOCK, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
 
 /*
  * The capabilities these tests appoint a manager for: the jobs a managed vault is actually given —
@@ -87,7 +87,7 @@ contract AssetManagerTest is Test {
     function _appoint(uint64 expiresAt) internal {
         vm.prank(owner);
         _f().setAssetManager(manager, expiresAt, MANAGER_PERMS);
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
     }
 
     // ── what the manager is for ──────────────────────────────────────────────

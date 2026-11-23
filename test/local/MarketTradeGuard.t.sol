@@ -32,7 +32,7 @@ import {
 } from "../../src/interfaces/IBittyV1DeFi.sol";
 import {
     BITTY_GUARD,
-    MIN_RISK_TIMELOCK,
+    LEGACY_RISK_TIMELOCK,
     MAX_DAILY_LOSS_ALLOWANCE,
     DEFAULT_DAILY_LOSS_ALLOWANCE,
     PERM_MARKET_TRADE
@@ -562,7 +562,7 @@ contract MarketTradeGuardTest is Test {
         vm.prank(owner);
         BittyV1VaultDeFiFacet(payable(address(vault)))
             .setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_MARKET_TRADE);
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK); // the grant waits out a new vault's timelock
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK); // the grant waits out a new vault's timelock
         wethFeed.set(2_000e8, block.timestamp, block.timestamp);
 
         vm.prank(manager);
@@ -682,7 +682,7 @@ contract MarketTradeGuardTest is Test {
         vm.prank(owner);
         BittyV1VaultDeFiFacet(payable(address(vault)))
             .setAssetManager(manager, uint64(block.timestamp + 365 days), PERM_MARKET_TRADE);
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
         wethFeed.set(2_000e8, block.timestamp, block.timestamp);
         vm.prank(owner);
         vault.emergencyLock();
@@ -773,7 +773,7 @@ contract MarketTradeGuardTest is Test {
 
         vm.prank(owner);
         vm.expectRevert(VaultLocked.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK * 2, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(LEGACY_RISK_TIMELOCK * 2, UNCHANGED, UNCHANGED));
 
         vm.prank(owner);
         vm.expectRevert(VaultLocked.selector);
@@ -781,7 +781,7 @@ contract MarketTradeGuardTest is Test {
 
         vm.prank(owner);
         vm.expectRevert(VaultLocked.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK * 2, UNCHANGED, 500));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(LEGACY_RISK_TIMELOCK * 2, UNCHANGED, 500));
 
         vm.prank(owner);
         vm.expectRevert(VaultLocked.selector);
