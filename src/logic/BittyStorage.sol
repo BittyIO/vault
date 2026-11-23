@@ -150,6 +150,7 @@ struct VaultStorage {
     address vaultOwner;
     mapping(uint32 => uint64) lockEpochClosedAt;
     address pendingOwner;
+    mapping(address => uint256) whitelistedRecipientIdOf;
 }
 
 library BittyStorage {

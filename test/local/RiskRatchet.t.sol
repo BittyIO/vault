@@ -376,9 +376,9 @@ contract RiskRatchetTest is Test {
         vm.prank(owner);
         BittyV1VaultDeFiFacet(payable(address(vault))).setAssetManager(stranger, uint64(block.timestamp + 365 days), 1);
 
-        // and the vault itself
+        // and the vault itself, to another address: a payee cannot be the new owner
         vm.prank(owner);
-        vault.transferOwnership(stranger);
+        vault.transferOwnership(makeAddr("heir"));
 
         PendingChanges memory p = vault.pendingChanges();
         assertEq(p.newAssetManagerAt, block.timestamp + 2 days, "the delegate waits two days");

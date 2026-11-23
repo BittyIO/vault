@@ -30,3 +30,7 @@ abi/
 # Build output for the non-default profiles.
 out-deploy/
 out-safe/
+out-tron/
+
+# TRON tooling, kept local (node_modules and deploy state)
+tron/

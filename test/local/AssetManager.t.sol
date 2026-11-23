@@ -285,7 +285,7 @@ contract AssetManagerTest is Test {
 
         // The forever lock needs a destination the vault can still pay out to.
         vm.prank(owner);
-        uint256 escape = vault.addWhitelistedRecipient(owner);
+        uint256 escape = vault.addWhitelistedRecipient(makeAddr("escape")); // never the owner itself
         vm.warp(block.timestamp + 31 days);
         vm.prank(owner);
         vault.foreverLock(escape);
