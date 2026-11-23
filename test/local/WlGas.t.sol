@@ -9,7 +9,7 @@ import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 abstract contract Base is Test {
     BittyV1Vault vault;
@@ -40,7 +40,7 @@ abstract contract Base is Test {
         usdc.mint(address(vault), 1_000_000e6);
         if (window != 0) {
             vm.prank(owner);
-            vault.updateRisk(IBittyV1Owner.RiskSettings(window, UNCHANGED, UNCHANGED));
+            vault.updateRisk(IBittyV1Owner.RiskSettings(window, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         }
         vm.prank(owner);
         id = vault.addWhitelistedRecipient(cold);

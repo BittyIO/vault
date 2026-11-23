@@ -23,11 +23,12 @@ import {VaultLocked, Deprecated, AmountIsZero, PendingChanges} from "../../src/i
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {
     BITTY_GUARD,
-    LEGACY_RISK_TIMELOCK,
+    MIN_RISK_TIMELOCK,
     ASSET_BRIDGEABLE,
     PROTOCOL_BRIDGE,
     PROTOCOL_MARKET_TRADE_ID
 } from "./BridgeTestConstants.sol";
+import {MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 /**
  * @dev A bridge adapter that takes what it is handed and keeps it, standing in for a deposit into
@@ -149,7 +150,7 @@ contract BridgeTest is Test {
     function _enable() internal {
         vm.prank(owner);
         _b().setBridgeEnabled(true);
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
     }
 
     function _disable() internal {
@@ -160,7 +161,7 @@ contract BridgeTest is Test {
     /// The owner sets a day's timelock, so turning the bridge on has something to wait out.
     function _aDayTimelock() internal {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, type(uint256).max, type(uint256).max));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
     }
 
     function _bridge(address protocol, address asset, uint256 amount, uint256 fee) internal {
@@ -197,15 +198,15 @@ contract BridgeTest is Test {
         _aDayTimelock();
         _disable();
         vm.expectEmit(address(vault));
-        emit IBittyV1DeFi.BridgeEnabledSet(true, uint64(block.timestamp + LEGACY_RISK_TIMELOCK));
+        emit IBittyV1DeFi.BridgeEnabledSet(true, uint64(block.timestamp + MIN_RISK_TIMELOCK));
         vm.prank(owner);
         _b().setBridgeEnabled(true);
 
         (bool enabled, uint64 enableAt) = _b().bridgeSettings();
         assertFalse(enabled);
-        assertEq(enableAt, block.timestamp + LEGACY_RISK_TIMELOCK);
+        assertEq(enableAt, block.timestamp + MIN_RISK_TIMELOCK);
 
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK - 1);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK - 1);
         vm.expectRevert(BridgeNotEnabled.selector);
         _bridge(address(across), address(usdc), 1_000e6, 0);
 
@@ -232,7 +233,7 @@ contract BridgeTest is Test {
         _b().setBridgeEnabled(true);
         vm.prank(owner);
         _b().setBridgeEnabled(false);
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         (bool enabled, uint64 enableAt) = _b().bridgeSettings();
         assertFalse(enabled);
         assertEq(enableAt, 0);
@@ -246,7 +247,7 @@ contract BridgeTest is Test {
 
         vm.prank(owner);
         _b().setBridgeEnabled(true);
-        uint64 at = uint64(block.timestamp + LEGACY_RISK_TIMELOCK);
+        uint64 at = uint64(block.timestamp + MIN_RISK_TIMELOCK);
         assertEq(vault.pendingChanges().bridgeEnableAt, at);
 
         // Once it lands it is no longer pending.
@@ -292,7 +293,7 @@ contract BridgeTest is Test {
         vault.emergencyLock();
         vm.prank(owner);
         vault.unlock();
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         (bool enabled,) = _b().bridgeSettings();
         assertFalse(enabled);
     }
@@ -434,11 +435,12 @@ contract BridgeTest is Test {
         vault.updateRisk(IBittyV1Owner.RiskSettings(type(uint256).max, type(uint256).max, usd));
     }
 
-    /// A new vault may lose 1,000 USD a day; the fee and the bridge's cost both count.
+    /// At 1,000 USD a day to lose, the fee and the bridge's cost both count.
     function test_lossIsChargedToTheDailyAllowance() public {
         MockBridge costly = new MockBridge(0, 100); // the bridge keeps 1%
         guard.setProtocol(address(costly), PROTOCOL_BRIDGE);
         _enable();
+        _setDailyLoss(1_000);
         _bridge(address(costly), address(usdc), 50_000e6, 0); // loses 500
         _bridge(address(costly), address(usdc), 40_000e6, 80e6); // 80 fee + 399.2 cost = 479.2, 979.2 in all
         vm.expectRevert(DailyLossAllowanceExceeded.selector);
@@ -450,11 +452,20 @@ contract BridgeTest is Test {
         MockBridge costly = new MockBridge(0, 100);
         guard.setProtocol(address(costly), PROTOCOL_BRIDGE);
         _enable();
+        _setDailyLoss(1_000);
         _bridge(address(costly), address(usdc), 100_000e6, 0); // loses exactly 1,000
         vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _bridge(address(costly), address(usdc), 1_000e6, 0);
         vm.warp(block.timestamp + 1 days);
         _bridge(address(costly), address(usdc), 1_000e6, 0);
+    }
+
+    /// With no limit nothing is priced: a bridge that loses goes through, uncharged.
+    function test_withNoLimitABridgeLossIsNotCharged() public {
+        MockBridge costly = new MockBridge(0, 100);
+        guard.setProtocol(address(costly), PROTOCOL_BRIDGE);
+        _enable();
+        _bridge(address(costly), address(usdc), 200_000e6, 0); // loses 2,000
     }
 
     function test_lossOnTheNativeCoinIsPricedAtOracle() public {

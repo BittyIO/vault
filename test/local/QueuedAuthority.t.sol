@@ -19,7 +19,7 @@ import {
     VaultLocked
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {BITTY_GUARD, LEGACY_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK, MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 import {IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 
 /**
@@ -90,7 +90,7 @@ contract QueuedAuthorityTest is Test {
 
     function _setWait(uint64 wait) internal {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(wait, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(wait, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
     }
 
     // -- handing the vault over -----------------------------------------------
@@ -147,10 +147,10 @@ contract QueuedAuthorityTest is Test {
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, owner));
-        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
 
         vm.prank(heir);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(10 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(10 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         (uint64 timelock,,) = vault.riskSettings();
         assertEq(timelock, 10 days, "the new owner is giving the orders");
     }
@@ -371,7 +371,7 @@ contract QueuedAuthorityTest is Test {
         vm.startPrank(owner); // the leaked key, busy
         vault.transferOwnership(thief);
         BittyV1VaultDeFiFacet(payable(address(vault))).setAssetManager(thief, uint64(block.timestamp + 365 days), 1);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(LEGACY_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         vault.addWhitelistedRecipient(makeAddr("thief's drop")); // not `thief`: the new owner cannot be a payee
         vm.stopPrank();
 
@@ -380,7 +380,7 @@ contract QueuedAuthorityTest is Test {
         assertEq(p.newOwner, thief, "a handover the owner did not ask for");
         assertEq(p.newOwnerReadyAt, uint64(block.timestamp) + WAIT);
         assertEq(p.newAssetManager, thief, "and a delegate");
-        assertEq(p.timelock, LEGACY_RISK_TIMELOCK, "and the wait itself being taken down");
+        assertEq(p.timelock, MIN_RISK_TIMELOCK, "and the wait itself being taken down");
         assertEq(p.timelockAt, uint64(block.timestamp) + WAIT);
 
         // One call answers all of it, and the lock clears all of it.
@@ -399,7 +399,7 @@ contract QueuedAuthorityTest is Test {
     function test_aTighteningIsNotReportedAsPending() public {
         _setWait(WAIT);
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(10 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(10 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
 
         PendingChanges memory p = vault.pendingChanges();
         assertEq(p.timelockAt, 0, "it already applied");

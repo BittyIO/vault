@@ -11,6 +11,7 @@ import {MockIntentProtocol} from "../helpers/MockIntentProtocol.sol";
 import {MARKET_TRADE_ID, INTENT_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
 
 interface IFacet {
@@ -154,5 +155,16 @@ contract DeFiTradingTest is Test {
      */
     function test_orderRefusedWhenUnbacked() public {
         assertFalse(_f().isOffchainOrderAuthorized(owner, address(t0), address(t1), 10_000e18));
+    }
+
+    /// A loss allowance of 0 turns intent orders off; any other leaves them allowed, unpriced.
+    function test_aZeroLossAllowanceTurnsOrdersOff() public {
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(type(uint256).max, type(uint256).max, 0));
+        assertFalse(_f().isOffchainOrderAuthorized(owner, address(t0), address(t1), 1e18), "off at 0");
+
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(type(uint256).max, type(uint256).max, 1));
+        assertTrue(_f().isOffchainOrderAuthorized(owner, address(t0), address(t1), 1e18), "on above 0");
     }
 }

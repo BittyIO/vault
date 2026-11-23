@@ -18,7 +18,7 @@ import {
     PaymentExceedsRiskCap,
     PaymentExceedsPeriodLimit
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, LEGACY_SEND_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, LEGACY_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 /**
  * One-off sends, and the two limits an owner can put on themselves.
@@ -80,8 +80,8 @@ contract SendsTest is Test {
      * and so, like any capped vault, sends only stablecoins.
      */
     function test_aVaultThatSetNothingIsStillCapped() public {
-        _send(owner, payee, address(usdc), uint256(LEGACY_SEND_DAILY_ALLOWANCE) * 1e6);
-        assertEq(usdc.balanceOf(payee), uint256(LEGACY_SEND_DAILY_ALLOWANCE) * 1e6, "up to the default");
+        _send(owner, payee, address(usdc), uint256(LEGACY_DAILY_ALLOWANCE) * 1e6);
+        assertEq(usdc.balanceOf(payee), uint256(LEGACY_DAILY_ALLOWANCE) * 1e6, "up to the default");
 
         vm.prank(owner);
         vm.expectRevert(PaymentExceedsPeriodLimit.selector);

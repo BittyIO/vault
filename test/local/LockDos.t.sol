@@ -9,7 +9,7 @@ import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 /**
  * Can a thief with the owner key flood the vault with pending additions until the owner can no longer
@@ -49,7 +49,7 @@ contract LockDosTest is Test {
         MockERC20 usdc = new MockERC20("USD Coin", "USDC", 6);
         MockGuard(BITTY_GUARD).setAsset(address(usdc), ASSET_STABLE_COIN);
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(30 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(30 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
     }
 
     function _flood(uint256 n) internal {

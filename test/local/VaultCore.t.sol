@@ -16,7 +16,7 @@ import {IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
 import {OwnershipNotRenounceable, InvalidRelayedCalldata} from "../../src/interfaces/IBittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {ImplementationNotRegistered, VaultNotNewer} from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, BITTY_FORWARDER, LEGACY_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_FORWARDER, MIN_RISK_TIMELOCK, MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 interface IFacet {
     function getAutoYieldings(address[] calldata assets) external view returns (address[] memory);
@@ -63,12 +63,12 @@ contract VaultCoreTest is Test {
     function test_ownershipTransferTakesEffectAfterTheTimelockWithNoSecondCall() public {
         address next = makeAddr("next");
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, type(uint256).max, type(uint256).max));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         vm.prank(owner);
         vault.transferOwnership(next);
         assertEq(vault.owner(), owner, "waits out the timelock");
 
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         assertEq(vault.owner(), next, "and then it is done, with no second call");
     }
 

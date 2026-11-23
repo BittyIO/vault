@@ -15,10 +15,11 @@ import {GrantTooLong, AssetManagerExpiryInPast} from "../../src/interfaces/IBitt
 import {
     BITTY_GUARD,
     MAX_GRANT_DURATION,
-    LEGACY_RISK_TIMELOCK,
+    MIN_RISK_TIMELOCK,
     PERM_YIELD,
     PERM_SUPPLY,
-    PERM_INTENT
+    PERM_INTENT,
+    MAX_DAILY_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /*
@@ -93,7 +94,7 @@ contract AssetManagerGrantTest is Test {
 
     function _timelock(uint64 t) internal {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(t, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(t, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
     }
 
     function _set(address who, uint64 expiresAt) internal {
@@ -107,7 +108,7 @@ contract AssetManagerGrantTest is Test {
      */
     function _grant(address who, uint64 expiresAt) internal {
         _set(who, expiresAt);
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
     }
 
     // ── granting ──────────────────────────────────────────────────────────────

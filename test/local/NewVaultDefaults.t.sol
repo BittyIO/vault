@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
+import {LegacySends} from "../helpers/LegacySends.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockERC721} from "solmate/test/utils/mocks/MockERC721.sol";
@@ -19,14 +20,14 @@ import {
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     BITTY_GUARD,
-    LEGACY_RISK_TIMELOCK,
+    MIN_RISK_TIMELOCK,
     DEFAULT_DAILY_LOSS_ALLOWANCE,
-    MAX_DAILY_LOSS_ALLOWANCE
+    MAX_DAILY_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /**
- * What a new vault starts with. Regular sends are off, and turning them on waits out the timelock
- * (a new vault has none until the owner sets one, so this suite sets a day).
+ * What a vault created by 1.0.10 to 1.1.0 starts with (from 1.1.1 a vault starts open; see
+ * NoLimit.t.sol). Regular sends are off, and turning them on waits out the timelock.
  * The market-trade loss allowance starts at a default below its ceiling: lowered at once, raised only
  * after the timelock. An NFT leaves only to a whitelisted recipient the owner can pay.
  */
@@ -55,8 +56,7 @@ contract NewVaultDefaultsTest is Test {
         usdc.mint(address(vault), 100_000e6);
         nft = new MockERC721("Stray", "NFT");
         nft.mint(address(vault), 1);
-        vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, type(uint256).max, type(uint256).max));
+        LegacySends.asCreatedBefore111(address(vault));
     }
 
     function _send(address to, uint256 amount) internal {
@@ -93,7 +93,7 @@ contract NewVaultDefaultsTest is Test {
         vm.expectRevert(PaymentExceedsRiskCap.selector);
         _send(thief, 1e6);
 
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         _send(payee, 1e6);
         assertEq(usdc.balanceOf(payee), 1e6, "on, a timelock later");
     }
@@ -107,7 +107,7 @@ contract NewVaultDefaultsTest is Test {
         vault.emergencyLock();
         vm.prank(owner);
         vault.unlock();
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         (, uint64 sendAllowance,) = vault.riskSettings();
         assertEq(sendAllowance, 0, "the lock dropped it");
     }
@@ -125,7 +125,7 @@ contract NewVaultDefaultsTest is Test {
 
     function test_aNewVaultStartsAtTheDefaultLossAllowance() public view {
         assertEq(_lossAllowance(), DEFAULT_DAILY_LOSS_ALLOWANCE);
-        assertLt(DEFAULT_DAILY_LOSS_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE, "below the ceiling");
+        assertLt(DEFAULT_DAILY_LOSS_ALLOWANCE, MAX_DAILY_ALLOWANCE, "below the ceiling");
     }
 
     /**
@@ -139,23 +139,23 @@ contract NewVaultDefaultsTest is Test {
     }
 
     function test_raisingTheDefaultWaitsOutTheTimelock() public {
-        _setLossAllowance(MAX_DAILY_LOSS_ALLOWANCE);
+        _setLossAllowance(MAX_DAILY_ALLOWANCE);
         assertEq(_lossAllowance(), DEFAULT_DAILY_LOSS_ALLOWANCE, "only scheduled");
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
-        assertEq(_lossAllowance(), MAX_DAILY_LOSS_ALLOWANCE, "a timelock later");
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        assertEq(_lossAllowance(), MAX_DAILY_ALLOWANCE, "a timelock later");
     }
 
     function test_theCeilingStillHolds() public {
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, MAX_DAILY_LOSS_ALLOWANCE + 1));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, MAX_DAILY_ALLOWANCE + 1));
     }
 
     // ── an NFT leaves only to a payable whitelisted recipient ────────────────
 
     function test_anNftGoesToAMaturedRecipient() public {
         uint256 id = _addPayee(payee);
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         vm.prank(owner);
         vault.retrieve721(address(nft), 1, id);
         assertEq(nft.ownerOf(1), payee);
@@ -176,7 +176,7 @@ contract NewVaultDefaultsTest is Test {
 
     function test_onlyTheOwnerSendsAnNft() public {
         uint256 id = _addPayee(payee);
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         vm.prank(thief);
         vm.expectRevert();
         vault.retrieve721(address(nft), 1, id);
@@ -187,7 +187,7 @@ contract NewVaultDefaultsTest is Test {
      */
     function test_aForeverLockedVaultStillSendsAnNftToItsRecipient() public {
         uint256 id = _addPayee(payee);
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         vm.prank(owner);
         vault.foreverLock(id);
         vm.prank(owner);
@@ -199,7 +199,7 @@ contract NewVaultDefaultsTest is Test {
         uint256 id = _addPayee(thief);
         vm.prank(owner);
         vault.emergencyLock();
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         vm.prank(owner);
         vm.expectRevert(VaultLocked.selector);
         vault.retrieve721(address(nft), 1, id);

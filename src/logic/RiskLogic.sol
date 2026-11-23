@@ -5,6 +5,8 @@ import {
     NotInitialized,
     PendingChanges,
     RiskTimelockTooLong,
+    RiskTimelockTooShort,
+    TimelockNeedsLimits,
     RiskAllowanceOutOfRange,
     VaultLocked
 } from "../interfaces/IBittyV1Vault.sol";
@@ -13,12 +15,12 @@ import {BittyStorage, VaultStorage, RiskConfig, TimelockedValue} from "./BittySt
 import {TimelockLib} from "./TimelockLib.sol";
 import {
     MAX_RISK_TIMELOCK,
-    LEGACY_RISK_TIMELOCK,
-    MAX_SEND_DAILY_ALLOWANCE,
-    LEGACY_SEND_DAILY_ALLOWANCE,
-    MAX_DAILY_LOSS_ALLOWANCE,
+    MIN_RISK_TIMELOCK,
+    MAX_DAILY_ALLOWANCE,
+    LEGACY_DAILY_ALLOWANCE,
     DEFAULT_DAILY_LOSS_ALLOWANCE,
-    STORED_ZERO
+    STORED_ZERO,
+    NO_LIMIT
 } from "./Constants.sol";
 import {LockLib} from "./LockLib.sol";
 
@@ -44,20 +46,20 @@ import {LockLib} from "./LockLib.sol";
  *      the next.
  *
  *      Unset is stored as 0 rather than written at initialization. An unset timelock is 0 on a
- *      vault created from 1.1.1 on ({VaultStorage.unsetTimelockIsZero}) and
- *      {LEGACY_RISK_TIMELOCK} on one created before; a timelock of 0 is stored as
+ *      vault created from 1.1.1 on ({VaultStorage.unsetIsOpen}) and
+ *      {MIN_RISK_TIMELOCK} on one created before; a timelock of 0 is stored as
  *      {STORED_ZERO}. An unset allowance means one of two things, by
- *      {VaultStorage.unsetRiskIsDefault}: on a vault created with the flag, the new-vault default
- *      (sends off, {DEFAULT_DAILY_LOSS_ALLOWANCE} for trades); on an older vault, the
- *      ceiling, as it always has — which is what lets those vaults upgrade with nothing to
- *      migrate. Every read goes through {effectiveTimelock}, {effectiveSendDailyAllowance} and
+ *      {VaultStorage.unsetIsOpen} and {VaultStorage.unsetRiskIsDefault}: from 1.1.1, no limit
+ *      ({NO_LIMIT}); from 1.0.10, sends off and {DEFAULT_DAILY_LOSS_ALLOWANCE} for trades; before
+ *      that, the ceiling, as it always has — which is what lets those vaults upgrade with nothing
+ *      to migrate. Every read goes through {effectiveTimelock}, {effectiveSendDailyAllowance} and
  *      {effectiveDailyLossAllowance}; reading the slots directly would see a 0 that means
  *      "the default", not "off". An allowance of 0 is stored as {STORED_ZERO} for that reason.
  *
  *      Whether a new allowance loosens is judged against the allowance IN FORCE, not the raw slot:
- *      an unset slot on a new vault means sends are off, and raising it must wait out the timelock
- *      like any other loosening. On an older vault the two judgments agree, since an unset slot
- *      there is the ceiling and no allowance can exceed it.
+ *      an unset slot on a 1.0.10 vault means sends are off, and raising it must wait out the
+ *      timelock like any other loosening, while on a 1.1.1 vault it means no limit, so any number
+ *      is a tightening.
  *
  *      Split out of {PaymentLogic}; operates on the same ERC-7201 {VaultStorage}.
  */
@@ -70,43 +72,69 @@ library RiskLogic {
 
     /**
      * The timelock in force: what the owner set, or while they have set nothing, 0 on a vault
-     * created from 1.1.1 on and {LEGACY_RISK_TIMELOCK} on one created before.
+     * created from 1.1.1 on and {MIN_RISK_TIMELOCK} on one created before.
      */
     function effectiveTimelock(VaultStorage storage $) internal view returns (uint64) {
-        uint64 v = TimelockLib.effective($.riskConfig.timelock);
-        if (v == STORED_ZERO) return 0;
-        return _orDefault(v, $.unsetTimelockIsZero ? 0 : LEGACY_RISK_TIMELOCK);
+        return _read(TimelockLib.effective($.riskConfig.timelock), _unsetTimelock($));
     }
 
     /**
-     * The send allowance in force, in whole USD: what the owner set, or while they have set nothing,
-     * 0 on a vault created from 1.0.10 on and {LEGACY_SEND_DAILY_ALLOWANCE} on one created before.
+     * The send allowance in force, in whole USD, or {NO_LIMIT}: what the owner set, or while they
+     * have set nothing, no limit on a vault created from 1.1.1 on, 0 on one created from 1.0.10 on,
+     * and {LEGACY_DAILY_ALLOWANCE} on one created before.
      */
     function effectiveSendDailyAllowance(VaultStorage storage $) internal view returns (uint64) {
-        return _allowance($.riskConfig.sendDailyAllowance, $.unsetRiskIsDefault ? 0 : LEGACY_SEND_DAILY_ALLOWANCE);
+        return _read(TimelockLib.effective($.riskConfig.sendDailyAllowance), _unsetSend($));
     }
 
     /**
      * The daily loss allowance in force, in whole USD: what the owner set, or
-     * {MAX_DAILY_LOSS_ALLOWANCE}.
+     * {LEGACY_DAILY_ALLOWANCE}; no limit while unset on a vault created from 1.1.1 on.
      */
     function effectiveDailyLossAllowance(VaultStorage storage $) internal view returns (uint64) {
-        return _allowance(
-            $.riskConfig.dailyLossAllowance,
-            $.unsetRiskIsDefault ? DEFAULT_DAILY_LOSS_ALLOWANCE : MAX_DAILY_LOSS_ALLOWANCE
-        );
+        return _read(TimelockLib.effective($.riskConfig.dailyLossAllowance), _unsetLoss($));
+    }
+
+    function _unsetTimelock(VaultStorage storage $) private view returns (uint64) {
+        return $.unsetIsOpen ? 0 : MIN_RISK_TIMELOCK;
+    }
+
+    function _unsetSend(VaultStorage storage $) private view returns (uint64) {
+        return $.unsetIsOpen ? NO_LIMIT : $.unsetRiskIsDefault ? 0 : LEGACY_DAILY_ALLOWANCE;
+    }
+
+    function _unsetLoss(VaultStorage storage $) private view returns (uint64) {
+        return $.unsetIsOpen ? NO_LIMIT : $.unsetRiskIsDefault ? DEFAULT_DAILY_LOSS_ALLOWANCE : LEGACY_DAILY_ALLOWANCE;
     }
 
     /**
-     * An allowance as stored, read back: unset is `unset`, {STORED_ZERO} is 0.
+     * A value as stored, read back: 0 is unset, so `unset`; {STORED_ZERO} is 0.
      */
-    function _allowance(TimelockedValue storage tv, uint64 unset) private view returns (uint64) {
-        uint64 v = TimelockLib.effective(tv);
-        return v == STORED_ZERO ? 0 : _orDefault(v, unset);
+    function _read(uint64 stored, uint64 unset) private pure returns (uint64) {
+        if (stored == STORED_ZERO) return 0;
+        return stored == 0 ? unset : stored;
     }
 
-    function _orDefault(uint64 value, uint64 unset) private pure returns (uint64) {
-        return value == 0 ? unset : value;
+    /**
+     * Where a value is headed: the change still waiting if there is one, else the value itself.
+     */
+    function _headedTo(TimelockedValue storage tv) private view returns (uint64) {
+        return tv.pendingAt != 0 ? tv.pending : tv.value;
+    }
+
+    /**
+     * A timelock above 0 is protection, and protection with no ceiling protects nothing: a leaked key
+     * would send or trade everything away without needing anything the timelock delays. So wherever
+     * the settings are headed, a timelock above 0 comes with a number for both allowances. Judged on
+     * where each value is headed, so no waiting change can land the vault in that state either.
+     */
+    function _requireLimitsUnderTimelock(VaultStorage storage $) private view {
+        RiskConfig storage r = $.riskConfig;
+        if (_read(_headedTo(r.timelock), _unsetTimelock($)) == 0) return;
+        if (
+            _read(_headedTo(r.sendDailyAllowance), _unsetSend($)) == NO_LIMIT
+                || _read(_headedTo(r.dailyLossAllowance), _unsetLoss($)) == NO_LIMIT
+        ) revert TimelockNeedsLimits();
     }
 
     function riskTimelock() external view returns (uint64) {
@@ -121,6 +149,7 @@ library RiskLogic {
         uint64 timelock = effectiveTimelock(vaultStorage);
         if (settings.timelock != UNCHANGED) {
             if (settings.timelock > MAX_RISK_TIMELOCK) revert RiskTimelockTooLong();
+            if (settings.timelock != 0 && settings.timelock < MIN_RISK_TIMELOCK) revert RiskTimelockTooShort();
             uint64 next = settings.timelock == 0 ? STORED_ZERO : uint64(settings.timelock);
             TimelockLib.setCap(r.timelock, next, settings.timelock < timelock, timelock);
         }
@@ -128,7 +157,7 @@ library RiskLogic {
             _setAllowance(
                 r.sendDailyAllowance,
                 settings.sendDailyAllowance,
-                MAX_SEND_DAILY_ALLOWANCE,
+                MAX_DAILY_ALLOWANCE,
                 effectiveSendDailyAllowance(vaultStorage),
                 timelock
             );
@@ -137,11 +166,12 @@ library RiskLogic {
             _setAllowance(
                 r.dailyLossAllowance,
                 settings.dailyLossAllowance,
-                MAX_DAILY_LOSS_ALLOWANCE,
+                MAX_DAILY_ALLOWANCE,
                 effectiveDailyLossAllowance(vaultStorage),
                 timelock
             );
         }
+        _requireLimitsUnderTimelock(vaultStorage);
         emit IBittyV1Owner.RiskSettingsUpdated(settings);
     }
 
@@ -158,13 +188,13 @@ library RiskLogic {
     }
 
     /**
-     * 0 to `max`; 0 is stored as {STORED_ZERO}, since a stored 0 means unset. It loosens when it
+     * 0 to `max`, or {NO_LIMIT}; 0 is stored as {STORED_ZERO}, since a stored 0 means unset. It loosens when it
      * is above `inForce`, the allowance in force before the change.
      */
     function _setAllowance(TimelockedValue storage tv, uint256 allowance, uint64 max, uint64 inForce, uint64 timelock)
         private
     {
-        if (allowance > max) revert RiskAllowanceOutOfRange();
+        if (allowance > max && allowance != NO_LIMIT) revert RiskAllowanceOutOfRange();
         uint64 next = allowance == 0 ? STORED_ZERO : uint64(allowance);
         TimelockLib.setCap(tv, next, allowance > inForce, timelock);
     }

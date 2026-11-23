@@ -17,7 +17,7 @@ import {
     WHITELIST_VOIDED,
     WHITELIST_REMOVAL_QUEUED
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, LEGACY_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK, MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 /**
  * The whitelist read straight from state. It is the vault's way out after a key leaks, so a client
@@ -35,7 +35,7 @@ contract WhitelistReadTest is Test {
     uint256 constant UNCHANGED = type(uint256).max;
     uint64 constant TIMELOCK = 3 days;
     uint256 constant T0 = 1_000_000;
-    uint256 constant T1 = T0 + LEGACY_RISK_TIMELOCK;
+    uint256 constant T1 = T0 + MIN_RISK_TIMELOCK;
 
     function setUp() public {
         vm.warp(T0);
@@ -85,7 +85,7 @@ contract WhitelistReadTest is Test {
         uint256 payableId = vault.addWhitelistedRecipient(cold);
         uint256 queuedId = vault.addWhitelistedRecipient(makeAddr("queued"));
         vm.warp(T1); // the first two mature under the default timelock
-        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         uint256 voidedId = vault.addWhitelistedRecipient(makeAddr("voided"));
         vault.emergencyLock();
         vault.unlock();
@@ -129,7 +129,7 @@ contract WhitelistReadTest is Test {
         vm.startPrank(owner);
         uint256 coldId = vault.addWhitelistedRecipient(cold);
         vm.warp(T1);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         uint256 thiefId = vault.addWhitelistedRecipient(makeAddr("thief"));
         vault.removeWhitelistedRecipients(_ids(coldId));
         assertEq(_one(coldId).status, WHITELIST_REMOVAL_QUEUED);

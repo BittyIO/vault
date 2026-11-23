@@ -23,7 +23,8 @@ import {
     BITTY_GUARD,
     BITTY_FORWARDER,
     BITTY_FEE_COLLECTOR,
-    SYSTEM_DAILY_MAX_GAS_BUDGET
+    SYSTEM_DAILY_MAX_GAS_BUDGET,
+    MAX_DAILY_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /**
@@ -301,7 +302,7 @@ contract VaultTokenAsGasTest is Test {
     function test_disableTokenAsGasCancelsAPendingRaise() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, type(uint256).max, type(uint256).max));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         vm.startPrank(owner);
         vault.setTokenAsGas(none, 10); // tightening: at once
         vault.setTokenAsGas(none, 50); // loosening: waits
