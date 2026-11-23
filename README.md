@@ -1,7 +1,7 @@
 # Bitty Vault Contracts [![codecov](https://codecov.io/gh/BittyIO/vault/graph/badge.svg?token=HYIKKNAA1I)](https://codecov.io/gh/BittyIO/vault)
 
 Smart contracts for Bitty Vault: self custody that survives a stolen key. For what the vault is and
-how it works, read the [white paper](./WHITEPAPER.pdf).
+how it works, read the [white paper](https://bitty.io/whitepaper.pdf).
 
 ## Development
 

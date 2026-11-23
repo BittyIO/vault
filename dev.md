@@ -1,6 +1,6 @@
 # Bitty Vault — Development
 
-Build, test, deploy, and verify the Bitty Vault contracts. For what the vault is and how it works, read the [white paper](./WHITEPAPER.pdf).
+Build, test, deploy, and verify the Bitty Vault contracts. For what the vault is and how it works, read the [white paper](https://bitty.io/whitepaper.pdf).
 
 ## Related repositories
 
