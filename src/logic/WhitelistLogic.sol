@@ -5,10 +5,7 @@ import {
     AddressZero,
     AmountIsZero,
     IBittyV1Vault,
-    NewOwnerIsWhitelisted,
     NoEscapeRecipient,
-    WhitelistedRecipientExists,
-    WhitelistedRecipientIsOwner,
     WhitelistedRecipientNotFound,
     WhitelistEntryView,
     WHITELIST_REMOVED,
@@ -49,32 +46,15 @@ import {RiskLogic} from "./RiskLogic.sol";
  *      The price is that a matured destination that should not be there cannot be struck off at
  *      once either. A thief who has one can pay to it whatever the rules on removal, so the owner's
  *      answer is the same as before: move the money to a destination of their own first.
- *
- *      No payee is an owner. The list exists for the day the owner's key is not the owner's alone;
- *      an entry paying that key would hand its holder the way out the list keeps for the owner, so
- *      the owner, and the new owner of a queued handover, cannot be added. The other way round, a
- *      handover to an address still on the list is refused ({requireNotWhitelisted}): remove it
- *      first. An entry whose queued removal has taken effect no longer counts.
- *
- *      Nor is an address on the list twice: adding one that already has a live entry is refused.
- *      Live means not removed and not voided by a lock — payable, still waiting, or under a queued
- *      removal that has not landed. A voided entry can never be paid, so it is no payee and the
- *      address may be added again. These rules start at 1.1.1: entries a vault was given before then
- *      are not checked against them.
  */
 library WhitelistLogic {
     function addWhitelistedRecipientOne(address recipient) external returns (uint256 id) {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         PaymentCore.onlyInitialized(vaultStorage);
         if (recipient == address(0)) revert AddressZero();
-        if (recipient == vaultStorage.vaultOwner || recipient == vaultStorage.pendingOwner) {
-            revert WhitelistedRecipientIsOwner();
-        }
-        if (_isLive(vaultStorage, recipient)) revert WhitelistedRecipientExists();
         uint256 effectiveAt = PaymentCore.protectionDeadline(RiskLogic.effectiveTimelock(vaultStorage.riskConfig));
         id = ++vaultStorage.nextWhitelistedRecipientId;
         vaultStorage.whitelistedRecipient[id].recipient = recipient;
-        vaultStorage.whitelistedRecipientIdOf[recipient] = id;
         vaultStorage.whitelistedRecipientDeferred[id] = Deferred({
             effectiveAt: uint64(effectiveAt), lockEpoch: effectiveAt == 0 ? LockLib.SETTLED : LockLib.lockEpoch()
         });
@@ -96,29 +76,6 @@ library WhitelistLogic {
             revert NoEscapeRecipient();
         }
         if (!_payable(vaultStorage.whitelistedRecipientDeferred[id])) revert NoEscapeRecipient();
-    }
-
-    /**
-     * Refuse if `account` is a live whitelisted recipient: payable, still waiting out its window, or
-     * under a queued removal that has not landed. Asked before a handover to `account`. One read,
-     * however long the list. Entries added before 1.1.1 are not recorded and not checked: a vault
-     * upgraded from an older version keeps whatever it already had.
-     */
-    function requireNotWhitelisted(address account) external view {
-        if (_isLive(BittyStorage.vault(), account)) revert NewOwnerIsWhitelisted();
-    }
-
-    /**
-     * Whether `account`'s latest entry still stands: it holds `account`, no removal of it has
-     * landed, and no lock voided it.
-     */
-    function _isLive(VaultStorage storage vaultStorage, address account) private view returns (bool) {
-        uint256 id = vaultStorage.whitelistedRecipientIdOf[account];
-        if (id == 0) return false;
-        WhitelistEntry memory entry = vaultStorage.whitelistedRecipient[id];
-        if (entry.recipient != account || _removed(entry)) return false;
-        Deferred memory deferred = vaultStorage.whitelistedRecipientDeferred[id];
-        return LockLib.honoured(deferred.lockEpoch, deferred.effectiveAt);
     }
 
     function removeWhitelistedRecipients(uint256[] calldata ids) external {
