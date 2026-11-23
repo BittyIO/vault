@@ -127,7 +127,7 @@ contract LockGasCostTest is Test {
     }
 
     function test_gas_setTokenAsGas() public {
-        _measure("setTokenAsGas", abi.encodeCall(BittyV1Vault.setTokenAsGas, (_one(address(usdc)), 100, 10)));
+        _measure("setTokenAsGas", abi.encodeCall(BittyV1Vault.setTokenAsGas, (_one(address(usdc)), 100)));
     }
 
     function test_gas_disableTokenAsGas() public {

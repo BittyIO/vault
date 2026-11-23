@@ -19,17 +19,10 @@ import {IBittyV1Vault} from "../../src/interfaces/IBittyV1Vault.sol";
 import {
     AddressZero,
     ArrayLengthMismatch,
-    FeeExceedsPerOpCap,
     InsufficientBalance,
     InvalidAsset
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {
-    BITTY_GUARD,
-    BITTY_FORWARDER,
-    BITTY_FEE_COLLECTOR,
-    SENTINEL,
-    SYSTEM_MAX_FEE_PER_OP
-} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR, SENTINEL} from "../../src/logic/Constants.sol";
 
 interface IFacet {
     function deposit(address protocol, address asset, uint256 amount) external;
@@ -212,15 +205,6 @@ contract VaultEntrypointsTest is Test {
         assertEq(address(v).balance, 0, "nothing left unwrapped");
     }
 
-    /**
-     * The same system cap as a relay fee, in USD, so WETH cannot overpay an activation either.
-     */
-    function test_aWethActivationFeeAboveTheCapIsRefused() public {
-        bytes memory init = _ethFundedInit((uint256(SYSTEM_MAX_FEE_PER_OP) * 1e18) / 2_000 + 1);
-        vm.expectRevert(FeeExceedsPerOpCap.selector);
-        new ERC1967Proxy(address(impl), init);
-    }
-
     WETH weth;
 
     /**
@@ -249,11 +233,16 @@ contract VaultEntrypointsTest is Test {
         _newVault(0, address(gasWrapped), 1e18);
     }
 
-    function test_anActivationFeeAboveTheSystemCapIsRefused() public {
+    /**
+     * No system cap on the activation fee: it is the amount the owner signed, and the vault pays it
+     * if it holds it.
+     */
+    function test_anActivationFeeIsWhateverTheOwnerSigned() public {
         MockERC20 fee = new MockERC20("USD Coin", "USDC", 6);
         guard.setAsset(address(fee), ASSET_STABLE_COIN);
-        vm.expectRevert(FeeExceedsPerOpCap.selector);
-        _newVault(0, address(fee), (uint256(SYSTEM_MAX_FEE_PER_OP) + 1) * 1e6);
+        fee.mint(vm.computeCreateAddress(address(this), vm.getNonce(address(this))), 50e6);
+        _newVault(0, address(fee), 50e6);
+        assertEq(fee.balanceOf(BITTY_FEE_COLLECTOR), 50e6);
     }
 
     function test_anActivationFeeTheVaultCannotCoverIsRefused() public {
@@ -380,7 +369,7 @@ contract VaultEntrypointsTest is Test {
         MockERC20 rnd = new MockERC20("Random", "RND", 18);
         vm.prank(owner);
         vm.expectRevert(InvalidAsset.selector);
-        vault.setTokenAsGas(_addr(address(rnd)), 50, 5);
+        vault.setTokenAsGas(_addr(address(rnd)), 50);
     }
 
     function test_narrowingToACryptoCoinIsRefused() public {
@@ -388,7 +377,7 @@ contract VaultEntrypointsTest is Test {
         guard.setAsset(address(gasWrapped), ASSET_CRYPTO);
         vm.prank(owner);
         vm.expectRevert(InvalidAsset.selector);
-        vault.setTokenAsGas(_addr(address(gasWrapped)), 50, 5);
+        vault.setTokenAsGas(_addr(address(gasWrapped)), 50);
     }
 
     function test_aRepeatedCoinIsStoredOnce() public {
@@ -396,9 +385,9 @@ contract VaultEntrypointsTest is Test {
         two[0] = address(usdc);
         two[1] = address(usdc);
         vm.prank(owner);
-        vault.setTokenAsGas(two, 50, 5);
+        vault.setTokenAsGas(two, 50);
 
-        (address[] memory got,,) = vault.tokenAsGasConfig();
+        (address[] memory got,) = vault.tokenAsGasConfig();
         assertEq(got.length, 1, "the duplicate collapsed");
         assertEq(got[0], address(usdc), "and it is the coin named");
     }
@@ -409,9 +398,9 @@ contract VaultEntrypointsTest is Test {
         list[0] = SENTINEL;
         list[1] = address(usdc);
         vm.prank(owner);
-        vault.setTokenAsGas(list, 50, 5);
+        vault.setTokenAsGas(list, 50);
 
-        (address[] memory got,,) = vault.tokenAsGasConfig();
+        (address[] memory got,) = vault.tokenAsGasConfig();
         assertEq(got.length, 1, "the list terminator is not a payable coin");
         assertEq(got[0], address(usdc));
     }
@@ -421,11 +410,11 @@ contract VaultEntrypointsTest is Test {
         guard.setAsset(address(dai), ASSET_STABLE_COIN);
 
         vm.startPrank(owner);
-        vault.setTokenAsGas(_addr(address(usdc)), 50, 5);
-        vault.setTokenAsGas(_addr(address(dai)), 50, 5);
+        vault.setTokenAsGas(_addr(address(usdc)), 50);
+        vault.setTokenAsGas(_addr(address(dai)), 50);
         vm.stopPrank();
 
-        (address[] memory got,,) = vault.tokenAsGasConfig();
+        (address[] memory got,) = vault.tokenAsGasConfig();
         assertEq(got.length, 1, "the old list was cleared");
         assertEq(got[0], address(dai), "only the newest narrowing stands");
     }

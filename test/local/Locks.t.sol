@@ -140,7 +140,7 @@ contract LocksTest is Test {
         all[n++] = abi.encodeCall(BittyV1VaultBase.upgrade, (address(0xdead)));
         // risk configuration, both directions
         all[n++] = abi.encodeCall(BittyV1Vault.updateRisk, (risk));
-        all[n++] = abi.encodeCall(BittyV1Vault.setTokenAsGas, (_one(address(usdc)), 1, 1));
+        all[n++] = abi.encodeCall(BittyV1Vault.setTokenAsGas, (_one(address(usdc)), 1));
         all[n++] = abi.encodeCall(BittyV1Vault.disableTokenAsGas, ());
         all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false));
         all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (true));

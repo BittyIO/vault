@@ -111,7 +111,6 @@ library LockLib {
         TimelockLib.cancelPending($.riskConfig.sendDailyAllowance);
         TimelockLib.cancelPending($.riskConfig.dailyLossAllowance);
         TimelockLib.cancelPending($.gasBudgetDaily);
-        TimelockLib.cancelPending($.maxFeePerOp);
 
         uint40 readyAt = $.ownershipReadyAt;
         if (readyAt != 0 && block.timestamp < readyAt) {
