@@ -12,6 +12,7 @@ import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {
     ProtectionPeriodNotEnded,
     VaultLocked,
+    WhitelistedRecipientExists,
     WhitelistedRecipientNotFound
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD, MIN_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
@@ -276,18 +277,22 @@ contract WhitelistChangesTest is Test {
     }
 
     /**
-     * Re-adding an address whose removal waits makes a second entry on its own window, not a way to
-     * call the removal off.
+     * An address whose removal waits is still on the list (the entry pays until the removal lands),
+     * so it cannot be added again then. Once the removal lands it can, as a new entry on its own
+     * window: re-adding is never a way to call a removal off.
      */
-    function test_reAddingAnAddressMakesASeparateEntry() public {
+    function test_reAddingWaitsForTheRemovalToLand() public {
         vm.prank(owner);
         vault.removeWhitelistedRecipients(_ids(coldId));
         vm.warp(T0 + 1 days);
         vm.prank(owner);
-        uint256 again = vault.addWhitelistedRecipient(cold);
-        assertTrue(again != coldId);
+        vm.expectRevert(WhitelistedRecipientExists.selector);
+        vault.addWhitelistedRecipient(cold);
 
         vm.warp(T0 + TIMELOCK);
+        vm.prank(owner);
+        uint256 again = vault.addWhitelistedRecipient(cold);
+        assertTrue(again != coldId);
         vm.prank(owner);
         vm.expectRevert(WhitelistedRecipientNotFound.selector);
         vault.sendToWhitelistedRecipient(coldId, address(usdc), 1e6, _none(), _noAmounts());
@@ -295,7 +300,7 @@ contract WhitelistChangesTest is Test {
         vm.expectRevert(ProtectionPeriodNotEnded.selector);
         vault.sendToWhitelistedRecipient(again, address(usdc), 1e6, _none(), _noAmounts());
 
-        vm.warp(T0 + 1 days + TIMELOCK);
+        vm.warp(T0 + 2 * TIMELOCK);
         _pay(again, address(usdc), 1e6);
         assertEq(usdc.balanceOf(cold), 1e6);
     }

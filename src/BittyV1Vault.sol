@@ -100,8 +100,13 @@ contract BittyV1Vault is BittyV1VaultBase {
         return asset == address(0) ? _gasWrapped() : asset;
     }
 
+    /**
+     * @dev Refused to a whitelisted recipient that has not been removed: no payee may own the vault
+     *      (see {WhitelistLogic}). Remove the entry first; a queued removal must have landed.
+     */
     function transferOwnership(address newOwner) public override onlyOwner notLocked {
         if (newOwner == address(0)) revert OwnershipNotRenounceable();
+        WhitelistLogic.requireNotWhitelisted(newOwner);
         _settleOwnership();
         VaultStorage storage $ = BittyStorage.vault();
         uint64 timelock = RiskLogic.riskTimelock();

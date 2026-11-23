@@ -374,7 +374,7 @@ contract QueuedAuthorityTest is Test {
         vault.transferOwnership(thief);
         BittyV1VaultDeFiFacet(payable(address(vault))).setAssetManager(thief, uint64(block.timestamp + 365 days), 1);
         vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
-        vault.addWhitelistedRecipient(thief);
+        vault.addWhitelistedRecipient(makeAddr("thief's drop")); // not `thief`: the new owner cannot be a payee
         vm.stopPrank();
 
         PendingChanges memory p = vault.pendingChanges();
@@ -434,7 +434,7 @@ contract QueuedAuthorityTest is Test {
     function test_anUpgradeIsRefusedWhileLocked() public {
         // The forever lock below needs a destination the vault can still pay out to.
         vm.prank(owner);
-        uint256 escape = vault.addWhitelistedRecipient(owner);
+        uint256 escape = vault.addWhitelistedRecipient(makeAddr("escape")); // never the owner itself
         vm.warp(block.timestamp + 31 days);
         vm.prank(owner);
         vault.emergencyLock();
