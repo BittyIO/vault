@@ -15,6 +15,8 @@ error ReentrantCall();
 
 error ProtectionPeriodNotEnded();
 error RiskTimelockTooLong();
+error RiskTimelockTooShort();
+error TimelockNeedsLimits();
 error RiskAllowanceOutOfRange();
 
 error OwnershipNotRenounceable();

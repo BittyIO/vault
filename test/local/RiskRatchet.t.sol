@@ -8,15 +8,19 @@ import {MockGuard} from "../helpers/MockGuard.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {PendingChanges, RiskTimelockTooLong, RiskAllowanceOutOfRange} from "../../src/interfaces/IBittyV1Vault.sol";
+import {
+    PendingChanges,
+    RiskTimelockTooLong,
+    RiskTimelockTooShort,
+    RiskAllowanceOutOfRange
+} from "../../src/interfaces/IBittyV1Vault.sol";
 import {RiskLogic} from "../../src/logic/RiskLogic.sol";
 import {
     BITTY_GUARD,
     MAX_RISK_TIMELOCK,
-    LEGACY_RISK_TIMELOCK,
-    MAX_SEND_DAILY_ALLOWANCE,
-    LEGACY_SEND_DAILY_ALLOWANCE,
-    MAX_DAILY_LOSS_ALLOWANCE
+    MIN_RISK_TIMELOCK,
+    MAX_DAILY_ALLOWANCE,
+    LEGACY_DAILY_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /**
@@ -99,13 +103,12 @@ contract RiskRatchetTest is Test {
      */
     function test_aVaultThatSetNothingReadsTheDefaults() public view {
         (uint64 timelock, uint64 sendAllowance, uint64 lossAllowance) = vault.riskSettings();
-        assertEq(timelock, LEGACY_RISK_TIMELOCK, "a day");
-        assertEq(sendAllowance, LEGACY_SEND_DAILY_ALLOWANCE, "10,000 a day");
-        assertEq(lossAllowance, MAX_DAILY_LOSS_ALLOWANCE, "10,000 a day");
-        assertEq(LEGACY_RISK_TIMELOCK, 1 days);
-        assertEq(LEGACY_SEND_DAILY_ALLOWANCE, 10_000);
-        assertEq(MAX_SEND_DAILY_ALLOWANCE, 1_000_000);
-        assertEq(MAX_DAILY_LOSS_ALLOWANCE, 10_000);
+        assertEq(timelock, MIN_RISK_TIMELOCK, "a day");
+        assertEq(sendAllowance, LEGACY_DAILY_ALLOWANCE, "10,000 a day");
+        assertEq(lossAllowance, LEGACY_DAILY_ALLOWANCE, "10,000 a day");
+        assertEq(MIN_RISK_TIMELOCK, 1 days);
+        assertEq(LEGACY_DAILY_ALLOWANCE, 10_000);
+        assertEq(MAX_DAILY_ALLOWANCE, 1_000_000);
     }
 
     /**
@@ -119,38 +122,51 @@ contract RiskRatchetTest is Test {
         _risk(UNCHANGED, 9_000);
         (, allowance) = _cfg();
         assertEq(allowance, 500, "raising it waits");
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         (, allowance) = _cfg();
         assertEq(allowance, 9_000, "for the default day");
+    }
+
+    /// Above 0, a timelock is at least a day: a shorter one leaves no time to notice and lock.
+    function test_aTimelockAbove0IsAtLeastADay() public {
+        vm.startPrank(owner);
+        vm.expectRevert(RiskTimelockTooShort.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK - 1, UNCHANGED, UNCHANGED));
+        vm.expectRevert(RiskTimelockTooShort.selector);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1, UNCHANGED, UNCHANGED));
+        vm.stopPrank();
+        _risk(MIN_RISK_TIMELOCK + 1 days, UNCHANGED);
+        (uint64 timelock,) = _cfg();
+        assertEq(timelock, MIN_RISK_TIMELOCK + 1 days, "a raise is at once");
     }
 
     /// An older vault reads a day while it has set nothing, and may go to 0: a loosening, so it waits the day.
     function test_theTimelockMayGoToZero() public {
         _risk(0, UNCHANGED);
         (uint64 timelock,) = _cfg();
-        assertEq(timelock, LEGACY_RISK_TIMELOCK, "waits the day");
+        assertEq(timelock, MIN_RISK_TIMELOCK, "waits the day");
         assertEq(vault.pendingChanges().timelock, 0, "0 is reported as 0");
-        assertEq(vault.pendingChanges().timelockAt, block.timestamp + LEGACY_RISK_TIMELOCK);
+        assertEq(vault.pendingChanges().timelockAt, block.timestamp + MIN_RISK_TIMELOCK);
 
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         (timelock,) = _cfg();
         assertEq(timelock, 0, "then 0, not the unset day");
 
-        _risk(LEGACY_RISK_TIMELOCK, UNCHANGED);
+        _risk(MIN_RISK_TIMELOCK, UNCHANGED);
         (timelock,) = _cfg();
-        assertEq(timelock, LEGACY_RISK_TIMELOCK, "raising it is at once");
+        assertEq(timelock, MIN_RISK_TIMELOCK, "raising it is at once");
     }
 
     function test_theSendAllowanceIsBounded() public {
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, uint256(MAX_SEND_DAILY_ALLOWANCE) + 1, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, uint256(MAX_DAILY_ALLOWANCE) + 1, UNCHANGED));
 
         _risk(UNCHANGED, 1);
-        _risk(UNCHANGED, MAX_SEND_DAILY_ALLOWANCE);
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        _risk(UNCHANGED, MAX_DAILY_ALLOWANCE);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         (, uint64 allowance) = _cfg();
-        assertEq(allowance, MAX_SEND_DAILY_ALLOWANCE, "both ends are allowed");
+        assertEq(allowance, MAX_DAILY_ALLOWANCE, "both ends are allowed");
 
         _risk(UNCHANGED, 0);
         (, allowance) = _cfg();
@@ -160,7 +176,7 @@ contract RiskRatchetTest is Test {
     function test_theMarketTradeLossAllowanceIsBounded() public {
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, uint256(MAX_DAILY_LOSS_ALLOWANCE) + 1));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, uint256(MAX_DAILY_ALLOWANCE) + 1));
 
         vm.prank(owner);
         vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, 1));
@@ -220,13 +236,13 @@ contract RiskRatchetTest is Test {
     function test_shorteningTheWaitIsALoosening() public {
         _risk(3 days, UNCHANGED);
 
-        _risk(LEGACY_RISK_TIMELOCK, UNCHANGED);
+        _risk(MIN_RISK_TIMELOCK, UNCHANGED);
         (uint64 timelock,) = _cfg();
         assertEq(timelock, 3 days, "a shorter wait gives the owner less time to notice");
 
         vm.warp(block.timestamp + 3 days);
         (timelock,) = _cfg();
-        assertEq(timelock, LEGACY_RISK_TIMELOCK);
+        assertEq(timelock, MIN_RISK_TIMELOCK);
     }
 
     /**
@@ -236,7 +252,7 @@ contract RiskRatchetTest is Test {
     function test_theTimelockCannotBeShortenedToBypassItself() public {
         _risk(7 days, 500);
 
-        _risk(LEGACY_RISK_TIMELOCK, UNCHANGED);
+        _risk(MIN_RISK_TIMELOCK, UNCHANGED);
         (uint64 timelock,) = _cfg();
         assertEq(timelock, 7 days, "still a week");
 
@@ -248,12 +264,12 @@ contract RiskRatchetTest is Test {
 
         vm.warp(block.timestamp + 6 days);
         (timelock, allowance) = _cfg();
-        assertEq(timelock, LEGACY_RISK_TIMELOCK, "the wait is down to a day now");
+        assertEq(timelock, MIN_RISK_TIMELOCK, "the wait is down to a day now");
         assertEq(allowance, 9_000, "and the loosening landed on the old schedule, not the new one");
     }
 
     function test_lengtheningTheTimelockIsImmediate() public {
-        _risk(LEGACY_RISK_TIMELOCK, UNCHANGED);
+        _risk(MIN_RISK_TIMELOCK, UNCHANGED);
         _risk(30 days, UNCHANGED);
         (uint64 timelock,) = _cfg();
         assertEq(timelock, 30 days, "more time to notice is always safe");

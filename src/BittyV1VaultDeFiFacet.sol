@@ -8,6 +8,7 @@ import {BridgeLogic} from "./logic/BridgeLogic.sol";
 import {LockLib} from "./logic/LockLib.sol";
 import {PaymentCore} from "./logic/PaymentCore.sol";
 import {BittyStorage} from "./logic/BittyStorage.sol";
+import {RiskLogic} from "./logic/RiskLogic.sol";
 import {IBittyV1Guard, PROTOCOL_INTENT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -341,12 +342,17 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         return 0xffffffff;
     }
 
+    /**
+     * An intent order is not priced: a daily loss allowance of 0 turns intent orders off, as it does
+     * market trades; any other allowance leaves them unmetered.
+     */
     function isOffchainOrderAuthorized(address signer, address sellToken, address buyToken, uint256 sellAmount)
         external
         view
         returns (bool)
     {
         if (MarketTradeLogic.isTrading()) return false;
+        if (RiskLogic.effectiveDailyLossAllowance(BittyStorage.vault()) == 0) return false;
         if (signer != owner() && !DeFiLogic.assetManagerCan(signer, PERM_INTENT)) {
             return false;
         }

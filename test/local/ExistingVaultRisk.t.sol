@@ -12,11 +12,11 @@ import {VaultLocked} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BittyStorage} from "../../src/logic/BittyStorage.sol";
 import {
     BITTY_GUARD,
-    LEGACY_RISK_TIMELOCK,
-    MAX_SEND_DAILY_ALLOWANCE,
-    LEGACY_SEND_DAILY_ALLOWANCE,
-    MAX_DAILY_LOSS_ALLOWANCE,
-    DEFAULT_DAILY_LOSS_ALLOWANCE
+    MIN_RISK_TIMELOCK,
+    MAX_DAILY_ALLOWANCE,
+    LEGACY_DAILY_ALLOWANCE,
+    DEFAULT_DAILY_LOSS_ALLOWANCE,
+    NO_LIMIT
 } from "../../src/logic/Constants.sol";
 
 /**
@@ -64,10 +64,17 @@ contract ExistingVaultRiskTest is Test {
         assertEq(timelock, 0, "new");
         LegacySends.asCreatedBefore109(address(vault));
         (timelock,,) = vault.riskSettings();
-        assertEq(timelock, LEGACY_RISK_TIMELOCK, "older");
+        assertEq(timelock, MIN_RISK_TIMELOCK, "older");
     }
 
-    function test_aNewVaultWritesNeitherAllowance() public view {
+    function test_aNewVaultHasNoLimitOnEither() public view {
+        (, uint64 send, uint64 loss) = vault.riskSettings();
+        assertEq(send, NO_LIMIT, "sends");
+        assertEq(loss, NO_LIMIT, "trades");
+    }
+
+    function test_aVaultFrom1010WritesNeitherAllowance() public {
+        LegacySends.asCreatedBefore111(address(vault));
         assertEq(vm.load(address(vault), bytes32(uint256(BittyStorage.VAULT_SLOT) + 4)), bytes32(0), "send slot");
         assertEq(vm.load(address(vault), bytes32(uint256(BittyStorage.VAULT_SLOT) + 5)), bytes32(0), "loss slot");
         _assertRisk(0, DEFAULT_DAILY_LOSS_ALLOWANCE, "the new-vault defaults");
@@ -77,16 +84,16 @@ contract ExistingVaultRiskTest is Test {
      * Judged against the allowance in force, not the empty slot: raising sends from unset is turning
      * them ON, and waits.
      */
-    function test_aNewVaultRaisingFromUnsetWaitsOutTheTimelock() public {
-        vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, type(uint256).max, type(uint256).max));
-        _risk(500, MAX_DAILY_LOSS_ALLOWANCE);
+    function test_aVaultFrom1010RaisingFromUnsetWaitsOutTheTimelock() public {
+        LegacySends.asCreatedBefore111(address(vault));
+        _risk(500, MAX_DAILY_ALLOWANCE);
         _assertRisk(0, DEFAULT_DAILY_LOSS_ALLOWANCE, "only scheduled");
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
-        _assertRisk(500, MAX_DAILY_LOSS_ALLOWANCE, "a timelock later");
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        _assertRisk(500, MAX_DAILY_ALLOWANCE, "a timelock later");
     }
 
-    function test_aNewVaultLockedMayOnlyLowerFromTheDefault() public {
+    function test_aVaultFrom1010LockedMayOnlyLowerFromTheDefault() public {
+        LegacySends.asCreatedBefore111(address(vault));
         vm.prank(owner);
         vault.emergencyLock();
         vm.prank(owner);
@@ -101,7 +108,7 @@ contract ExistingVaultRiskTest is Test {
     /// Its send allowance stays at 10,000 when the ceiling rises to 1,000,000: only an owner raises it.
     function test_aPre109VaultStillReadsTheCeiling() public {
         LegacySends.asCreatedBefore109(address(vault));
-        _assertRisk(LEGACY_SEND_DAILY_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE, "unchanged by the upgrade");
+        _assertRisk(LEGACY_DAILY_ALLOWANCE, LEGACY_DAILY_ALLOWANCE, "unchanged by the upgrade");
     }
 
     function test_aPre109VaultLowersAtOnce() public {
@@ -113,10 +120,10 @@ contract ExistingVaultRiskTest is Test {
     function test_aPre109VaultReturningToTheCeilingWaits() public {
         LegacySends.asCreatedBefore109(address(vault));
         _risk(100, 100);
-        _risk(MAX_SEND_DAILY_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE);
+        _risk(MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE);
         _assertRisk(100, 100, "only scheduled");
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
-        _assertRisk(MAX_SEND_DAILY_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE, "a timelock later");
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        _assertRisk(MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE, "a timelock later");
     }
 
     // ── created from 1.0.9 on: the written defaults stand ────────────────────
@@ -128,9 +135,9 @@ contract ExistingVaultRiskTest is Test {
 
     function test_aWrittenDefaultsVaultTurningSendsOnWaits() public {
         LegacySends.asCreatedWithWrittenDefaults(address(vault));
-        _risk(500, MAX_DAILY_LOSS_ALLOWANCE);
+        _risk(500, MAX_DAILY_ALLOWANCE);
         _assertRisk(0, DEFAULT_DAILY_LOSS_ALLOWANCE, "only scheduled");
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
-        _assertRisk(500, MAX_DAILY_LOSS_ALLOWANCE, "a timelock later");
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        _assertRisk(500, MAX_DAILY_ALLOWANCE, "a timelock later");
     }
 }

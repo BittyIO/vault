@@ -10,7 +10,7 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {IBittyV1Vault, VaultLocked} from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 /**
  * The sweep: what a lock does to everything that was still waiting out its timelock.
@@ -81,7 +81,7 @@ contract LockSweepTest is Test {
         // week of protection on anything added from here on.
         vm.startPrank(owner);
         coldId = vault.addWhitelistedRecipient(cold);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(PROTECTION, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(PROTECTION, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         vm.stopPrank();
     }
 

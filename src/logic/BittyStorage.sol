@@ -123,7 +123,7 @@ struct VaultStorage {
      * anyway, in bytes no older version used.
      */
     bool unsetRiskIsDefault;
-    bool unsetTimelockIsZero; // set at initialize from 1.1.1: an unset timelock reads 0, not 1 day
+    bool unsetIsOpen; // set at initialize from 1.1.1: an unset timelock reads 0, an unset allowance no limit
 
     mapping(uint256 => Deferred) whitelistedRecipientDeferred;
     mapping(uint256 => WhitelistEntry) whitelistedRecipient;

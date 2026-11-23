@@ -14,21 +14,22 @@ address constant BITTY_VAULT_FACTORY_BOOTSTRAP = 0x2287De18768eD5eC5F75Ed5d0B7e3
 
 uint64 constant MAX_RISK_TIMELOCK = 30 days;
 
-// What an unset timelock reads as on a vault created before 1.1.1.
-uint64 constant LEGACY_RISK_TIMELOCK = 1 days;
+// The shortest timelock above 0, and what an unset one reads as on a vault created before 1.1.1.
+uint64 constant MIN_RISK_TIMELOCK = 1 days;
 
-uint64 constant MAX_SEND_DAILY_ALLOWANCE = 1_000_000;
+uint64 constant MAX_DAILY_ALLOWANCE = 1_000_000;
 
-// What an unset send allowance reads as on a vault created before 1.0.10.
-uint64 constant LEGACY_SEND_DAILY_ALLOWANCE = 10_000;
-
-uint64 constant MAX_DAILY_LOSS_ALLOWANCE = 10_000;
+// What an unset allowance reads as on a vault created before 1.0.10.
+uint64 constant LEGACY_DAILY_ALLOWANCE = 10_000;
 
 // What a new vault starts with: a starting value, not a floor — the owner may lower it at once, to 0.
 uint64 constant DEFAULT_DAILY_LOSS_ALLOWANCE = 1_000;
 
 // How a timelock or an allowance of 0 is stored: a stored 0 already means "never set".
 uint64 constant STORED_ZERO = type(uint64).max;
+
+// An allowance of no limit: sends of any asset and amount, trades unpriced. Above every cap, so moving to it loosens.
+uint64 constant NO_LIMIT = type(uint64).max - 1;
 
 uint64 constant MAX_GRANT_DURATION = 365 days;
 

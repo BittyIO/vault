@@ -18,7 +18,7 @@ import {
     WhitelistEntryView,
     WHITELIST_PENDING
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, LEGACY_RISK_TIMELOCK, LEGACY_SEND_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK, LEGACY_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 /**
  * Pay someone and save them, in one call. The commonest thing an owner does with a new address is
@@ -99,7 +99,7 @@ contract SendAndAddTest is Test {
      * Over the allowance, the batch total counted, nothing is paid and nothing saved.
      */
     function test_aSendOverTheAllowanceSavesNothing() public {
-        uint256 cap = uint256(LEGACY_SEND_DAILY_ALLOWANCE);
+        uint256 cap = uint256(LEGACY_DAILY_ALLOWANCE);
         vm.prank(owner);
         vm.expectRevert(PaymentExceedsRiskCap.selector);
         vault.sendAndAddWhitelistedRecipient(payee, address(usdc), (cap + 1) * 1e6, _none(), _noAmounts());
@@ -155,13 +155,13 @@ contract SendAndAddTest is Test {
         assertEq(lastId, id, "saved");
         assertEq(list[0].recipient, payee);
         assertEq(list[0].status, WHITELIST_PENDING, "waiting out the timelock");
-        assertEq(list[0].effectiveAt, T0 + LEGACY_RISK_TIMELOCK);
+        assertEq(list[0].effectiveAt, T0 + MIN_RISK_TIMELOCK);
 
         vm.prank(owner);
         vm.expectRevert(ProtectionPeriodNotEnded.selector);
         vault.sendToWhitelistedRecipient(id, address(usdc), 1e6, _none(), _noAmounts());
 
-        vm.warp(T0 + LEGACY_RISK_TIMELOCK);
+        vm.warp(T0 + MIN_RISK_TIMELOCK);
         uint256 before = usdc.balanceOf(payee);
         vm.prank(owner);
         vault.sendToWhitelistedRecipient(id, address(usdc), 1e6, _none(), _noAmounts());

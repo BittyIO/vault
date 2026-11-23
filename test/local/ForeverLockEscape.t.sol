@@ -12,7 +12,7 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {NoEscapeRecipient} from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, LEGACY_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK, MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 interface IDeposit {
     function deposit(address protocol, address asset, uint256 amount) external;
@@ -43,7 +43,7 @@ contract ForeverLockEscapeTest is Test {
     uint256 coldId;
 
     function setUp() public {
-        vm.warp(T0 - LEGACY_RISK_TIMELOCK);
+        vm.warp(T0 - MIN_RISK_TIMELOCK);
         vm.etch(BITTY_GUARD, address(new MockGuard()).code);
         MockGuard guard = MockGuard(BITTY_GUARD);
         BittyV1Vault impl = new BittyV1Vault(address(new BittyV1VaultDeFiFacet()));
@@ -67,7 +67,7 @@ contract ForeverLockEscapeTest is Test {
         vm.startPrank(owner);
         coldId = vault.addWhitelistedRecipient(cold);
         vm.warp(T0);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         vm.stopPrank();
     }
 

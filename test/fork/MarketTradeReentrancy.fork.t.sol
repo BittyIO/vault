@@ -14,6 +14,7 @@ import {MockFeed} from "../local/MarketTradeGuard.t.sol";
 import {Reenterer} from "../local/MarketTradeReentrancy.t.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {ReentrantCall} from "../../src/interfaces/IBittyV1Vault.sol";
 import {MarketTradePriceTooLow} from "../../src/interfaces/IBittyV1DeFi.sol";
 import {BITTY_GUARD} from "../../src/logic/Constants.sol";
@@ -129,6 +130,13 @@ contract MarketTradeReentrancyForkTest is Test {
         deal(mainnet.USDC, address(vault), 2_000e6);
         account.call(
             address(vault), abi.encodeCall(BittyV1VaultDeFiFacet.deposit, (address(lending), mainnet.USDC, 2_000e6))
+        );
+        // A loss allowance, so sales are priced: a new vault has none and trades unpriced.
+        account.call(
+            address(vault),
+            abi.encodeCall(
+                BittyV1Vault.updateRisk, (IBittyV1Owner.RiskSettings(type(uint256).max, type(uint256).max, 10_000))
+            )
         );
 
         // The caller's own route: WETH -> HOOK -> USDC, through two pools of dust it created.

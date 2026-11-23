@@ -17,11 +17,12 @@ import {MARKET_TRADE_ID, LENDING_ID, STAKING_ID, INTENT_ID} from "../helpers/Cat
 import {MockFeed} from "./MarketTradeGuard.t.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {ReentrantCall} from "../../src/interfaces/IBittyV1Vault.sol";
 import {MarketTradePriceTooLow, InvalidWithdrawableProtocol} from "../../src/interfaces/IBittyV1DeFi.sol";
 import {
     BITTY_GUARD,
-    LEGACY_RISK_TIMELOCK,
+    MIN_RISK_TIMELOCK,
     PERM_YIELD,
     PERM_SUPPLY,
     PERM_MARKET_TRADE,
@@ -182,6 +183,11 @@ contract MarketTradeReentrancyTest is Test {
     // ── the sale the guard exists for ────────────────────────────────────────
 
     function test_control_withoutReentryTheSaleIsRefused() public {
+        _asOwner(
+            abi.encodeCall(
+                BittyV1Vault.updateRisk, (IBittyV1Owner.RiskSettings(type(uint256).max, type(uint256).max, 10_000))
+            )
+        );
         _sellForNothing("", MarketTradePriceTooLow.selector);
     }
 
@@ -281,7 +287,7 @@ contract MarketTradeReentrancyTest is Test {
                 BittyV1VaultDeFiFacet.setAssetManager, (manager, uint64(block.timestamp + 365 days), permissions)
             )
         );
-        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
     }
 
     function test_aTradingOnlyManagerCannotUnwind() public {
