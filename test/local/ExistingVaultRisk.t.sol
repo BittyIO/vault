@@ -14,6 +14,7 @@ import {
     BITTY_GUARD,
     MIN_RISK_TIMELOCK,
     MAX_SEND_DAILY_ALLOWANCE,
+    LEGACY_SEND_DAILY_ALLOWANCE,
     MAX_DAILY_LOSS_ALLOWANCE,
     DEFAULT_DAILY_LOSS_ALLOWANCE
 } from "../../src/logic/Constants.sol";
@@ -87,9 +88,10 @@ contract ExistingVaultRiskTest is Test {
 
     // ── created before 1.0.9: unset is the ceiling ───────────────────────────
 
+    /// Its send allowance stays at 10,000 when the ceiling rises to 1,000,000: only an owner raises it.
     function test_aPre109VaultStillReadsTheCeiling() public {
         LegacySends.asCreatedBefore109(address(vault));
-        _assertRisk(MAX_SEND_DAILY_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE, "unchanged by the upgrade");
+        _assertRisk(LEGACY_SEND_DAILY_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE, "unchanged by the upgrade");
     }
 
     function test_aPre109VaultLowersAtOnce() public {

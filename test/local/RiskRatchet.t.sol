@@ -20,6 +20,7 @@ import {
     MAX_RISK_TIMELOCK,
     MIN_RISK_TIMELOCK,
     MAX_SEND_DAILY_ALLOWANCE,
+    LEGACY_SEND_DAILY_ALLOWANCE,
     MAX_DAILY_LOSS_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
@@ -97,17 +98,18 @@ contract RiskRatchetTest is Test {
     // ── the bounds ────────────────────────────────────────────────────────────
 
     /**
-     * A vault that never set its risk is still protected: a day's wait, and the largest allowance of
-     * each kind - the loosest it may be, so every change from here is a tightening. (A vault created
-     * since 1.0.9 has written its send allowance as 0 at creation; see NewVaultDefaults.t.sol.)
+     * A vault that never set its risk is still protected: a day's wait, a send allowance of 10,000 a
+     * day (kept there when the ceiling rose to 1,000,000) and the largest loss allowance. (A vault
+     * created since 1.0.9 has written its send allowance as 0 at creation; see NewVaultDefaults.t.sol.)
      */
     function test_aVaultThatSetNothingReadsTheDefaults() public view {
         (uint64 timelock, uint64 sendAllowance, uint64 lossAllowance) = vault.riskSettings();
         assertEq(timelock, MIN_RISK_TIMELOCK, "a day");
-        assertEq(sendAllowance, MAX_SEND_DAILY_ALLOWANCE, "10,000 a day");
+        assertEq(sendAllowance, LEGACY_SEND_DAILY_ALLOWANCE, "10,000 a day");
         assertEq(lossAllowance, MAX_DAILY_LOSS_ALLOWANCE, "10,000 a day");
         assertEq(MIN_RISK_TIMELOCK, 1 days);
-        assertEq(MAX_SEND_DAILY_ALLOWANCE, 10_000);
+        assertEq(LEGACY_SEND_DAILY_ALLOWANCE, 10_000);
+        assertEq(MAX_SEND_DAILY_ALLOWANCE, 1_000_000);
         assertEq(MAX_DAILY_LOSS_ALLOWANCE, 10_000);
     }
 

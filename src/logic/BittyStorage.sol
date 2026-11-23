@@ -135,7 +135,7 @@ struct VaultStorage {
     uint64 lossPeriodStart;
 
     TimelockedValue gasBudgetDaily;
-    TimelockedValue maxFeePerOp;
+    TimelockedValue unusedMaxFeePerOp; // the per-op fee cap, removed in 1.1.1; kept for the layout
     uint96 gasSpentToday;
     uint64 gasBudgetDay;
     bool tokenAsGasDisabled;

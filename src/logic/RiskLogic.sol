@@ -16,6 +16,7 @@ import {
     MAX_RISK_TIMELOCK,
     MIN_RISK_TIMELOCK,
     MAX_SEND_DAILY_ALLOWANCE,
+    LEGACY_SEND_DAILY_ALLOWANCE,
     MAX_DAILY_LOSS_ALLOWANCE,
     DEFAULT_DAILY_LOSS_ALLOWANCE,
     ALLOWANCE_ZERO
@@ -74,10 +75,11 @@ library RiskLogic {
     }
 
     /**
-     * The send allowance in force, in whole USD: what the owner set, or {MAX_SEND_DAILY_ALLOWANCE}.
+     * The send allowance in force, in whole USD: what the owner set, or while they have set nothing,
+     * 0 on a vault created from 1.0.10 on and {LEGACY_SEND_DAILY_ALLOWANCE} on one created before.
      */
     function effectiveSendDailyAllowance(VaultStorage storage $) internal view returns (uint64) {
-        return _allowance($.riskConfig.sendDailyAllowance, $.unsetRiskIsDefault ? 0 : MAX_SEND_DAILY_ALLOWANCE);
+        return _allowance($.riskConfig.sendDailyAllowance, $.unsetRiskIsDefault ? 0 : LEGACY_SEND_DAILY_ALLOWANCE);
     }
 
     /**
@@ -173,7 +175,6 @@ library RiskLogic {
         (p.dailyLossAllowance, p.dailyLossAllowanceAt) = _waiting(r.dailyLossAllowance);
         if (p.dailyLossAllowance == ALLOWANCE_ZERO) p.dailyLossAllowance = 0;
         (p.gasBudgetDaily, p.gasBudgetDailyAt) = _waiting($.gasBudgetDaily);
-        (p.maxFeePerOp, p.maxFeePerOpAt) = _waiting($.maxFeePerOp);
         (, p.bridgeEnableAt) = _waiting(BittyStorage.defi().bridgeDisabled);
     }
 

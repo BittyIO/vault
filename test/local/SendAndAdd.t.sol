@@ -18,7 +18,7 @@ import {
     WhitelistEntryView,
     WHITELIST_PENDING
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, MIN_RISK_TIMELOCK, MAX_SEND_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK, LEGACY_SEND_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 /**
  * Pay someone and save them, in one call. The commonest thing an owner does with a new address is
@@ -99,7 +99,7 @@ contract SendAndAddTest is Test {
      * Over the allowance, the batch total counted, nothing is paid and nothing saved.
      */
     function test_aSendOverTheAllowanceSavesNothing() public {
-        uint256 cap = uint256(MAX_SEND_DAILY_ALLOWANCE);
+        uint256 cap = uint256(LEGACY_SEND_DAILY_ALLOWANCE);
         vm.prank(owner);
         vm.expectRevert(PaymentExceedsRiskCap.selector);
         vault.sendAndAddWhitelistedRecipient(payee, address(usdc), (cap + 1) * 1e6, _none(), _noAmounts());

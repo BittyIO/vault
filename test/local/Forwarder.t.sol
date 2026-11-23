@@ -459,7 +459,7 @@ contract ForwarderTest is Test {
     function test_feeOverTheVaultBudgetIsRefusedUpFront() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
-        vaultA.setTokenAsGas(none, 5, 5); // 5 whole tokens a day
+        vaultA.setTokenAsGas(none, 5); // 5 whole tokens a day
 
         ERC2771Forwarder.ForwardRequestData memory r =
             _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
@@ -485,7 +485,7 @@ contract ForwarderTest is Test {
         weth.mint(address(v), 1e18);
         address[] memory none = new address[](0);
         vm.prank(owner);
-        v.setTokenAsGas(none, 5, 5); // $5 a day
+        v.setTokenAsGas(none, 5); // $5 a day
 
         ERC2771Forwarder.ForwardRequestData memory r = _sign(_req(owner, address(v), _restrictToOwnListCall()), ownerPk);
         vm.prank(relayer);
