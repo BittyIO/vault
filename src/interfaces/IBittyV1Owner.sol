@@ -117,8 +117,8 @@ interface IBittyV1Owner {
     /**
      * @notice Set any of the vault's wait, its regular-send daily allowance and its daily loss
      *         allowance.
-     * @dev Reverts {RiskTimelockTooShort} / {RiskTimelockTooLong} for a timelock outside 1 to 30 days,
-     *      and {RiskAllowanceOutOfRange} for an allowance above 10,000. Under either lock only the
+     * @dev Reverts {RiskTimelockTooLong} for a timelock above 30 days, and
+     *      {RiskAllowanceOutOfRange} for an allowance above its ceiling. Under either lock only the
      *      daily loss allowance may change, and only downward; anything else
      *      reverts {VaultLocked}.
      * @param riskSettings The three numbers, with `type(uint256).max` in any to leave it alone.

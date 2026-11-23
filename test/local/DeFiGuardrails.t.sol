@@ -23,7 +23,7 @@ import {
 } from "../../src/interfaces/IBittyV1DeFi.sol";
 import {
     BITTY_GUARD,
-    MIN_RISK_TIMELOCK,
+    LEGACY_RISK_TIMELOCK,
     PERM_YIELD,
     PERM_SUPPLY,
     PERM_MARKET_TRADE,
@@ -157,7 +157,7 @@ contract DeFiGuardrailsTest is Test {
     function _grant(address manager, uint64 expiresAt, uint32 permissions) internal {
         vm.prank(owner);
         _f().setAssetManager(manager, expiresAt, permissions);
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
     }
 
     function _permissions() internal view returns (uint32 permissions) {
@@ -812,17 +812,19 @@ contract DeFiGuardrailsTest is Test {
         uint64 expiry = uint64(block.timestamp + 365 days);
         _grant(manager, expiry, PERM_YIELD | PERM_SUPPLY);
         assertEq(_permissions(), PERM_YIELD | PERM_SUPPLY);
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, type(uint256).max, type(uint256).max));
 
         // Narrowing is self-restriction: it lands at once, whatever the timelock.
         vm.prank(owner);
         _f().setAssetManager(manager, expiry, PERM_YIELD);
         assertEq(_permissions(), PERM_YIELD, "narrowing took effect at once");
 
-        // Widening waits out the timelock, which every vault has - a day until the owner sets one.
+        // Widening waits out the timelock.
         vm.prank(owner);
         _f().setAssetManager(manager, expiry, PERM_YIELD | PERM_MARKET_TRADE);
         assertEq(_permissions(), PERM_YIELD, "widening is queued");
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
         assertEq(_permissions(), PERM_YIELD | PERM_MARKET_TRADE, "and lands after the timelock");
     }
 }

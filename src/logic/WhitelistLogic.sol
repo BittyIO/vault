@@ -52,7 +52,7 @@ library WhitelistLogic {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         PaymentCore.onlyInitialized(vaultStorage);
         if (recipient == address(0)) revert AddressZero();
-        uint256 effectiveAt = PaymentCore.protectionDeadline(RiskLogic.effectiveTimelock(vaultStorage.riskConfig));
+        uint256 effectiveAt = PaymentCore.protectionDeadline(RiskLogic.effectiveTimelock(vaultStorage));
         id = ++vaultStorage.nextWhitelistedRecipientId;
         vaultStorage.whitelistedRecipient[id].recipient = recipient;
         vaultStorage.whitelistedRecipientDeferred[id] = Deferred({
@@ -81,7 +81,7 @@ library WhitelistLogic {
     function removeWhitelistedRecipients(uint256[] calldata ids) external {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         PaymentCore.onlyInitialized(vaultStorage);
-        uint64 timelock = RiskLogic.effectiveTimelock(vaultStorage.riskConfig);
+        uint64 timelock = RiskLogic.effectiveTimelock(vaultStorage);
         for (uint256 i; i < ids.length; ++i) {
             _remove(vaultStorage, ids[i], timelock);
         }

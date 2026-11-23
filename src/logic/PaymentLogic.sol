@@ -53,6 +53,7 @@ library PaymentLogic {
         if (vaultStorage.isInitialized) revert AlreadyInitialized();
         vaultStorage.isInitialized = true;
         vaultStorage.unsetRiskIsDefault = true;
+        vaultStorage.unsetTimelockIsZero = true;
         vaultStorage.gasWrapped = gasWrapped;
         vaultStorage.ownAllowListActive = restrictToOwnAllowList;
     }

@@ -12,7 +12,7 @@ import {VaultLocked} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BittyStorage} from "../../src/logic/BittyStorage.sol";
 import {
     BITTY_GUARD,
-    MIN_RISK_TIMELOCK,
+    LEGACY_RISK_TIMELOCK,
     MAX_SEND_DAILY_ALLOWANCE,
     LEGACY_SEND_DAILY_ALLOWANCE,
     MAX_DAILY_LOSS_ALLOWANCE,
@@ -51,13 +51,21 @@ contract ExistingVaultRiskTest is Test {
     }
 
     function _assertRisk(uint64 send, uint64 loss, string memory why) internal view {
-        (uint64 timelock, uint64 s, uint64 l) = vault.riskSettings();
-        assertEq(timelock, MIN_RISK_TIMELOCK, why);
+        (, uint64 s, uint64 l) = vault.riskSettings();
         assertEq(s, send, why);
         assertEq(l, loss, why);
     }
 
     // ── a new vault writes nothing, and reads its defaults ───────────────────
+
+    /// From 1.1.1 a new vault has no timelock until the owner sets one; an older one reads a day.
+    function test_aNewVaultHasNoTimelockAndAnOlderOneADay() public {
+        (uint64 timelock,,) = vault.riskSettings();
+        assertEq(timelock, 0, "new");
+        LegacySends.asCreatedBefore109(address(vault));
+        (timelock,,) = vault.riskSettings();
+        assertEq(timelock, LEGACY_RISK_TIMELOCK, "older");
+    }
 
     function test_aNewVaultWritesNeitherAllowance() public view {
         assertEq(vm.load(address(vault), bytes32(uint256(BittyStorage.VAULT_SLOT) + 4)), bytes32(0), "send slot");
@@ -70,9 +78,11 @@ contract ExistingVaultRiskTest is Test {
      * them ON, and waits.
      */
     function test_aNewVaultRaisingFromUnsetWaitsOutTheTimelock() public {
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, type(uint256).max, type(uint256).max));
         _risk(500, MAX_DAILY_LOSS_ALLOWANCE);
         _assertRisk(0, DEFAULT_DAILY_LOSS_ALLOWANCE, "only scheduled");
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
         _assertRisk(500, MAX_DAILY_LOSS_ALLOWANCE, "a timelock later");
     }
 
@@ -105,7 +115,7 @@ contract ExistingVaultRiskTest is Test {
         _risk(100, 100);
         _risk(MAX_SEND_DAILY_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE);
         _assertRisk(100, 100, "only scheduled");
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
         _assertRisk(MAX_SEND_DAILY_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE, "a timelock later");
     }
 
@@ -120,7 +130,7 @@ contract ExistingVaultRiskTest is Test {
         LegacySends.asCreatedWithWrittenDefaults(address(vault));
         _risk(500, MAX_DAILY_LOSS_ALLOWANCE);
         _assertRisk(0, DEFAULT_DAILY_LOSS_ALLOWANCE, "only scheduled");
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        vm.warp(block.timestamp + LEGACY_RISK_TIMELOCK);
         _assertRisk(500, MAX_DAILY_LOSS_ALLOWANCE, "a timelock later");
     }
 }

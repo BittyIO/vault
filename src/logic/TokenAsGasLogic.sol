@@ -75,7 +75,7 @@ library TokenAsGasLogic {
         }
 
         vaultStorage.tokenAsGasDisabled = false;
-        uint64 timelock = RiskLogic.effectiveTimelock(vaultStorage.riskConfig);
+        uint64 timelock = RiskLogic.effectiveTimelock(vaultStorage);
         TimelockLib.setGasBudget(vaultStorage.gasBudgetDaily, dailyLimit, timelock);
         emit IBittyV1Owner.TokenAsGasSet(true, assets, dailyLimit);
     }
