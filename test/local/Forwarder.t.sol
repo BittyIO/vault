@@ -13,7 +13,7 @@ import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultForwarder} from "../../src/BittyV1VaultForwarder.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {NotTrustedForwarder} from "../../src/interfaces/IBittyV1Vault.sol";
+import {NotTrustedForwarder, GasBudgetExceeded} from "../../src/interfaces/IBittyV1Vault.sol";
 import {BITTY_GUARD, BITTY_FORWARDER, BITTY_FEE_COLLECTOR} from "../../src/logic/Constants.sol";
 
 import {BittyV1ForwarderBootstrap, NotOwner as BootstrapNotOwner} from "../../src/BittyV1ForwarderBootstrap.sol";
@@ -454,9 +454,9 @@ contract ForwarderTest is Test {
     // ── fee ceilings ──────────────────────────────────────────────────────────
 
     /**
-     * Checked before the call runs, so an unaffordable fee costs the relayer nothing.
+     * The vault refuses it when charged, and that reverts the whole relay: the request never happened.
      */
-    function test_feeOverTheVaultBudgetIsRefusedUpFront() public {
+    function test_feeOverTheVaultBudgetRevertsTheRelay() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
         vaultA.setTokenAsGas(none, 5); // 5 whole tokens a day
@@ -464,17 +464,17 @@ contract ForwarderTest is Test {
         ERC2771Forwarder.ForwardRequestData memory r =
             _sign(_req(owner, address(vaultA), _restrictToOwnListCall()), ownerPk);
         vm.prank(relayer);
-        vm.expectRevert(BittyV1VaultForwarder.FeeExceedsVaultBudget.selector);
+        vm.expectRevert(GasBudgetExceeded.selector);
         fwd.executeWithFee(r, address(usdc), 6e6);
 
-        assertTrue(_bittyListOn(vaultA), "the inner call never ran");
+        assertTrue(_bittyListOn(vaultA), "the inner call was rolled back");
         assertEq(fwd.nonceFor(owner, address(vaultA)), 0, "and the lane did not move");
     }
 
     /**
-     * A WETH fee is valued in USD up front, as the vault values it — not as one token, one dollar.
+     * A WETH fee is valued in USD, off its feed — not as one token, one dollar.
      */
-    function test_aWethFeeOverTheVaultBudgetIsRefusedUpFront() public {
+    function test_aWethFeeOverTheVaultBudgetRevertsTheRelay() public {
         MockERC20 weth = new MockERC20("Wrapped Ether", "WETH", 18);
         MockFeed feed = new MockFeed();
         feed.set(2_000e8, block.timestamp, block.timestamp);
@@ -489,7 +489,7 @@ contract ForwarderTest is Test {
 
         ERC2771Forwarder.ForwardRequestData memory r = _sign(_req(owner, address(v), _restrictToOwnListCall()), ownerPk);
         vm.prank(relayer);
-        vm.expectRevert(BittyV1VaultForwarder.FeeExceedsVaultBudget.selector);
+        vm.expectRevert(GasBudgetExceeded.selector);
         fwd.executeWithFee(r, address(weth), 0.003e18); // $6
 
         vm.prank(relayer);

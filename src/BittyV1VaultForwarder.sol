@@ -4,9 +4,7 @@ pragma solidity ^0.8.34;
 import {ERC2771Forwarder} from "openzeppelin-contracts/contracts/metatx/ERC2771Forwarder.sol";
 import {ERC2771Context} from "openzeppelin-contracts/contracts/metatx/ERC2771Context.sol";
 import {Address} from "openzeppelin-contracts/contracts/utils/Address.sol";
-import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {SignatureChecker} from "openzeppelin-contracts/contracts/utils/cryptography/SignatureChecker.sol";
-import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IBittyV1Vault} from "./interfaces/IBittyV1Vault.sol";
 import {IBittyV1Guard, CFG_OWNER} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -20,7 +18,6 @@ import {BITTY_GUARD} from "./logic/Constants.sol";
  *      chain and rotating it is one guard config change, fleet-wide.
  */
 contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
-    error FeeExceedsVaultBudget();
     error NotApprovedRelayer();
     error EmptyBatch();
     error BatchTargetMismatch();
@@ -195,8 +192,11 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
     }
 
     /**
-     * @dev Charge after the call so a reverted request costs the vault nothing. Check the budget first
-     *      so a relay that could never be paid for fails before doing the work.
+     * @dev Charge after the call so a reverted request costs the vault nothing. The budget is the
+     *      vault's to enforce, when it is charged: a fee over it reverts the whole relay, the request
+     *      included. There is no check up front as well; on TRON it cost ~6,500 energy on every relay to
+     *      save the relayer energy only on a relay it should not send, and a relayer simulates each one
+     *      first anyway.
      */
     function executeWithFee(ForwardRequestData calldata request, address feeToken, uint256 fee)
         external
@@ -207,8 +207,6 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
         if (msg.value != request.value) {
             revert ERC2771ForwarderMismatchedValue(request.value, msg.value);
         }
-        if (fee != 0) _checkVaultBudget(request.to, feeToken, fee);
-
         if (!_execute(request, true)) {
             revert Address.FailedInnerCall();
         }
@@ -244,8 +242,6 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
             if (requests[i].value != 0) revert ERC2771ForwarderMismatchedValue(requests[i].value, 0);
         }
 
-        if (fee != 0) _checkVaultBudget(vault, feeToken, fee);
-
         for (uint256 i; i < requests.length; ++i) {
             if (!_execute(requests[i], true)) {
                 revert Address.FailedInnerCall();
@@ -255,23 +251,6 @@ contract BittyV1VaultForwarder is ERC2771Forwarder, UUPSUpgradeable {
         if (fee != 0) {
             _charge(vault, feeToken, fee);
         }
-    }
-
-    /**
-     * @dev The vault reports its remaining allowance as an 18-decimal USD value, so the fee is valued
-     *      the way the vault values it — WETH off its feed — by asking the vault. A vault from before
-     *      {IBittyV1Vault-relayerFeeValue} takes only stablecoins, so the raw amount is normalised as
-     *      a dollar instead. Ceil to match, otherwise a fee could pass here and be rejected a few
-     *      thousand gas later.
-     */
-    function _checkVaultBudget(address vault, address feeToken, uint256 fee) private view {
-        uint256 normalised;
-        try IBittyV1Vault(vault).relayerFeeValue(feeToken, fee) returns (uint256 value) {
-            normalised = value;
-        } catch {
-            normalised = Math.mulDiv(fee, 1e18, 10 ** IERC20Metadata(feeToken).decimals(), Math.Rounding.Ceil);
-        }
-        if (normalised > IBittyV1Vault(vault).gasBudgetRemaining()) revert FeeExceedsVaultBudget();
     }
 
     /**

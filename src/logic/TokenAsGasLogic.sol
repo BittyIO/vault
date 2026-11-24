@@ -12,7 +12,6 @@ import {
 import {IBittyV1Owner} from "../interfaces/IBittyV1Owner.sol";
 import {IBittyV1Guard, ASSET_STABLE_COIN, PriceFeed} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {TRC20Transfer} from "./TRC20Transfer.sol";
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
@@ -132,7 +131,7 @@ library TokenAsGasLogic {
         returns (uint256)
     {
         if (asset != vaultStorage.gasWrapped) {
-            return Math.mulDiv(amount, 1e18, 10 ** IERC20Metadata(asset).decimals(), Math.Rounding.Ceil);
+            return Math.mulDiv(amount, 1e18, 10 ** TRC20Transfer.decimals(asset), Math.Rounding.Ceil);
         }
         IBittyV1Guard guard = IBittyV1Guard(BITTY_GUARD);
         PriceLib.requireSequencerUp(guard.sequencerUptimeFeed());

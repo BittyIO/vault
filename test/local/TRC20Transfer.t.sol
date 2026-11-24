@@ -100,6 +100,60 @@ contract TRC20TransferTest is Test {
         sender.send(IERC20(address(t)), to, 1e6);
     }
 
+    // ── mainnet USDT: trusted to revert, so its balance is never read ─────────────────────
+
+    address constant MAINNET_USDT = 0xa614f803B6FD780986A42c78Ec9c7f77e6DeD13C;
+
+    /// Etches `t`'s code at mainnet USDT's address, on TRON mainnet, with its storage.
+    function _asMainnetUsdt(MockERC20 t) internal returns (IERC20) {
+        vm.chainId(728126428);
+        vm.etch(MAINNET_USDT, address(t).code);
+        MockERC20(MAINNET_USDT).mint(address(sender), 100e6);
+        return IERC20(MAINNET_USDT);
+    }
+
+    function test_mainnetUsdtIsPaidWithoutReadingItsBalance() public {
+        IERC20 usdt = _asMainnetUsdt(new TronUsdtLike());
+        vm.expectCall(MAINNET_USDT, abi.encodeCall(IERC20.balanceOf, (address(sender))), 0);
+        sender.send(usdt, to, 40e6);
+        assertEq(usdt.balanceOf(to), 40e6);
+    }
+
+    function test_mainnetUsdtsRevertIsBubbled() public {
+        IERC20 usdt = _asMainnetUsdt(new RevertingToken());
+        vm.expectRevert(RevertingToken.Nope.selector);
+        sender.send(usdt, to, 1e6);
+    }
+
+    /// Off TRON mainnet the same address is just another token, checked the long way.
+    function test_theSameAddressElsewhereIsStillChecked() public {
+        _asMainnetUsdt(new RefusingToken());
+        vm.chainId(3448148188); // Nile
+        vm.expectRevert(abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, MAINNET_USDT));
+        sender.send(IERC20(MAINNET_USDT), to, 1e6);
+    }
+
+    /// Mainnet USDT's decimals are a constant; any other token, or the same address elsewhere, is asked.
+    function test_mainnetUsdtDecimalsAreNotAsked() public {
+        _asMainnetUsdt(new TronUsdtLike());
+        vm.expectCall(MAINNET_USDT, abi.encodeWithSignature("decimals()"), 0);
+        assertEq(this.decimalsOf(MAINNET_USDT), 6);
+    }
+
+    function test_otherDecimalsAreAsked() public {
+        _asMainnetUsdt(new TronUsdtLike());
+        vm.chainId(3448148188); // Nile
+        vm.expectCall(MAINNET_USDT, abi.encodeWithSignature("decimals()"), 1);
+        assertEq(this.decimalsOf(MAINNET_USDT), 6);
+
+        MockERC20 eighteen = new MockERC20("Std", "STD", 18);
+        assertEq(this.decimalsOf(address(eighteen)), 18);
+    }
+
+    function decimalsOf(address token) external view returns (uint8) {
+        return TRC20Transfer.decimals(token);
+    }
+
     function test_noCodeReverts() public {
         address nothing = makeAddr("nothing"); // no code: the balance read already refuses it
         vm.expectRevert();
