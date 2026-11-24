@@ -26,7 +26,7 @@ contract BittyV2Vault is BittyV1Vault {
      * What makes this a release rather than a re-point: upgrades may only move forward.
      */
     function vaultVersion() external pure override returns (uint256) {
-        return 1 * 1_000_000 + 2 * 1_000 + 0;
+        return 1 * 1_000_000 + 3 * 1_000 + 0;
     }
 
     bytes32 private constant V2_SLOT = 0x7ecb699a06ee21ad3b6687b1a055b97ffa71638bb69215fc9703e69f6463c300;
@@ -178,7 +178,7 @@ contract VaultUpgradeTest is Test {
      * The vault names its own release the same way an adapter does, so one ABI reads either.
      */
     function test_vaultReportsItsVersion() public {
-        assertEq(IVaultVersion(address(vault)).vaultVersion(), 1_001_001, "encoded 1.1.1");
-        assertEq(IVaultVersion(address(vault)).versionName(), "1.1.1", "readable form");
+        assertEq(IVaultVersion(address(vault)).vaultVersion(), 1_002_000, "encoded 1.2.0");
+        assertEq(IVaultVersion(address(vault)).versionName(), "1.2.0", "readable form");
     }
 }
