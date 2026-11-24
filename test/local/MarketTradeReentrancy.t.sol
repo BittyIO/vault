@@ -17,6 +17,7 @@ import {MARKET_TRADE_ID, LENDING_ID, STAKING_ID, INTENT_ID} from "../helpers/Cat
 import {MockFeed} from "./MarketTradeGuard.t.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {ReentrantCall} from "../../src/interfaces/IBittyV1Vault.sol";
 import {MarketTradePriceTooLow, InvalidWithdrawableProtocol} from "../../src/interfaces/IBittyV1DeFi.sol";
 import {
@@ -182,6 +183,11 @@ contract MarketTradeReentrancyTest is Test {
     // ── the sale the guard exists for ────────────────────────────────────────
 
     function test_control_withoutReentryTheSaleIsRefused() public {
+        _asOwner(
+            abi.encodeCall(
+                BittyV1Vault.updateRisk, (IBittyV1Owner.RiskSettings(type(uint256).max, type(uint256).max, 10_000))
+            )
+        );
         _sellForNothing("", MarketTradePriceTooLow.selector);
     }
 

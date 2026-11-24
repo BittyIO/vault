@@ -22,7 +22,8 @@ import {
     MIN_RISK_TIMELOCK,
     PERM_YIELD,
     PERM_SUPPLY,
-    PERM_INTENT
+    PERM_INTENT,
+    MAX_DAILY_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /**
@@ -128,7 +129,8 @@ contract LocksTest is Test {
      * Every call that must be refused once the vault is locked, as calldata the owner would send.
      */
     function _refusedWhileLocked() internal view returns (bytes[] memory calls) {
-        IBittyV1Owner.RiskSettings memory risk = IBittyV1Owner.RiskSettings(1 days, UNCHANGED, UNCHANGED);
+        IBittyV1Owner.RiskSettings memory risk =
+            IBittyV1Owner.RiskSettings(1 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE);
 
         // Built by appending rather than by index, so removing an entry cannot silently leave a
         // hole — an empty element would reach the fallback and "pass" the refusal it was meant to
@@ -140,7 +142,7 @@ contract LocksTest is Test {
         all[n++] = abi.encodeCall(BittyV1VaultBase.upgrade, (address(0xdead)));
         // risk configuration, both directions
         all[n++] = abi.encodeCall(BittyV1Vault.updateRisk, (risk));
-        all[n++] = abi.encodeCall(BittyV1Vault.setTokenAsGas, (_one(address(usdc)), 1, 1));
+        all[n++] = abi.encodeCall(BittyV1Vault.setTokenAsGas, (_one(address(usdc)), 1));
         all[n++] = abi.encodeCall(BittyV1Vault.disableTokenAsGas, ());
         all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (false));
         all[n++] = abi.encodeCall(BittyV1VaultDeFiFacet.useBittyAllowList, (true));
@@ -247,7 +249,7 @@ contract LocksTest is Test {
      */
     function test_lockingVoidsAPendingManagerGrant() public {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
 
         vm.prank(owner);
         _f().setAssetManager(stranger, uint64(block.timestamp + 365 days), PERM_YIELD);
@@ -269,8 +271,8 @@ contract LocksTest is Test {
 
     function test_lockingVoidsAPendingRiskLoosening() public {
         vm.startPrank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, UNCHANGED, UNCHANGED));
-        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         vault.emergencyLock();
         vault.unlock();
         vm.stopPrank();

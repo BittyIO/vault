@@ -20,29 +20,30 @@ interface IBittyV1Owner {
      * long do I get to notice", and with one cap over a fixed day there is nothing for a separate
      * period to vary.
      *
-     * None of the three can be turned off. A timelock with no ceilings protects the configuration and
-     * not the money: a leaked key would send or trade everything away at once, and the wait would
-     * only delay changes nobody needs to make. So each is held between bounds, and one the owner has
-     * never set reads as the loosest it may be — 1 day, and 10,000 for each allowance.
+     * A vault created from 1.1.1 on starts open: no timelock, and no limit on either allowance
+     * (`type(uint64).max - 1`), so regular sends take any asset and amount and trades and bridges are
+     * not priced. The owner protects it by setting numbers, each a tightening, so at once. One never
+     * set reads, on a vault created before 1.1.1, as 1 day and, from 1.0.10, sends off and 1,000 for
+     * losses; before 1.0.10, 10,000 for each allowance.
      *
      * `timelock` is the single wait in front of everything deferred: a new whitelisted recipient, the
      * removal of one the owner can already pay, an asset-manager grant, a handover of the
-     * vault, and any loosening of these numbers. At least 1 day, at most 30.
+     * vault, and any loosening of these numbers. 0, or 1 to 30 days; above 0, both allowances must be
+     * numbers, not no limit ({TimelockNeedsLimits}), so going back to no limit means lowering the
+     * timelock to 0 first, which waits out the timelock in force.
      * `sendDailyAllowance` is the ceiling on what may leave through regular sends, in whole USD per
-     * day, from 0 to 10,000; 0 turns regular sends off. A new vault starts at 0, so no regular send leaves
-     * it until the owner turns sends on, which waits out the timelock. What trades and bridges lose is bounded
-     * separately, by `dailyLossAllowance`. Regular sends are held to stablecoins, the only assets that can be
-     * metered without reading a price. More than this, and any other asset, leaves through a
-     * whitelisted recipient — one the owner set up at least a timelock before.
+     * day, from 0 to 1,000,000, or no limit; 0 turns regular sends off. Under a ceiling, regular sends
+     * are held to stablecoins, the only assets that can be metered without reading a price. More than
+     * this, and any other asset, leaves through a whitelisted recipient.
      *
-     * `dailyLossAllowance` bounds what market trades and bridges lose, from 0 to 10,000 whole USD
-     * per day; 0 turns both off. A new vault starts at 1,000. A trade is a way out of the vault too: a leaked key that sells into a pool it set
-     * up itself takes value without sending anything. So every market trade, the owner's or an asset
-     * manager's, is valued at oracle price (a stablecoin counts as a dollar), must come out within 5%
-     * of what it gave up, and what it came out short — price impact and fees included — is charged
-     * against this ceiling. Only assets with a price feed can be traded at market. A bridge is
-     * charged the same way for what does not arrive on the other side: the bridge's cost and Bitty's
-     * fee, so a leaked key bouncing the vault between chains loses at most this much a day.
+     * `dailyLossAllowance` bounds what market trades and bridges lose, from 0 to 1,000,000 whole USD
+     * per day, or no limit; 0 turns both off. A trade is a way out of the vault too: a leaked key that
+     * sells into a pool it set up itself takes value without sending anything. So under a ceiling every
+     * market trade, the owner's or an asset manager's, is valued at oracle price (a stablecoin counts
+     * as a dollar), must come out within 5% of what it gave up, and what it came out short — price
+     * impact and fees included — is charged against this ceiling. Only assets with a price feed can be
+     * traded at market. A bridge is charged the same way for what does not arrive on the other side:
+     * the bridge's cost and Bitty's fee.
      * The two ceilings are kept apart so that trading and bridging never use up what may be sent, and
      * sending never uses up what they may lose.
      *
@@ -73,7 +74,7 @@ interface IBittyV1Owner {
     event RiskSettingsUpdated(RiskSettings riskSettings);
     event WhitelistedRecipientPaid(uint256 indexed id, address recipient, address asset, uint256 amount);
     event Retrieved721(address indexed contractAddress, uint256 indexed tokenId, address indexed to);
-    event TokenAsGasSet(bool enabled, address[] assets, uint64 dailyLimit, uint64 maxFeePerOp);
+    event TokenAsGasSet(bool enabled, address[] assets, uint64 dailyLimit);
     event ActivationFeePaid(address indexed asset, uint256 amount);
     event RelayerFeePaid(address indexed asset, uint256 amount, uint256 spentToday, uint256 remainingToday);
 
@@ -100,9 +101,8 @@ interface IBittyV1Owner {
      * @notice Set the token-as-gas settings.
      * @param assets The assets that may pay for relayed gas: stablecoins and/or the vault's WETH.
      * @param dailyLimit The daily limit for token-as-gas operations, in whole USD.
-     * @param maxFeePerOp The maximum fee per operation for token-as-gas operations, in whole USD.
      */
-    function setTokenAsGas(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp) external;
+    function setTokenAsGas(address[] calldata assets, uint64 dailyLimit) external;
 
     /**
      * @notice Disable token-as-gas operations.
@@ -118,8 +118,10 @@ interface IBittyV1Owner {
     /**
      * @notice Set any of the vault's wait, its regular-send daily allowance and its daily loss
      *         allowance.
-     * @dev Reverts {RiskTimelockTooShort} / {RiskTimelockTooLong} for a timelock outside 1 to 30 days,
-     *      and {RiskAllowanceOutOfRange} for an allowance above 10,000. Under either lock only the
+     * @dev Reverts {RiskTimelockTooLong} for a timelock above 30 days, and
+     *      {RiskAllowanceOutOfRange} for an allowance above its ceiling. An allowance of
+     *      `type(uint64).max - 1` is no limit: for sends, any asset, uncapped; for losses, trades and
+     *      bridges unpriced. Under either lock only the
      *      daily loss allowance may change, and only downward; anything else
      *      reverts {VaultLocked}.
      * @param riskSettings The three numbers, with `type(uint256).max` in any to leave it alone.

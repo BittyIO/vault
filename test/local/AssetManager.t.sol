@@ -13,7 +13,14 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {AutoYield, IBittyV1Vault, VaultLocked} from "../../src/interfaces/IBittyV1Vault.sol";
 import {AssetManagerExpiryInPast} from "../../src/interfaces/IBittyV1DeFi.sol";
-import {BITTY_GUARD, MIN_RISK_TIMELOCK, PERM_YIELD, PERM_SUPPLY, PERM_INTENT} from "../../src/logic/Constants.sol";
+import {
+    BITTY_GUARD,
+    MIN_RISK_TIMELOCK,
+    PERM_YIELD,
+    PERM_SUPPLY,
+    PERM_INTENT,
+    MAX_DAILY_ALLOWANCE
+} from "../../src/logic/Constants.sol";
 
 /*
  * The capabilities these tests appoint a manager for: the jobs a managed vault is actually given —
@@ -52,7 +59,7 @@ contract AssetManagerTest is Test {
 
     function _withTimelock() internal {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
     }
 
     function setUp() public {
@@ -285,7 +292,7 @@ contract AssetManagerTest is Test {
 
         // The forever lock needs a destination the vault can still pay out to.
         vm.prank(owner);
-        uint256 escape = vault.addWhitelistedRecipient(owner);
+        uint256 escape = vault.addWhitelistedRecipient(makeAddr("escape")); // never the owner itself
         vm.warp(block.timestamp + 31 days);
         vm.prank(owner);
         vault.foreverLock(escape);

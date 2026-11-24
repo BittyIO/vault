@@ -18,7 +18,8 @@ import {
     MIN_RISK_TIMELOCK,
     PERM_YIELD,
     PERM_SUPPLY,
-    PERM_INTENT
+    PERM_INTENT,
+    MAX_DAILY_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /*
@@ -93,7 +94,7 @@ contract AssetManagerGrantTest is Test {
 
     function _timelock(uint64 t) internal {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(t, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(t, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
     }
 
     function _set(address who, uint64 expiresAt) internal {
@@ -113,19 +114,13 @@ contract AssetManagerGrantTest is Test {
     // ── granting ──────────────────────────────────────────────────────────────
 
     /**
-     * A vault that never set a timelock still has one - a day - so even its first manager waits.
+     * A vault created from 1.1.1 on has no timelock until the owner sets one, so its first manager is
+     * named at once.
      */
-    function test_aNewVaultsFirstGrantWaitsOutTheDefaultTimelock() public {
+    function test_aNewVaultsFirstGrantLandsAtOnce() public {
         uint64 expiry = uint64(block.timestamp + 365 days);
         _set(manager, expiry);
-        (address m,, address pending, uint64 at,,) = _f().getAssetManagerSettings();
-        assertEq(m, address(0), "nobody yet");
-        assertEq(pending, manager, "queued");
-        assertEq(at, uint64(block.timestamp + MIN_RISK_TIMELOCK), "for the default timelock");
-
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
-        uint64 e;
-        (m, e,,,,) = _f().getAssetManagerSettings();
+        (address m, uint64 e,,,,) = _f().getAssetManagerSettings();
         assertEq(m, manager, "named");
         assertEq(e, expiry, "expiry");
     }

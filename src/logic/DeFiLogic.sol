@@ -118,7 +118,7 @@ library DeFiLogic {
         bool noLaterExpiry = expiresAt <= $.assetManagerExpiresAt;
         bool noNewPermission = permissions & ~$.assetManagerPerms == 0;
         bool tightening = sameManager && noLaterExpiry && noNewPermission;
-        uint64 timelock = RiskLogic.effectiveTimelock(BittyStorage.vault().riskConfig);
+        uint64 timelock = RiskLogic.effectiveTimelock(BittyStorage.vault());
 
         if (tightening) {
             $.assetManager = assetManager;

@@ -16,6 +16,7 @@ error ReentrantCall();
 error ProtectionPeriodNotEnded();
 error RiskTimelockTooLong();
 error RiskTimelockTooShort();
+error TimelockNeedsLimits();
 error RiskAllowanceOutOfRange();
 
 error OwnershipNotRenounceable();
@@ -26,7 +27,6 @@ error VaultNotNewer();
 error NotTrustedForwarder();
 error GasBudgetExceeded();
 error GasBudgetTooHigh();
-error FeeExceedsPerOpCap();
 error InvalidRelayedCalldata();
 error InvalidAsset();
 
@@ -70,8 +70,6 @@ struct PendingChanges {
 
     uint64 gasBudgetDaily;
     uint64 gasBudgetDailyAt;
-    uint64 maxFeePerOp;
-    uint64 maxFeePerOpAt;
 
     uint64 bridgeEnableAt;
 }
@@ -271,9 +269,8 @@ interface IBittyV1Vault {
      *         ({disableTokenAsGas}). Otherwise it is the owner's figure, or {SYSTEM_DAILY_MAX_GAS_BUDGET}
      *         while the owner has set none — so a vault charges for relayed gas from activation, up
      *         to that ceiling, until its owner narrows or disables it.
-     * @return maxFeePerOp Ceiling on a single charge, in whole USD. Never zero.
      */
-    function tokenAsGasConfig() external view returns (address[] memory assets, uint256 dailyLimit, uint256 maxFeePerOp);
+    function tokenAsGasConfig() external view returns (address[] memory assets, uint256 dailyLimit);
 
     /**
      * @notice Reimburse the trusted forwarder, in a stablecoin or the vault's WETH, for gas it fronted for this vault.

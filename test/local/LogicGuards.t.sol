@@ -34,8 +34,8 @@ contract UninitializedAccount {
         RiskLogic.updateRisk(risk);
     }
 
-    function setTokenAsGas(address[] calldata assets, uint64 daily, uint64 perOp) external {
-        TokenAsGasLogic.setTokenAsGas(assets, daily, perOp);
+    function setTokenAsGas(address[] calldata assets, uint64 daily) external {
+        TokenAsGasLogic.setTokenAsGas(assets, daily);
     }
 
     function disableTokenAsGas() external {
@@ -125,7 +125,7 @@ contract LogicGuardsTest is Test {
 
     function test_tokenAsGasCannotBeConfiguredBeforeInitialization() public {
         vm.expectRevert(NotInitialized.selector);
-        account.setTokenAsGas(new address[](0), 10, 5);
+        account.setTokenAsGas(new address[](0), 10);
     }
 
     function test_tokenAsGasCannotBeDisabledBeforeInitialization() public {

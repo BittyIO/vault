@@ -14,7 +14,7 @@ import {
     VaultLocked,
     WhitelistedRecipientNotFound
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, MIN_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK, MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 /**
  * Taking a whitelisted recipient away waits, like granting one does.
@@ -70,7 +70,7 @@ contract WhitelistChangesTest is Test {
         vm.startPrank(owner);
         coldId = vault.addWhitelistedRecipient(cold);
         vm.warp(T0);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(TIMELOCK, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         vm.stopPrank();
     }
 
@@ -195,7 +195,7 @@ contract WhitelistChangesTest is Test {
      */
     function test_atTheShortestTimelockARemovalStillWaits() public {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         vm.warp(T0 + TIMELOCK); // the loosening lands
         vm.prank(owner);
         vault.removeWhitelistedRecipients(_ids(coldId));

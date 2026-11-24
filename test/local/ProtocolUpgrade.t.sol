@@ -23,7 +23,7 @@ import {
     ProtocolLineageMismatch,
     ProtocolNotNewer
 } from "../../src/interfaces/IBittyV1DeFi.sol";
-import {BITTY_GUARD} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 /**
  * A UUPS lending adapter, mirroring protocol-store's BittyV1ProtocolBase.
@@ -206,7 +206,7 @@ contract ProtocolUpgradeTest is Test {
      */
     function test_anAdapterUpgradeIsInstantEvenWithATimelockSet() public {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, type(uint256).max, type(uint256).max));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         address instance = _f().getClone(address(v1));
 
         vm.prank(owner);

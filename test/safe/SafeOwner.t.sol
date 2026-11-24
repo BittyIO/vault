@@ -18,11 +18,13 @@ import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {BittyV1VaultFactory} from "../../src/BittyV1VaultFactory.sol";
 import {BittyV1VaultForwarder} from "../../src/BittyV1VaultForwarder.sol";
 import {InvalidActivationSignature} from "../../src/interfaces/IBittyV1VaultFactory.sol";
+import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {
     BITTY_GUARD,
     BITTY_FORWARDER,
     BITTY_VAULT_BOOTSTRAP,
     MIN_RISK_TIMELOCK,
+    MAX_DAILY_ALLOWANCE,
     PERM_YIELD,
     PERM_SUPPLY,
     PERM_INTENT
@@ -247,8 +249,10 @@ contract SafeOwnerTest is Test {
                 ))
         );
 
-        vm.prank(eoa);
+        vm.startPrank(eoa);
+        v.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         v.transferOwnership(address(safe));
+        vm.stopPrank();
         assertEq(v.owner(), eoa, "waits out the timelock");
         vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         assertEq(v.owner(), address(safe), "then the Safe holds it, with no second call");

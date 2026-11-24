@@ -28,6 +28,7 @@ import {
     PROTOCOL_BRIDGE,
     PROTOCOL_MARKET_TRADE_ID
 } from "./BridgeTestConstants.sol";
+import {MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 /**
  * @dev A bridge adapter that takes what it is handed and keeps it, standing in for a deposit into
@@ -157,6 +158,12 @@ contract BridgeTest is Test {
         _b().setBridgeEnabled(false);
     }
 
+    /// The owner sets a day's timelock, so turning the bridge on has something to wait out.
+    function _aDayTimelock() internal {
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
+    }
+
     function _bridge(address protocol, address asset, uint256 amount, uint256 fee) internal {
         vm.prank(owner);
         _b().bridge(protocol, asset, amount, fee, DATA);
@@ -188,6 +195,7 @@ contract BridgeTest is Test {
     }
 
     function test_turningOnWaitsOutTheTimelock() public {
+        _aDayTimelock();
         _disable();
         vm.expectEmit(address(vault));
         emit IBittyV1DeFi.BridgeEnabledSet(true, uint64(block.timestamp + MIN_RISK_TIMELOCK));
@@ -232,6 +240,7 @@ contract BridgeTest is Test {
     }
 
     function test_pendingTurnOnIsInPendingChanges() public {
+        _aDayTimelock();
         assertEq(vault.pendingChanges().bridgeEnableAt, 0);
         _disable();
         assertEq(vault.pendingChanges().bridgeEnableAt, 0);
@@ -276,6 +285,7 @@ contract BridgeTest is Test {
     // ── locks ───────────────────────────────────────────────────────────────────────────────────
 
     function test_lockDropsAPendingOn() public {
+        _aDayTimelock();
         _disable();
         vm.prank(owner);
         _b().setBridgeEnabled(true);
@@ -425,11 +435,12 @@ contract BridgeTest is Test {
         vault.updateRisk(IBittyV1Owner.RiskSettings(type(uint256).max, type(uint256).max, usd));
     }
 
-    /// A new vault may lose 1,000 USD a day; the fee and the bridge's cost both count.
+    /// At 1,000 USD a day to lose, the fee and the bridge's cost both count.
     function test_lossIsChargedToTheDailyAllowance() public {
         MockBridge costly = new MockBridge(0, 100); // the bridge keeps 1%
         guard.setProtocol(address(costly), PROTOCOL_BRIDGE);
         _enable();
+        _setDailyLoss(1_000);
         _bridge(address(costly), address(usdc), 50_000e6, 0); // loses 500
         _bridge(address(costly), address(usdc), 40_000e6, 80e6); // 80 fee + 399.2 cost = 479.2, 979.2 in all
         vm.expectRevert(DailyLossAllowanceExceeded.selector);
@@ -441,11 +452,20 @@ contract BridgeTest is Test {
         MockBridge costly = new MockBridge(0, 100);
         guard.setProtocol(address(costly), PROTOCOL_BRIDGE);
         _enable();
+        _setDailyLoss(1_000);
         _bridge(address(costly), address(usdc), 100_000e6, 0); // loses exactly 1,000
         vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _bridge(address(costly), address(usdc), 1_000e6, 0);
         vm.warp(block.timestamp + 1 days);
         _bridge(address(costly), address(usdc), 1_000e6, 0);
+    }
+
+    /// With no limit nothing is priced: a bridge that loses goes through, uncharged.
+    function test_withNoLimitABridgeLossIsNotCharged() public {
+        MockBridge costly = new MockBridge(0, 100);
+        guard.setProtocol(address(costly), PROTOCOL_BRIDGE);
+        _enable();
+        _bridge(address(costly), address(usdc), 200_000e6, 0); // loses 2,000
     }
 
     function test_lossOnTheNativeCoinIsPricedAtOracle() public {

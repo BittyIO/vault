@@ -6,7 +6,6 @@ import {
     AmountIsZero,
     InvalidAsset,
     InsufficientBalance,
-    FeeExceedsPerOpCap,
     GasBudgetExceeded,
     GasBudgetTooHigh
 } from "../interfaces/IBittyV1Vault.sol";
@@ -21,20 +20,14 @@ import {BittyStorage, VaultStorage} from "./BittyStorage.sol";
 import {TimelockLib} from "./TimelockLib.sol";
 import {RiskLogic} from "./RiskLogic.sol";
 import {PriceLib} from "./PriceLib.sol";
-import {
-    BITTY_GUARD,
-    BITTY_FEE_COLLECTOR,
-    SENTINEL,
-    SYSTEM_DAILY_MAX_GAS_BUDGET,
-    SYSTEM_MAX_FEE_PER_OP
-} from "./Constants.sol";
+import {BITTY_GUARD, BITTY_FEE_COLLECTOR, SENTINEL, SYSTEM_DAILY_MAX_GAS_BUDGET} from "./Constants.sol";
 
 /**
  * @title TokenAsGasLogic
  * @notice The main vault's relayed-gas surface: the per-UTC-day USD budget the vault will pay a trusted
  *         forwarder from, its config, the one-time activation fee, and the per-relay charge. Fees are
  *         paid in a stablecoin (a dollar) or the vault's WETH ({VaultStorage-gasWrapped}, valued off the
- *         guard's Chainlink feed), so the same daily budget and per-op cap bound both.
+ *         guard's Chainlink feed), so the same daily budget bounds both.
  *         Split out of {PaymentLogic}; operates on the same ERC-7201 {VaultStorage}.
  */
 library TokenAsGasLogic {
@@ -50,11 +43,6 @@ library TokenAsGasLogic {
         return owned == 0 ? SYSTEM_DAILY_MAX_GAS_BUDGET : owned;
     }
 
-    function _feePerOpCap(VaultStorage storage vaultStorage) private view returns (uint64) {
-        uint64 owned = TimelockLib.effective(vaultStorage.maxFeePerOp);
-        return owned == 0 ? SYSTEM_MAX_FEE_PER_OP : owned;
-    }
-
     function disableTokenAsGas() external {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         _onlyInitialized(vaultStorage);
@@ -62,15 +50,13 @@ library TokenAsGasLogic {
         // Off is the tightest the budget can be, so a raise still waiting out the timelock goes with it;
         // otherwise it would land unseen the moment the owner turned token-as-gas back on.
         TimelockLib.cancelPending(vaultStorage.gasBudgetDaily);
-        TimelockLib.cancelPending(vaultStorage.maxFeePerOp);
-        emit IBittyV1Owner.TokenAsGasSet(false, new address[](0), 0, 0);
+        emit IBittyV1Owner.TokenAsGasSet(false, new address[](0), 0);
     }
 
-    function setTokenAsGas(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp) external {
+    function setTokenAsGas(address[] calldata assets, uint64 dailyLimit) external {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         _onlyInitialized(vaultStorage);
         if (dailyLimit > SYSTEM_DAILY_MAX_GAS_BUDGET) revert GasBudgetTooHigh();
-        if (maxFeePerOp > SYSTEM_MAX_FEE_PER_OP) revert FeeExceedsPerOpCap();
 
         mapping(address => address) storage allowed = vaultStorage.tokenAsGasAssets;
         address entry = allowed[SENTINEL];
@@ -90,10 +76,9 @@ library TokenAsGasLogic {
         }
 
         vaultStorage.tokenAsGasDisabled = false;
-        uint64 timelock = RiskLogic.effectiveTimelock(vaultStorage.riskConfig);
+        uint64 timelock = RiskLogic.effectiveTimelock(vaultStorage);
         TimelockLib.setGasBudget(vaultStorage.gasBudgetDaily, dailyLimit, timelock);
-        TimelockLib.setGasBudget(vaultStorage.maxFeePerOp, maxFeePerOp, timelock);
-        emit IBittyV1Owner.TokenAsGasSet(true, assets, dailyLimit, maxFeePerOp);
+        emit IBittyV1Owner.TokenAsGasSet(true, assets, dailyLimit);
     }
 
     function getTokenAsGasAssets() external view returns (address[] memory) {
@@ -108,10 +93,6 @@ library TokenAsGasLogic {
             out[i++] = a;
         }
         return out;
-    }
-
-    function maxFeePerOpValue() external view returns (uint256) {
-        return _feePerOpCap(BittyStorage.vault());
     }
 
     function gasBudgetDailyLimit() external view returns (uint256) {
@@ -134,8 +115,6 @@ library TokenAsGasLogic {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         _onlyInitialized(vaultStorage);
         if (!_gasEligible(vaultStorage, asset)) revert InvalidAsset();
-        uint256 value = _feeValue(vaultStorage, asset, amount);
-        if (value > uint256(SYSTEM_MAX_FEE_PER_OP) * 1e18) revert FeeExceedsPerOpCap();
         if (IERC20(asset).balanceOf(address(this)) < amount) revert InsufficientBalance();
         TRC20Transfer.safeTransfer(IERC20(asset), BITTY_FEE_COLLECTOR, amount); // TRON USDT: false on success
         emit IBittyV1Owner.ActivationFeePaid(asset, amount);
@@ -180,7 +159,6 @@ library TokenAsGasLogic {
         if (!_tokenAsGasAssetAllowed(vaultStorage, asset)) revert InvalidAsset();
 
         uint256 value = _feeValue(vaultStorage, asset, amount);
-        if (value > uint256(_feePerOpCap(vaultStorage)) * 1e18) revert FeeExceedsPerOpCap();
 
         uint64 today = uint64(block.timestamp / 1 days);
         uint256 spent = (vaultStorage.gasBudgetDay == today ? uint256(vaultStorage.gasSpentToday) : 0) + value;

@@ -17,6 +17,7 @@ import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {BittyStorage, VaultStorage} from "./BittyStorage.sol";
 import {PaymentCore} from "./PaymentCore.sol";
 import {RiskLogic} from "./RiskLogic.sol";
+import {NO_LIMIT} from "./Constants.sol";
 import {LockLib} from "./LockLib.sol";
 
 /**
@@ -31,28 +32,22 @@ import {LockLib} from "./LockLib.sol";
  */
 library PaymentLogic {
     /**
-     * @dev A new vault starts with regular sends OFF, so from its first block no regular send can pay
-     *      an address the owner did not vet a timelock earlier. Turning sends on is a loosening, and
-     *      waits out the timelock like any other — a stolen key cannot open this exit any faster
-     *      than the owner could.
+     * @dev A new vault starts open: no timelock, and no limit on regular sends or on what trades
+     *      and bridges may lose, which are then not priced at all. The owner protects it by setting
+     *      numbers: each one is a tightening from open, so it applies at once.
      *
-     *      Its daily loss allowance starts at {DEFAULT_DAILY_LOSS_ALLOWANCE},
-     *      below the ceiling, so it can trade from the start while a stolen key, or a stolen asset
-     *      manager key, can lose less through trades into a pool of its own. A starting value, not a
-     *      floor: lowering it, to 0, applies at once; raising it, up to the ceiling, waits out the
-     *      timelock.
-     *
-     *      Neither is written: {VaultStorage.unsetRiskIsDefault} makes an unset allowance read as
-     *      these defaults, which saves the two fresh storage slots writing them cost. The flag rides
-     *      in this slot, which is written here anyway. A vault created before 1.0.10 has it false,
-     *      so its unset allowances keep the meaning they had (the ceiling) across an upgrade, and a
-     *      vault created after these defaults were written at initialize keeps the values written.
+     *      Nothing is written but the flags: {VaultStorage.unsetIsOpen} makes an unset setting read
+     *      as open, and rides in this slot, which is written here anyway. A vault created before
+     *      1.1.1 has it false and keeps what its unset settings meant: a day's timelock, and, by
+     *      {VaultStorage.unsetRiskIsDefault}, sends off and {DEFAULT_DAILY_LOSS_ALLOWANCE} from
+     *      1.0.10, the ceiling before that.
      */
     function initialize(address gasWrapped, bool restrictToOwnAllowList) internal {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         if (vaultStorage.isInitialized) revert AlreadyInitialized();
         vaultStorage.isInitialized = true;
         vaultStorage.unsetRiskIsDefault = true;
+        vaultStorage.unsetIsOpen = true;
         vaultStorage.gasWrapped = gasWrapped;
         vaultStorage.ownAllowListActive = restrictToOwnAllowList;
     }
@@ -62,9 +57,13 @@ library PaymentLogic {
         PaymentCore.onlyInitialized(vaultStorage);
         if (recipient == address(0)) revert AddressZero();
         uint64 cap = _cap(vaultStorage);
-        uint256 value = _stableValue(asset, amount);
-        if (value > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
-        _checkOwnerSendWindow(vaultStorage, value, cap);
+        if (cap == NO_LIMIT) {
+            if (amount == 0) revert AmountIsZero();
+        } else {
+            uint256 value = _stableValue(asset, amount);
+            if (value > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
+            _checkOwnerSendWindow(vaultStorage, value, cap);
+        }
         PaymentCore.payOut(vaultStorage, asset, amount, recipient);
     }
 
@@ -76,20 +75,27 @@ library PaymentLogic {
         if (amounts.length != length) revert ArrayLengthMismatch();
         if (recipient == address(0)) revert AddressZero();
         uint64 cap = _cap(vaultStorage);
-        uint256 total;
-        for (uint256 i = 0; i < length; i++) {
-            total += _stableValue(assets[i], amounts[i]);
-            if (total > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
+        if (cap == NO_LIMIT) {
+            for (uint256 i = 0; i < length; i++) {
+                if (amounts[i] == 0) revert AmountIsZero();
+            }
+        } else {
+            uint256 total;
+            for (uint256 i = 0; i < length; i++) {
+                total += _stableValue(assets[i], amounts[i]);
+                if (total > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
+            }
+            _checkOwnerSendWindow(vaultStorage, total, cap);
         }
-        _checkOwnerSendWindow(vaultStorage, total, cap);
         for (uint256 i = 0; i < length; i++) {
             PaymentCore.payOut(vaultStorage, assets[i], amounts[i], recipient);
         }
     }
 
     /**
-     * Every regular send is metered, and only a stablecoin can be metered without reading a price.
-     * 0 means the owner turned regular sends off: every amount is over it, so every send is refused.
+     * Under a cap every regular send is metered, and only a stablecoin can be metered without reading
+     * a price. 0 means the owner turned regular sends off: every amount is over it, so every send is
+     * refused. {NO_LIMIT} meters nothing: any asset, any amount.
      */
     function _cap(VaultStorage storage vaultStorage) private view returns (uint64) {
         return RiskLogic.effectiveSendDailyAllowance(vaultStorage);

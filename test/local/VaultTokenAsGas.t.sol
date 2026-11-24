@@ -11,11 +11,11 @@ import {MockFeed} from "./MarketTradeGuard.t.sol";
 import {PriceStale, SequencerDown} from "../../src/interfaces/IBittyV1DeFi.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
+import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {
     NotTrustedForwarder,
     GasBudgetExceeded,
     GasBudgetTooHigh,
-    FeeExceedsPerOpCap,
     InvalidAsset,
     AmountIsZero
 } from "../../src/interfaces/IBittyV1Vault.sol";
@@ -24,7 +24,7 @@ import {
     BITTY_FORWARDER,
     BITTY_FEE_COLLECTOR,
     SYSTEM_DAILY_MAX_GAS_BUDGET,
-    SYSTEM_MAX_FEE_PER_OP
+    MAX_DAILY_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /**
@@ -99,10 +99,9 @@ contract VaultTokenAsGasTest is Test {
      * way, stablecoin fee payments would be off for every fresh vault while gasBudgetRemaining reported a full day.
      */
     function test_freshVaultIsRelayableAtSystemDefaults() public {
-        (address[] memory assets, uint256 daily, uint256 perOp) = vault.tokenAsGasConfig();
+        (address[] memory assets, uint256 daily) = vault.tokenAsGasConfig();
         assertEq(assets.length, 0, "nothing narrowed");
         assertEq(daily, SYSTEM_DAILY_MAX_GAS_BUDGET);
-        assertEq(perOp, SYSTEM_MAX_FEE_PER_OP);
         assertEq(vault.gasBudgetRemaining(), uint256(SYSTEM_DAILY_MAX_GAS_BUDGET) * 1e18);
 
         _charge(address(usdc), 2e6);
@@ -126,13 +125,12 @@ contract VaultTokenAsGasTest is Test {
         only[0] = address(usdc);
 
         vm.prank(owner);
-        vault.setTokenAsGas(only, 50, 5);
+        vault.setTokenAsGas(only, 50);
 
-        (address[] memory assets, uint256 daily, uint256 perOp) = vault.tokenAsGasConfig();
+        (address[] memory assets, uint256 daily) = vault.tokenAsGasConfig();
         assertEq(assets.length, 1, "narrowed to one");
         assertEq(assets[0], address(usdc));
         assertEq(daily, 50);
-        assertEq(perOp, 5);
 
         _charge(address(usdc), 1e6);
         vm.prank(BITTY_FORWARDER);
@@ -141,27 +139,26 @@ contract VaultTokenAsGasTest is Test {
     }
 
     /**
-     * The owner's own ceilings cannot exceed the system's.
+     * The owner's own budget cannot exceed the system's.
      */
-    function test_ownerCannotRaiseAboveTheSystemCeilings() public {
+    function test_ownerCannotRaiseAboveTheSystemCeiling() public {
         address[] memory none = new address[](0);
-        vm.startPrank(owner);
+        vm.prank(owner);
         vm.expectRevert(GasBudgetTooHigh.selector);
-        vault.setTokenAsGas(none, SYSTEM_DAILY_MAX_GAS_BUDGET + 1, 1);
-        vm.expectRevert(FeeExceedsPerOpCap.selector);
-        vault.setTokenAsGas(none, 1, SYSTEM_MAX_FEE_PER_OP + 1);
-        vm.stopPrank();
+        vault.setTokenAsGas(none, SYSTEM_DAILY_MAX_GAS_BUDGET + 1);
     }
 
-    // ── the two ceilings ──────────────────────────────────────────────────────
+    // ── the ceiling ───────────────────────────────────────────────────────────
 
     /**
-     * Per charge: one oversized fee is refused outright rather than clamped.
+     * The daily budget is the only bound: one charge may take all of it, and nothing more.
      */
-    function test_perOpCapBoundsASingleCharge() public {
+    function test_oneChargeMayTakeTheWholeDailyBudget() public {
+        _charge(address(usdc), uint256(SYSTEM_DAILY_MAX_GAS_BUDGET) * 1e6);
+        assertEq(vault.gasBudgetRemaining(), 0);
         vm.prank(BITTY_FORWARDER);
-        vm.expectRevert(FeeExceedsPerOpCap.selector);
-        vault.payRelayerFee(address(usdc), (uint256(SYSTEM_MAX_FEE_PER_OP) + 1) * 1e6);
+        vm.expectRevert(GasBudgetExceeded.selector);
+        vault.payRelayerFee(address(usdc), 1);
     }
 
     /**
@@ -170,7 +167,7 @@ contract VaultTokenAsGasTest is Test {
     function test_dailyBudgetAccumulatesAndThenRefuses() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
-        vault.setTokenAsGas(none, 20, 10); // 20 whole tokens a day
+        vault.setTokenAsGas(none, 20); // 20 whole tokens a day
 
         _charge(address(usdc), 10e6);
         assertEq(vault.gasBudgetRemaining(), 10e18, "half spent");
@@ -188,7 +185,7 @@ contract VaultTokenAsGasTest is Test {
     function test_theBudgetResetsTheNextDay() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
-        vault.setTokenAsGas(none, 20, 10);
+        vault.setTokenAsGas(none, 20);
         // Two charges, because the PER-OP cap is 10 — spending a 20-token day takes two ops.
         _charge(address(usdc), 10e6);
         _charge(address(usdc), 10e6);
@@ -214,17 +211,13 @@ contract VaultTokenAsGasTest is Test {
     // ── ETH (WETH) as gas ─────────────────────────────────────────────────────
 
     /**
-     * WETH pays at its oracle price, against the same USD budget and per-op cap.
+     * WETH pays at its oracle price, against the same USD budget.
      */
     function test_wethPaysAtOraclePrice() public {
         uint256 before = vault.gasBudgetRemaining();
         _charge(address(weth), 0.001e18); // $2 at $2,000
         assertEq(before - vault.gasBudgetRemaining(), 2e18, "valued in USD");
         assertEq(weth.balanceOf(BITTY_FEE_COLLECTOR), 0.001e18);
-
-        vm.prank(BITTY_FORWARDER);
-        vm.expectRevert(FeeExceedsPerOpCap.selector);
-        vault.payRelayerFee(address(weth), 0.0051e18); // $10.20 > $10 cap
     }
 
     /**
@@ -260,7 +253,7 @@ contract VaultTokenAsGasTest is Test {
     function test_wethAndStableCoinsShareOneDailyBudget() public {
         address[] memory none = new address[](0);
         vm.prank(owner);
-        vault.setTokenAsGas(none, 4, 10); // $4 a day
+        vault.setTokenAsGas(none, 4); // $4 a day
 
         _charge(address(usdc), 2e6); // $2
         _charge(address(weth), 0.001e18); // $2 at $2,000
@@ -278,13 +271,13 @@ contract VaultTokenAsGasTest is Test {
         address[] memory onlyWeth = new address[](1);
         onlyWeth[0] = address(weth);
         vm.prank(owner);
-        vault.setTokenAsGas(onlyWeth, 10, 1);
+        vault.setTokenAsGas(onlyWeth, 10);
         _charge(address(weth), 0.0005e18);
 
         address[] memory onlyUsdc = new address[](1);
         onlyUsdc[0] = address(usdc);
         vm.prank(owner);
-        vault.setTokenAsGas(onlyUsdc, 10, 1);
+        vault.setTokenAsGas(onlyUsdc, 10);
         vm.prank(BITTY_FORWARDER);
         vm.expectRevert(InvalidAsset.selector);
         vault.payRelayerFee(address(weth), 0.0005e18);
@@ -308,26 +301,25 @@ contract VaultTokenAsGasTest is Test {
      */
     function test_disableTokenAsGasCancelsAPendingRaise() public {
         address[] memory none = new address[](0);
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         vm.startPrank(owner);
-        vault.setTokenAsGas(none, 10, 1); // tightening: at once
-        vault.setTokenAsGas(none, 50, 5); // loosening: waits
+        vault.setTokenAsGas(none, 10); // tightening: at once
+        vault.setTokenAsGas(none, 50); // loosening: waits
         vm.stopPrank();
         assertEq(vault.pendingChanges().gasBudgetDaily, 50, "raise queued");
-        assertEq(vault.pendingChanges().maxFeePerOp, 5, "raise queued");
 
         vm.prank(owner);
         vault.disableTokenAsGas();
         assertEq(vault.pendingChanges().gasBudgetDaily, 0, "raise dropped");
-        assertEq(vault.pendingChanges().maxFeePerOp, 0, "raise dropped");
 
         // Long after the raise would have landed, turning it back on with the same numbers is a
         // fresh loosening: it waits again, and the old ceilings hold meanwhile.
         vm.warp(block.timestamp + 30 days);
         vm.prank(owner);
-        vault.setTokenAsGas(none, 50, 5);
-        (, uint256 daily, uint256 perOp) = vault.tokenAsGasConfig();
+        vault.setTokenAsGas(none, 50);
+        (, uint256 daily) = vault.tokenAsGasConfig();
         assertEq(daily, 10, "old budget holds");
-        assertEq(perOp, 1, "old cap holds");
         assertEq(vault.pendingChanges().gasBudgetDaily, 50, "raise queued again");
     }
 
@@ -337,15 +329,14 @@ contract VaultTokenAsGasTest is Test {
     function test_disableTokenAsGasKeepsALandedRaise() public {
         address[] memory none = new address[](0);
         vm.startPrank(owner);
-        vault.setTokenAsGas(none, 10, 1);
-        vault.setTokenAsGas(none, 50, 5);
+        vault.setTokenAsGas(none, 10);
+        vault.setTokenAsGas(none, 50);
         vm.warp(block.timestamp + 30 days);
         vault.disableTokenAsGas();
-        vault.setTokenAsGas(none, 50, 5); // the same numbers: nothing to loosen
+        vault.setTokenAsGas(none, 50); // the same numbers: nothing to loosen
         vm.stopPrank();
-        (, uint256 daily, uint256 perOp) = vault.tokenAsGasConfig();
+        (, uint256 daily) = vault.tokenAsGasConfig();
         assertEq(daily, 50);
-        assertEq(perOp, 5);
         assertEq(vault.pendingChanges().gasBudgetDaily, 0, "nothing waiting");
     }
 
@@ -359,7 +350,7 @@ contract VaultTokenAsGasTest is Test {
         address[] memory none = new address[](0);
         vm.startPrank(makeAddr("stranger"));
         vm.expectRevert();
-        vault.setTokenAsGas(none, 10, 1);
+        vault.setTokenAsGas(none, 10);
         vm.expectRevert();
         vault.disableTokenAsGas();
         vm.stopPrank();

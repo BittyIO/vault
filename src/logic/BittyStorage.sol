@@ -123,6 +123,7 @@ struct VaultStorage {
      * anyway, in bytes no older version used.
      */
     bool unsetRiskIsDefault;
+    bool unsetIsOpen; // set at initialize from 1.1.1: an unset timelock reads 0, an unset allowance no limit
 
     mapping(uint256 => Deferred) whitelistedRecipientDeferred;
     mapping(uint256 => WhitelistEntry) whitelistedRecipient;
@@ -135,7 +136,7 @@ struct VaultStorage {
     uint64 lossPeriodStart;
 
     TimelockedValue gasBudgetDaily;
-    TimelockedValue maxFeePerOp;
+    TimelockedValue unusedMaxFeePerOp; // the per-op fee cap, removed in 1.1.1; kept for the layout
     uint96 gasSpentToday;
     uint64 gasBudgetDay;
     bool tokenAsGasDisabled;

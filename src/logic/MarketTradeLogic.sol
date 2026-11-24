@@ -24,7 +24,7 @@ import {DeFiLogic} from "./DeFiLogic.sol";
 import {LockLib} from "./LockLib.sol";
 import {PriceLib} from "./PriceLib.sol";
 import {RiskLogic} from "./RiskLogic.sol";
-import {BITTY_GUARD, MAX_MARKET_TRADE_SLIPPAGE_BPS} from "./Constants.sol";
+import {BITTY_GUARD, MAX_MARKET_TRADE_SLIPPAGE_BPS, NO_LIMIT} from "./Constants.sol";
 
 /**
  * @dev A market trade's two legs as they stood before the protocol ran. See {MarketTradeLogic-_marketLegs}.
@@ -198,14 +198,14 @@ library MarketTradeLogic {
      *      came out short is then charged to `lossAllowance`: the 5% bounds one trade, and this bounds
      *      the day, however many trades a leaked key — the owner's or an asset manager's — splits a
      *      drain into. A trade that comes out ahead of the oracle charges nothing and credits nothing
-     *      back.
+     *      back. Under {NO_LIMIT} nothing is priced: no oracle, no slippage bound, no charge.
      */
     function _settleMarketTrade(MarketLegs memory legs, MarketTradeInfo memory info, uint64 lossAllowance) private {
         uint256 sellAfter = _balanceOf(legs.sellToken);
         uint256 buyAfter = _balanceOf(legs.buyToken);
         uint256 sold = legs.sellBefore > sellAfter ? legs.sellBefore - sellAfter : 0;
         uint256 bought = buyAfter > legs.buyBefore ? buyAfter - legs.buyBefore : 0;
-        if (sold == 0) return;
+        if (sold == 0 || lossAllowance == NO_LIMIT) return;
 
         PriceLib.requireSequencerUp(info.sequencerUptimeFeed); // zero when both legs are stablecoins
         uint256 valueIn = PriceLib.usdValue(
@@ -227,11 +227,12 @@ library MarketTradeLogic {
      *      bridge that loses anything.
      */
     function chargeBridgeLoss(MarketTradeInfo memory info, address token, uint256 lost) external {
-        if (lost == 0) return;
+        uint64 lossAllowance = RiskLogic.effectiveDailyLossAllowance(BittyStorage.vault());
+        if (lost == 0 || lossAllowance == NO_LIMIT) return;
         PriceLib.requireSequencerUp(info.sequencerUptimeFeed);
         uint256 value =
             PriceLib.usdValue(token, info.buyCategory, lost, Math.Rounding.Ceil, info.buyFeed, info.buyQuoteFeed);
-        _chargeLoss(value, RiskLogic.effectiveDailyLossAllowance(BittyStorage.vault()));
+        _chargeLoss(value, lossAllowance);
     }
 
     /**

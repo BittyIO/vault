@@ -3,6 +3,7 @@ pragma solidity ^0.8.34;
 
 import {ASSET_STABLE_COIN} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {Test} from "forge-std/Test.sol";
+import {LegacySends} from "../helpers/LegacySends.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockERC721} from "solmate/test/utils/mocks/MockERC721.sol";
@@ -21,11 +22,12 @@ import {
     BITTY_GUARD,
     MIN_RISK_TIMELOCK,
     DEFAULT_DAILY_LOSS_ALLOWANCE,
-    MAX_DAILY_LOSS_ALLOWANCE
+    MAX_DAILY_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /**
- * What a new vault starts with. Regular sends are off, and turning them on waits out the timelock.
+ * What a vault created by 1.0.10 to 1.1.0 starts with (from 1.1.1 a vault starts open; see
+ * NoLimit.t.sol). Regular sends are off, and turning them on waits out the timelock.
  * The market-trade loss allowance starts at a default below its ceiling: lowered at once, raised only
  * after the timelock. An NFT leaves only to a whitelisted recipient the owner can pay.
  */
@@ -54,6 +56,7 @@ contract NewVaultDefaultsTest is Test {
         usdc.mint(address(vault), 100_000e6);
         nft = new MockERC721("Stray", "NFT");
         nft.mint(address(vault), 1);
+        LegacySends.asCreatedBefore111(address(vault));
     }
 
     function _send(address to, uint256 amount) internal {
@@ -122,7 +125,7 @@ contract NewVaultDefaultsTest is Test {
 
     function test_aNewVaultStartsAtTheDefaultLossAllowance() public view {
         assertEq(_lossAllowance(), DEFAULT_DAILY_LOSS_ALLOWANCE);
-        assertLt(DEFAULT_DAILY_LOSS_ALLOWANCE, MAX_DAILY_LOSS_ALLOWANCE, "below the ceiling");
+        assertLt(DEFAULT_DAILY_LOSS_ALLOWANCE, MAX_DAILY_ALLOWANCE, "below the ceiling");
     }
 
     /**
@@ -136,16 +139,16 @@ contract NewVaultDefaultsTest is Test {
     }
 
     function test_raisingTheDefaultWaitsOutTheTimelock() public {
-        _setLossAllowance(MAX_DAILY_LOSS_ALLOWANCE);
+        _setLossAllowance(MAX_DAILY_ALLOWANCE);
         assertEq(_lossAllowance(), DEFAULT_DAILY_LOSS_ALLOWANCE, "only scheduled");
         vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
-        assertEq(_lossAllowance(), MAX_DAILY_LOSS_ALLOWANCE, "a timelock later");
+        assertEq(_lossAllowance(), MAX_DAILY_ALLOWANCE, "a timelock later");
     }
 
     function test_theCeilingStillHolds() public {
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, MAX_DAILY_LOSS_ALLOWANCE + 1));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, MAX_DAILY_ALLOWANCE + 1));
     }
 
     // ── an NFT leaves only to a payable whitelisted recipient ────────────────

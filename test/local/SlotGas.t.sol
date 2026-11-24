@@ -11,7 +11,13 @@ import {LENDING_ID} from "../helpers/CategoryIds.sol";
 import {BittyV1VaultDeFiFacet} from "../../src/BittyV1VaultDeFiFacet.sol";
 import {BittyV1Vault} from "../../src/BittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
-import {BITTY_GUARD, MIN_RISK_TIMELOCK, PERM_YIELD, PERM_SUPPLY} from "../../src/logic/Constants.sol";
+import {
+    BITTY_GUARD,
+    MIN_RISK_TIMELOCK,
+    PERM_YIELD,
+    PERM_SUPPLY,
+    MAX_DAILY_ALLOWANCE
+} from "../../src/logic/Constants.sol";
 
 /**
  * WHAT A SLOT COSTS, PER CALL.
@@ -202,7 +208,7 @@ contract SlotPackingTest is Base {
      */
     function test_theAuthoritySlotHoldsAllFourFields() public {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         vm.prank(owner);
         vault.transferOwnership(makeAddr("successor"));
         uint40 readyAt = uint40(block.timestamp + 2 days);
@@ -238,7 +244,7 @@ contract SlotPackingTest is Base {
         _f().setAssetManager(manager, expiry, PERM_YIELD);
         vm.warp(block.timestamp + MIN_RISK_TIMELOCK); // the first grant waits out a new vault's timelock
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         // Widening the grant is a loosening, so it queues — which is what sets the pending flag.
         vm.prank(owner);
         _f().setAssetManager(manager, expiry, PERM_YIELD | PERM_SUPPLY);
@@ -297,7 +303,7 @@ contract SlotGasMaturedHandoverTest is Base {
     function setUp() public {
         _build();
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         vm.prank(owner);
         vault.transferOwnership(makeAddr("successor"));
         vm.warp(block.timestamp + 2 days);
@@ -331,7 +337,7 @@ contract SlotGasLockHandoverPendingTest is Base {
     function setUp() public {
         _build();
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(2 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         vm.prank(owner);
         vault.transferOwnership(makeAddr("thief"));
     }

@@ -238,12 +238,8 @@ contract BittyV1Vault is BittyV1VaultBase {
         RiskLogic.updateRisk(settings);
     }
 
-    function setTokenAsGas(address[] calldata assets, uint64 dailyLimit, uint64 maxFeePerOp)
-        external
-        onlyOwner
-        notLocked
-    {
-        TokenAsGasLogic.setTokenAsGas(assets, dailyLimit, maxFeePerOp);
+    function setTokenAsGas(address[] calldata assets, uint64 dailyLimit) external onlyOwner notLocked {
+        TokenAsGasLogic.setTokenAsGas(assets, dailyLimit);
     }
 
     function disableTokenAsGas() external onlyOwner notLocked {
@@ -331,16 +327,8 @@ contract BittyV1Vault is BittyV1VaultBase {
         return WhitelistLogic.getWhitelist(fromId, count);
     }
 
-    function tokenAsGasConfig()
-        external
-        view
-        returns (address[] memory assets, uint256 dailyLimit, uint256 maxFeePerOp)
-    {
-        return (
-            TokenAsGasLogic.getTokenAsGasAssets(),
-            TokenAsGasLogic.gasBudgetDailyLimit(),
-            TokenAsGasLogic.maxFeePerOpValue()
-        );
+    function tokenAsGasConfig() external view returns (address[] memory assets, uint256 dailyLimit) {
+        return (TokenAsGasLogic.getTokenAsGasAssets(), TokenAsGasLogic.gasBudgetDailyLimit());
     }
 
     function gasBudgetRemaining() external view returns (uint256) {

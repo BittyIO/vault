@@ -17,7 +17,7 @@ import {
     ProtectionPeriodNotEnded,
     WhitelistedRecipientNotFound
 } from "../../src/interfaces/IBittyV1Vault.sol";
-import {BITTY_GUARD, MIN_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK, MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 
 /**
  * Whitelisted recipients: standing payees the owner can pay on demand.
@@ -102,7 +102,7 @@ contract WhitelistTest is Test {
      */
     function test_aNewPayeeWaitsOutTheProtectionWindow() public {
         vm.startPrank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(3 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         uint256 id = vault.addWhitelistedRecipient(payee);
 
         vm.expectRevert(ProtectionPeriodNotEnded.selector);

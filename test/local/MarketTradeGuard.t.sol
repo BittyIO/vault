@@ -33,7 +33,8 @@ import {
 import {
     BITTY_GUARD,
     MIN_RISK_TIMELOCK,
-    MAX_DAILY_LOSS_ALLOWANCE,
+    MAX_DAILY_ALLOWANCE,
+    NO_LIMIT,
     DEFAULT_DAILY_LOSS_ALLOWANCE,
     PERM_MARKET_TRADE
 } from "../../src/logic/Constants.sol";
@@ -123,7 +124,7 @@ contract MarketTradeGuardTest is Test {
     address owner = makeAddr("owner");
     uint256 constant UNCHANGED = type(uint256).max;
     uint256 constant HEARTBEAT = 1 hours;
-    uint256 constant ROOMY = MAX_DAILY_LOSS_ALLOWANCE; // the price-check tests never reach it
+    uint256 constant ROOMY = MAX_DAILY_ALLOWANCE; // the price-check tests never reach it
 
     function setUp() public {
         vm.warp(1_000_000);
@@ -192,9 +193,11 @@ contract MarketTradeGuardTest is Test {
         ITrade(address(vault)).marketBuy(address(market), sellToken, maxIn, buyToken, buyAmount, abi.encode(spent));
     }
 
+    /// A timelock above 0 needs a send allowance too, so setting one caps sends at the ceiling.
     function _risk(uint256 timelock, uint256 dailyLossAllowance) internal {
+        uint256 send = timelock == UNCHANGED || timelock == 0 ? UNCHANGED : MAX_DAILY_ALLOWANCE;
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(timelock, UNCHANGED, dailyLossAllowance));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(timelock, send, dailyLossAllowance));
     }
 
     function _sendCap(uint256 sendDailyAllowance) internal {
@@ -472,7 +475,7 @@ contract MarketTradeGuardTest is Test {
         _risk(2 days, 1_000);
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, uint256(MAX_DAILY_LOSS_ALLOWANCE) + 1));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, uint256(MAX_DAILY_ALLOWANCE) + 1));
 
         vm.warp(block.timestamp + 30 days);
         wethFeed.set(2_000e8, block.timestamp, block.timestamp);
@@ -586,11 +589,12 @@ contract MarketTradeGuardTest is Test {
     // ── every vault is protected ────────────────────────────────────────────────────────────────
 
     /**
-     * There is no unprotected vault. A new one starts at the default allowance, below the ceiling,
-     * and every trade is priced: the rigged pool is refused, and so is an asset with no feed.
+     * A vault created by 1.0.10 to 1.1.0 that set nothing starts at the default allowance, below the
+     * ceiling, and every trade is priced: the rigged pool is refused, and so is an asset with no feed.
      */
-    function test_aVaultThatSetNothingIsStillProtected() public {
+    function test_aVaultFrom1010ThatSetNothingIsStillProtected() public {
         BittyV1Vault fresh = _freshVault();
+        LegacySends.asCreatedBefore111(address(fresh));
         weth.mint(address(fresh), 1e18);
         (,, uint64 allowance) = fresh.riskSettings();
         assertEq(allowance, DEFAULT_DAILY_LOSS_ALLOWANCE, "the default");
@@ -604,6 +608,27 @@ contract MarketTradeGuardTest is Test {
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(PriceFeedMissing.selector, address(other)));
         ITrade(address(fresh)).marketSell(address(market), address(other), 1e18, address(usdc), 0, abi.encode(1));
+    }
+
+    /**
+     * From 1.1.1 a vault that set no loss allowance trades freely: nothing is priced, so a sale at
+     * any price goes through, and so does one of an asset with no feed.
+     */
+    function test_aNewVaultThatSetNothingTradesUnpriced() public {
+        BittyV1Vault fresh = _freshVault();
+        (,, uint64 allowance) = fresh.riskSettings();
+        assertEq(allowance, NO_LIMIT, "no limit");
+
+        weth.mint(address(fresh), 1e18);
+        vm.prank(owner);
+        ITrade(address(fresh)).marketSell(address(market), address(weth), 1e18, address(usdc), 0, abi.encode(1));
+        assertEq(weth.balanceOf(address(fresh)), 0, "sold");
+
+        MockERC20 other = _token("OTH", 18, 0);
+        other.mint(address(fresh), 1e18);
+        vm.prank(owner);
+        ITrade(address(fresh)).marketSell(address(market), address(other), 1e18, address(usdc), 0, abi.encode(1));
+        assertEq(other.balanceOf(address(fresh)), 0, "sold without a feed");
     }
 
     function test_anIlliquidAssetIsNeverTradedAtMarket() public {
@@ -773,7 +798,7 @@ contract MarketTradeGuardTest is Test {
 
         vm.prank(owner);
         vm.expectRevert(VaultLocked.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK * 2, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK * 2, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
 
         vm.prank(owner);
         vm.expectRevert(VaultLocked.selector);

@@ -19,8 +19,8 @@ import {
     BITTY_GUARD,
     MAX_RISK_TIMELOCK,
     MIN_RISK_TIMELOCK,
-    MAX_SEND_DAILY_ALLOWANCE,
-    MAX_DAILY_LOSS_ALLOWANCE
+    MAX_DAILY_ALLOWANCE,
+    LEGACY_DAILY_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /**
@@ -97,18 +97,18 @@ contract RiskRatchetTest is Test {
     // ── the bounds ────────────────────────────────────────────────────────────
 
     /**
-     * A vault that never set its risk is still protected: a day's wait, and the largest allowance of
-     * each kind - the loosest it may be, so every change from here is a tightening. (A vault created
-     * since 1.0.9 has written its send allowance as 0 at creation; see NewVaultDefaults.t.sol.)
+     * A vault that never set its risk is still protected: a day's wait, a send allowance of 10,000 a
+     * day (kept there when the ceiling rose to 1,000,000) and the largest loss allowance. (A vault
+     * created since 1.0.9 has written its send allowance as 0 at creation; see NewVaultDefaults.t.sol.)
      */
     function test_aVaultThatSetNothingReadsTheDefaults() public view {
         (uint64 timelock, uint64 sendAllowance, uint64 lossAllowance) = vault.riskSettings();
         assertEq(timelock, MIN_RISK_TIMELOCK, "a day");
-        assertEq(sendAllowance, MAX_SEND_DAILY_ALLOWANCE, "10,000 a day");
-        assertEq(lossAllowance, MAX_DAILY_LOSS_ALLOWANCE, "10,000 a day");
+        assertEq(sendAllowance, LEGACY_DAILY_ALLOWANCE, "10,000 a day");
+        assertEq(lossAllowance, LEGACY_DAILY_ALLOWANCE, "10,000 a day");
         assertEq(MIN_RISK_TIMELOCK, 1 days);
-        assertEq(MAX_SEND_DAILY_ALLOWANCE, 10_000);
-        assertEq(MAX_DAILY_LOSS_ALLOWANCE, 10_000);
+        assertEq(LEGACY_DAILY_ALLOWANCE, 10_000);
+        assertEq(MAX_DAILY_ALLOWANCE, 1_000_000);
     }
 
     /**
@@ -127,30 +127,46 @@ contract RiskRatchetTest is Test {
         assertEq(allowance, 9_000, "for the default day");
     }
 
-    function test_theTimelockCannotGoBelowADay() public {
-        vm.prank(owner);
+    /// Above 0, a timelock is at least a day: a shorter one leaves no time to notice and lock.
+    function test_aTimelockAbove0IsAtLeastADay() public {
+        vm.startPrank(owner);
         vm.expectRevert(RiskTimelockTooShort.selector);
         vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK - 1, UNCHANGED, UNCHANGED));
-
-        vm.prank(owner);
         vm.expectRevert(RiskTimelockTooShort.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(0, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1, UNCHANGED, UNCHANGED));
+        vm.stopPrank();
+        _risk(MIN_RISK_TIMELOCK + 1 days, UNCHANGED);
+        (uint64 timelock,) = _cfg();
+        assertEq(timelock, MIN_RISK_TIMELOCK + 1 days, "a raise is at once");
+    }
+
+    /// An older vault reads a day while it has set nothing, and may go to 0: a loosening, so it waits the day.
+    function test_theTimelockMayGoToZero() public {
+        _risk(0, UNCHANGED);
+        (uint64 timelock,) = _cfg();
+        assertEq(timelock, MIN_RISK_TIMELOCK, "waits the day");
+        assertEq(vault.pendingChanges().timelock, 0, "0 is reported as 0");
+        assertEq(vault.pendingChanges().timelockAt, block.timestamp + MIN_RISK_TIMELOCK);
+
+        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
+        (timelock,) = _cfg();
+        assertEq(timelock, 0, "then 0, not the unset day");
 
         _risk(MIN_RISK_TIMELOCK, UNCHANGED);
-        (uint64 timelock,) = _cfg();
-        assertEq(timelock, MIN_RISK_TIMELOCK, "a day itself is allowed");
+        (timelock,) = _cfg();
+        assertEq(timelock, MIN_RISK_TIMELOCK, "raising it is at once");
     }
 
     function test_theSendAllowanceIsBounded() public {
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, uint256(MAX_SEND_DAILY_ALLOWANCE) + 1, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, uint256(MAX_DAILY_ALLOWANCE) + 1, UNCHANGED));
 
         _risk(UNCHANGED, 1);
-        _risk(UNCHANGED, MAX_SEND_DAILY_ALLOWANCE);
+        _risk(UNCHANGED, MAX_DAILY_ALLOWANCE);
         vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
         (, uint64 allowance) = _cfg();
-        assertEq(allowance, MAX_SEND_DAILY_ALLOWANCE, "both ends are allowed");
+        assertEq(allowance, MAX_DAILY_ALLOWANCE, "both ends are allowed");
 
         _risk(UNCHANGED, 0);
         (, allowance) = _cfg();
@@ -160,7 +176,7 @@ contract RiskRatchetTest is Test {
     function test_theMarketTradeLossAllowanceIsBounded() public {
         vm.prank(owner);
         vm.expectRevert(RiskAllowanceOutOfRange.selector);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, uint256(MAX_DAILY_LOSS_ALLOWANCE) + 1));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, uint256(MAX_DAILY_ALLOWANCE) + 1));
 
         vm.prank(owner);
         vault.updateRisk(IBittyV1Owner.RiskSettings(UNCHANGED, UNCHANGED, 1));
@@ -376,9 +392,9 @@ contract RiskRatchetTest is Test {
         vm.prank(owner);
         BittyV1VaultDeFiFacet(payable(address(vault))).setAssetManager(stranger, uint64(block.timestamp + 365 days), 1);
 
-        // and the vault itself
+        // and the vault itself, to another address: a payee cannot be the new owner
         vm.prank(owner);
-        vault.transferOwnership(stranger);
+        vault.transferOwnership(makeAddr("heir"));
 
         PendingChanges memory p = vault.pendingChanges();
         assertEq(p.newAssetManagerAt, block.timestamp + 2 days, "the delegate waits two days");

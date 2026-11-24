@@ -27,7 +27,8 @@ import {
     PERM_YIELD,
     PERM_SUPPLY,
     PERM_MARKET_TRADE,
-    PERM_INTENT
+    PERM_INTENT,
+    MAX_DAILY_ALLOWANCE
 } from "../../src/logic/Constants.sol";
 
 /*
@@ -402,7 +403,9 @@ contract DeFiGuardrailsTest is Test {
     function test_theAllowListSwitchIsImmediateInBothDirections() public {
         vm.startPrank(owner);
         vault.updateRisk(
-            IBittyV1Owner.RiskSettings({timelock: 2 days, sendDailyAllowance: UNCHANGED, dailyLossAllowance: UNCHANGED})
+            IBittyV1Owner.RiskSettings({
+                timelock: 2 days, sendDailyAllowance: MAX_DAILY_ALLOWANCE, dailyLossAllowance: MAX_DAILY_ALLOWANCE
+            })
         );
 
         _f().useBittyAllowList(false);
@@ -812,13 +815,15 @@ contract DeFiGuardrailsTest is Test {
         uint64 expiry = uint64(block.timestamp + 365 days);
         _grant(manager, expiry, PERM_YIELD | PERM_SUPPLY);
         assertEq(_permissions(), PERM_YIELD | PERM_SUPPLY);
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
 
         // Narrowing is self-restriction: it lands at once, whatever the timelock.
         vm.prank(owner);
         _f().setAssetManager(manager, expiry, PERM_YIELD);
         assertEq(_permissions(), PERM_YIELD, "narrowing took effect at once");
 
-        // Widening waits out the timelock, which every vault has - a day until the owner sets one.
+        // Widening waits out the timelock.
         vm.prank(owner);
         _f().setAssetManager(manager, expiry, PERM_YIELD | PERM_MARKET_TRADE);
         assertEq(_permissions(), PERM_YIELD, "widening is queued");

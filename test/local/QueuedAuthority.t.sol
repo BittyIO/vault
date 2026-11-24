@@ -19,7 +19,7 @@ import {
     VaultLocked
 } from "../../src/interfaces/IBittyV1Vault.sol";
 import {OwnableUpgradeable} from "openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {BITTY_GUARD, MIN_RISK_TIMELOCK} from "../../src/logic/Constants.sol";
+import {BITTY_GUARD, MIN_RISK_TIMELOCK, MAX_DAILY_ALLOWANCE} from "../../src/logic/Constants.sol";
 import {IMPLEMENTATION_VAULT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 
 /**
@@ -90,21 +90,19 @@ contract QueuedAuthorityTest is Test {
 
     function _setWait(uint64 wait) internal {
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(wait, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(wait, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
     }
 
     // -- handing the vault over -----------------------------------------------
 
     /**
-     * Every vault has a timelock - a day until the owner sets one - so no handover is one call.
+     * A vault created from 1.1.1 on has no timelock until the owner sets one, so its handover lands
+     * at once.
      */
-    function test_aNewVaultsHandoverWaitsOutTheDefaultTimelock() public {
+    function test_aNewVaultsHandoverLandsAtOnce() public {
         vm.prank(owner);
         vault.transferOwnership(heir);
-        assertEq(vault.owner(), owner, "nothing has moved yet");
-
-        vm.warp(block.timestamp + MIN_RISK_TIMELOCK);
-        assertEq(vault.owner(), heir, "a day later it has");
+        assertEq(vault.owner(), heir, "handed over");
     }
 
     function test_withATimelockTheCallOnlyStartsTheClock() public {
@@ -149,10 +147,10 @@ contract QueuedAuthorityTest is Test {
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, owner));
-        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
 
         vm.prank(heir);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(10 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(10 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
         (uint64 timelock,,) = vault.riskSettings();
         assertEq(timelock, 10 days, "the new owner is giving the orders");
     }
@@ -373,8 +371,8 @@ contract QueuedAuthorityTest is Test {
         vm.startPrank(owner); // the leaked key, busy
         vault.transferOwnership(thief);
         BittyV1VaultDeFiFacet(payable(address(vault))).setAssetManager(thief, uint64(block.timestamp + 365 days), 1);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, UNCHANGED, UNCHANGED));
-        vault.addWhitelistedRecipient(thief);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(MIN_RISK_TIMELOCK, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
+        vault.addWhitelistedRecipient(makeAddr("thief's drop")); // not `thief`: the new owner cannot be a payee
         vm.stopPrank();
 
         PendingChanges memory p = vault.pendingChanges();
@@ -401,7 +399,7 @@ contract QueuedAuthorityTest is Test {
     function test_aTighteningIsNotReportedAsPending() public {
         _setWait(WAIT);
         vm.prank(owner);
-        vault.updateRisk(IBittyV1Owner.RiskSettings(10 days, UNCHANGED, UNCHANGED));
+        vault.updateRisk(IBittyV1Owner.RiskSettings(10 days, MAX_DAILY_ALLOWANCE, MAX_DAILY_ALLOWANCE));
 
         PendingChanges memory p = vault.pendingChanges();
         assertEq(p.timelockAt, 0, "it already applied");
@@ -434,7 +432,7 @@ contract QueuedAuthorityTest is Test {
     function test_anUpgradeIsRefusedWhileLocked() public {
         // The forever lock below needs a destination the vault can still pay out to.
         vm.prank(owner);
-        uint256 escape = vault.addWhitelistedRecipient(owner);
+        uint256 escape = vault.addWhitelistedRecipient(makeAddr("escape")); // never the owner itself
         vm.warp(block.timestamp + 31 days);
         vm.prank(owner);
         vault.emergencyLock();

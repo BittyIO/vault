@@ -41,7 +41,7 @@ library BridgeLogic {
     function setEnabled(bool enabled) internal {
         DeFiLogic._onlyInitialized();
         TimelockedValue storage tv = BittyStorage.defi().bridgeDisabled;
-        uint64 timelock = RiskLogic.effectiveTimelock(BittyStorage.vault().riskConfig);
+        uint64 timelock = RiskLogic.effectiveTimelock(BittyStorage.vault());
         bool loosen = enabled && TimelockLib.effective(tv) == OFF;
         TimelockLib.setCap(tv, enabled ? 0 : OFF, loosen, timelock);
         emit IBittyV1DeFi.BridgeEnabledSet(enabled, loosen ? tv.pendingAt : uint64(block.timestamp));
@@ -62,9 +62,9 @@ library BridgeLogic {
      *      What arrives on the other side the vault cannot see, so it takes the adapter's word, the
      *      amount the adapter has bound the bridge to pay out, in `asset`'s units. The difference,
      *      Bitty's fee and the bridge's cost, is charged to the daily loss allowance like a market
-     *      trade's shortfall: a bridge moves money only between the owner's vaults, but each crossing
-     *      costs something, and a leaked key bouncing the vault between chains would otherwise lose
-     *      that cost without limit.
+     *      trade's shortfall: a bridge moves money only between a vault and its counterparts, but
+     *      each crossing costs something, and a leaked key bouncing the vault between chains would
+     *      otherwise lose that cost without limit.
      */
     function bridge(address protocol, address asset, uint256 amount, uint256 fee, bytes calldata data) internal {
         DeFiLogic._onlyInitialized();
