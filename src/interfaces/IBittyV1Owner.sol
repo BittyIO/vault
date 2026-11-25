@@ -57,6 +57,11 @@ interface IBittyV1Owner {
     }
 
     event WhitelistedRecipientSet(uint256 indexed id, address recipient);
+    /**
+     * @notice A whitelisted recipient on another chain, paid only by a bridge. See
+     *         {IBittyV1DeFi-addWhitelistedRecipientOn}.
+     */
+    event WhitelistedRecipientSetOn(uint256 indexed id, uint256 chainId, bytes32 recipient);
     event WhitelistedRecipientsRemoved(uint256[] ids);
     event WhitelistedRecipientRemovalQueued(uint256 indexed id, uint64 effectiveAt);
 

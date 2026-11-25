@@ -7,6 +7,9 @@ import {
     IBittyV1Vault,
     NoEscapeRecipient,
     WhitelistedRecipientNotFound,
+    WhitelistedRecipientWrongChain,
+    WhitelistedRecipientIsVault,
+    RecipientNotAnAddress,
     WhitelistEntryView,
     WHITELIST_REMOVED,
     WHITELIST_PENDING,
@@ -19,6 +22,8 @@ import {BittyStorage, Deferred, VaultStorage, WhitelistEntry} from "./BittyStora
 import {PaymentCore} from "./PaymentCore.sol";
 import {LockLib} from "./LockLib.sol";
 import {RiskLogic} from "./RiskLogic.sol";
+import {ANY_EVM_CHAIN, EVM_CHAIN_KEY, BITTY_GUARD} from "./Constants.sol";
+import {IBittyV1Guard} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 
 /**
  * @title WhitelistLogic
@@ -43,12 +48,65 @@ import {RiskLogic} from "./RiskLogic.sol";
  *      there editing an entry in place: a new address is an addition and the old one a removal, and
  *      made together in one multicall the new becomes payable just as the old stops being.
  *
+ *      An entry may name another chain ({addWhitelistedRecipientOn}): an address there, which the
+ *      vault reaches only by a bridge. Every payout here refuses such an entry, since the same 20
+ *      bytes on this chain need not be anyone's, and so does the forever lock's escape check, since
+ *      the bridge it would need (the switch, the adapter, the route) can go away under a lock. Or
+ *      it may name every EVM chain ({ANY_EVM_CHAIN}): the same address here, paid like an entry
+ *      here and an escape like one, and on any EVM chain a bridge reaches.
+ *
  *      The price is that a matured destination that should not be there cannot be struck off at
  *      once either. A thief who has one can pay to it whatever the rules on removal, so the owner's
  *      answer is the same as before: move the money to a destination of their own first.
  */
 library WhitelistLogic {
     function addWhitelistedRecipientOne(address recipient) external returns (uint256 id) {
+        id = _add(recipient);
+        emit IBittyV1Owner.WhitelistedRecipientSet(id, recipient);
+    }
+
+    /**
+     * An entry on `chainId`, or on every EVM chain for {ANY_EVM_CHAIN}, under the same protection
+     * window as one here. `recipient` is 32 bytes so a Solana address fits; one here or on every
+     * EVM chain must be a 20-byte address. This chain's own id makes an ordinary entry. The
+     * vault's own address is refused: on another EVM chain it is the vault's counterpart, which
+     * {IBittyV1DeFi-bridge} already reaches, and on TRON no one's.
+     *
+     * A 32-byte address keeps its low 20 bytes in the entry, so every existing check reads the
+     * entry as present, and the whole of it beside; one whose low 20 bytes are all zero is refused,
+     * which no real key's address is.
+     */
+    function addWhitelistedRecipientOn(uint256 chainId, bytes32 recipient) external returns (uint256 id) {
+        address low = address(uint160(uint256(recipient)));
+        bool wide = uint256(recipient) >> 160 != 0;
+        if (chainId == 0 || chainId == block.chainid) {
+            if (wide) revert RecipientNotAnAddress();
+            id = _add(low);
+            emit IBittyV1Owner.WhitelistedRecipientSet(id, low);
+            return id;
+        }
+        if (wide && chainId == ANY_EVM_CHAIN) revert RecipientNotAnAddress();
+        if (!wide && low == address(this)) revert WhitelistedRecipientIsVault();
+        id = _add(low);
+        VaultStorage storage vaultStorage = BittyStorage.vault();
+        vaultStorage.whitelistedRecipientChain[id] = chainId;
+        if (wide) vaultStorage.whitelistedRecipientAccount[id] = recipient;
+        emit IBittyV1Owner.WhitelistedRecipientSetOn(id, chainId, recipient);
+    }
+
+    /**
+     * Entry `id`'s address on its chain, as 32 bytes.
+     */
+    function _account(VaultStorage storage vaultStorage, uint256 id, address recipient)
+        private
+        view
+        returns (bytes32 account)
+    {
+        account = vaultStorage.whitelistedRecipientAccount[id];
+        if (account == 0) account = bytes32(uint256(uint160(recipient)));
+    }
+
+    function _add(address recipient) private returns (uint256 id) {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         PaymentCore.onlyInitialized(vaultStorage);
         if (recipient == address(0)) revert AddressZero();
@@ -58,7 +116,6 @@ library WhitelistLogic {
         vaultStorage.whitelistedRecipientDeferred[id] = Deferred({
             effectiveAt: uint64(effectiveAt), lockEpoch: effectiveAt == 0 ? LockLib.SETTLED : LockLib.lockEpoch()
         });
-        emit IBittyV1Owner.WhitelistedRecipientSet(id, recipient);
     }
 
     /**
@@ -66,13 +123,16 @@ library WhitelistLogic {
      * it and no removal of it has landed. Asked before the forever lock: once that is engaged nothing
      * can be added, so a vault locked with no payable recipient could never pay anything out again.
      * The vault itself is no way out either: paying it moves nothing, so it is refused like a missing
-     * entry. One named entry rather than a search of the list, so the check costs the same however
-     * many entries a thief has queued.
+     * entry, and so is one on another chain. One named entry rather than a search of the list, so
+     * the check costs the same however many entries a thief has queued.
      */
     function requireEscape(uint256 id) external view {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         WhitelistEntry memory entry = vaultStorage.whitelistedRecipient[id];
-        if (entry.recipient == address(0) || entry.recipient == address(this) || _removed(entry)) {
+        if (
+            entry.recipient == address(0) || entry.recipient == address(this) || _removed(entry)
+                || !_here(vaultStorage.whitelistedRecipientChain[id])
+        ) {
             revert NoEscapeRecipient();
         }
         if (!_payable(vaultStorage.whitelistedRecipientDeferred[id])) revert NoEscapeRecipient();
@@ -97,8 +157,7 @@ library WhitelistLogic {
         if (_settle(vaultStorage, id, entry) == address(0)) revert WhitelistedRecipientNotFound();
 
         if (!_payable(vaultStorage.whitelistedRecipientDeferred[id])) {
-            delete vaultStorage.whitelistedRecipient[id];
-            delete vaultStorage.whitelistedRecipientDeferred[id];
+            _delete(vaultStorage, id);
             return;
         }
 
@@ -140,9 +199,17 @@ library WhitelistLogic {
             entry.removeEpoch = 0;
             return entry.recipient;
         }
+        _delete(vaultStorage, id);
+        return address(0);
+    }
+
+    function _delete(VaultStorage storage vaultStorage, uint256 id) private {
         delete vaultStorage.whitelistedRecipient[id];
         delete vaultStorage.whitelistedRecipientDeferred[id];
-        return address(0);
+        if (vaultStorage.whitelistedRecipientChain[id] != 0) {
+            delete vaultStorage.whitelistedRecipientChain[id];
+            delete vaultStorage.whitelistedRecipientAccount[id];
+        }
     }
 
     function sendToWhitelistedRecipientOne(uint256 id, address asset, uint256 amount) external {
@@ -161,7 +228,31 @@ library WhitelistLogic {
     function payableRecipient(uint256 id) external returns (address recipient) {
         VaultStorage storage vaultStorage = BittyStorage.vault();
         PaymentCore.onlyInitialized(vaultStorage);
-        return _payableRecipient(vaultStorage, id);
+        return _payableHere(vaultStorage, id);
+    }
+
+    /**
+     * The address entry `id` pays to on `destinationChainId`, if it is on that chain (or on every
+     * EVM chain, and that one is EVM) and can be paid right now: the same test as
+     * {payableRecipient}, for the bridge that pays it. Which chains a bridge can reach at all is
+     * the guard's routes' to say, and which of them are EVM the guard's {EVM_CHAIN_KEY} marks.
+     */
+    function payableRecipientOn(uint256 id, uint256 destinationChainId) external returns (bytes32 recipient) {
+        VaultStorage storage vaultStorage = BittyStorage.vault();
+        PaymentCore.onlyInitialized(vaultStorage);
+        uint256 chainId = vaultStorage.whitelistedRecipientChain[id];
+        bool reaches = chainId == ANY_EVM_CHAIN
+            ? IBittyV1Guard(BITTY_GUARD).getUint(keccak256(abi.encode(EVM_CHAIN_KEY, destinationChainId))) == 1
+            : chainId != 0 && chainId == destinationChainId;
+        if (!reaches || destinationChainId == block.chainid) revert WhitelistedRecipientWrongChain();
+        recipient = _account(vaultStorage, id, _payableRecipient(vaultStorage, id));
+    }
+
+    /**
+     * Whether an entry on `chainId` is paid on this chain: one here, or one on every EVM chain.
+     */
+    function _here(uint256 chainId) private pure returns (bool) {
+        return chainId == 0 || chainId == ANY_EVM_CHAIN;
     }
 
     function _sendToWhitelistedRecipient(VaultStorage storage vaultStorage, uint256 id, address asset, uint256 amount)
@@ -169,8 +260,16 @@ library WhitelistLogic {
         returns (address recipient)
     {
         if (amount == 0) revert AmountIsZero();
-        recipient = _payableRecipient(vaultStorage, id);
+        recipient = _payableHere(vaultStorage, id);
         PaymentCore.payOut(vaultStorage, asset, amount, recipient);
+    }
+
+    /**
+     * {_payableRecipient} for a payout on this chain, which an entry on another chain never takes.
+     */
+    function _payableHere(VaultStorage storage vaultStorage, uint256 id) private returns (address) {
+        if (!_here(vaultStorage.whitelistedRecipientChain[id])) revert WhitelistedRecipientWrongChain();
+        return _payableRecipient(vaultStorage, id);
     }
 
     function _payableRecipient(VaultStorage storage vaultStorage, uint256 id) private returns (address recipient) {
@@ -241,6 +340,8 @@ library WhitelistLogic {
 
         Deferred memory deferred = vaultStorage.whitelistedRecipientDeferred[id];
         v.recipient = entry.recipient;
+        v.chainId = vaultStorage.whitelistedRecipientChain[id];
+        v.account = _account(vaultStorage, id, entry.recipient);
         v.effectiveAt = deferred.effectiveAt;
         if (entry.removeAt != 0 && LockLib.honoured(entry.removeEpoch, entry.removeAt)) {
             v.removeAt = entry.removeAt;

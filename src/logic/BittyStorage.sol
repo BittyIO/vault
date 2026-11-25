@@ -151,6 +151,19 @@ struct VaultStorage {
     address vaultOwner;
     mapping(uint32 => uint64) lockEpochClosedAt;
     address pendingOwner;
+    /**
+     * The chain a whitelisted recipient is on, by id; 0, as every entry made before 1.2.0 reads,
+     * for this chain. Another chain's recipient is paid only by a bridge
+     * ({IBittyV1DeFi-bridgeToWhitelistedRecipient}), never by a payout here.
+     */
+    mapping(uint256 => uint256) whitelistedRecipientChain;
+    /**
+     * A whitelisted recipient's full 32-byte address on a chain whose addresses do not fit 20
+     * bytes (Solana), by id; zero for every other entry, whose address is its
+     * {WhitelistEntry.recipient}. Such an entry's {WhitelistEntry.recipient} holds the low 20
+     * bytes, so the list reads it as present.
+     */
+    mapping(uint256 => bytes32) whitelistedRecipientAccount;
 }
 
 library BittyStorage {

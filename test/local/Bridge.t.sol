@@ -17,9 +17,26 @@ import {
     InvalidBridgeProtocol,
     AssetNotBridgeable,
     BridgeAmountMismatch,
-    DailyLossAllowanceExceeded
+    DailyLossAllowanceExceeded,
+    BridgeToSelf
 } from "../../src/interfaces/IBittyV1DeFi.sol";
-import {VaultLocked, Deprecated, AmountIsZero, PendingChanges} from "../../src/interfaces/IBittyV1Vault.sol";
+import {
+    VaultLocked,
+    Deprecated,
+    AmountIsZero,
+    AddressZero,
+    PendingChanges,
+    PaymentExceedsRiskCap,
+    PaymentExceedsPeriodLimit,
+    PaymentNotStableCoin,
+    ProtectionPeriodNotEnded,
+    NoEscapeRecipient,
+    WhitelistedRecipientWrongChain,
+    WhitelistedRecipientIsVault,
+    WhitelistedRecipientNotFound,
+    RecipientNotAnAddress,
+    WhitelistEntryView
+} from "../../src/interfaces/IBittyV1Vault.sol";
 import {IBittyV1Owner} from "../../src/interfaces/IBittyV1Owner.sol";
 import {
     BITTY_GUARD,
@@ -76,6 +93,21 @@ contract MockBridge {
         received = (amount - fee) * (10_000 - costBps) / 10_000;
     }
 
+    event GotTo(address token, uint256 amount, uint256 fee, uint256 chainId, bytes32 recipient, bytes data);
+
+    function bridgeTo(
+        address token,
+        uint256 amount,
+        uint256 fee,
+        uint256 chainId,
+        bytes32 recipient,
+        bytes calldata data
+    ) external returns (uint256 received) {
+        IERC20(token).transferFrom(msg.sender, address(this), mode == SHORT ? amount - 1 : amount);
+        emit GotTo(token, amount, fee, chainId, recipient, data);
+        received = (amount - fee) * (10_000 - costBps) / 10_000;
+    }
+
     receive() external payable {}
 }
 
@@ -102,6 +134,7 @@ contract BridgeFeed {
 
 contract BridgeTest is Test {
     event Got(address token, uint256 amount, uint256 fee, uint256 value, bytes data);
+    event GotTo(address token, uint256 amount, uint256 fee, uint256 chainId, bytes32 recipient, bytes data);
 
     BittyV1Vault vault;
     MockGuard guard;
@@ -484,5 +517,387 @@ contract BridgeTest is Test {
         vm.expectRevert(DailyLossAllowanceExceeded.selector);
         _bridge(address(across), address(usdc), 1_000e6, 1e6);
         _bridge(address(across), address(usdc), 1_000e6, 0); // loses nothing
+    }
+
+    // ── the bridge to someone else's address ────────────────────────────────────────────────────
+
+    address payee = makeAddr("payee");
+    uint256 constant BASE = 8453;
+    uint256 constant TRON = 728126428;
+    // A TRON address goes as its 20 bytes, its 0x41 prefix dropped, as Across carries it.
+    address constant TRON_PAYEE = 0xa614f803B6FD780986A42c78Ec9c7f77e6DeD13C;
+
+    function _bridgeTo(address protocol, address asset, uint256 amount, uint256 fee, address to) internal {
+        vm.prank(owner);
+        _b().bridgeTo(protocol, asset, amount, fee, BASE, _w(to), DATA);
+    }
+
+    /// A 20-byte address as the 32 bytes a bridge carries.
+    function _w(address a) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(a)));
+    }
+
+    function _setSendDaily(uint256 usd) internal {
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(type(uint256).max, usd, type(uint256).max));
+    }
+
+    function test_bridgeTo_paysTheNamedRecipient() public {
+        uint256 before = usdc.balanceOf(address(vault));
+        vm.expectEmit(address(vault));
+        emit IBittyV1DeFi.BridgedTo(address(across), address(usdc), BASE, _w(payee), 1_000e6, 2e6, 998e6, DATA);
+        _bridgeTo(address(across), address(usdc), 1_000e6, 2e6, payee);
+
+        address clone = _clone(address(across));
+        assertEq(before - usdc.balanceOf(address(vault)), 1_000e6);
+        assertEq(usdc.balanceOf(clone), 1_000e6);
+        assertEq(usdc.allowance(address(vault), clone), 0);
+    }
+
+    function test_bridgeTo_aTronAddress() public {
+        _setSendDaily(5_000);
+        vm.expectEmit(); // the adapter is handed TRON and the TRON address
+        emit GotTo(address(usdc), 1_000e6, 0, TRON, _w(TRON_PAYEE), DATA);
+        vm.expectEmit(address(vault));
+        emit IBittyV1DeFi.BridgedTo(address(across), address(usdc), TRON, _w(TRON_PAYEE), 1_000e6, 0, 1_000e6, DATA);
+        vm.prank(owner);
+        _b().bridgeTo(address(across), address(usdc), 1_000e6, 0, TRON, _w(TRON_PAYEE), DATA);
+    }
+
+    /// The whole amount, fee included, comes out of the send allowance.
+    function test_bridgeTo_isMeteredByTheSendAllowance() public {
+        _setSendDaily(1_000);
+        _bridgeTo(address(across), address(usdc), 600e6, 2e6, payee);
+        _bridgeTo(address(across), address(usdc), 400e6, 0, payee);
+        vm.expectRevert(PaymentExceedsPeriodLimit.selector);
+        _bridgeTo(address(across), address(usdc), 1, 0, payee);
+        vm.warp(block.timestamp + 1 days);
+        _bridgeTo(address(across), address(usdc), 1_000e6, 0, payee);
+    }
+
+    function test_bridgeTo_overTheAllowanceAtOnce() public {
+        _setSendDaily(1_000);
+        vm.expectRevert(PaymentExceedsRiskCap.selector);
+        _bridgeTo(address(across), address(usdc), 1_000e6 + 1, 0, payee);
+    }
+
+    /// A bridge out and a send share one day's allowance.
+    function test_bridgeTo_sharesTheDayWithSends() public {
+        _setSendDaily(1_000);
+        vm.prank(owner);
+        vault.send(payee, address(usdc), 700e6, new address[](0), new uint256[](0));
+        vm.expectRevert(PaymentExceedsPeriodLimit.selector);
+        _bridgeTo(address(across), address(usdc), 301e6, 0, payee);
+        _bridgeTo(address(across), address(usdc), 300e6, 0, payee);
+        vm.prank(owner);
+        vm.expectRevert(PaymentExceedsPeriodLimit.selector);
+        vault.send(payee, address(usdc), 1, new address[](0), new uint256[](0));
+    }
+
+    /// Sends turned off turn bridges out off, so the loss allowance is no way around them.
+    function test_bridgeTo_refusedWhenSendsAreOff() public {
+        _setSendDaily(0);
+        vm.expectRevert(PaymentExceedsRiskCap.selector);
+        _bridgeTo(address(across), address(usdc), 1e6, 0, payee);
+        _bridge(address(across), address(usdc), 1e6, 0); // to the counterpart is still fine
+    }
+
+    /// Nothing goes to the loss allowance: a bridge that costs everything it may still goes out.
+    function test_bridgeTo_chargesNoLoss() public {
+        MockBridge costly = new MockBridge(0, 100);
+        guard.setProtocol(address(costly), PROTOCOL_BRIDGE);
+        _setDailyLoss(0);
+        _bridgeTo(address(costly), address(usdc), 1_000e6, 2e6, payee);
+    }
+
+    function test_bridgeTo_stablecoinOnly() public {
+        vm.expectRevert(PaymentNotStableCoin.selector);
+        _bridgeTo(address(across), address(weth), 1 ether, 0, payee);
+        vm.expectRevert();
+        _bridgeTo(address(across), address(0), 1 ether, 0, payee);
+    }
+
+    function test_bridgeTo_assetMustBeBridgeable() public {
+        vm.expectRevert(AssetNotBridgeable.selector);
+        _bridgeTo(address(across), address(dai), 1e18, 0, payee);
+    }
+
+    function test_bridgeTo_refusals() public {
+        vm.expectRevert(AddressZero.selector);
+        _bridgeTo(address(across), address(usdc), 1e6, 0, address(0));
+        vm.expectRevert(BridgeToSelf.selector); // its own counterpart goes through {bridge}
+        _bridgeTo(address(across), address(usdc), 1e6, 0, address(vault));
+        vm.expectRevert(AmountIsZero.selector);
+        _bridgeTo(address(across), address(usdc), 0, 0, payee);
+        vm.expectRevert(InvalidBridgeProtocol.selector);
+        _bridgeTo(makeAddr("unregistered"), address(usdc), 1e6, 0, payee);
+
+        MockBridge short = new MockBridge(1, 0);
+        guard.setProtocol(address(short), PROTOCOL_BRIDGE);
+        vm.expectRevert(BridgeAmountMismatch.selector);
+        _bridgeTo(address(short), address(usdc), 1_000e6, 0, payee);
+
+        address stranger = makeAddr("stranger");
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, stranger));
+        _b().bridgeTo(address(across), address(usdc), 1e6, 0, BASE, _w(payee), DATA);
+    }
+
+    function test_bridgeTo_offOrLocked() public {
+        _disable();
+        vm.expectRevert(BridgeNotEnabled.selector);
+        _bridgeTo(address(across), address(usdc), 1e6, 0, payee);
+        _enable();
+        vm.prank(owner);
+        vault.emergencyLock();
+        vm.expectRevert(VaultLocked.selector);
+        _bridgeTo(address(across), address(usdc), 1e6, 0, payee);
+    }
+
+    // ── whitelisted recipients on other chains ──────────────────────────────────────────────────
+
+    uint256 constant ANY_EVM = type(uint256).max;
+
+    function _addOn(uint256 chainId, address to) internal returns (uint256 id) {
+        return _addOn(chainId, _w(to));
+    }
+
+    function _addOn(uint256 chainId, bytes32 to) internal returns (uint256 id) {
+        vm.prank(owner);
+        id = _b().addWhitelistedRecipientOn(chainId, to);
+    }
+
+    function _bridgeToPayee(uint256 id, uint256 chainId, uint256 amount) internal {
+        vm.prank(owner);
+        _b().bridgeToWhitelistedRecipient(address(across), id, address(usdc), amount, 0, chainId, DATA);
+    }
+
+    /// A day's timelock, so a new entry has a window to wait out, and sends capped at 1,000.
+    function _guarded() internal {
+        vm.prank(owner);
+        vault.updateRisk(IBittyV1Owner.RiskSettings(1 days, 1_000, 1_000));
+    }
+
+    function test_payeeOnTron_bridgedWithNoLimit() public {
+        _guarded();
+        vm.expectEmit(address(vault));
+        emit IBittyV1Owner.WhitelistedRecipientSetOn(1, TRON, _w(TRON_PAYEE));
+        uint256 id = _addOn(TRON, TRON_PAYEE);
+
+        vm.expectRevert(ProtectionPeriodNotEnded.selector);
+        _bridgeToPayee(id, TRON, 1_000e6);
+        vm.warp(block.timestamp + 1 days);
+
+        vm.expectEmit(); // the adapter is handed TRON and the address
+        emit GotTo(address(usdc), 50_000e6, 0, TRON, _w(TRON_PAYEE), DATA);
+        vm.expectEmit(address(vault));
+        emit IBittyV1DeFi.WhitelistedRecipientBridged(
+            id, address(across), address(usdc), TRON, _w(TRON_PAYEE), 50_000e6, 0, 50_000e6
+        );
+        _bridgeToPayee(id, TRON, 50_000e6); // far over the 1,000 send allowance
+        _bridgeToPayee(id, TRON, 50_000e6);
+
+        WhitelistEntryView[] memory list = _list();
+        assertEq(list[0].chainId, TRON);
+        assertEq(list[0].recipient, TRON_PAYEE);
+    }
+
+    function test_payeeOnTron_onlyToTron() public {
+        uint256 id = _addOn(TRON, TRON_PAYEE);
+        vm.expectRevert(WhitelistedRecipientWrongChain.selector);
+        _bridgeToPayee(id, BASE, 1e6);
+    }
+
+    /// A TRON entry's 20 bytes are no one's here: no payout on this chain pays it.
+    function test_payeeOnTron_neverPaidHere() public {
+        uint256 id = _addOn(TRON, TRON_PAYEE);
+        vm.prank(owner);
+        vm.expectRevert(WhitelistedRecipientWrongChain.selector);
+        vault.sendToWhitelistedRecipient(id, address(usdc), 1e6, new address[](0), new uint256[](0));
+        vm.prank(owner);
+        vm.expectRevert(WhitelistedRecipientWrongChain.selector);
+        vault.retrieve721(address(usdc), 1, id);
+    }
+
+    function test_payeeOnTron_isNoEscape() public {
+        uint256 id = _addOn(TRON, TRON_PAYEE);
+        vm.prank(owner);
+        vm.expectRevert(NoEscapeRecipient.selector);
+        vault.foreverLock(id);
+    }
+
+    function _markEvm(uint256 chainId) internal {
+        guard.setConfigUint(keccak256(abi.encode(keccak256("bitty.chain.evm"), chainId)), 1);
+    }
+
+    function test_payeeOnAnyEvm_paidHereAndOnEveryChain() public {
+        _guarded();
+        _markEvm(BASE);
+        _markEvm(42161);
+        uint256 id = _addOn(ANY_EVM, payee);
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(owner);
+        vault.sendToWhitelistedRecipient(id, address(usdc), 5_000e6, new address[](0), new uint256[](0));
+        assertEq(usdc.balanceOf(payee), 5_000e6);
+
+        vm.expectEmit();
+        emit GotTo(address(usdc), 5_000e6, 0, BASE, _w(payee), DATA);
+        _bridgeToPayee(id, BASE, 5_000e6);
+        vm.expectEmit();
+        emit GotTo(address(usdc), 5_000e6, 0, 42161, _w(payee), DATA);
+        _bridgeToPayee(id, 42161, 5_000e6);
+        // Never a chain the guard does not mark EVM, such as TRON or Solana: they take a payee of
+        // their own. Marking one is all a new EVM chain needs.
+        vm.expectRevert(WhitelistedRecipientWrongChain.selector);
+        _bridgeToPayee(id, TRON, 1e6);
+        vm.expectRevert(WhitelistedRecipientWrongChain.selector);
+        _bridgeToPayee(id, 34268394551451, 1e6);
+        vm.expectRevert(WhitelistedRecipientWrongChain.selector);
+        _bridgeToPayee(id, 10, 1e6);
+        _markEvm(10);
+        _bridgeToPayee(id, 10, 1e6);
+
+        _markEvm(block.chainid);
+        vm.expectRevert(WhitelistedRecipientWrongChain.selector); // this chain is a payout, not a bridge
+        _bridgeToPayee(id, block.chainid, 1e6);
+
+        assertEq(_list()[0].chainId, ANY_EVM);
+    }
+
+    function test_payeeOnAnyEvm_isAnEscape() public {
+        uint256 id = _addOn(ANY_EVM, payee);
+        vm.prank(owner);
+        vault.foreverLock(id);
+        assertEq(vault.lockLevel(), 2);
+    }
+
+    /// A payee here (the existing kind) is never bridged to.
+    function test_payeeHere_isNotBridgedTo() public {
+        vm.prank(owner);
+        uint256 id = vault.addWhitelistedRecipient(payee);
+        vm.expectRevert(WhitelistedRecipientWrongChain.selector);
+        _bridgeToPayee(id, BASE, 1e6);
+        assertEq(_addOn(block.chainid, payee), id + 1); // this chain's own id is an entry here
+        assertEq(_list()[1].chainId, 0);
+    }
+
+    function test_payeeOn_refusals() public {
+        vm.prank(owner);
+        vm.expectRevert(AddressZero.selector);
+        _b().addWhitelistedRecipientOn(TRON, bytes32(0));
+        vm.prank(owner);
+        vm.expectRevert(WhitelistedRecipientIsVault.selector);
+        _b().addWhitelistedRecipientOn(TRON, _w(address(vault)));
+        vm.prank(owner);
+        vm.expectRevert(WhitelistedRecipientIsVault.selector);
+        _b().addWhitelistedRecipientOn(ANY_EVM, _w(address(vault)));
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert();
+        _b().addWhitelistedRecipientOn(TRON, _w(TRON_PAYEE));
+
+        uint256 id = _addOn(TRON, TRON_PAYEE);
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert();
+        _b().bridgeToWhitelistedRecipient(address(across), id, address(usdc), 1e6, 0, TRON, DATA);
+        vm.expectRevert(WhitelistedRecipientWrongChain.selector); // no such entry
+        _bridgeToPayee(99, TRON, 1e6);
+    }
+
+    /// Under a lock nothing can be added, but a payee there is still paid, as one here is.
+    function test_payeeOn_underALock() public {
+        uint256 id = _addOn(TRON, TRON_PAYEE);
+        vm.prank(owner);
+        vault.emergencyLock();
+        _bridgeToPayee(id, TRON, 1_000e6);
+        vm.prank(owner);
+        vm.expectRevert(VaultLocked.selector);
+        _b().addWhitelistedRecipientOn(TRON, _w(TRON_PAYEE));
+    }
+
+    /// The bridge switch still governs it; a lock cannot turn the switch back on.
+    function test_payeeOn_needsTheBridgeOn() public {
+        uint256 id = _addOn(TRON, TRON_PAYEE);
+        _disable();
+        vm.expectRevert(BridgeNotEnabled.selector);
+        _bridgeToPayee(id, TRON, 1e6);
+    }
+
+    function test_payeeOn_removedIsGone() public {
+        uint256 id = _addOn(TRON, TRON_PAYEE);
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = id;
+        vm.prank(owner);
+        vault.removeWhitelistedRecipients(ids); // no timelock: lands at once
+        vm.expectRevert(WhitelistedRecipientNotFound.selector);
+        _bridgeToPayee(id, TRON, 1e6);
+        assertEq(_list()[0].chainId, 0);
+    }
+
+    function _list() internal view returns (WhitelistEntryView[] memory entries) {
+        (, entries) = vault.getWhitelist(1, type(uint256).max);
+    }
+
+    // ── Solana: a 32-byte address ───────────────────────────────────────────────────────────────
+
+    uint256 constant SOLANA = 34268394551451;
+    // A 32-byte address, as a Solana one is: wider than 20 bytes.
+    bytes32 constant SOL_PAYEE = 0xc6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61;
+
+    function test_payeeOnSolana_fullAddressIsBridged() public {
+        uint256 id = _addOn(SOLANA, SOL_PAYEE);
+        vm.expectEmit();
+        emit GotTo(address(usdc), 1_000e6, 0, SOLANA, SOL_PAYEE, DATA);
+        vm.prank(owner);
+        _b().bridgeToWhitelistedRecipient(address(across), id, address(usdc), 1_000e6, 0, SOLANA, DATA);
+
+        WhitelistEntryView memory e = _list()[0];
+        assertEq(e.chainId, SOLANA);
+        assertEq(e.account, SOL_PAYEE);
+        assertEq(e.recipient, address(uint160(uint256(SOL_PAYEE)))); // the low 20 bytes
+        assertEq(e.status, 2); // WHITELIST_PAYABLE: no timelock
+    }
+
+    function test_payeeOnSolana_neverPaidHereNorElsewhere() public {
+        uint256 id = _addOn(SOLANA, SOL_PAYEE);
+        vm.prank(owner);
+        vm.expectRevert(WhitelistedRecipientWrongChain.selector);
+        vault.sendToWhitelistedRecipient(id, address(usdc), 1e6, new address[](0), new uint256[](0));
+        vm.prank(owner);
+        vm.expectRevert(WhitelistedRecipientWrongChain.selector);
+        _b().bridgeToWhitelistedRecipient(address(across), id, address(usdc), 1e6, 0, BASE, DATA);
+    }
+
+    /// A 32-byte address can only be one network's: never this chain's, never every EVM chain's.
+    function test_wideAddressOnlyForOneNetwork() public {
+        vm.startPrank(owner);
+        vm.expectRevert(RecipientNotAnAddress.selector);
+        _b().addWhitelistedRecipientOn(0, SOL_PAYEE);
+        vm.expectRevert(RecipientNotAnAddress.selector);
+        _b().addWhitelistedRecipientOn(block.chainid, SOL_PAYEE);
+        vm.expectRevert(RecipientNotAnAddress.selector);
+        _b().addWhitelistedRecipientOn(ANY_EVM, SOL_PAYEE);
+        vm.stopPrank();
+    }
+
+    function test_removingASolanaPayeeClearsItsAddress() public {
+        uint256 id = _addOn(SOLANA, SOL_PAYEE);
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = id;
+        vm.prank(owner);
+        vault.removeWhitelistedRecipients(ids);
+        vm.prank(owner);
+        vm.expectRevert(WhitelistedRecipientNotFound.selector);
+        _b().bridgeToWhitelistedRecipient(address(across), id, address(usdc), 1e6, 0, SOLANA, DATA);
+        WhitelistEntryView memory e = _list()[0];
+        assertEq(e.recipient, address(0));
+        assertEq(e.account, bytes32(0));
+    }
+
+    function test_bridgeTo_aSolanaAddress() public {
+        vm.expectEmit();
+        emit GotTo(address(usdc), 1_000e6, 0, SOLANA, SOL_PAYEE, DATA);
+        vm.prank(owner);
+        _b().bridgeTo(address(across), address(usdc), 1_000e6, 0, SOLANA, SOL_PAYEE, DATA);
     }
 }
