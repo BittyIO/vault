@@ -9,6 +9,7 @@ import {LockLib} from "./logic/LockLib.sol";
 import {PaymentCore} from "./logic/PaymentCore.sol";
 import {BittyStorage} from "./logic/BittyStorage.sol";
 import {RiskLogic} from "./logic/RiskLogic.sol";
+import {WhitelistLogic} from "./logic/WhitelistLogic.sol";
 import {IBittyV1Guard, PROTOCOL_INTENT} from "guard-contracts/src/interfaces/IBittyV1Guard.sol";
 import {IBittyV1IntentProtocol} from "protocol-contracts/src/interfaces/IBittyV1IntentProtocol.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
@@ -244,6 +245,49 @@ contract BittyV1VaultDeFiFacet is BittyV1AccountBase {
         notTrading
     {
         BridgeLogic.bridge(bridgeProtocol, asset, amount, fee, data);
+    }
+
+    /**
+     * Owner only, never an asset manager, and not under a lock, like a send. See {IBittyV1DeFi-bridgeTo}.
+     */
+    function bridgeTo(
+        address bridgeProtocol,
+        address asset,
+        uint256 amount,
+        uint256 fee,
+        uint256 destinationChainId,
+        bytes32 recipient,
+        bytes calldata data
+    ) external onlyOwner notLocked notTrading {
+        BridgeLogic.bridgeTo(bridgeProtocol, asset, amount, fee, destinationChainId, recipient, data);
+    }
+
+    /**
+     * Owner only and not under a lock, like adding one here. See {IBittyV1DeFi-addWhitelistedRecipientOn}.
+     */
+    function addWhitelistedRecipientOn(uint256 chainId, bytes32 recipient)
+        external
+        onlyOwner
+        notLocked
+        returns (uint256)
+    {
+        return WhitelistLogic.addWhitelistedRecipientOn(chainId, recipient);
+    }
+
+    /**
+     * Owner only, never an asset manager; under either lock, like a payout to a whitelisted
+     * recipient here. See {IBittyV1DeFi-bridgeToWhitelistedRecipient}.
+     */
+    function bridgeToWhitelistedRecipient(
+        address bridgeProtocol,
+        uint256 id,
+        address asset,
+        uint256 amount,
+        uint256 fee,
+        uint256 destinationChainId,
+        bytes calldata data
+    ) external onlyOwner notTrading {
+        BridgeLogic.bridgeToWhitelistedRecipient(bridgeProtocol, id, asset, amount, fee, destinationChainId, data);
     }
 
     function approveIntentSpender(address intent, address token) external onlyManagerWith(PERM_INTENT) notTrading {

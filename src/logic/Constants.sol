@@ -49,3 +49,12 @@ uint32 constant PERM_INTENT = 1 << 3;
 uint8 constant ASSET_BRIDGEABLE = 8;
 uint8 constant PROTOCOL_BRIDGE = 5;
 
+// A whitelisted recipient's chain meaning every EVM chain: the same address here and on any chain a
+// bridge route in the guard reaches. See {IBittyV1DeFi-addWhitelistedRecipientOn}.
+uint256 constant ANY_EVM_CHAIN = type(uint256).max;
+
+// The guard config key that marks `chainId` as an EVM chain (value 1), where an {ANY_EVM_CHAIN}
+// recipient's address is the same holder's: keccak256(abi.encode(EVM_CHAIN_KEY, chainId)). A
+// chain the guard has not marked is not one, so a new EVM chain needs only the guard's word, and
+// TRON or Solana, never marked, are never sent an EVM recipient's money.
+bytes32 constant EVM_CHAIN_KEY = keccak256("bitty.chain.evm");

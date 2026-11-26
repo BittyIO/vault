@@ -35,6 +35,9 @@ error PaymentExceedsPeriodLimit();
 error PaymentNotStableCoin();
 
 error WhitelistedRecipientNotFound();
+error WhitelistedRecipientWrongChain();
+error WhitelistedRecipientIsVault();
+error RecipientNotAnAddress();
 error NoEscapeRecipient();
 
 error VaultLocked();
@@ -102,6 +105,16 @@ struct WhitelistEntryView {
      * One of the WHITELIST_* constants above, worked out with the same lock rules a payout uses.
      */
     uint8 status;
+    /**
+     * The chain the recipient is on: 0 for this chain, type(uint256).max for every EVM chain,
+     * otherwise its chain id (TRON is 728126428, with the address as its 20 bytes).
+     */
+    uint256 chainId;
+    /**
+     * The recipient's address on its chain as 32 bytes: a 20-byte address (EVM, TRON) left-padded,
+     * a Solana address in full. For a Solana entry {recipient} is only its low 20 bytes.
+     */
+    bytes32 account;
 }
 
 interface IBittyV1Vault {

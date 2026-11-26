@@ -93,6 +93,22 @@ library PaymentLogic {
     }
 
     /**
+     * @notice Meters a bridge to someone else's address against the send allowance, as a send of
+     *         `amount` of `asset` would be. See {IBittyV1DeFi-bridgeTo}.
+     * @dev Unlike a send under {NO_LIMIT}, the asset must be a stablecoin even when nothing is
+     *      metered: a bridge out is only ever a stablecoin.
+     */
+    function meterBridgeOut(address asset, uint256 amount) internal {
+        if (!PaymentCore.stableCoinAllowed(asset)) revert PaymentNotStableCoin();
+        VaultStorage storage vaultStorage = BittyStorage.vault();
+        uint64 cap = _cap(vaultStorage);
+        if (cap == NO_LIMIT) return;
+        uint256 value = _stableValue(asset, amount);
+        if (value > uint256(cap) * 1e18) revert PaymentExceedsRiskCap();
+        _checkOwnerSendWindow(vaultStorage, value, cap);
+    }
+
+    /**
      * Under a cap every regular send is metered, and only a stablecoin can be metered without reading
      * a price. 0 means the owner turned regular sends off: every amount is over it, so every send is
      * refused. {NO_LIMIT} meters nothing: any asset, any amount.

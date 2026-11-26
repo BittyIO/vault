@@ -20,6 +20,7 @@ error BridgeNotEnabled();
 error InvalidBridgeProtocol();
 error AssetNotBridgeable();
 error BridgeAmountMismatch();
+error BridgeToSelf();
 
 /**
  * @dev The adapter call the vault makes, mirrored from protocol-store's IBittyV1BridgeProtocol until
@@ -30,6 +31,15 @@ interface IBittyV1BridgeAdapter {
         external
         payable
         returns (uint256 received);
+
+    function bridgeTo(
+        address token,
+        uint256 amount,
+        uint256 fee,
+        uint256 destinationChainId,
+        bytes32 recipient,
+        bytes calldata data
+    ) external returns (uint256 received);
 }
 
 /**
@@ -116,11 +126,32 @@ interface IBittyV1DeFi {
     event Bridged(
         address indexed bridgeProtocol, address indexed asset, uint256 amount, uint256 fee, uint256 received, bytes data
     );
+    event BridgedTo(
+        address indexed bridgeProtocol,
+        address indexed asset,
+        uint256 destinationChainId,
+        bytes32 indexed recipient,
+        uint256 amount,
+        uint256 fee,
+        uint256 received,
+        bytes data
+    );
+    event WhitelistedRecipientBridged(
+        uint256 indexed id,
+        address indexed bridgeProtocol,
+        address indexed asset,
+        uint256 destinationChainId,
+        bytes32 recipient,
+        uint256 amount,
+        uint256 fee,
+        uint256 received
+    );
 
     /**
-     * @notice Turn the bridge function on or off. A vault starts with it on, like market trading:
-     *         what a bridge loses is bounded by the daily loss allowance, and what it moves stays
-     *         under this vault's counterpart on the other chain, whose own limits still apply.
+     * @notice Turn the bridge function on or off, both {bridge} and {bridgeTo}. A vault starts with
+     *         it on, like market trading: what a bridge to this vault's counterpart loses is bounded
+     *         by the daily loss allowance, and what it moves stays under that counterpart, whose own
+     *         limits still apply; a bridge to anyone else is a send, bounded by the send allowance.
      * @dev Turning it back on waits out the risk timelock and is refused under a lock; a lock also
      *      drops a pending turn-on. Turning it off applies at once, locked or not.
      */
@@ -162,4 +193,101 @@ interface IBittyV1DeFi {
      *        by the vault's creation owner to or from TRON).
      */
     function bridge(address bridgeProtocol, address asset, uint256 amount, uint256 fee, bytes calldata data) external;
+
+    /**
+     * @notice Bridge `amount` of a stablecoin `asset` to `recipient` on another chain through
+     *         `bridgeProtocol`: a send that crosses chains. Owner only, never an asset manager; not
+     *         under a lock; and only once the bridge function is on.
+     * @dev The whole `amount`, fee included, is metered against the send allowance and its day,
+     *      shared with {IBittyV1Vault-send}, exactly as a send of it would be; nothing is charged
+     *      to the daily loss allowance. At a send allowance of 0 it is refused, as a send is. The
+     *      asset must be a stablecoin even when the send allowance is {NO_LIMIT}, and carry the
+     *      guard's bridgeable category; the native coin cannot go this way. The adapter pays
+     *      `recipient` and no one else, and still holds the quote to its route (the token that
+     *      arrives and the most the bridge may keep). Exactly `amount` leaves the vault. An unfilled
+     *      deposit is refunded to this vault.
+     *
+     *      `recipient` may not be this vault's own address: to this vault's counterpart, {bridge}
+     *      is the way, metered only by the daily loss allowance; and the same address on TRON is
+     *      not the counterpart, but an address no one holds.
+     *
+     *      `recipient` is whatever address the owner names there. The vault cannot see the other
+     *      chain: an address that is the owner's on this chain need not be on that one (a contract
+     *      wallet deployed here only, say), and what is paid to it is gone.
+     * @param bridgeProtocol The guard-registered bridge adapter.
+     * @param asset The stablecoin to send.
+     * @param amount What leaves the vault, fee included.
+     * @param fee Bitty's fee out of `amount`.
+     * @param destinationChainId The chain `recipient` is on; the adapter refuses a quote for another.
+     * @param recipient Who is paid on the destination chain, as 32 bytes: a 20-byte address (EVM,
+     *        or TRON without its 0x41 prefix) left-padded, a Solana address in full.
+     * @param data The adapter's request (Across: abi.encode(AcrossQuote) from Across's quote).
+     */
+    function bridgeTo(
+        address bridgeProtocol,
+        address asset,
+        uint256 amount,
+        uint256 fee,
+        uint256 destinationChainId,
+        bytes32 recipient,
+        bytes calldata data
+    ) external;
+
+    /**
+     * @notice Add a whitelisted recipient on one network, or on every EVM chain. Owner only; not
+     *         under a lock.
+     *
+     *         - One network (`chainId` its id, TRON 728126428): `recipient` there, paid only by
+     *           {bridgeToWhitelistedRecipient} to that chain. No payout on this chain pays it, and
+     *           it is not an escape recipient for {IBittyV1Owner-foreverLock}.
+     *         - Every EVM chain (`chainId` = type(uint256).max): the same address on all of them.
+     *           Paid here like an ordinary entry (and an escape recipient like one), and by
+     *           {bridgeToWhitelistedRecipient} to any chain the guard marks as EVM
+     *           (`getUint(keccak256(abi.encode(keccak256("bitty.chain.evm"), chainId))) == 1`) and
+     *           a route reaches; never to one it does not mark, like TRON or Solana, which take a
+     *           payee of their own.
+     *         - This chain (`chainId` 0 or this chain's id): an ordinary entry, as
+     *           {IBittyV1Owner-addWhitelistedRecipient} adds.
+     * @dev The same protection window, removal rules and lock rules as an entry here, and the same
+     *      ids. The vault's own address is refused for another chain or every EVM chain. An address
+     *      that is the owner's on one EVM chain need not be on another (a contract wallet deployed
+     *      on one only), so every EVM chain is for an address that is the same everywhere, like a
+     *      plain key's.
+     * @param chainId The network the recipient is on; type(uint256).max for every EVM chain.
+     * @param recipient Its address there as 32 bytes: a 20-byte address (EVM, or TRON without its
+     *        0x41 prefix) left-padded, a Solana address in full. Only one network's entry may be
+     *        wider than 20 bytes ({RecipientNotAnAddress} otherwise).
+     * @return id The entry's id.
+     */
+    function addWhitelistedRecipientOn(uint256 chainId, bytes32 recipient) external returns (uint256 id);
+
+    /**
+     * @notice Bridge `amount` of `asset` to whitelisted recipient `id` on `destinationChainId`
+     *         through `bridgeProtocol`, with no amount limit, as a payout to a whitelisted recipient
+     *         here. Owner only, never an asset manager; allowed under either lock, but only while
+     *         the bridge function is on.
+     * @dev The entry must reach `destinationChainId` (be on it, or on every EVM chain with that one
+     *      marked EVM in the guard; never this chain), the adapter must have a route there, and the
+     *      entry be payable now (its window run, not voided by a lock, no
+     *      removal landed). Nothing is metered: not the send allowance, not the loss allowance.
+     *      Any ERC-20 with the guard's bridgeable category; not the native coin. The entry fixes the
+     *      chain and the address, and the adapter is held to both and to its route. Exactly `amount`
+     *      leaves the vault; an unfilled deposit is refunded to this vault.
+     * @param bridgeProtocol The guard-registered bridge adapter.
+     * @param id The whitelisted recipient, on another chain.
+     * @param asset The ERC-20 to send.
+     * @param amount What leaves the vault, fee included.
+     * @param fee Bitty's fee out of `amount`.
+     * @param destinationChainId Where the recipient is paid.
+     * @param data The adapter's request (Across: abi.encode(AcrossQuote) for that chain).
+     */
+    function bridgeToWhitelistedRecipient(
+        address bridgeProtocol,
+        uint256 id,
+        address asset,
+        uint256 amount,
+        uint256 fee,
+        uint256 destinationChainId,
+        bytes calldata data
+    ) external;
 }
