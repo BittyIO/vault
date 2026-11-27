@@ -155,7 +155,11 @@ switch (command) {
     printConfig({ ...cfg, relayer, owner: c.sender });
     const factory = readArtifact(repo, "BittyAccountFactory.sol");
     const args = AbiCoder.defaultAbiCoder().encode([CONFIG_TUPLE, "address"], [cfg, relayer]).slice(2);
-    const addr = await c.deployContract({ abi: factory.abi, bytecode: factory.bytecode + args, name: "BittyAccountFactory" });
+    // The constructor arguments ride on the end of the bytecode, encoded here with ethers. TronWeb would
+    // insist on encoding them itself from the ABI's constructor entry, so that entry is left out: the
+    // ABI stored with the contract is only the explorer's view of it.
+    const abi = factory.abi.filter((e) => e.type !== "constructor");
+    const addr = await c.deployContract({ abi, bytecode: factory.bytecode + args, name: "BittyAccountFactory" });
     if (values["dry-run"]) break;
     state.BittyAccountFactory = addr;
     state.config = cfg;
