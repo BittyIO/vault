@@ -37,7 +37,7 @@ const SUNSWAP = {
   mainnet: { router: "TQqgNg13s2DjvXhW1ky4v6TsR8wZGvb7Y4", permit2: "TTJxU3P8rHycAyFY4kVtGNfmnMH4ezcuM9" },
 };
 const CONFIG_TUPLE =
-  "tuple(address usdt,address stakeOps,address router,address permit2,address trxUsdFeed,uint32 feedMaxAge,uint8 feedDecimals)";
+  "tuple(address usdt,address stakeOps,address router,address permit2,address trxUsdFeed,uint32 feedMaxAge,uint8 feedDecimals,bool usdtFalseIsSuccess)";
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -81,6 +81,9 @@ async function config() {
     trxUsdFeed: toEvm(feed.feed),
     feedMaxAge: feed.maxAge,
     feedDecimals: decimals,
+    // TRON USDT (mainnet and Nile alike) returns false from a transfer that worked and reverts on
+    // every failure: only "did it revert" carries information.
+    usdtFalseIsSuccess: true,
   };
 }
 
@@ -187,6 +190,7 @@ switch (command) {
       router: await read("router"),
       permit2: await read("permit2"),
       trxUsdFeed: await read("trxUsdFeed"),
+      usdtFalseIsSuccess: String(await c.read(impl, "function usdtFalseIsSuccess() view returns (bool)")),
     };
     printConfig(onChain);
     if (prefix !== "0x41") console.log("WARNING: the factory did not detect TRON's 0x41 CREATE2 prefix");

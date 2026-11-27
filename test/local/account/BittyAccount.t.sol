@@ -20,6 +20,18 @@ contract Token is ERC20 {
 }
 
 /// TRON's stake opcodes stand-in: stateless, delegatecalled, so its events come from the account.
+/// TRON USDT's quirk: `transfer` returns false when it works, and reverts when it does not.
+contract FalseReturningUsdt is ERC20("Tron USDT", "USDT") {
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        super.transfer(to, amount);
+        return false;
+    }
+}
+
 contract MockStakeOps {
     event Op(string name, address receiver, uint256 amount, uint256 resource);
 
@@ -154,7 +166,8 @@ contract BittyAccountTest is Test {
                 permit2: address(permit2),
                 trxUsdFeed: address(feed),
                 feedMaxAge: 1 days,
-                feedDecimals: 8
+                feedDecimals: 8,
+                usdtFalseIsSuccess: false
             }),
             relayer
         );
@@ -622,6 +635,45 @@ contract BittyAccountTest is Test {
             )
         );
         return keccak256(abi.encodePacked("\x19\x01", domain, structHash));
+    }
+
+    // ---- TRON USDT returning false
+
+    function _factoryFor(address token, bool falseIsSuccess) internal returns (BittyAccountFactory) {
+        return new BittyAccountFactory(
+            BittyAccount.Config({
+                usdt: token,
+                stakeOps: address(stakeOps),
+                router: address(router),
+                permit2: address(permit2),
+                trxUsdFeed: address(feed),
+                feedMaxAge: 1 days,
+                feedDecimals: 8,
+                usdtFalseIsSuccess: falseIsSuccess
+            }),
+            relayer
+        );
+    }
+
+    function test_tronUsdtFalseCountsAsSuccessWhenTheFactorySaysSo() public {
+        FalseReturningUsdt tusdt = new FalseReturningUsdt();
+        BittyAccount a = BittyAccount(payable(_factoryFor(address(tusdt), true).createAccount(owner, 0)));
+        tusdt.mint(address(a), 10e6);
+        vm.prank(owner);
+        a.sendUsdt(friend, 4e6);
+        assertEq(tusdt.balanceOf(friend), 4e6);
+        vm.prank(owner);
+        vm.expectRevert(); // a real failure still reverts inside the token
+        a.sendUsdt(friend, 7e6);
+    }
+
+    function test_falseIsAFailureOtherwise() public {
+        FalseReturningUsdt tusdt = new FalseReturningUsdt();
+        BittyAccount a = BittyAccount(payable(_factoryFor(address(tusdt), false).createAccount(owner, 0)));
+        tusdt.mint(address(a), 10e6);
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(BittyAccount.UsdtTransferFailed.selector, abi.encode(false)));
+        a.sendUsdt(friend, 4e6);
     }
 
     // ---- the relayer's fee

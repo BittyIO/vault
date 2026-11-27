@@ -101,7 +101,6 @@ contract BittyAccount is EIP712 {
     bytes32 private constant CALL_TYPEHASH = keccak256("Call(address to,uint256 value,bytes data)");
     bytes32 private constant EXECUTE_TYPEHASH =
         keccak256("Execute(Call[] calls,uint256 nonce,uint256 deadline)Call(address to,uint256 value,bytes data)");
-    uint256 private constant TRON_MAINNET = 728126428;
     /// TRON's resource code for energy.
     uint256 private constant ENERGY = 1;
     /// USDT the relayer can be paid per UTC day (6 decimals: 1,000 USDT).
@@ -122,6 +121,10 @@ contract BittyAccount is EIP712 {
         address trxUsdFeed; // a Chainlink-style TRX/USD feed (WINkLink on TRON)
         uint32 feedMaxAge; // seconds; an older price stops swaps (never sends)
         uint8 feedDecimals;
+        // TRON's USDT (mainnet and Nile) returns false from `transfer` even when it succeeds, and reverts
+        // on every failure, so there its return value says nothing. True: a transfer that did not revert
+        // succeeded. False: a false return is a failure (the ERC-20 rule, for any other token).
+        bool usdtFalseIsSuccess;
     }
 
     /// The one token this account sends without a timelock.
@@ -134,6 +137,7 @@ contract BittyAccount is EIP712 {
     address public immutable trxUsdFeed;
     uint32 public immutable feedMaxAge;
     uint8 public immutable feedDecimals;
+    bool public immutable usdtFalseIsSuccess;
 
     // slot 0
     address public owner;
@@ -214,6 +218,7 @@ contract BittyAccount is EIP712 {
         trxUsdFeed = c.trxUsdFeed;
         feedMaxAge = c.feedMaxAge;
         feedDecimals = c.feedDecimals;
+        usdtFalseIsSuccess = c.usdtFalseIsSuccess;
         owner = address(this); // the implementation can never be initialized
     }
 
@@ -679,7 +684,7 @@ contract BittyAccount is EIP712 {
     function _transferUsdt(address to, uint256 amount) private {
         (bool ok, bytes memory ret) = usdt.call(abi.encodeWithSelector(0xa9059cbb, to, amount));
         if (!ok) revert UsdtTransferFailed(ret);
-        if (ret.length >= 32 && !abi.decode(ret, (bool)) && block.chainid != TRON_MAINNET) {
+        if (!usdtFalseIsSuccess && ret.length >= 32 && !abi.decode(ret, (bool))) {
             revert UsdtTransferFailed(ret);
         }
     }
