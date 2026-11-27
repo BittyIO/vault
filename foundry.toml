@@ -5,35 +5,19 @@ test = "test/local"
 libs = ["lib"]
 solc_version = "0.8.34"
 evm_version = "prague"
-memory_limit = 43554432
-gas_limit = 9223372036854775807
-gas_price = 0
 optimizer = true
 optimizer_runs = 10000
 via_ir = true
-
 remappings = [
     "forge-std/=lib/forge-std/src/",
     "openzeppelin-contracts/=lib/openzeppelin-contracts/",
-    "openzeppelin-contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
-    "guard-contracts/=lib/guard-contracts/",
-    "protocol-contracts/=lib/protocol-contracts/",
-    "solmate/=lib/solmate/src/",
-    "safe-contracts/=lib/safe-smart-account/contracts/",
-    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
-    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
-    "ds-test/=lib/solmate/lib/ds-test/src/",
-    "erc4626-tests/=lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests/",
-    "halmos-cheatcodes/=lib/protocol-contracts/lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/",
-    "safe-smart-account/=lib/safe-smart-account/",
 ]
 auto_detect_remappings = false
-
-fs_permissions = [{ access = "read-write", path = "./deployments" }]
 
 [profile.ci]
 src = "src"
 out = "out"
+test = "test/local"
 libs = ["lib"]
 solc_version = "0.8.34"
 evm_version = "prague"
@@ -41,156 +25,16 @@ optimizer = true
 optimizer_runs = 10000
 via_ir = true
 
-[profile.deploy]
-src = "src"
-out = "out-deploy"
-libs = ["lib"]
-solc_version = "0.8.34"
-evm_version = "prague"
-optimizer = true
-optimizer_runs = 10000
-via_ir = true
-# Deliberately NO bytecode_hash/cbor_metadata override and NO `libraries` pin.
-#
-# Both change the init code and therefore every CREATE2 address derived from it. solc records the
-# `libraries` setting in each contract's metadata, so pinning shifts even contracts that link nothing.
-#
-# This is the configuration the live Sepolia, Base and mainnet deployment was built with, and the
-# vanity salts were mined against that init code. Verified against three independent addresses that
-# reproduce only under it: VaultLogic 0xc66aef7C…, factory 0x580082Fb…, forwarder 0x00006758bf….
-
-remappings = [
-    "forge-std/=lib/forge-std/src/",
-    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
-    "openzeppelin-contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
-    "guard-contracts/=lib/guard-contracts/",
-    "protocol-contracts/=lib/protocol-contracts/",
-    "solmate/=lib/solmate/src/",
-    "safe-contracts/=lib/safe-smart-account/contracts/",
-    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
-    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
-    "ds-test/=lib/solmate/lib/ds-test/src/",
-    "erc4626-tests/=lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests/",
-    "halmos-cheatcodes/=lib/protocol-contracts/lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/",
-    "safe-smart-account/=lib/safe-smart-account/",
-]
-
-fs_permissions = [{ access = "read-write", path = "./deployments" }]
-
-# Fork tests that drive the vault through REAL on-chain protocol adapters (Uniswap V3, etc.) instead of
-# mocks — the only way to catch adapter-interface drift (e.g. a getter renamed on the deployed adapter).
-# Its own test dir so the default suite stays offline. Run with:  FOUNDRY_PROFILE=fork forge test
-[profile.fork]
-src = "src"
-out = "out"
-test = "test/fork"
-libs = ["lib"]
-solc_version = "0.8.34"
-evm_version = "prague"
-optimizer = true
-optimizer_runs = 10000
-via_ir = true
-remappings = [
-    "forge-std/=lib/forge-std/src/",
-    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
-    "openzeppelin-contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
-    "guard-contracts/=lib/guard-contracts/",
-    "protocol-contracts/=lib/protocol-contracts/",
-    "solmate/=lib/solmate/src/",
-    "safe-contracts/=lib/safe-smart-account/contracts/",
-    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
-    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
-    "ds-test/=lib/solmate/lib/ds-test/src/",
-    "erc4626-tests/=lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests/",
-    "halmos-cheatcodes/=lib/protocol-contracts/lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/",
-    "safe-smart-account/=lib/safe-smart-account/",
-]
-
-[rpc_endpoints]
-sepolia = "https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}"
-mainnet = "https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
-base = "https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
-base-sepolia = "https://base-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}"
-arbitrum = "https://arb1.arbitrum.io/rpc"
-# Robinhood Chain (Arbitrum Orbit L2, id 4663). The public endpoint is rate-limited; override with a
-# dedicated provider for anything heavier than a deploy.
-robinhood = "https://rpc.mainnet.chain.robinhood.com"
-bsc = "https://bnb-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
-
-[etherscan]
-# Robinhood Chain has no entry here on purpose: forge refuses an [etherscan] entry for a chain id it
-# does not know. Verify on Blockscout from the command line instead:
-#   forge verify-contract --chain 4663 --verifier blockscout \
-#     --verifier-url https://robinhoodchain.blockscout.com/api <address> <Contract>
-sepolia = { key = "${ETHERSCAN_API_KEY}" }
-mainnet = { key = "${ETHERSCAN_API_KEY}" }
-base = { key = "${ETHERSCAN_API_KEY}", chain = 8453 }
-base-sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 84532 }
-arbitrum = { key = "${ETHERSCAN_API_KEY}", chain = 42161 }
-bsc = { key = "${ETHERSCAN_API_KEY}", chain = 56 }
-
-# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
-
-# The Gnosis Safe integration suite, walled off in its own profile and its own artifact directory.
-#
-# Safe will not compile under `via_ir = true` — its assembly predates the memory-safe annotation, so
-# the IR pipeline hits stack-too-deep inside execTransaction. Compiling it in-tree with a per-path
-# exemption does work, but it drags every Bitty source the suite touches into a SECOND compilation:
-# two artifacts both named BittyV1Vault, `forge build --sizes` reporting the wrong one at 26KB, and
-# `forge inspect` / `forge verify-contract` newly ambiguous.
-#
-# So this suite gets its own everything. Nothing here can reach the artifacts that get deployed, and
-# the default build is byte-for-byte what it was before Safe was ever added.
-#
-#   FOUNDRY_PROFILE=safe forge test
-[profile.safe]
-src = "src"
-out = "out-safe"
-test = "test/safe"
-libs = ["lib"]
-solc_version = "0.8.34"
-evm_version = "prague"
-optimizer = true
-optimizer_runs = 10000
-# via_ir ON so the vault (ScheduledPaymentLogic needs it) compiles; the Safe contracts are exempted to
-# the legacy pipeline below, since their pre-memory-safe assembly stack-too-deeps under via_ir.
-via_ir = true
-
-remappings = [
-    "forge-std/=lib/forge-std/src/",
-    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
-    "openzeppelin-contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
-    "guard-contracts/=lib/guard-contracts/",
-    "protocol-contracts/=lib/protocol-contracts/",
-    "solmate/=lib/solmate/src/",
-    "safe-contracts/=lib/safe-smart-account/contracts/",
-    "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
-    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
-    "ds-test/=lib/solmate/lib/ds-test/src/",
-    "erc4626-tests/=lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests/",
-    "halmos-cheatcodes/=lib/protocol-contracts/lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/",
-    "safe-smart-account/=lib/safe-smart-account/",
-]
-
-# Gnosis Safe's assembly predates the memory-safe annotation and hits stack-too-deep under via_ir, so
-# its contracts (and the artifacts-only SafeArtifacts.sol that pulls them in) compile under the legacy
-# pipeline. They import no Bitty source, so this split is clean. The restriction below routes those
-# paths to this legacy compiler profile.
-[[profile.safe.additional_compiler_profiles]]
-name = "legacy"
-via_ir = false
-
-[[profile.safe.compilation_restrictions]]
-paths = "lib/safe-smart-account/contracts/**"
-via_ir = false
-
-[[profile.safe.compilation_restrictions]]
-paths = "test/safe/SafeArtifacts.sol"
-via_ir = false
-
-# TRON. Same sources and settings as the default build, targeting the TVM: probed on 2026-11-07
-# (vault/tron `cli.mjs probe`), mainnet and Nile both run PUSH0, TSTORE/TLOAD and MCOPY, so cancun.
-# Its own output directory, so the TRON deploy runner never reads an EVM artifact.
+# TRON. Same sources and settings, targeting the TVM: mainnet and Nile both run PUSH0, TSTORE/TLOAD and
+# MCOPY (probed 2026-11-07), so cancun. Its own output directory, read by tron/account.mjs.
 [profile.tron]
 evm_version = "cancun"
 out = "out-tron"
+
+# forge's linter and formatter cannot parse Yul objects; the one Yul source is TRON's staking opcodes,
+# which the account delegatecalls (src/account/TronStakeOps.yul, copied from protocol-store).
+[lint]
+ignore = ["src/account/TronStakeOps.yul"]
+
+[fmt]
+ignore = ["src/account/TronStakeOps.yul"]

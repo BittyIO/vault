@@ -44,29 +44,3 @@ jobs:
       - name: Run Forge tests
         run: |
           forge test -vvv
-
-      - name: Safe integration suite
-        run: |
-          FOUNDRY_PROFILE=safe forge test -vvv
-        id: test
-        env:
-          ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
-
-      # Factory, ActivateAndCall and BootstrapPin are skipped here, not broken. Coverage recompiles with
-      # the optimizer off, which changes ERC1967Proxy's CBOR metadata and so its creation code; the
-      # factory constructor catches exactly that (VaultProxyInitCodeDrift) and reverts in setUp, and the
-      # unoptimised bootstraps no longer match their pinned bytes. All three suites still run in the
-      # "Run Forge tests" step above, against the production build.
-      - name: Run Forge coverage
-        run: |
-          forge coverage --ir-minimum --no-match-coverage 'test|node_modules|script|src/libs' --no-match-path 'test/local/{Factory,ActivateAndCall,BootstrapPin}.t.sol' --report lcov
-        id: coverage
-        env:
-          ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
-
-      - uses: codecov/codecov-action@v7.0.0
-        with:
-          fail_ci_if_error: true
-          files: ./lcov.info
-          token: ${{ secrets.CODECOV_TOKEN }}
-          skip_validation: true

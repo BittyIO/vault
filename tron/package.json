@@ -2,11 +2,12 @@
   "name": "bitty-tron-deploy",
   "private": true,
   "type": "module",
-  "description": "Deploys the Bitty guard, protocol adapters and vault stack to TRON (forge cannot broadcast there).",
+  "description": "Deploys the Bitty account factory to TRON and reads it (forge cannot broadcast there).",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "plan": "node cli.mjs plan",
-    "deploy": "node cli.mjs deploy"
+    "config": "node account.mjs config",
+    "deploy": "node account.mjs deploy",
+    "show": "node account.mjs show"
   },
   "dependencies": {
     "ethers": "6.13.4",

@@ -5,31 +5,10 @@
       "rev": "7117c90c8cf6c68e5acce4f09a6b24715cea4de6"
     }
   },
-  "lib/guard-contracts": {
-    "rev": "39ac5a4eab6db98b4e609d3f5aee5f2fde030660"
-  },
   "lib/openzeppelin-contracts": {
     "tag": {
       "name": "v5.0.2",
       "rev": "dbb6104ce834628e473d2173bbc9d47f81a9eec3"
     }
-  },
-  "lib/openzeppelin-contracts-upgradeable": {
-    "tag": {
-      "name": "v5.0.2",
-      "rev": "723f8cab09cdae1aca9ec9cc1cfa040c2d4b06c1"
-    }
-  },
-  "lib/protocol-contracts": {
-    "rev": "f5dbe22bdc08a66de2c2a668387c8ac1909edcca"
-  },
-  "lib/safe-smart-account": {
-    "tag": {
-      "name": "v1.4.1",
-      "rev": "bf943f80fec5ac647159d26161446ac5d716a294"
-    }
-  },
-  "lib/solmate": {
-    "rev": "89365b880c4f3c786bdd453d4b8e8fe410344a69"
   }
 }
